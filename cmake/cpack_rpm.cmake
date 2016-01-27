@@ -29,7 +29,7 @@ SET(CPACK_COMPONENTS_ALL Server ManPagesServer IniFiles Server_Scripts
                          Common Client SharedLibraries ClientPlugins)
 
 ## dhill
-SET(INFINIDB_RPM_PACKAGE_NAME "infinidb-maraidb")
+SET(INFINIDB_RPM_PACKAGE_NAME "infinidb-mariadb")
 SET(INFINIDB_VERSION "5.0-0")
 SET(INFINIDB_BIT "x86_64")
 
