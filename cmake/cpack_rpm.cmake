@@ -73,7 +73,7 @@ SET(CPACK_RPM_SPEC_MORE_DEFINE "${CPACK_RPM_SPEC_MORE_DEFINE}
 %define ignore \#
 ")
 
-SET(CPACK_RPM_PACKAGE_REQUIRES "MariaDB-common")
+SET(CPACK_RPM_PACKAGE_REQUIRES "infinidb-mariadb-common")
 
 SET(ignored
   "%ignore /etc"
@@ -156,7 +156,7 @@ SETA(CPACK_RPM_test_PACKAGE_PROVIDES
 
 SETA(CPACK_RPM_server_PACKAGE_REQUIRES
   "${CPACK_RPM_PACKAGE_REQUIRES}"
-  "MariaDB-client")
+  "infinidb-mariadb-client")
 
 IF(WITH_WSREP)
 SETA(CPACK_RPM_server_PACKAGE_REQUIRES
