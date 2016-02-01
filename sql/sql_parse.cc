@@ -99,6 +99,7 @@
 #include "set_var.h"
 #include "log_slow.h"
 #include "sql_bootstrap.h"
+#include "sql_class.h"
 
 #include "my_json_writer.h" 
 
@@ -117,6 +118,10 @@ static void wsrep_mysql_parse(THD *thd, char *rawbuf, uint length,
 /**
  * InfiniDB Functions 
  */
+// InfiniDB vtable helper classes
+int idb_create_vtable(THD* thd);
+int idb_drop_vtable(THD* thd);
+
 // InfiniDB vtable processing
 int idb_vtable_process(THD* thd, Statement* stmt = NULL);
 
@@ -1496,12 +1501,11 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
     if (parser_state.init(thd, thd->query(), thd->query_length()))
       break;
 
-	// InfiniDB: Do InfiniDB Processing. If successful, do regular processing.
-	// If this is not an InfiniDB table, idb_vtable_process will return success
-	// immediatly.
+	// InfiniDB: Do InfiniDB Processing.
 	if (idb_vtable_process(thd))
 	{
 	  thd->set_row_count_func(0); //Bug 5315
+	  sql_print_information("**** setting vtable_state = THD::INFINIDB_DISABLE_VTABLE (1)");
 	  thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
 
 	  if (WSREP_ON)
@@ -1509,7 +1513,7 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
 	  else
 		mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
 
-	  thd->infinidb_vtable.isInfiniDBDML = false; //@bug5117
+	  thd->infinidb_vtable.isInfiniDBDML = false;
 	  thd->infinidb_vtable.hasInfiniDBTable = false;
 	}
 
@@ -7263,7 +7267,6 @@ void mysql_parse(THD *thd, char *rawbuf, uint length,
   int error __attribute__((unused));
   DBUG_ENTER("mysql_parse");
   DBUG_EXECUTE_IF("parser_debug", turn_parser_debug_on(););
-
   /*
     Warning.
     The purpose of query_cache_send_result_to_client() is to lookup the
@@ -9270,7 +9273,7 @@ bool parse_sql(THD *thd, Parser_state *parser_state,
   DBUG_ENTER("parse_sql");
   DBUG_ASSERT(thd->m_parser_state == NULL);
   DBUG_ASSERT(thd->lex->m_sql_cmd == NULL);
-
+  DBUG_PRINT("enter", (" %s", thd->query()));
   MYSQL_QUERY_PARSE_START(thd->query());
   /* Backup creation context. */
 
@@ -9440,6 +9443,7 @@ static void idb_to_lower(char* str)
 
 static std::string idb_cleanQuery(char* str)
 {
+	DBUG_ENTER("idb_cleanQuery");
 	bool inquote = false;
 	std::string temp;
 	char quote = 0;
@@ -9469,19 +9473,97 @@ static std::string idb_cleanQuery(char* str)
 			//	temp.append(1, ' ');
 		}
 	}
-	return temp;
+	DBUG_RETURN(temp);
 }
 
 /* InfiniDB */
+
+// Create a vtable to process InfiniDB queries.
+// Assumes thd->infinidb_vtable.create_vtable_query has already been set up
+// Called in various places by idb_vtable_process
+int idb_create_vtable(THD* thd)
+{
+	DBUG_ENTER("idb_create_vtable");
+	LEX *old_lex;
+	Query_arena *arena, backup;
+	LEX tmp_lex;
+
+	tmp_disable_binlog(thd);
+	old_lex= thd->lex;
+	thd->lex= &tmp_lex;
+	arena= thd->stmt_arena;
+	if (arena->is_conventional())
+	  arena= 0;
+	else
+	  thd->set_n_backup_active_arena(arena, &backup);
+
+	alloc_query(thd, thd->infinidb_vtable.create_vtable_query.c_ptr(), thd->infinidb_vtable.create_vtable_query.length());
+	delete_explain_query(thd->lex);
+	thd->infinidb_vtable.vtable_state = THD::INFINIDB_CREATE_VTABLE;
+	Parser_state parser_state;
+	parser_state.init(thd, thd->query(), thd->query_length());
+	#ifdef SAFE_MUTEX
+	printf("<<< Create V-TABLE: %s\n", thd->query());
+	#endif
+	mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
+//	close_thread_tables(thd);
+
+	lex_end(thd->lex);
+	log_slow_statement(thd);
+	thd->lex= old_lex;
+	if (arena)
+	  thd->restore_active_arena(arena, &backup);
+	reenable_binlog(thd);
+
+	DBUG_RETURN(1);
+}
+
+// Drop a vtable after we're done with it.
+// Assumes thd->infinidb_vtable.drop_vtable_query has already been set up
+// Called in various places by idb_vtable_process
+int idb_drop_vtable(THD* thd)
+{
+	DBUG_ENTER("idb_drop_vtable");
+	LEX *old_lex;
+	Query_arena *arena, backup;
+	LEX tmp_lex;
+
+	old_lex= thd->lex;
+	thd->lex= &tmp_lex;
+	arena= thd->stmt_arena;
+	if (arena->is_conventional())
+	  arena= 0;
+	else
+	  thd->set_n_backup_active_arena(arena, &backup);
+
+	alloc_query(thd, thd->infinidb_vtable.drop_vtable_query.c_ptr(), thd->infinidb_vtable.drop_vtable_query.length());
+	delete_explain_query(thd->lex);
+	thd->infinidb_vtable.vtable_state = THD::INFINIDB_DROP_VTABLE;
+	Parser_state parser_state;
+	parser_state.init(thd, thd->query(), thd->query_length());
+	#ifdef SAFE_MUTEX
+	printf("<<< Drop V-TABLE: %s\n", thd->query());
+	#endif
+	mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
+
+	lex_end(thd->lex);
+	thd->lex= old_lex;
+	if (arena)
+	  thd->restore_active_arena(arena, &backup);
+
+	DBUG_RETURN(1);
+}
+
 int idb_vtable_process(THD* thd, Statement* statement)
 {
+	DBUG_ENTER("idb_vtable_process");
     Parser_state parser_state;
     if (parser_state.init(thd, thd->query(), thd->query_length()))
     {
-	  return -1;
+		DBUG_RETURN(0);
     }
 
-	// @bug 2042. check global variable to determin vtable mode
+	// @InfiniDB. check global variable to determine vtable mode
 	if (thd->variables.infinidb_vtable_mode == 0)
 	{
 		thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
@@ -9503,14 +9585,19 @@ int idb_vtable_process(THD* thd, Statement* statement)
 	if (thd->infinidb_vtable.vtable_state == THD::INFINIDB_DISABLE_VTABLE || thd->locked_tables_mode != LTM_NONE)
 	{
 		thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
+		// Rather return 0 and let the mysql code handle it.
+		Parser_state parser_state;
+		parser_state.init(thd, thd->query(), thd->query_length());
+		sql_print_information("**** calling mysql_parse (1)");
 		mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
 	}
 	else
 	{
+		//------------------ InfiniDB -------------------------------
 		// MariaDB issue 8078: The following InfiniDB code reparses the statement and corrupts
 		// the query table list for the next run. We need to save and restore it.
-		Query_tables_list backup;
-		thd->lex->reset_n_backup_query_tables_list(&backup);
+//		Query_tables_list backup;
+//		thd->lex->reset_n_backup_query_tables_list(&backup);
 
 		// @bug 1685. pre-parse mysql to know the command type exactly instead of parsing the text.
 		lex_start(thd);
@@ -9521,7 +9608,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 //			sp_cache_flush_obsolete(&thd->sp_func_cache);
 			Parser_state parser_state;
 			parser_state.init(thd, thd->query(), thd->query_length());
-			parse_sql(thd, &parser_state, NULL);
+			parse_sql(thd, &parser_state, NULL, true);
 		}
 
 		if (thd->query() &&
@@ -9622,7 +9709,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 	
 						Parser_state parser_state;
 						parser_state.init(thd, thd->query(), thd->query_length());
-						parse_sql(thd, &parser_state, NULL);
+						parse_sql(thd, &parser_state, NULL, true);
 	
 						if (thd->lex->sql_command != SQLCOM_SELECT)
 						{
@@ -9642,7 +9729,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 					{
 						thd->infinidb_vtable.isInfiniDBDML = false;
 						thd->infinidb_vtable.hasInfiniDBTable = false;
-						return -1;
+						DBUG_RETURN(-1);
 					}
 				}
 				else if (thd->lex->sql_command == SQLCOM_CALL)
@@ -9739,7 +9826,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 //							sp_cache_flush_obsolete(&thd->sp_func_cache);
 							Parser_state parser_state;
 							parser_state.init(thd, thd->query(), thd->query_length());
-							parse_sql(thd, &parser_state, NULL);
+							parse_sql(thd, &parser_state, NULL, true);
 						}
 
 						if (thd->lex->sql_command != SQLCOM_SELECT /*&&  thd->lex->sql_command != SQLCOM_END*/)
@@ -9760,6 +9847,8 @@ int idb_vtable_process(THD* thd, Statement* statement)
 					{
 						thd->infinidb_vtable.call_sp = false;
 					}
+					delete_explain_query(thd->lex);
+					parser_state.reset(thd->query(), thd->query_length());
 					mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
 					thd->infinidb_vtable.call_sp = false;
 					if (thd->infinidb_vtable.vtable_state == THD::INFINIDB_ERROR)
@@ -9772,6 +9861,8 @@ int idb_vtable_process(THD* thd, Statement* statement)
 		#ifdef SAFE_MUTEX
 							printf("<<< V-TABLE unsupported components encountered. Auto switch to table mode\n");
 		#endif
+							delete_explain_query(thd->lex);
+							parser_state.reset(thd->query(), thd->query_length());
 							mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
 							thd->infinidb_vtable.vtable_state = THD::INFINIDB_INIT;
 						}
@@ -9868,7 +9959,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 							thd->lex->result = 0;
 							thd->infinidb_vtable.isInfiniDBDML = false;
 							thd->infinidb_vtable.hasInfiniDBTable = false;
-							return 0;
+							DBUG_RETURN(0);
 						}
 					
 						// @bug 3601. check directory first.
@@ -9889,7 +9980,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 								thd->lex->result = 0;
 								thd->infinidb_vtable.isInfiniDBDML = false;
 								thd->infinidb_vtable.hasInfiniDBTable = false;
-								return 0;
+								DBUG_RETURN(0);
 							}
 						}
 						else
@@ -9898,7 +9989,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 							thd->lex->result = 0;
 							thd->infinidb_vtable.isInfiniDBDML = false;
 							thd->infinidb_vtable.hasInfiniDBTable = false;
-							return 0;
+							DBUG_RETURN(0);
 						}
 					}
 					
@@ -9939,14 +10030,14 @@ int idb_vtable_process(THD* thd, Statement* statement)
 								{
 									thd->infinidb_vtable.isInfiniDBDML = false;
 									thd->infinidb_vtable.hasInfiniDBTable = false;
-									return -1;
+									DBUG_RETURN(-1);
 								}
 							}
 						}
 						insert_query = create_query.substr(0, p1);
 						create_query = create_query.substr(p1, create_query.length() - p1);
 					}
-					create = "create temporary table " + vtable_name + " as " + create_query;
+					create = "create temporary table " + vtable_name + " engine = aria as " + create_query;
 					thd->infinidb_vtable.create_vtable_query.free();
 					thd->infinidb_vtable.create_vtable_query.append(create.c_str(), create.length());
 				
@@ -9962,15 +10053,17 @@ int idb_vtable_process(THD* thd, Statement* statement)
 					thd->infinidb_vtable.select_vtable_query.free();
 					thd->infinidb_vtable.select_vtable_query.append(select.c_str(), select.length());
 				
-					// phase 4. drop vtable
+					// phase 4. drop vtable -- Now done first
 					thd->infinidb_vtable.drop_vtable_query.free();
 					thd->infinidb_vtable.drop_vtable_query.append(STRING_WITH_LEN("drop table if exists "));
 					thd->infinidb_vtable.drop_vtable_query.append(vtable_name.c_str(), vtable_name.length());
 					thd->infinidb_vtable.drop_vtable_query.append(STRING_WITH_LEN(" restrict"));
 
-					alloc_query(thd, thd->infinidb_vtable.drop_vtable_query.c_ptr(), thd->infinidb_vtable.drop_vtable_query.length());
-					thd->infinidb_vtable.vtable_state = THD::INFINIDB_DROP_VTABLE;
-					mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
+					// thd->infinidb_vtable now has all the queries needed.
+
+					// Make sure there's no old vtable around to muddle up things.
+					idb_drop_vtable(thd);
+
 					thd->lex->result = 0;
 					thd->infinidb_vtable.vtable_state = THD::INFINIDB_INIT;
 					thd->infinidb_vtable.duplicate_field_name = false;
@@ -9980,16 +10073,8 @@ int idb_vtable_process(THD* thd, Statement* statement)
 					thd->infinidb_vtable.isInfiniDBDML = false;
 					thd->infinidb_vtable.hasInfiniDBTable = false;
 
-					// Execution starts
-					// Phase 1.
-					alloc_query(thd, thd->infinidb_vtable.create_vtable_query.c_ptr(), thd->infinidb_vtable.create_vtable_query.length());
-	#ifdef SAFE_MUTEX
-					printf("<<< V-TABLE Phase 1: %s\n", thd->query());
-	#endif
-					thd->infinidb_vtable.vtable_state = THD::INFINIDB_CREATE_VTABLE;
-					mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
-					close_thread_tables(thd);
-
+					// Create vtable
+					idb_create_vtable(thd);
 					// check MySQL parse error here
 					if (thd->get_stmt_da()->is_error())
 					{
@@ -10000,8 +10085,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 						// redo phase 1;
 						while (thd->infinidb_vtable.vtable_state == THD::INFINIDB_REDO_PHASE1)
 						{
-							alloc_query(thd, thd->infinidb_vtable.drop_vtable_query.c_ptr(), thd->infinidb_vtable.drop_vtable_query.length());
-							mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
+							idb_drop_vtable(thd);
 
 							// If the execution plan failed InfiniDB, turn off the optimizer constant re-write
 							// and let the query go through optimizer again. Change it to CREATE_PHASE
@@ -10014,14 +10098,11 @@ int idb_vtable_process(THD* thd, Statement* statement)
 								thd->infinidb_vtable.select_vtable_query.free();
 								thd->infinidb_vtable.select_vtable_query.append(select.c_str(), select.length());
 							}
-							thd->set_query(thd->infinidb_vtable.create_vtable_query.c_ptr(),
-								thd->infinidb_vtable.create_vtable_query.length());
 							thd->infinidb_vtable.isUnion = false; // make state change to create_vtable in sql_select
 	#ifdef SAFE_MUTEX
 							printf("<<< V-TABLE Redo Phase 1: %s\n", thd->query());
 	#endif
-							mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
-							close_thread_tables(thd);
+							idb_create_vtable(thd);
 							if (thd->infinidb_vtable.mysql_optimizer_off)
 								thd->infinidb_vtable.mysql_optimizer_off = false;
 							if ((thd->get_stmt_da()->is_error()) || ( thd->killed > 0 )) //@Bug 2974 Handle ctrl-c
@@ -10033,12 +10114,18 @@ int idb_vtable_process(THD* thd, Statement* statement)
 					}
 					else if (thd->infinidb_vtable.vtable_state == THD::INFINIDB_REDO_QUERY)
 					{
-						alloc_query(thd, thd->infinidb_vtable.drop_vtable_query.c_ptr(), thd->infinidb_vtable.drop_vtable_query.length());
-						thd->infinidb_vtable.vtable_state = THD::INFINIDB_DROP_VTABLE;
-						mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
+						// We don't need the vtable anymore
+						idb_drop_vtable(thd);
+
+						// Normal mysql processing
 						thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
 						thd->set_query(thd->infinidb_vtable.original_query.c_ptr(),
-						thd->infinidb_vtable.original_query.length());
+									   thd->infinidb_vtable.original_query.length());
+						delete_explain_query(thd->lex);
+						parser_state.reset(thd->query(), thd->query_length());
+	#ifdef SAFE_MUTEX
+						printf("<<< Non InfiniDB query: %s\n", thd->query());
+	#endif
 						mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
 					}
 
@@ -10048,15 +10135,17 @@ int idb_vtable_process(THD* thd, Statement* statement)
 						if (thd->infinidb_vtable.autoswitch || isExplain)
 						{
 							// auto switch -- vtablemode = 2. rerun the original query
-							thd->set_query(thd->infinidb_vtable.drop_vtable_query.c_ptr(),
-								thd->infinidb_vtable.drop_vtable_query.length());
-							thd->infinidb_vtable.vtable_state = THD::INFINIDB_DROP_VTABLE;
-							mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
+							// We don't need the vtable anymore
+							idb_drop_vtable(thd);
+
+							// Normal mysql processing
 							thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
 							alloc_query(thd, thd->infinidb_vtable.original_query.c_ptr(), thd->infinidb_vtable.original_query.length());
 	#ifdef SAFE_MUTEX
 							printf("<<< V-TABLE unsupported components encountered. Auto switch to table mode\n");
 	#endif
+							delete_explain_query(thd->lex);
+							parser_state.reset(thd->query(), thd->query_length());
 							mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
 							thd->infinidb_vtable.vtable_state = THD::INFINIDB_INIT;
 						}
@@ -10069,10 +10158,13 @@ int idb_vtable_process(THD* thd, Statement* statement)
 					else if ( thd->infinidb_vtable.vtable_state == THD::INFINIDB_CREATE_VTABLE )
 					{
 						alloc_query(thd, thd->infinidb_vtable.alter_vtable_query.c_ptr(), thd->infinidb_vtable.alter_vtable_query.length());
-	#ifdef SAFE_MUTEX
-						printf("<<< V-TABLE Phase 2: %s\n", thd->query());
-	#endif
 						thd->infinidb_vtable.vtable_state = THD::INFINIDB_ALTER_VTABLE;
+						delete_explain_query(thd->lex);
+						Parser_state parser_state;
+						parser_state.init(thd, thd->query(), thd->query_length());
+	#ifdef SAFE_MUTEX
+						printf("<<< Alter V-TABLE for InfiniDB create vtable: %s\n", thd->query());
+	#endif
 						mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
 						close_thread_tables(thd);
 
@@ -10088,18 +10180,25 @@ int idb_vtable_process(THD* thd, Statement* statement)
 							alloc_query(thd, thd->infinidb_vtable.insert_vtable_query.c_ptr(), thd->infinidb_vtable.insert_vtable_query.length());
 							thd->infinidb_vtable.vtable_state = THD::INFINIDB_SELECT_VTABLE;
 	#ifdef SAFE_MUTEX
-							printf("<<< V-TABLE Phase 3: %s\n", thd->query());
+							printf("<<< V-TABLE insert select: %s\n", thd->query());
 	#endif
+							Parser_state parser_state;
+							parser_state.init(thd, thd->query(), thd->query_length());
+							delete_explain_query(thd->lex);
+							mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
 						}
 						else
 						{
 							alloc_query(thd, thd->infinidb_vtable.select_vtable_query.c_ptr(), thd->infinidb_vtable.select_vtable_query.length());
 							thd->infinidb_vtable.vtable_state = THD::INFINIDB_SELECT_VTABLE;
-			#ifdef SAFE_MUTEX
-							printf("<<< V-TABLE Phase 3: %s\n", thd->query());
-			#endif
+	#ifdef SAFE_MUTEX
+							printf("<<< V-TABLE insert %s\n", thd->query());
+	#endif
+							Parser_state parser_state;
+							parser_state.init(thd, thd->query(), thd->query_length());
+							delete_explain_query(thd->lex);
+							mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
 						}
-						mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
 					}
 				}
 			}
@@ -10107,18 +10206,19 @@ int idb_vtable_process(THD* thd, Statement* statement)
 			{
 				thd->infinidb_vtable.isInfiniDBDML = false;
 				thd->infinidb_vtable.hasInfiniDBTable = false;
-				return -1;
+				DBUG_RETURN(-1);
 			}
 		}
 		else
 		{
 			thd->infinidb_vtable.isInfiniDBDML = false;
 			thd->infinidb_vtable.hasInfiniDBTable = false;
-			return -1;
+			DBUG_RETURN(-1);
 		}
 
-		thd->lex->restore_backup_query_tables_list(&backup);
+//		thd->lex->restore_backup_query_tables_list(&backup);
+		//------------------ End InfiniDB -------------------------------
 	}
-	return 0;
+	DBUG_RETURN(0);
 }
 
