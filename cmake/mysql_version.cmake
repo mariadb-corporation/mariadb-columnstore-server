@@ -79,7 +79,7 @@ ELSEIF(MYSQL_TCP_PORT EQUAL MYSQL_TCP_PORT_DEFAULT)
 ENDIF()
 
 IF(NOT COMPILATION_COMMENT)
-  SET(COMPILATION_COMMENT "Source distribution")
+  SET(COMPILATION_COMMENT "InfiniDB 5.0.0")
 ENDIF()
 
 INCLUDE(package_name)
@@ -95,7 +95,7 @@ SET(CPACK_PACKAGE_VENDOR "MariaDB AB")
 SET(CPACK_SOURCE_GENERATOR "TGZ")
 
 # Defintions for windows version resources
-SET(PRODUCTNAME "MariaDB Server")
+SET(PRODUCTNAME "InfiniDB-MariaDB Server")
 SET(COMPANYNAME ${CPACK_PACKAGE_VENDOR})
 
 # Windows 'date' command has unpredictable output, so cannot rely on it to
