@@ -1505,7 +1505,6 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
 	if (idb_vtable_process(thd))
 	{
 	  thd->set_row_count_func(0); //Bug 5315
-	  sql_print_information("**** setting vtable_state = THD::INFINIDB_DISABLE_VTABLE (1)");
 	  thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
 
 	  if (WSREP_ON)
@@ -9509,7 +9508,7 @@ int idb_create_vtable(THD* thd)
 //	close_thread_tables(thd);
 
 	lex_end(thd->lex);
-	log_slow_statement(thd);
+	delete_explain_query(thd->lex);
 	thd->lex= old_lex;
 	if (arena)
 	  thd->restore_active_arena(arena, &backup);
@@ -9596,8 +9595,8 @@ int idb_vtable_process(THD* thd, Statement* statement)
 		//------------------ InfiniDB -------------------------------
 		// MariaDB issue 8078: The following InfiniDB code reparses the statement and corrupts
 		// the query table list for the next run. We need to save and restore it.
-//		Query_tables_list backup;
-//		thd->lex->reset_n_backup_query_tables_list(&backup);
+		Query_tables_list backup;
+		thd->lex->reset_n_backup_query_tables_list(&backup);
 
 		// @bug 1685. pre-parse mysql to know the command type exactly instead of parsing the text.
 		lex_start(thd);
@@ -10216,7 +10215,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 			DBUG_RETURN(-1);
 		}
 
-//		thd->lex->restore_backup_query_tables_list(&backup);
+		thd->lex->restore_backup_query_tables_list(&backup);
 		//------------------ End InfiniDB -------------------------------
 	}
 	DBUG_RETURN(0);
