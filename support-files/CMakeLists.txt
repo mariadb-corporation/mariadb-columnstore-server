@@ -116,9 +116,6 @@ IF(UNIX)
             DESTINATION  ${INSTALL_SYSCONFDIR}/init.d
             RENAME mysql COMPONENT SupportFiles)
 
-    INSTALL(FILES rpm/my.cnf DESTINATION ${INSTALL_SYSCONFDIR}
-            COMPONENT Common)
-
     IF (INSTALL_SYSCONF2DIR)
       INSTALL(FILES rpm/client.cnf DESTINATION ${INSTALL_SYSCONF2DIR}
               COMPONENT SharedLibraries)
