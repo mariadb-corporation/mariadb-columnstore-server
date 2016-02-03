@@ -135,7 +135,7 @@ SET(INSTALL_UNIX_ADDRDIR_STANDALONE     "/tmp/mysql.sock")
 SET(INSTALL_BINDIR_RPM                  "bin")
 SET(INSTALL_SBINDIR_RPM                 "sbin")
 SET(INSTALL_SCRIPTDIR_RPM               "bin")
-SET(INSTALL_SYSCONFDIR_RPM		"/usr/local/Calpont/mysql/my.cnf.d")
+SET(INSTALL_SYSCONFDIR_RPM		"/usr/local/Calpont/tools")
 SET(INSTALL_SYSCONF2DIR_RPM             "/usr/local/Calpont/mysql/my.cnf.d")
 #
 IF(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
