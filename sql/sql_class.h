@@ -2754,7 +2754,7 @@ public:
   	bool isUpdateWithDerive;
 	bool isInfiniDBDML; // default false
   	bool hasInfiniDBTable; // default false
-	INFINIDB_VTABLE() : cal_conn_info(null){}
+	INFINIDB_VTABLE() : cal_conn_info(NULL){}
   };			   
    
   INFINIDB_VTABLE infinidb_vtable;					// InfiniDB custom structure
