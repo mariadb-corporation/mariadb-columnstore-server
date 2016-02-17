@@ -118,18 +118,17 @@ static void wsrep_mysql_parse(THD *thd, char *rawbuf, uint length,
 /**
  * InfiniDB Functions 
  */
-// InfiniDB vtable helper classes
-int idb_create_vtable(THD* thd);
-int idb_drop_vtable(THD* thd);
-
-// InfiniDB vtable processing
+// InfiniDB: vtable processing
 int idb_vtable_process(THD* thd, Statement* stmt = NULL);
 
-// for vtable parsing use. String in quotes is converted to upper case, all other chars are 
+// InfiniDB: Execute a sql statement about a vtable
+int idb_parse_vtable(THD* thd, String& vquery, THD::infinidb_state vtable_state);
+
+// InfiniDB: for vtable parsing use. String in quotes is converted to upper case, all other chars are 
 // converted to lower case. 
 static void idb_to_lower(char* str);
 
-// replace \t, \n to space.
+// InfiniDB replace \t, \n to space.
 static std::string idb_cleanQuery(char* str);
 
 /**
@@ -9477,12 +9476,10 @@ static std::string idb_cleanQuery(char* str)
 
 /* InfiniDB */
 
-// Create a vtable to process InfiniDB queries.
-// Assumes thd->infinidb_vtable.create_vtable_query has already been set up
-// Called in various places by idb_vtable_process
-int idb_create_vtable(THD* thd)
+// InfiniDB: Execute a sql statement for a vtable in a clean environment.
+int idb_parse_vtable(THD* thd, String& vquery, THD::infinidb_state vtable_state)
 {
-	DBUG_ENTER("idb_create_vtable");
+	DBUG_ENTER("idb_parse_vtable");
 	LEX *old_lex;
 	Query_arena *arena, backup;
 	LEX tmp_lex;
@@ -9496,91 +9493,14 @@ int idb_create_vtable(THD* thd)
 	else
 	  thd->set_n_backup_active_arena(arena, &backup);
 
-	alloc_query(thd, thd->infinidb_vtable.create_vtable_query.c_ptr(), thd->infinidb_vtable.create_vtable_query.length());
+	alloc_query(thd, vquery.c_ptr(), vquery.length());
 	delete_explain_query(thd->lex);
-	thd->infinidb_vtable.vtable_state = THD::INFINIDB_CREATE_VTABLE;
+	thd->infinidb_vtable.vtable_state = vtable_state;
+	
 	Parser_state parser_state;
 	parser_state.init(thd, thd->query(), thd->query_length());
 	#ifdef SAFE_MUTEX
-	printf("<<< Create V-TABLE: %s\n", thd->query());
-	#endif
-	mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
-//	close_thread_tables(thd);
-
-	lex_end(thd->lex);
-	delete_explain_query(thd->lex);
-	thd->lex= old_lex;
-	if (arena)
-	  thd->restore_active_arena(arena, &backup);
-	reenable_binlog(thd);
-
-	DBUG_RETURN(1);
-}
-
-// Drop a vtable after we're done with it.
-// Assumes thd->infinidb_vtable.drop_vtable_query has already been set up
-// Called in various places by idb_vtable_process
-int idb_drop_vtable(THD* thd)
-{
-	DBUG_ENTER("idb_drop_vtable");
-	LEX *old_lex;
-	Query_arena *arena, backup;
-	LEX tmp_lex;
-
-	tmp_disable_binlog(thd);
-	old_lex= thd->lex;
-	thd->lex= &tmp_lex;
-	arena= thd->stmt_arena;
-	if (arena->is_conventional())
-	  arena= 0;
-	else
-	  thd->set_n_backup_active_arena(arena, &backup);
-
-	alloc_query(thd, thd->infinidb_vtable.drop_vtable_query.c_ptr(), thd->infinidb_vtable.drop_vtable_query.length());
-	delete_explain_query(thd->lex);
-	thd->infinidb_vtable.vtable_state = THD::INFINIDB_DROP_VTABLE;
-	Parser_state parser_state;
-	parser_state.init(thd, thd->query(), thd->query_length());
-	#ifdef SAFE_MUTEX
-	printf("<<< Drop V-TABLE: %s\n", thd->query());
-	#endif
-	mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
-
-	lex_end(thd->lex);
-	thd->lex= old_lex;
-	if (arena)
-	  thd->restore_active_arena(arena, &backup);
-	reenable_binlog(thd);
-
-	DBUG_RETURN(1);
-}
-
-// Drop a vtable after we're done with it.
-// Assumes thd->infinidb_vtable.drop_vtable_query has already been set up
-// Called in various places by idb_vtable_process
-int idb_alter_vtable(THD* thd)
-{
-	DBUG_ENTER("idb_alter_vtable");
-	LEX *old_lex;
-	Query_arena *arena, backup;
-	LEX tmp_lex;
-
-	tmp_disable_binlog(thd);
-	old_lex= thd->lex;
-	thd->lex= &tmp_lex;
-	arena= thd->stmt_arena;
-	if (arena->is_conventional())
-	  arena= 0;
-	else
-	  thd->set_n_backup_active_arena(arena, &backup);
-
-	alloc_query(thd, thd->infinidb_vtable.alter_vtable_query.c_ptr(), thd->infinidb_vtable.alter_vtable_query.length());
-	delete_explain_query(thd->lex);
-	thd->infinidb_vtable.vtable_state = THD::INFINIDB_ALTER_VTABLE;
-	Parser_state parser_state;
-	parser_state.init(thd, thd->query(), thd->query_length());
-	#ifdef SAFE_MUTEX
-	printf("<<< Alter V-TABLE: %s\n", thd->query());
+	printf("<<< Parse vtable: %s\n", vquery.c_ptr());
 	#endif
 	mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
 	close_thread_tables(thd);
@@ -9656,7 +9576,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 		    // @bug 3089
 		    std::string(thd->query()).find("@@version_comment") == std::string::npos)
 		{
-				thd->infinidb_vtable.isInsertSelect = false;
+			thd->infinidb_vtable.isInsertSelect = false;
 			
 			// SELECT vtable processing
 			if (thd->lex->sql_command == SQLCOM_SELECT ||
@@ -10102,7 +10022,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 					// thd->infinidb_vtable now has all the queries needed.
 
 					// Make sure there's no old vtable around to muddle up things.
-					idb_drop_vtable(thd);
+					idb_parse_vtable(thd, thd->infinidb_vtable.drop_vtable_query, THD::INFINIDB_DROP_VTABLE);
 
 					thd->lex->result = 0;
 					thd->infinidb_vtable.vtable_state = THD::INFINIDB_INIT;
@@ -10114,7 +10034,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 					thd->infinidb_vtable.hasInfiniDBTable = false;
 
 					// Create vtable
-					idb_create_vtable(thd);
+					idb_parse_vtable(thd, thd->infinidb_vtable.create_vtable_query, THD::INFINIDB_CREATE_VTABLE);
 					// check MySQL parse error here
 					if (thd->get_stmt_da()->is_error())
 					{
@@ -10125,7 +10045,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 						// redo phase 1;
 						while (thd->infinidb_vtable.vtable_state == THD::INFINIDB_REDO_PHASE1)
 						{
-							idb_drop_vtable(thd);
+							idb_parse_vtable(thd, thd->infinidb_vtable.drop_vtable_query, THD::INFINIDB_DROP_VTABLE);
 
 							// If the execution plan failed InfiniDB, turn off the optimizer constant re-write
 							// and let the query go through optimizer again. Change it to CREATE_PHASE
@@ -10142,7 +10062,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 	#ifdef SAFE_MUTEX
 							printf("<<< V-TABLE Redo Phase 1: %s\n", thd->query());
 	#endif
-							idb_create_vtable(thd);
+							idb_parse_vtable(thd, thd->infinidb_vtable.create_vtable_query, THD::INFINIDB_CREATE_VTABLE);
 							if (thd->infinidb_vtable.mysql_optimizer_off)
 								thd->infinidb_vtable.mysql_optimizer_off = false;
 							if ((thd->get_stmt_da()->is_error()) || ( thd->killed > 0 )) //@Bug 2974 Handle ctrl-c
@@ -10155,7 +10075,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 					else if (thd->infinidb_vtable.vtable_state == THD::INFINIDB_REDO_QUERY)
 					{
 						// We don't need the vtable anymore
-						idb_drop_vtable(thd);
+						idb_parse_vtable(thd, thd->infinidb_vtable.drop_vtable_query, THD::INFINIDB_DROP_VTABLE);
 
 						// Normal mysql processing
 						thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
@@ -10176,7 +10096,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 						{
 							// auto switch -- vtablemode = 2. rerun the original query
 							// We don't need the vtable anymore
-							idb_drop_vtable(thd);
+							idb_parse_vtable(thd, thd->infinidb_vtable.drop_vtable_query, THD::INFINIDB_DROP_VTABLE);
 
 							// Normal mysql processing
 							thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
@@ -10197,7 +10117,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 					}
 					else if ( thd->infinidb_vtable.vtable_state == THD::INFINIDB_CREATE_VTABLE )
 					{
-						idb_alter_vtable(thd);
+						idb_parse_vtable(thd, thd->infinidb_vtable.alter_vtable_query, THD::INFINIDB_ALTER_VTABLE);
 
 						// do insert vtable if INSERT_SELECT
 						if (thd->infinidb_vtable.isInsertSelect)
