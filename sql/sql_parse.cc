@@ -9527,6 +9527,7 @@ int idb_drop_vtable(THD* thd)
 	Query_arena *arena, backup;
 	LEX tmp_lex;
 
+	tmp_disable_binlog(thd);
 	old_lex= thd->lex;
 	thd->lex= &tmp_lex;
 	arena= thd->stmt_arena;
@@ -9549,6 +9550,46 @@ int idb_drop_vtable(THD* thd)
 	thd->lex= old_lex;
 	if (arena)
 	  thd->restore_active_arena(arena, &backup);
+	reenable_binlog(thd);
+
+	DBUG_RETURN(1);
+}
+
+// Drop a vtable after we're done with it.
+// Assumes thd->infinidb_vtable.drop_vtable_query has already been set up
+// Called in various places by idb_vtable_process
+int idb_alter_vtable(THD* thd)
+{
+	DBUG_ENTER("idb_alter_vtable");
+	LEX *old_lex;
+	Query_arena *arena, backup;
+	LEX tmp_lex;
+
+	tmp_disable_binlog(thd);
+	old_lex= thd->lex;
+	thd->lex= &tmp_lex;
+	arena= thd->stmt_arena;
+	if (arena->is_conventional())
+	  arena= 0;
+	else
+	  thd->set_n_backup_active_arena(arena, &backup);
+
+	alloc_query(thd, thd->infinidb_vtable.alter_vtable_query.c_ptr(), thd->infinidb_vtable.alter_vtable_query.length());
+	delete_explain_query(thd->lex);
+	thd->infinidb_vtable.vtable_state = THD::INFINIDB_ALTER_VTABLE;
+	Parser_state parser_state;
+	parser_state.init(thd, thd->query(), thd->query_length());
+	#ifdef SAFE_MUTEX
+	printf("<<< Alter V-TABLE: %s\n", thd->query());
+	#endif
+	mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
+	close_thread_tables(thd);
+
+	lex_end(thd->lex);
+	thd->lex= old_lex;
+	if (arena)
+	  thd->restore_active_arena(arena, &backup);
+	reenable_binlog(thd);
 
 	DBUG_RETURN(1);
 }
@@ -10156,16 +10197,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 					}
 					else if ( thd->infinidb_vtable.vtable_state == THD::INFINIDB_CREATE_VTABLE )
 					{
-						alloc_query(thd, thd->infinidb_vtable.alter_vtable_query.c_ptr(), thd->infinidb_vtable.alter_vtable_query.length());
-						thd->infinidb_vtable.vtable_state = THD::INFINIDB_ALTER_VTABLE;
-						delete_explain_query(thd->lex);
-						Parser_state parser_state;
-						parser_state.init(thd, thd->query(), thd->query_length());
-	#ifdef SAFE_MUTEX
-						printf("<<< Alter V-TABLE for InfiniDB create vtable: %s\n", thd->query());
-	#endif
-						mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
-						close_thread_tables(thd);
+						idb_alter_vtable(thd);
 
 						// do insert vtable if INSERT_SELECT
 						if (thd->infinidb_vtable.isInsertSelect)
