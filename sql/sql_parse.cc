@@ -1501,7 +1501,9 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
       break;
 
 	// InfiniDB: Do InfiniDB Processing.
-	if (idb_vtable_process(thd))
+	if (thd->infinidb_vtable.vtable_state == THD::INFINIDB_DISABLE_VTABLE 
+	 || thd->locked_tables_mode != LTM_NONE
+	 || idb_vtable_process(thd))   // retuns non 0 when not InfiniDB query
 	{
 	  thd->set_row_count_func(0); //Bug 5315
 	  thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
@@ -9494,7 +9496,6 @@ int idb_parse_vtable(THD* thd, String& vquery, THD::infinidb_state vtable_state)
 	  thd->set_n_backup_active_arena(arena, &backup);
 
 	alloc_query(thd, vquery.c_ptr(), vquery.length());
-	delete_explain_query(thd->lex);
 	thd->infinidb_vtable.vtable_state = vtable_state;
 	
 	Parser_state parser_state;
@@ -9503,6 +9504,7 @@ int idb_parse_vtable(THD* thd, String& vquery, THD::infinidb_state vtable_state)
 	printf("<<< Parse vtable: %s\n", vquery.c_ptr());
 	#endif
 	mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
+	delete_explain_query(thd->lex);
 	close_thread_tables(thd);
 
 	lex_end(thd->lex);
@@ -9540,21 +9542,8 @@ int idb_vtable_process(THD* thd, Statement* statement)
 		thd->infinidb_vtable.autoswitch = false;
 	}
 
-	// @bug 3014. Infinidb does not support lock tables. So if the tables are locked,
-	// they must be myisam tables. Change vtable to disable_vtable to make it through.
-	if (thd->infinidb_vtable.vtable_state == THD::INFINIDB_DISABLE_VTABLE || thd->locked_tables_mode != LTM_NONE)
 	{
-		thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
-		// Rather return 0 and let the mysql code handle it.
-		Parser_state parser_state;
-		parser_state.init(thd, thd->query(), thd->query_length());
-		sql_print_information("**** calling mysql_parse (1)");
-		mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
-	}
-	else
-	{
-		//------------------ InfiniDB -------------------------------
-		// MariaDB issue 8078: The following InfiniDB code reparses the statement and corrupts
+		// MariaDB issue 8078: The InfiniDB code reparses the statement and corrupts
 		// the query table list for the next run. We need to save and restore it.
 		Query_tables_list backup;
 		thd->lex->reset_n_backup_query_tables_list(&backup);
@@ -9569,6 +9558,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 			Parser_state parser_state;
 			parser_state.init(thd, thd->query(), thd->query_length());
 			parse_sql(thd, &parser_state, NULL, true);
+			delete_explain_query(thd->lex);
 		}
 
 		if (thd->query() &&
@@ -10077,16 +10067,16 @@ int idb_vtable_process(THD* thd, Statement* statement)
 						// We don't need the vtable anymore
 						idb_parse_vtable(thd, thd->infinidb_vtable.drop_vtable_query, THD::INFINIDB_DROP_VTABLE);
 
-						// Normal mysql processing
-						thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
+						// Not an InfiniDB query. Normal mysql processing
 						thd->set_query(thd->infinidb_vtable.original_query.c_ptr(),
 									   thd->infinidb_vtable.original_query.length());
-						delete_explain_query(thd->lex);
-						parser_state.reset(thd->query(), thd->query_length());
 	#ifdef SAFE_MUTEX
 						printf("<<< Non InfiniDB query: %s\n", thd->query());
 	#endif
-						mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
+						thd->infinidb_vtable.isInfiniDBDML = false;
+						thd->infinidb_vtable.hasInfiniDBTable = false;
+						DBUG_RETURN(-1);
+//						mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
 					}
 
 					// error out Calpont non-supported error
