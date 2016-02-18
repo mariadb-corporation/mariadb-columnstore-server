@@ -6120,7 +6120,6 @@ bool MYSQL_BIN_LOG::write(Log_event *event_info, my_bool *with_annotate)
                           "Statements that insert or update rows in tables "
                           "with other engines based on rows in InfiniDB tables "
                           "are not replicated.");
-      mysql_mutex_unlock(&LOCK_log);
       DBUG_RETURN(0);
     }
 
@@ -6134,7 +6133,6 @@ bool MYSQL_BIN_LOG::write(Log_event *event_info, my_bool *with_annotate)
         thd->infinidb_vtable.isInfiniDBDML) ||
         (local_db && strncmp(local_db, "infinidb", 8) == 0))
     {
-      mysql_mutex_unlock(&LOCK_log);
       DBUG_RETURN(0);
     }
 
