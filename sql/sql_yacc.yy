@@ -11808,7 +11808,7 @@ opt_escape:
 
 opt_group_clause:
           /* empty */
-          /* InfiniDB changes
+          /* InfiniDB changes */
         | GROUP_SYM BY
           {
             Select->parsing_place= IN_GROUP_BY;
