@@ -1501,9 +1501,7 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
       break;
 
 	// InfiniDB: Do InfiniDB Processing.
-	if (thd->infinidb_vtable.vtable_state == THD::INFINIDB_DISABLE_VTABLE 
-	 || thd->locked_tables_mode != LTM_NONE
-	 || idb_vtable_process(thd))   // retuns non 0 when not InfiniDB query
+	if (idb_vtable_process(thd))   // retuns non 0 when not InfiniDB query
 	{
 	  thd->set_row_count_func(0); //Bug 5315
 	  thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
@@ -9542,6 +9540,14 @@ int idb_vtable_process(THD* thd, Statement* statement)
 		thd->infinidb_vtable.autoswitch = false;
 	}
 
+	// @bug 3014. Infinidb does not support lock tables. So if the tables are locked,
+	// they must be myisam tables. Change vtable to disable_vtable to make it through.
+	if (thd->infinidb_vtable.vtable_state == THD::INFINIDB_DISABLE_VTABLE || thd->locked_tables_mode != LTM_NONE)
+	{
+		thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
+		return -1;
+	}
+	else
 	{
 		// MariaDB issue 8078: The InfiniDB code reparses the statement and corrupts
 		// the query table list for the next run. We need to save and restore it.
