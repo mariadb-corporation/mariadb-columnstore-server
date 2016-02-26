@@ -4222,6 +4222,7 @@ public:
   {
     return trace_unsupported_by_check_vcol_func_processor("cache");
   }
+  Item* get_orig_item() { return orig_item; }
 };
 
 

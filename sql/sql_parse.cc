@@ -9492,7 +9492,7 @@ int idb_parse_vtable(THD* thd, String& vquery, THD::infinidb_state vtable_state)
 	  arena= 0;
 	else
 	  thd->set_n_backup_active_arena(arena, &backup);
-
+	thd->variables.optimizer_switch &= ~OPTIMIZER_SWITCH_SUBQUERY_CACHE;
 	alloc_query(thd, vquery.c_ptr(), vquery.length());
 	thd->infinidb_vtable.vtable_state = vtable_state;
 	
@@ -9505,6 +9505,7 @@ int idb_parse_vtable(THD* thd, String& vquery, THD::infinidb_state vtable_state)
 	delete_explain_query(thd->lex);
 	close_thread_tables(thd);
 
+	thd->variables.optimizer_switch |= OPTIMIZER_SWITCH_SUBQUERY_CACHE;
 	lex_end(thd->lex);
 	thd->lex= old_lex;
 	if (arena)
