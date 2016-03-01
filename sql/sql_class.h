@@ -2742,7 +2742,6 @@ public:
   	infinidb_state vtable_state;  // flag for InfiniDB MySQL virtual table structure
   	bool autoswitch;
   	bool has_order_by;
-  	bool has_limit; // deprecated
   	bool mysql_optimizer_off;
   	bool duplicate_field_name; // @bug 1928. duplicate field name in create_phase will be ingored.
   	bool call_sp;

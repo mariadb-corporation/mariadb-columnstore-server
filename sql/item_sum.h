@@ -378,7 +378,7 @@ protected:
   static ulonglong ram_limitation(THD *thd);
 
 public:
-
+  Item **get_orig_args() {return orig_args;}
   void mark_as_sum_func();
   Item_sum(THD *thd): Item_func_or_sum(thd), quick_group(1)
   {
