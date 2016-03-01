@@ -2753,6 +2753,7 @@ public:
   	bool isUpdateWithDerive;
 	bool isInfiniDBDML; // default false
   	bool hasInfiniDBTable; // default false
+	bool isNewQuery;
 	INFINIDB_VTABLE() : autoswitch(false),
 		                has_order_by(false),
 		                mysql_optimizer_off(false),
@@ -2764,7 +2765,8 @@ public:
 		                impossibleWhereOnUnion(false),
 		                isUpdateWithDerive(false),
 		                isInfiniDBDML(false),
-		                hasInfiniDBTable(false){}
+		                hasInfiniDBTable(false),
+		                isNewQuery(true){}
   };			   
    
   INFINIDB_VTABLE infinidb_vtable;					// InfiniDB custom structure
