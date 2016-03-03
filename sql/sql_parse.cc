@@ -9927,13 +9927,14 @@ int idb_vtable_process(THD* thd, Statement* statement)
 							// check file exists
 							if (!_access(path, 00))
 	#else
-						if (access(d_path.c_str(), W_OK | X_OK) == 0 && errno == EINVAL)
+					    // Does the path have permissions?
+						if (access(d_path.c_str(), W_OK | X_OK) == 0)
 						{
 							// check file exists
 							if (!access(path, F_OK))
 	#endif
 							{
-								my_error(ER_FILE_EXISTS_ERROR, MYF(0), fileName.c_str());
+								my_error(ER_FILE_EXISTS_ERROR, MYF(0), fileName.c_str(), errno);
 								thd->lex->result = 0;
 								thd->infinidb_vtable.isInfiniDBDML = false;
 								thd->infinidb_vtable.hasInfiniDBTable = false;
@@ -9942,7 +9943,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 						}
 						else
 						{
-							my_error(ER_CANT_CREATE_FILE, MYF(0), fileName.c_str());
+							my_error(ER_CANT_CREATE_FILE, MYF(0), fileName.c_str(), errno);
 							thd->lex->result = 0;
 							thd->infinidb_vtable.isInfiniDBDML = false;
 							thd->infinidb_vtable.hasInfiniDBTable = false;
