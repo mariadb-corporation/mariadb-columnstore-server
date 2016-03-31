@@ -2669,8 +2669,18 @@ bool JOIN::exec_infinidb()
       // @todo always use IDBtable without checking the first table. Still have some plan
       // mistery to solve.
       IDBtable = tables_list;
-    if (IDBtable && IDBtable->table && IDBtable->table->file && IDBtable->table->file->ha_rnd_init(1))
-      thd->infinidb_vtable.vtable_state = THD::INFINIDB_ERROR;
+
+	if (IDBtable && IDBtable->table && IDBtable->table->file)
+	{
+		if (IDBtable->table->file->ha_rnd_init(1))
+			thd->infinidb_vtable.vtable_state = THD::INFINIDB_ERROR;
+		// If thd is set to error, mariadb doesn't call ha_rnd_end(). This might happen, 
+		// for instance if a divide by 0 is found in a nested function like round(tan(0))
+		if (thd->is_error() && IDBtable->table->file->inited == handler::RND)
+		{
+			IDBtable->table->file->ha_rnd_end();
+		}
+	}
 
     for (global_list = thd->lex->query_tables; global_list; global_list = global_list->next_global)
     {
