@@ -5650,13 +5650,6 @@ bool JOIN::choose_subquery_plan(table_map join_tables)
     in_subs->set_strategy(SUBS_IN_TO_EXISTS);
   }
 
-  // @INFINIDB: InfiniDB isn't set up fo the SUBS_MATERIALIZATION optimization
-  // TODO: Find a way to do this from the engine rather than here.
-  if (thd->infinidb_vtable.vtable_state == THD::INFINIDB_CREATE_VTABLE)
-  {
-    in_subs->set_strategy(SUBS_IN_TO_EXISTS);
-  }
-
   if (in_subs->test_strategy(SUBS_MATERIALIZATION))
   {
     /* Restore the original query plan used for materialization. */
