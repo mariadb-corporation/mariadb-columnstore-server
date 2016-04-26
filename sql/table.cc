@@ -7235,7 +7235,6 @@ bool TABLE_LIST::init_derived(THD *thd, bool init_view)
   {
     /* A subquery might be forced to be materialized due to a side-effect. */
     if (!is_materialized_derived() && first_select->is_mergeable() &&
-        thd->infinidb_vtable.vtable_state != THD::INFINIDB_CREATE_VTABLE &&
         optimizer_flag(thd, OPTIMIZER_SWITCH_DERIVED_MERGE) &&
         !(thd->lex->sql_command == SQLCOM_UPDATE_MULTI ||
           thd->lex->sql_command == SQLCOM_DELETE_MULTI))
