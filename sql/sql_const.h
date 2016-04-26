@@ -47,7 +47,12 @@
 #define MAX_FIELD_CHARLENGTH	255
 #define MAX_FIELD_VARCHARLENGTH	65535
 #define MAX_FIELD_BLOBLENGTH UINT_MAX32         /* cf field_blob::get_length() */
-#define CONVERT_IF_BIGGER_TO_BLOB 512           /* Threshold *in characters*   */
+// #define CONVERT_IF_BIGGER_TO_BLOB 512           /* Threshold *in characters*   */
+// @InfiniDB. Make this real big so sort is always done in mysqld
+// @TODO: Either create an API for this value or Implement position() rnd_pos() in 
+// ha_calpont. The later would be preferred. This must be done for integration of 
+// MariaDB 10.2 and above.
+#define CONVERT_IF_BIGGER_TO_BLOB 65535           /* Threshold *in characters*   */
 
 /* Max column width +1 */
 #define MAX_FIELD_WIDTH		(MAX_FIELD_CHARLENGTH*MAX_MBWIDTH+1)
