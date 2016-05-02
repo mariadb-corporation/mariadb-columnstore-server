@@ -9494,35 +9494,9 @@ int idb_parse_vtable(THD* thd, String& vquery, THD::infinidb_state vtable_state)
 	else
 	  thd->set_n_backup_active_arena(arena, &backup);
 	old_optimizer_switch = thd->variables.optimizer_switch;
-//	thd->variables.optimizer_switch = ~INFINIDB_OPTIMIZER_SWITCHES_OFF;
 
 	thd->variables.optimizer_switch = OPTIMIZER_SWITCH_IN_TO_EXISTS | \
 		                          OPTIMIZER_SWITCH_EXISTS_TO_IN;
-
-/*
-     thd->variables.optimizer_switch = OPTIMIZER_SWITCH_INDEX_MERGE | \
-                                    OPTIMIZER_SWITCH_INDEX_MERGE_UNION | \
-                                    OPTIMIZER_SWITCH_INDEX_MERGE_SORT_UNION | \
-                                    OPTIMIZER_SWITCH_INDEX_MERGE_INTERSECT | \
-                                    OPTIMIZER_SWITCH_INDEX_COND_PUSHDOWN | \
-                                    OPTIMIZER_SWITCH_DERIVED_MERGE | \
-                                    OPTIMIZER_SWITCH_DERIVED_WITH_KEYS | \
-                                    OPTIMIZER_SWITCH_TABLE_ELIMINATION | \
-                                    OPTIMIZER_SWITCH_EXTENDED_KEYS | \
-                                    OPTIMIZER_SWITCH_IN_TO_EXISTS | \
-                                    OPTIMIZER_SWITCH_PARTIAL_MATCH_ROWID_MERGE|\
-                                    OPTIMIZER_SWITCH_PARTIAL_MATCH_TABLE_SCAN|\
-                                    OPTIMIZER_SWITCH_OUTER_JOIN_WITH_CACHE | \
-                                    OPTIMIZER_SWITCH_SEMIJOIN_WITH_CACHE | \
-                                    OPTIMIZER_SWITCH_JOIN_CACHE_INCREMENTAL | \
-                                    OPTIMIZER_SWITCH_JOIN_CACHE_HASHED | \
-                                    OPTIMIZER_SWITCH_JOIN_CACHE_BKA | \
-                                    OPTIMIZER_SWITCH_SUBQUERY_CACHE | \
-                                    OPTIMIZER_SWITCH_SEMIJOIN | \
-                                    OPTIMIZER_SWITCH_FIRSTMATCH | \
-                                    OPTIMIZER_SWITCH_LOOSE_SCAN | \
-                                    OPTIMIZER_SWITCH_EXISTS_TO_IN;
-*/
 
 	alloc_query(thd, vquery.c_ptr(), vquery.length());
 	thd->infinidb_vtable.vtable_state = vtable_state;

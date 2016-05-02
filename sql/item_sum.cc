@@ -3094,8 +3094,9 @@ Item_func_group_concat(THD *thd, Name_resolution_context *context_arg,
    row_count(0),
    distinct(distinct_arg),
    warning_for_row(FALSE),
-   force_copy_fields(0), original(0),
-   order(0), context(context_arg)
+   force_copy_fields(0),
+   order(0), context(context_arg),
+   original(0)
 {
   Item *item_select;
   Item **arg_ptr;
