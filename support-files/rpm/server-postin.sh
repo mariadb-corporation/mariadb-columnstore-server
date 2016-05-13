@@ -97,6 +97,6 @@ if [ -f /etc/redhat-release ] ; then
 fi
 
 if [ -x sbin/restorecon ] ; then
-	sbin/restorecon -R var/lib/mysql
+	sbin/restorecon -R /var/lib/mysql
 fi
 
