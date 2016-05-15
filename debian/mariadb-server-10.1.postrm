@@ -18,7 +18,7 @@ stop_server() {
   if [ -x /usr/sbin/invoke-rc.d ]; then
     invoke-rc.d mysql stop
   else
-    /etc/init.d/mysql stop
+    /etc/init.d/mysql-Columnstore stop
   fi
   errno=$?
   set -e

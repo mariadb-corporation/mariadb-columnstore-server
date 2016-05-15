@@ -26,7 +26,7 @@ CONF=/etc/mysql/my.cnf
 MYADMIN="/usr/bin/mysqladmin --defaults-file=/etc/mysql/debian.cnf"
 
 # priority can be overriden and "-s" adds output to stderr
-ERR_LOGGER="logger -p daemon.err -t /etc/init.d/mysql -i"
+ERR_LOGGER="logger -p daemon.err -t /etc/init.d/mysql-Columnstore -i"
 
 # Safeguard (relative paths, core dumps..)
 cd /

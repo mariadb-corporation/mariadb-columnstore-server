@@ -129,7 +129,7 @@ IF(UNIX)
 
     # This is for SuSE:
     INSTALL(CODE "EXECUTE_PROCESS(COMMAND ${CMAKE_COMMAND} -E create_symlink
-                   ${INSTALL_SYSCONFDIR}/init.d/mysql
+                   ${INSTALL_SYSCONFDIR}/init.d/mysql-Columnstore
                    ${INSTALL_SBINDIR}/rcmysql
                    WORKING_DIRECTORY \$ENV{DESTDIR}${prefix})"
                    COMPONENT SupportFiles)
