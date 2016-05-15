@@ -15,7 +15,7 @@ set -o pipefail
 
 invoke() {
   if [ -x /usr/sbin/invoke-rc.d ]; then
-    invoke-rc.d mysql $1
+    invoke-rc.d mysql-Columnstore $1
   else
     /etc/init.d/mysql-Columnstore $1
   fi

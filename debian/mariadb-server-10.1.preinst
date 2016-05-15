@@ -22,13 +22,13 @@ UPGRADEDIR=/var/lib/mysql-upgrade
 # do it himself. No database directories should be removed while the server
 # is running! Another mysqld in e.g. a different chroot is fine for us.
 stop_server() {
-    if [ ! -x /etc/init.d/mysql ]; then return; fi
+    if [ ! -x /etc/init.d/mysql-Columnstore ]; then return; fi
 
     set +e
     if [ -x /usr/sbin/invoke-rc.d ]; then
-      cmd="invoke-rc.d mysql stop"
+      cmd="invoke-rc.d mysql-Columnstore stop"
     else
-      cmd="/etc/init.d/mysql stop"
+      cmd="/etc/init.d/mysql-Columnstore stop"
     fi
     $cmd
     errno=$?
@@ -155,7 +155,7 @@ set -e
 # before. They get overwritten by current ones to avoid unnecessary dpkg questions.
 while read md5 file; do
   if [ "`md5sum $file 2>/dev/null`" = "$md5  $file" ]; then
-    cp /usr/share/mysql-common/internal-use-only/`echo $file | sed 's°/°_°g'` $file
+    cp /usr/share/mysql-common/internal-use-only/`echo $file | sed 'sï¿½/ï¿½_ï¿½g'` $file
   fi
 done <<EOT
 6691f2fdc5c6d27ff0260eb79813e1bc  /etc/init.d/mysql

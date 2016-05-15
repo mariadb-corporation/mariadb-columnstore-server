@@ -16,7 +16,7 @@ MYADMIN="/usr/bin/mysqladmin --defaults-file=/etc/mysql/debian.cnf"
 stop_server() {
   set +e
   if [ -x /usr/sbin/invoke-rc.d ]; then
-    invoke-rc.d mysql stop
+    invoke-rc.d mysql-Columnstore stop
   else
     /etc/init.d/mysql-Columnstore stop
   fi
