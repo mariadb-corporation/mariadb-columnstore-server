@@ -1,6 +1,3 @@
-# Make MySQL start/shutdown automatically when the machine does it.
-if [ $1 = 1 ] ; then
-
 # install SELinux files - but don't override existing ones
 SETARGETDIR=/etc/selinux/targeted/src/policy
 SEDOMPROG=$SETARGETDIR/domains/program
