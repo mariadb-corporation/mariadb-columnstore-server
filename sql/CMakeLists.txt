@@ -144,7 +144,7 @@ SET (SQL_SOURCE
                ${GEN_DIGEST_SOURCES}
                ${MYSYS_LIBWRAP_SOURCE}
 
-               # added for InfiniDB
+               # added for Columnstore
                item_create_window_function.h item_create_window_function.cc
                item_window_function.h item_window_function.cc
 			   )

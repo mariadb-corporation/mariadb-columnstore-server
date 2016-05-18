@@ -1299,12 +1299,17 @@ public:
     // therefore false to be ruturned.
     if (!s || s->table_category == TABLE_CATEGORY_TEMPORARY)
       return false;
+	if (s && s->db_plugin)
+	{
 #if (defined(_MSC_VER) && defined(_DEBUG)) || defined(SAFE_MUTEX)
-    if (s && s->db_plugin && (strcmp((*s->db_plugin)->name.str, "InfiniDB") == 0))
+		if ((strcmp((*s->db_plugin)->name.str, "Columnstore") == 0) ||
+			(strcmp((*s->db_plugin)->name.str, "InfiniDB") == 0))
 #else
-    if (s && s->db_plugin && (strcmp(s->db_plugin->name.str, "InfiniDB") == 0))
+		if ((strcmp(s->db_plugin->name.str, "Columnstore") == 0) ||
+			(strcmp(s->db_plugin->name.str, "InfiniDB") == 0))
 #endif
-      return true;
+	  return true;
+	}
     return false;
   }
   inline void column_bitmaps_set(MY_BITMAP *read_set_arg,
