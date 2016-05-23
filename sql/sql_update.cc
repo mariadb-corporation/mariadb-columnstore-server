@@ -1037,13 +1037,14 @@ int mysql_update(THD *thd,
     my_snprintf(buff, sizeof(buff), ER_THD(thd, ER_UPDATE_INFO), (ulong) found,
                 (ulong) updated,
                 (ulong) thd->get_stmt_da()->current_statement_warn_count());
-    my_ok(thd, (thd->client_capabilities & CLIENT_FOUND_ROWS) ? found : updated,
-          id, buff);
+	//@Infinidb found and updated aren't correct for UPDATE. Use row_count_func instead.
+	if ((thd->infinidb_vtable.isInfiniDBDML))
+		my_ok(thd, thd->get_row_count_func(), id, buff);
+	else
+		my_ok(thd, (thd->client_capabilities & CLIENT_FOUND_ROWS) ? found : updated,
+              id, buff);
     DBUG_PRINT("info",("%ld records updated", (long) updated));
   }
-  //@Infinidb don't set row count to thd to push row count to the front. 
-  if (!(thd->infinidb_vtable.isInfiniDBDML))
-    thd->set_row_count_func((thd->client_capabilities & CLIENT_FOUND_ROWS) ? found : updated);
 
   thd->count_cuted_fields= CHECK_FIELD_IGNORE;		/* calc cuted fields */
   thd->abort_on_warning= 0;
