@@ -2612,7 +2612,9 @@ bool multi_update::send_eof()
                 (ulong) found, (ulong) updated, (ulong) thd->cuted_fields);
 	//@Infinidb don't set row count on thd to push row count to the front
 	longlong row_count_func = 0;
-	if (!(thd->infinidb_vtable.isInfiniDBDML))
+	if (thd->infinidb_vtable.isInfiniDBDML)
+	  row_count_func = thd->get_row_count_func();
+	else
 	  row_count_func = (thd->client_capabilities & CLIENT_FOUND_ROWS) ? found : updated;
 
 	::my_ok(thd, row_count_func, id, buff);
