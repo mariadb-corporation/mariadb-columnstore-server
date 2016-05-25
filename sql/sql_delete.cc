@@ -708,6 +708,9 @@ cleanup:
     if (with_select)
       result->send_eof();
     else
+	if ((thd->infinidb_vtable.isInfiniDBDML))
+	  my_ok(thd, thd->get_row_count_func());
+	else
       my_ok(thd, deleted);
     DBUG_PRINT("info",("%ld records deleted",(long) deleted));
   }
@@ -1337,7 +1340,10 @@ bool multi_delete::send_eof()
 
   if (!local_error && !thd->lex->analyze_stmt)
   {
-    ::my_ok(thd, deleted);
+    if ((thd->infinidb_vtable.isInfiniDBDML))
+	  ::my_ok(thd, thd->get_row_count_func());
+    else
+	  ::my_ok(thd, deleted);
   }
   return 0;
 }
