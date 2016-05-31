@@ -14,7 +14,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
 
-SET(CMAKE_INSTALL_PREFIX /usr/local/MariaDB/Columnstore/mysql)
+SET(CMAKE_INSTALL_PREFIX /usr/local/mariadb/columnstore/mysql)
 
 CMAKE_MINIMUM_REQUIRED(VERSION 2.6)
 # Avoid warnings in higher versions

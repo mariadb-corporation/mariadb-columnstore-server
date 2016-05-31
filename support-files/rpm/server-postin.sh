@@ -30,6 +30,6 @@ if [ -f /etc/redhat-release ] ; then
 fi
 
 if [ -x sbin/restorecon ] ; then
-	sbin/restorecon -R /usr/local/MariaDB/Columnstore/mysql
+	sbin/restorecon -R /usr/local/mariadb/columnstore/mysql
 fi
 
