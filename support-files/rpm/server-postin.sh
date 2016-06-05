@@ -30,6 +30,6 @@ if [ -f /etc/redhat-release ] ; then
 fi
 
 if [ -x sbin/restorecon ] ; then
-	sbin/restorecon -R /$homedir/mysql
+	sbin/restorecon -R $basemysqldir
 fi
 
