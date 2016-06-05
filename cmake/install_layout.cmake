@@ -83,7 +83,7 @@ CACHE STRING "Installation directory layout. Options are: STANDALONE (as in zip 
 IF(UNIX)
   IF(INSTALL_LAYOUT MATCHES "RPM")
 #    SET(default_prefix "/usr")
-    SET(default_prefix $basemysqldir)
+    SET(default_prefix "/usr/local/mariadb/columnstore/mysql")
   ELSEIF(INSTALL_LAYOUT MATCHES "DEB")
     SET(default_prefix "/usr")
   ELSEIF(INSTALL_LAYOUT MATCHES "SVR4")

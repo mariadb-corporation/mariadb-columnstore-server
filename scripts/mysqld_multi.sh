@@ -61,11 +61,6 @@ my $logdir= undef();
 my ($mysqld, $mysqladmin, $groupids, $homedir, $my_progname);
 
 $homedir = $ENV{HOME};
-$basemysqldir = "/usr/local/mariadb/columnstore/mysql"
-if ($homedir != "/root") {
-	$basemysqldir = "$homedir/mariadb/columnstore/mysql"
-}
-
 $my_progname = $0;
 $my_progname =~ s/.*[\/]//;
 
