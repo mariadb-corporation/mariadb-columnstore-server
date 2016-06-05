@@ -1,6 +1,6 @@
 IF(RPM)
 
-SET(CMAKE_INSTALL_PREFIX "/usr/local/mariadb/columnstore/mysql")
+SET(CMAKE_INSTALL_PREFIX "$homedir/mysql")
 
 SET(CPACK_GENERATOR "RPM")
 SET(CPACK_RPM_PACKAGE_DEBUG 1)
