@@ -1021,7 +1021,7 @@ PSI_cond_key key_RELAYLOG_update_cond, key_COND_wakeup_ready,
 PSI_cond_key key_RELAYLOG_COND_queue_busy;
 PSI_cond_key key_TC_LOG_MMAP_COND_queue_busy;
 PSI_cond_key key_COND_rpl_thread_queue, key_COND_rpl_thread,
-  key_COND_rpl_thread_pool,
+  key_COND_rpl_thread_stop, key_COND_rpl_thread_pool,
   key_COND_parallel_entry, key_COND_group_commit_orderer,
   key_COND_prepare_ordered, key_COND_slave_init;
 PSI_cond_key key_COND_wait_gtid, key_COND_gtid_ignore_duplicates;
@@ -1068,6 +1068,7 @@ static PSI_cond_info all_server_conds[]=
   { &key_COND_flush_thread_cache, "COND_flush_thread_cache", PSI_FLAG_GLOBAL},
   { &key_COND_rpl_thread, "COND_rpl_thread", 0},
   { &key_COND_rpl_thread_queue, "COND_rpl_thread_queue", 0},
+  { &key_COND_rpl_thread_stop, "COND_rpl_thread_stop", 0},
   { &key_COND_rpl_thread_pool, "COND_rpl_thread_pool", 0},
   { &key_COND_parallel_entry, "COND_parallel_entry", 0},
   { &key_COND_group_commit_orderer, "COND_group_commit_orderer", 0},
@@ -2046,6 +2047,16 @@ extern "C" void unireg_abort(int exit_code)
   mysqld_exit(exit_code);
 }
 
+
+static void cleanup_tls()
+{
+  if (THR_THD)
+    (void)pthread_key_delete(THR_THD);
+  if (THR_MALLOC)
+    (void)pthread_key_delete(THR_MALLOC);
+}
+
+
 static void mysqld_exit(int exit_code)
 {
   DBUG_ENTER("mysqld_exit");
@@ -2064,6 +2075,7 @@ static void mysqld_exit(int exit_code)
 #ifdef WITH_PERFSCHEMA_STORAGE_ENGINE
   shutdown_performance_schema();        // we do it as late as possible
 #endif
+  cleanup_tls();
   DBUG_LEAVE;
   sd_notify(0, "STATUS=MariaDB server is down");
   exit(exit_code); /* purecov: inspected */
@@ -2105,14 +2117,9 @@ void clean_up(bool print_message)
   lex_free();				/* Free some memory */
   item_create_cleanup();
   item_window_function_create_cleanup();  // @InfiniDB
-  if (!opt_noacl)
-  {
-#ifdef HAVE_DLOPEN
-    udf_free();
-#endif
-  }
   tdc_start_shutdown();
   plugin_shutdown();
+  udf_free();
   ha_end();
   if (tc_log)
     tc_log->close();
@@ -2186,12 +2193,6 @@ void clean_up(bool print_message)
   my_free(const_cast<char*>(relay_log_index));
 #endif
   free_list(opt_plugin_load_list_ptr);
-
-  if (THR_THD)
-    (void) pthread_key_delete(THR_THD);
-
-  if (THR_MALLOC)
-    (void) pthread_key_delete(THR_MALLOC);
 
   /*
     The following lines may never be executed as the main thread may have
@@ -4107,10 +4108,6 @@ static int init_common_variables()
     return 1;
   }
 
-#if defined(HAVE_POOL_OF_THREADS) && !defined(_WIN32)
-  SYSVAR_AUTOSIZE(threadpool_size, my_getncpus());
-#endif
-
   if (init_thread_environment() ||
       mysql_init_variables())
     return 1;
@@ -4339,6 +4336,11 @@ static int init_common_variables()
   }
 #endif /* HAVE_SOLARIS_LARGE_PAGES */
 
+
+#if defined(HAVE_POOL_OF_THREADS) && !defined(_WIN32)
+  if (IS_SYSVAR_AUTOSIZE(&threadpool_size))
+    SYSVAR_AUTOSIZE(threadpool_size, my_getncpus());
+#endif
 
   /* Fix host_cache_size. */
   if (IS_SYSVAR_AUTOSIZE(&host_cache_size))
@@ -5225,7 +5227,14 @@ static int init_server_components()
       if (tmp->wsrep_applier == true)
       {
         /*
-          Set THR_THD to temporally point to this THD to register all the
+          Save/restore server_status and variables.option_bits and they get
+          altered during init_for_queries().
+        */
+        unsigned int server_status_saved= tmp->server_status;
+        ulonglong option_bits_saved= tmp->variables.option_bits;
+
+        /*
+          Set THR_THD to temporarily point to this THD to register all the
           variables that allocates memory for this THD.
         */
         THD *current_thd_saved= current_thd;
@@ -5235,6 +5244,9 @@ static int init_server_components()
 
         /* Restore current_thd. */
         set_current_thd(current_thd_saved);
+
+        tmp->server_status= server_status_saved;
+        tmp->variables.option_bits= option_bits_saved;
       }
     }
     mysql_mutex_unlock(&LOCK_thread_count);
@@ -5395,25 +5407,33 @@ static int init_server_components()
     (void) mi_log(1);
 
 #if defined(HAVE_MLOCKALL) && defined(MCL_CURRENT) && !defined(EMBEDDED_LIBRARY)
-  if (locked_in_memory && !getuid())
+  if (locked_in_memory)
   {
-    if (setreuid((uid_t)-1, 0) == -1)
-    {                        // this should never happen
-      sql_perror("setreuid");
-      unireg_abort(1);
+    int error;
+    if (user_info)
+    {
+      DBUG_ASSERT(!getuid());
+      if (setreuid((uid_t) -1, 0) == -1)
+      {
+        sql_perror("setreuid");
+        unireg_abort(1);
+      }
+      error= mlockall(MCL_CURRENT);
+      set_user(mysqld_user, user_info);
     }
-    if (mlockall(MCL_CURRENT))
+    else
+      error= mlockall(MCL_CURRENT);
+
+    if (error)
     {
       if (global_system_variables.log_warnings)
 	sql_print_warning("Failed to lock memory. Errno: %d\n",errno);
       locked_in_memory= 0;
     }
-    if (user_info)
-      set_user(mysqld_user, user_info);
   }
-  else
+#else
+  locked_in_memory= 0;
 #endif
-    locked_in_memory=0;
 
   ft_init_stopwords();
 
@@ -5854,12 +5874,7 @@ int mysqld_main(int argc, char **argv)
   if (!opt_noacl)
     (void) grant_init();
 
-  if (!opt_noacl)
-  {
-#ifdef HAVE_DLOPEN
-    udf_init();
-#endif
-  }
+  udf_init();
 
   if (opt_bootstrap) /* If running with bootstrap, do not start replication. */
     opt_skip_slave_start= 1;
@@ -5874,7 +5889,15 @@ int mysqld_main(int argc, char **argv)
 
   execute_ddl_log_recovery();
 
-  if (Events::init(opt_noacl || opt_bootstrap))
+  /*
+    Change EVENTS_ORIGINAL to EVENTS_OFF (the default value) as there is no
+    point in using ORIGINAL during startup
+  */
+  if (Events::opt_event_scheduler == Events::EVENTS_ORIGINAL)
+    Events::opt_event_scheduler= Events::EVENTS_OFF;
+
+  Events::set_original_state(Events::opt_event_scheduler);
+  if (Events::init((THD*) 0, opt_noacl || opt_bootstrap))
     unireg_abort(1);
 
   if (WSREP_ON)
@@ -10116,6 +10139,9 @@ PSI_stage_info stage_waiting_for_prior_transaction_to_commit= { 0, "Waiting for 
 PSI_stage_info stage_waiting_for_prior_transaction_to_start_commit= { 0, "Waiting for prior transaction to start commit before starting next transaction", 0};
 PSI_stage_info stage_waiting_for_room_in_worker_thread= { 0, "Waiting for room in worker thread event queue", 0};
 PSI_stage_info stage_waiting_for_workers_idle= { 0, "Waiting for worker threads to be idle", 0};
+PSI_stage_info stage_waiting_for_ftwrl= { 0, "Waiting due to global read lock", 0};
+PSI_stage_info stage_waiting_for_ftwrl_threads_to_pause= { 0, "Waiting for worker threads to pause for global read lock", 0};
+PSI_stage_info stage_waiting_for_rpl_thread_pool= { 0, "Waiting while replication worker thread pool is busy", 0};
 PSI_stage_info stage_master_gtid_wait_primary= { 0, "Waiting in MASTER_GTID_WAIT() (primary waiter)", 0};
 PSI_stage_info stage_master_gtid_wait= { 0, "Waiting in MASTER_GTID_WAIT()", 0};
 PSI_stage_info stage_gtid_wait_other_connection= { 0, "Waiting for other master connection to process GTID received on multiple master connections", 0};

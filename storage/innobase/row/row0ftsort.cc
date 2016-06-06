@@ -557,9 +557,11 @@ row_merge_fts_doc_tokenize(
 		fts_max_token_size, add one extra size and one extra byte */
 		cur_len += 2;
 
-		/* Reserve one byte for the end marker of row_merge_block_t. */
+		/* Reserve one byte for the end marker of row_merge_block_t
+		and we have reserved ROW_MERGE_RESERVE_SIZE (= 4) for
+		encryption key_version in the beginning of the buffer. */
 		if (buf->total_size + data_size[idx] + cur_len
-		    >= srv_sort_buf_size - 1) {
+			>= (srv_sort_buf_size - 1 - ROW_MERGE_RESERVE_SIZE)) {
 
 			buf_full = TRUE;
 			break;
@@ -1479,7 +1481,7 @@ row_fts_merge_insert(
 		fd[i] = psort_info[i].merge_file[id]->fd;
 		foffs[i] = 0;
 
-		buf[i] = static_cast<unsigned char (*)[65536]>(
+		buf[i] = static_cast<mrec_buf_t*>(
 			mem_heap_alloc(heap, sizeof *buf[i]));
 
 		count_diag += (int) psort_info[i].merge_file[id]->n_rec;

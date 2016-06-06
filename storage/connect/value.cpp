@@ -103,6 +103,7 @@ ulonglong CharToNumber(char *p, int n, ulonglong maxval,
 
   if (minus) *minus = false;
   if (rc) *rc = false;
+	if (n <= 0) return 0LL;
 
   // Eliminate leading blanks or 0
   for (p2 = p + n; p < p2 && (*p == ' ' || *p == '0'); p++) ;
@@ -339,7 +340,7 @@ PVAL AllocateValue(PGLOBAL g, void *value, short type, short prec)
 
   switch (type) {
     case TYPE_STRING:
-      valp = new(g) TYPVAL<PSZ>((PSZ)value);
+      valp = new(g) TYPVAL<PSZ>((PSZ)value, prec);
       break;
     case TYPE_SHORT:
       valp = new(g) TYPVAL<short>(*(short*)value, TYPE_SHORT);
@@ -705,7 +706,7 @@ bool TYPVAL<TYPE>::SetValue_char(char *p, int n)
 template <>
 bool TYPVAL<double>::SetValue_char(char *p, int n)
   {
-  if (p) {
+  if (p && n > 0) {
     char buf[64];
 
     for (; n > 0 && *p == ' '; p++)
@@ -1208,12 +1209,12 @@ void TYPVAL<TYPE>::Print(PGLOBAL g, char *ps, uint z)
 /***********************************************************************/
 /*  STRING  public constructor from a constant string.                 */
 /***********************************************************************/
-TYPVAL<PSZ>::TYPVAL(PSZ s) : VALUE(TYPE_STRING)
+TYPVAL<PSZ>::TYPVAL(PSZ s, short c) : VALUE(TYPE_STRING)
   {
   Strp = s;
   Len = strlen(s);
   Clen = Len;
-  Ci = false;
+  Ci = (c == 1);
   } // end of STRING constructor
 
 /***********************************************************************/
@@ -1345,7 +1346,7 @@ bool TYPVAL<PSZ>::SetValue_char(char *p, int n)
   {
   bool rc;
 
-  if (p) {
+  if (p && n > 0) {
     rc = n > Len;
 
     if ((n = MY_MIN(n, Len))) {
@@ -1804,7 +1805,7 @@ bool DECVAL::SetValue_char(char *p, int n)
   {
   bool rc;
 
-  if (p) {
+  if (p && n > 0) {
     rc = n > Len;
 
     if ((n = MY_MIN(n, Len))) {
@@ -2095,7 +2096,7 @@ bool BINVAL::SetValue_char(char *p, int n)
   {
   bool rc;
 
-  if (p) {
+  if (p && n > 0) {
     rc = n > Clen;
     Len = MY_MIN(n, Clen);
     memcpy(Binp, p, Len);
@@ -2665,20 +2666,23 @@ bool DTVAL::SetValue_pval(PVAL valp, bool chktype)
 /***********************************************************************/
 bool DTVAL::SetValue_char(char *p, int n)
   {
-  bool rc;
+  bool rc= 0;
 
   if (Pdtp) {
     char *p2;
     int   ndv;
     int  dval[6];
 
-    // Trim trailing blanks
-    for (p2 = p + n -1; p < p2 && *p2 == ' '; p2--) ;
+		if (n > 0) {
+			// Trim trailing blanks
+			for (p2 = p + n -1; p < p2 && *p2 == ' '; p2--);
 
-    if ((rc = (n = p2 - p + 1) > Len))
-      n = Len;
+			if ((rc = (n = p2 - p + 1) > Len))
+				n = Len;
 
-    memcpy(Sdate, p, n);
+			memcpy(Sdate, p, n);
+			} // endif n
+
     Sdate[n] = '\0';
 
     ndv = ExtractDate(Sdate, Pdtp, DefYear, dval);

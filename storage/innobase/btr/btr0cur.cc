@@ -1659,6 +1659,10 @@ btr_cur_pessimistic_insert(
 			flags, cursor, offsets, heap, entry, n_ext, mtr);
 	}
 
+	if (*rec == NULL && os_has_said_disk_full) {
+		return(DB_OUT_OF_FILE_SPACE);
+	}
+
 	ut_ad(page_rec_get_next(btr_cur_get_rec(cursor)) == *rec);
 
 	if (!(flags & BTR_NO_LOCKING_FLAG)) {
@@ -2276,6 +2280,12 @@ any_extern:
 #endif /* UNIV_ZIP_DEBUG */
 
 	if (page_zip) {
+		if (page_zip_rec_needs_ext(new_rec_size, page_is_comp(page),
+					   dict_index_get_n_fields(index),
+					   page_zip_get_size(page_zip))) {
+			goto any_extern;
+		}
+
 		if (!btr_cur_update_alloc_zip(
 			    page_zip, page_cursor, index, *offsets,
 			    new_rec_size, true, mtr)) {
@@ -5152,6 +5162,21 @@ btr_free_externally_stored_field(
 		/* In the rollback, we may encounter a clustered index
 		record with some unwritten off-page columns. There is
 		nothing to free then. */
+		if (rb_ctx == RB_NONE) {
+			char		buf[3 * 512];
+			char		*bufend;
+			ulint ispace = dict_index_get_space(index);
+			bufend = innobase_convert_name(buf, sizeof buf,
+				index->name, strlen(index->name),
+				NULL,
+				FALSE);
+			buf[bufend - buf]='\0';
+			ib_logf(IB_LOG_LEVEL_ERROR, "Unwritten off-page columns in "
+				"rollback context %d. Table %s index %s space_id %lu "
+				"index space %lu.",
+				rb_ctx, index->table->name, buf, space_id, ispace);
+		}
+
 		ut_a(rb_ctx != RB_NONE);
 		return;
 	}

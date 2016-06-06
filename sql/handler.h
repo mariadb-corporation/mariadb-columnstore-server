@@ -41,9 +41,6 @@
 #include <keycache.h>
 #include <mysql/psi/mysql_table.h>
 #include <stdint.h>
-#if MAX_KEY > 128
-#error MAX_KEY is too large.  Values up to 128 are supported.
-#endif
 
 #ifdef _MSC_VER
 #ifndef STDINT_H

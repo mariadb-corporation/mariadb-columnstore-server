@@ -3162,13 +3162,14 @@ static void check_duplicate_key(THD *thd,
 
     // Report a warning if we have two identical keys.
 
+    DBUG_ASSERT(thd->lex->query_tables->alias);
     if (all_columns_are_identical)
     {
       push_warning_printf(thd, Sql_condition::WARN_LEVEL_NOTE,
                           ER_DUP_INDEX, ER_THD(thd, ER_DUP_INDEX),
                           key_info->name,
                           thd->lex->query_tables->db,
-                          thd->lex->query_tables->table_name);
+                          thd->lex->query_tables->alias);
       break;
     }
   }
@@ -3297,9 +3298,10 @@ mysql_prepare_create_table(THD *thd, HA_CREATE_INFO *create_info,
                                                sql_field->interval_list);
         List_iterator<String> int_it(sql_field->interval_list);
         String conv, *tmp;
-        char comma_buf[4]; /* 4 bytes for utf32 */
+        char comma_buf[5]; /* 5 bytes for 'filename' charset */
+        DBUG_ASSERT(sizeof(comma_buf) >= cs->mbmaxlen);
         int comma_length= cs->cset->wc_mb(cs, ',', (uchar*) comma_buf,
-                                          (uchar*) comma_buf + 
+                                          (uchar*) comma_buf +
                                           sizeof(comma_buf));
         DBUG_ASSERT(comma_length > 0);
         for (uint i= 0; (tmp= int_it++); i++)
@@ -4640,8 +4642,8 @@ int create_table_impl(THD *thd,
   bool          frm_only= create_table_mode == C_ALTER_TABLE_FRM_ONLY;
   bool          internal_tmp_table= create_table_mode == C_ALTER_TABLE || frm_only;
   DBUG_ENTER("mysql_create_table_no_lock");
-  DBUG_PRINT("enter", ("db: '%s'  table: '%s'  tmp: %d",
-                       db, table_name, internal_tmp_table));
+  DBUG_PRINT("enter", ("db: '%s'  table: '%s'  tmp: %d  path: %s",
+                       db, table_name, internal_tmp_table, path));
 
   if (thd->variables.sql_mode & MODE_NO_DIR_IN_CREATE)
   {
@@ -5843,11 +5845,18 @@ drop_create_field:
     Key *key;
     List_iterator<Key> key_it(alter_info->key_list);
     uint n_key;
-    const char *keyname;
+    const char *keyname= NULL;
     while ((key=key_it++))
     {
       if (!key->if_not_exists() && !key->or_replace())
         continue;
+
+      /* Check if the table already has a PRIMARY KEY */
+      bool dup_primary_key= key->type == Key::PRIMARY &&
+                            table->s->primary_key != MAX_KEY;
+      if (dup_primary_key)
+        goto remove_key;
+
       /* If the name of the key is not specified,     */
       /* let us check the name of the first key part. */
       if ((keyname= key->name.str) == NULL)
@@ -5915,8 +5924,8 @@ remove_key:
       if (key->if_not_exists())
       {
         push_warning_printf(thd, Sql_condition::WARN_LEVEL_NOTE,
-                            ER_DUP_KEYNAME, ER_THD(thd, ER_DUP_KEYNAME),
-                            keyname);
+                            ER_DUP_KEYNAME, ER_THD(thd, dup_primary_key
+                            ? ER_MULTIPLE_PRI_KEY : ER_DUP_KEYNAME), keyname);
         key_it.remove();
         if (key->type == Key::FOREIGN_KEY)
         {
@@ -5927,8 +5936,9 @@ remove_key:
           alter_info->flags&= ~(Alter_info::ALTER_ADD_INDEX |
               Alter_info::ADD_FOREIGN_KEY);
       }
-      else if (key->or_replace())
+      else
       {
+        DBUG_ASSERT(key->or_replace());
         Alter_drop::drop_type type= (key->type == Key::FOREIGN_KEY) ?
           Alter_drop::FOREIGN_KEY : Alter_drop::KEY;
         Alter_drop *ad= new Alter_drop(type, key->name.str, FALSE);

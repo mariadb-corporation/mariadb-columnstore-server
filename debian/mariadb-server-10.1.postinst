@@ -23,11 +23,6 @@ invoke() {
 
 MYSQL_BOOTSTRAP="/usr/sbin/mysqld --bootstrap --user=mysql --disable-log-bin --skip-grant-tables --default-storage-engine=myisam"
 
-test_mysql_access() {
-       mysql --no-defaults -u root -h localhost </dev/null >/dev/null 2>&1
-}
-
-# call with $1 = "online" to connect to the server, otherwise it bootstraps
 set_mysql_rootpw() {
        # forget we ever saw the password.  don't use reset to keep the seen status
        db_set mysql-server/root_password ""
@@ -47,9 +42,6 @@ FLUSH PRIVILEGES;
 EOF
        if grep -q 'PASSWORD("")' $tfile; then
                retval=0
-       elif [ "$1" = "online" ]; then
-               mysql --no-defaults -u root -h localhost <$tfile >/dev/null
-               retval=$?
        else
                $MYSQL_BOOTSTRAP <$tfile
                retval=$?
@@ -112,8 +104,10 @@ EOF
     
     # Ensure the existence and right permissions for the database and
     # log files.
-    if [ ! -d "$mysql_statedir"       -a ! -L "$mysql_statedir"       ]; then mkdir "$mysql_statedir"; fi
-    if [ ! -d "$mysql_statedir/mysql" -a ! -L "$mysql_statedir/mysql" ]; then mkdir "$mysql_statedir/mysql"; fi
+    if [ ! -d "$mysql_statedir/mysql" -a ! -L "$mysql_statedir/mysql" ]; then
+      # Debian: beware of the bashisms...
+      /bin/bash /usr/bin/mysql_install_db --rpm --user=mysql --disable-log-bin 2>&1 | $ERR_LOGGER
+    fi
     if [ ! -d "$mysql_newlogdir"      -a ! -L "$mysql_newlogdir"      ]; then mkdir "$mysql_newlogdir"; fi
     # When creating an ext3 jounal on an already mounted filesystem like e.g.
     # /var/lib/mysql, you get a .journal file that is not modifyable by chown.
@@ -138,16 +132,6 @@ EOF
 
     # To avoid downgrades.
     touch $mysql_statedir/debian-10.1.flag
-
-    # initiate databases. Output is not allowed by debconf :-(
-    # This will fail if we are upgrading an existing database; in this case
-    # mysql_upgrade, called from the /etc/init.d/mysql start script, will
-    # handle things.
-    # Debian: beware of the bashisms... 
-    # Debian: can safely run on upgrades with existing databases 
-    set +e
-    /bin/bash /usr/bin/mysql_install_db --rpm --user=mysql --disable-log-bin 2>&1 | $ERR_LOGGER
-    set -e
     
     ## On every reconfiguration the maintenance user is recreated.
     #
@@ -173,7 +157,9 @@ EOF
     else
 	pass=`perl -e 'print map{("a".."z","A".."Z",0..9)[int(rand(62))]}(1..16)'`;
         if [ ! -d "$mysql_cfgdir" ]; then install -o 0 -g 0 -m 0755 -d $mysql_cfgdir; fi
+        umask 066
         cat /dev/null > $dc
+        umask 022
         echo "# Automatically generated for Debian scripts. DO NOT TOUCH!" >>$dc
         echo "[client]"                                                    >>$dc
         echo "host     = localhost"                                        >>$dc
@@ -191,10 +177,6 @@ EOF
     chown 0:0 $dc
     chmod 0600 $dc
 
-    # update privilege tables
-    password_column_fix_query=`/bin/echo -e \
-        "USE mysql;\n" \
-        "ALTER TABLE user CHANGE Password Password char(41) character set latin1 collate latin1_bin DEFAULT '' NOT NULL;"`
     replace_query=`/bin/echo -e \
         "USE mysql;\n" \
         "SET sql_mode='';\n" \
@@ -209,26 +191,15 @@ EOF
         "  Show_view_priv='Y', Create_routine_priv='Y', Alter_routine_priv='Y', "\
         "  Create_user_priv='Y', Event_priv='Y', Trigger_priv='Y',"\
         "  ssl_cipher='', x509_issuer='', x509_subject='';"`;
-    # Engines supported by etch should be installed per default. The query sequence is supposed
-    # to be aborted if the CREATE TABLE fails due to an already existent table in which case the
-    # admin might already have chosen to remove one or more plugins. Newlines are necessary.
-    install_plugins=`/bin/echo -e \
-        "USE mysql;\n" \
-        "CREATE TABLE IF NOT EXISTS plugin (name char(64) COLLATE utf8_bin NOT NULL DEFAULT '', " \
-        "  dl char(128) COLLATE utf8_bin NOT NULL DEFAULT '', " \
-        "  PRIMARY KEY (name)) ENGINE=MyISAM DEFAULT CHARSET=utf8 COLLATE=utf8_bin COMMENT='MySQL plugins';" `
-
-    # Upgrade password column format before the root password gets set.
-    echo "$password_column_fix_query"                        | $MYSQL_BOOTSTRAP 2>&1 | $ERR_LOGGER
 
     db_get mysql-server/root_password && rootpw="$RET"
     if ! set_mysql_rootpw; then
-        password_error="yes"
+      db_input high mysql-server/error_setting_password || true
+      db_go
     fi
 
     set +e
     echo "$replace_query"                                    | $MYSQL_BOOTSTRAP 2>&1 | $ERR_LOGGER
-    echo "$install_plugins"                                  | $MYSQL_BOOTSTRAP 2>&1 | $ERR_LOGGER
     set -e
 
     # If there is a real AppArmor profile, we reload it.
@@ -245,6 +216,13 @@ EOF
             echo "/usr/sbin/mysqld { }" | apparmor_parser --remove 2>/dev/null || true
 	fi
     fi
+
+    # copy out any mysqld_safe settings
+    systemd_conf=/etc/systemd/system/mariadb.service.d/migrated-from-my.cnf-settings.conf
+    if [ -x /usr/bin/mariadb-service-convert -a ! -f "${systemd_conf}" ]; then
+      mkdir -p /etc/systemd/system/mariadb.service.d
+      /usr/bin/mariadb-service-convert > "${systemd_conf}"
+    fi
   ;;
 
   abort-upgrade|abort-remove|abort-configure)
@@ -255,34 +233,6 @@ EOF
     exit 1
   ;;
 esac
-
-# here we check to see if we can connect as root without a password
-# this should catch upgrades from previous versions where the root
-# password wasn't set.  if there is a password, or if the connection
-# fails for any other reason, nothing happens.
-if [ "$1" = "configure" ]; then
-       if test_mysql_access; then
-               db_input medium mysql-server/root_password || true
-               db_go
-               db_get mysql-server/root_password && rootpw="$RET"
-
-               if ! set_mysql_rootpw "online"; then
-                       password_error="yes"
-               fi
-       fi
-
-       if [ "$password_error" = "yes" ]; then
-               db_input high mysql-server/error_setting_password || true
-               db_go
-       fi
-
-       # copy out any mysqld_safe settings
-       systemd_conf=/etc/systemd/system/mariadb.service.d/migrated-from-my.cnf-settings.conf
-       if [ -x /usr/bin/mariadb-service-convert  -a ! -f "${systemd_conf}" ]; then
-              mkdir -p /etc/systemd/system/mariadb.service.d
-              /usr/bin/mariadb-service-convert > "${systemd_conf}"
-       fi
-fi
 
 db_stop # in case invoke failes
 

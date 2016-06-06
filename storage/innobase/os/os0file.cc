@@ -112,6 +112,7 @@ UNIV_INTERN ulint	os_innodb_umask = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP;
 #else
 /** Umask for creating files */
 UNIV_INTERN ulint	os_innodb_umask	= 0;
+#define ECANCELED  125
 #endif /* __WIN__ */
 
 #ifndef UNIV_HOTBACKUP
@@ -6414,19 +6415,13 @@ os_file_get_block_size(
 	}
 #endif /* __WIN__*/
 
-	if (fblock_size > UNIV_PAGE_SIZE/2 || fblock_size < 512) {
-		fprintf(stderr, "InnoDB: Note: File system for file %s has "
-			"file block size %lu not supported for page_size %lu\n",
-			name, fblock_size, UNIV_PAGE_SIZE);
-
+	/* Currently we support file block size up to 4Kb */
+	if (fblock_size > 4096 || fblock_size < 512) {
 		if (fblock_size < 512) {
 			fblock_size = 512;
 		} else {
-			fblock_size = UNIV_PAGE_SIZE/2;
+			fblock_size = 4096;
 		}
-
-		fprintf(stderr, "InnoDB: Note: Using file block size %ld for file %s\n",
-			fblock_size, name);
 	}
 
 	return fblock_size;

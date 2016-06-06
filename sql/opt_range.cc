@@ -1519,15 +1519,14 @@ end:
   DBUG_ASSERT(head->read_set == &column_bitmap);
   /*
     We are only going to read key fields and call position() on 'file'
-    The following sets head->tmp_set to only use this key and then updates
-    head->read_set and head->write_set to use this bitmap.
-    The now bitmap is stored in 'column_bitmap' which is used in ::get_next()
+    The following sets head->read_set (== column_bitmap) to only use this
+    key. The 'column_bitmap' is used in ::get_next()
   */
   org_file= head->file;
   org_key_read= head->key_read;
   head->file= file;
   head->key_read= 0;
-  head->mark_columns_used_by_index_no_reset(index, head->read_set);
+  head->mark_columns_used_by_index_no_reset(index, &column_bitmap);
 
   if (!head->no_keyread)
   {
@@ -1551,8 +1550,7 @@ end:
       file->ha_close();
       goto failure;
     }
-    else
-      DBUG_RETURN(1);
+    DBUG_RETURN(1);
   }
   DBUG_RETURN(0);
 
@@ -5214,6 +5212,7 @@ bool prepare_search_best_index_intersect(PARAM *param,
     return 1;
 
   bzero(init, sizeof(*init));
+  init->filtered_scans.init();
   init->common_info= common;
   init->cost= cutoff_cost;
 
@@ -7585,8 +7584,10 @@ Item_bool_func::get_mm_parts(RANGE_OPT_PARAM *param, Field *field,
   KEY_PART *key_part = param->key_parts;
   KEY_PART *end = param->key_parts_end;
   SEL_TREE *tree=0;
+  table_map value_used_tables= 0;
   if (value &&
-      value->used_tables() & ~(param->prev_tables | param->read_tables))
+      (value_used_tables= value->used_tables()) &
+      ~(param->prev_tables | param->read_tables))
     DBUG_RETURN(0);
   for (; key_part != end ; key_part++)
   {
@@ -7595,7 +7596,7 @@ Item_bool_func::get_mm_parts(RANGE_OPT_PARAM *param, Field *field,
       SEL_ARG *sel_arg=0;
       if (!tree && !(tree=new (param->thd->mem_root) SEL_TREE()))
 	DBUG_RETURN(0);				// OOM
-      if (!value || !(value->used_tables() & ~param->read_tables))
+      if (!value || !(value_used_tables & ~param->read_tables))
       {
         /*
           We need to restore the runtime mem_root of the thread in this
@@ -11138,26 +11139,21 @@ err:
 int QUICK_RANGE_SELECT::get_next()
 {
   range_id_t dummy;
+  int result;
+  DBUG_ENTER("QUICK_RANGE_SELECT::get_next");
+
+  if (!in_ror_merged_scan)
+    DBUG_RETURN(file->multi_range_read_next(&dummy));
+
   MY_BITMAP * const save_read_set= head->read_set;
   MY_BITMAP * const save_write_set= head->write_set;
-
-  DBUG_ENTER("QUICK_RANGE_SELECT::get_next");
-  if (in_ror_merged_scan)
-  {
-    /*
-      We don't need to signal the bitmap change as the bitmap is always the
-      same for this head->file
-    */
-    head->column_bitmaps_set_no_signal(&column_bitmap, &column_bitmap);
-  }
-
-  int result= file->multi_range_read_next(&dummy);
-
-  if (in_ror_merged_scan)
-  {
-    /* Restore bitmaps set on entry */
-    head->column_bitmaps_set_no_signal(save_read_set, save_write_set);
-  }
+  /*
+    We don't need to signal the bitmap change as the bitmap is always the
+    same for this head->file
+  */
+  head->column_bitmaps_set_no_signal(&column_bitmap, &column_bitmap);
+  result= file->multi_range_read_next(&dummy);
+  head->column_bitmaps_set_no_signal(save_read_set, save_write_set);
   DBUG_RETURN(result);
 }
 

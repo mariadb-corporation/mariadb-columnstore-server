@@ -55,7 +55,6 @@
 #include <my_global.h>
 #include "sql_priv.h"
 #include "sql_handler.h"
-#include "unireg.h"                    // REQUIRED: for other includes
 #include "sql_base.h"                           // close_thread_tables
 #include "lock.h"                               // mysql_unlock_tables
 #include "key.h"                                // key_copy
@@ -375,7 +374,8 @@ bool mysql_ha_open(THD *thd, TABLE_LIST *tables, SQL_HANDLER *reopen)
 
   /* Always read all columns */
   table->read_set= &table->s->all_set;
-  table->vcol_set= &table->s->all_set;
+  if (table->vcol_set)
+    table->vcol_set= &table->s->all_set;
 
   /* Restore the state. */
   thd->set_open_tables(backup_open_tables);

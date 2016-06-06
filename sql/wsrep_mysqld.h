@@ -151,7 +151,6 @@ extern "C" query_id_t wsrep_thd_query_id(THD *thd);
 extern "C" query_id_t wsrep_thd_wsrep_last_query_id(THD *thd);
 extern "C" void wsrep_thd_set_wsrep_last_query_id(THD *thd, query_id_t id);
 
-
 extern void wsrep_close_client_connections(my_bool wait_to_end);
 extern int  wsrep_wait_committing_connections_close(int wait_time);
 extern void wsrep_close_applier(THD *thd);
@@ -165,7 +164,6 @@ extern bool wsrep_start_replication();
 extern bool wsrep_sync_wait(THD* thd, uint mask = WSREP_SYNC_WAIT_BEFORE_READ);
 extern int  wsrep_check_opts();
 extern void wsrep_prepend_PATH (const char* path);
-/* some inline functions are defined in wsrep_mysqld_inl.h */
 
 /* Other global variables */
 extern wsrep_seqno_t wsrep_locked_seqno;
@@ -289,7 +287,8 @@ int wsrep_alter_event_query(THD *thd, uchar** buf, size_t* buf_len);
 
 extern bool
 wsrep_grant_mdl_exception(MDL_context *requestor_ctx,
-                           MDL_ticket *ticket);
+                          MDL_ticket *ticket,
+                          const MDL_key *key);
 IO_CACHE * get_trans_log(THD * thd);
 bool wsrep_trans_cache_is_empty(THD *thd);
 void thd_binlog_flush_pending_rows_event(THD *thd, bool stmt_end);

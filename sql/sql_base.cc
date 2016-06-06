@@ -6458,6 +6458,7 @@ find_field_in_table_ref(THD *thd, TABLE_LIST *table_list,
       */
       table_name && table_name[0] &&
       (my_strcasecmp(table_alias_charset, table_list->alias, table_name) ||
+       (db_name && db_name[0] && (!table_list->db || !table_list->db[0])) ||
        (db_name && db_name[0] && table_list->db && table_list->db[0] &&
         (table_list->schema_table ?
          my_strcasecmp(system_charset_info, db_name, table_list->db) :
@@ -6931,7 +6932,10 @@ find_item_in_list(Item *find, List<Item> &items, uint *counter,
 
   for (uint i= 0; (item=li++); i++)
   {
-    if (field_name && item->real_item()->type() == Item::FIELD_ITEM)
+    if (field_name &&
+        (item->real_item()->type() == Item::FIELD_ITEM ||
+         ((item->type() == Item::REF_ITEM) &&
+          (((Item_ref *)item)->ref_type() == Item_ref::VIEW_REF))))
     {
       Item_ident *item_field= (Item_ident*) item;
 
@@ -7050,35 +7054,6 @@ find_item_in_list(Item *find, List<Item> &items, uint *counter,
         break;
       }
       else if (find->eq(item,0))
-      {
-        found= li.ref();
-        *counter= i;
-        *resolution= RESOLVED_IGNORING_ALIAS;
-        break;
-      }
-    }
-    else if (table_name && item->type() == Item::REF_ITEM &&
-             ((Item_ref *)item)->ref_type() == Item_ref::VIEW_REF)
-    {
-      /*
-        TODO:Here we process prefixed view references only. What we should 
-        really do is process all types of Item_ref's. But this will currently 
-        lead to a clash with the way references to outer SELECTs (from the 
-        HAVING clause) are handled in e.g. :
-        SELECT 1 FROM t1 AS t1_o GROUP BY a
-          HAVING (SELECT t1_o.a FROM t1 AS t1_i GROUP BY t1_i.a LIMIT 1).
-        Processing all Item_ref's here will cause t1_o.a to resolve to itself.
-        We still need to process the special case of Item_direct_view_ref 
-        because in the context of views they have the same meaning as 
-        Item_field for tables.
-      */
-      Item_ident *item_ref= (Item_ident *) item;
-      if (field_name && item_ref->name && item_ref->table_name &&
-          !my_strcasecmp(system_charset_info, item_ref->name, field_name) &&
-          !my_strcasecmp(table_alias_charset, item_ref->table_name,
-                         table_name) &&
-          (!db_name || (item_ref->db_name && 
-                        !strcmp (item_ref->db_name, db_name))))
       {
         found= li.ref();
         *counter= i;
@@ -8846,7 +8821,61 @@ err:
 }
 
 
-/*
+/**
+  Prepare Item_field's for fill_record_n_invoke_before_triggers()
+
+  This means redirecting from table->field to
+  table->field_to_fill(), if needed.
+*/
+void switch_to_nullable_trigger_fields(List<Item> &items, TABLE *table)
+{
+  Field** field= table->field_to_fill();
+
+  if (field != table->field)
+  {
+    List_iterator_fast<Item> it(items);
+    Item *item;
+
+    while ((item= it++))
+      item->walk(&Item::switch_to_nullable_fields_processor, 1, (uchar*)field);
+    table->triggers->reset_extra_null_bitmap();
+  }
+}
+
+
+/**
+  Test NOT NULL constraint after BEFORE triggers
+*/
+static bool not_null_fields_have_null_values(TABLE *table)
+{
+  Field **orig_field= table->field;
+  Field **filled_field= table->field_to_fill();
+
+  if (filled_field != orig_field)
+  {
+    THD *thd=table->in_use;
+    for (uint i=0; i < table->s->fields; i++)
+    {
+      Field *of= orig_field[i];
+      Field *ff= filled_field[i];
+      if (ff != of)
+      {
+        // copy after-update flags to of, copy before-update flags to ff
+        swap_variables(uint32, of->flags, ff->flags);
+        if (ff->is_real_null())
+        {
+          ff->set_notnull(); // for next row WHERE condition in UPDATE
+          if (convert_null_to_field_value_or_error(of) || thd->is_error())
+            return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
   Fill fields in list with values from the list of items and invoke
   before triggers.
 
@@ -8874,14 +8903,18 @@ fill_record_n_invoke_before_triggers(THD *thd, TABLE *table, List<Item> &fields,
 {
   bool result;
   Table_triggers_list *triggers= table->triggers;
-  result= (fill_record(thd, table, fields, values, ignore_errors) ||
-           (triggers && triggers->process_triggers(thd, event,
-                                                   TRG_ACTION_BEFORE, TRUE)));
+
+  result= fill_record(thd, table, fields, values, ignore_errors);
+
+  if (!result && triggers)
+    result= triggers->process_triggers(thd, event, TRG_ACTION_BEFORE, TRUE) ||
+            not_null_fields_have_null_values(table);
+
   /*
     Re-calculate virtual fields to cater for cases when base columns are
     updated by the triggers.
   */
-  if (!result && triggers && table)
+  if (!result && triggers)
   {
     List_iterator_fast<Item> f(fields);
     Item *fld;
@@ -9022,9 +9055,12 @@ fill_record_n_invoke_before_triggers(THD *thd, TABLE *table, Field **ptr,
 {
   bool result;
   Table_triggers_list *triggers= table->triggers;
-  result= (fill_record(thd, table, ptr, values, ignore_errors, FALSE) ||
-           (triggers && triggers->process_triggers(thd, event,
-                                                   TRG_ACTION_BEFORE, TRUE)));
+
+  result= fill_record(thd, table, ptr, values, ignore_errors, FALSE);
+
+  if (!result && triggers && *ptr)
+    result= triggers->process_triggers(thd, event, TRG_ACTION_BEFORE, TRUE) ||
+            not_null_fields_have_null_values(table);
   /*
     Re-calculate virtual fields to cater for cases when base columns are
     updated by the triggers.

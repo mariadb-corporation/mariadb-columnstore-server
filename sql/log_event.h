@@ -653,6 +653,11 @@ enum Log_event_type
   ANONYMOUS_GTID_LOG_EVENT= 34,
   PREVIOUS_GTIDS_LOG_EVENT= 35,
 
+  /* MySQL 5.7 events, ignored by MariaDB */
+  TRANSACTION_CONTEXT_EVENT= 36,
+  VIEW_CHANGE_EVENT= 37,
+  XA_PREPARE_LOG_EVENT= 38,
+
   /*
     Add new events here - right above this comment!
     Existing events (except ENUM_END_EVENT) should never change their numbers
@@ -4304,7 +4309,7 @@ public:
                  bitmap_cmp return logic).
 
    */
-  virtual bool read_write_bitmaps_cmp(TABLE *table)
+  bool read_write_bitmaps_cmp(TABLE *table)
   {
     bool res= FALSE;
 
@@ -4315,10 +4320,10 @@ public:
         break;
       case UPDATE_ROWS_EVENT:
         res= (bitmap_cmp(get_cols(), table->read_set) &&
-              bitmap_cmp(get_cols_ai(), table->write_set));
+              bitmap_cmp(get_cols_ai(), table->rpl_write_set));
         break;
       case WRITE_ROWS_EVENT:
-        res= bitmap_cmp(get_cols(), table->write_set);
+        res= bitmap_cmp(get_cols(), table->rpl_write_set);
         break;
       default:
         /*

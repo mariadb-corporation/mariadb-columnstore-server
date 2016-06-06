@@ -626,8 +626,7 @@ String *Item_func_concat::val_str(String *str)
   if (!(res=args[0]->val_str(str)))
     goto null;
   use_as_buff= &tmp_value;
-  /* Item_subselect in --ps-protocol mode will state it as a non-const */
-  is_const= args[0]->const_item() || !args[0]->used_tables();
+  is_const= args[0]->const_item();
   for (i=1 ; i < arg_count ; i++)
   {
     if (res->length() == 0)
@@ -639,7 +638,7 @@ String *Item_func_concat::val_str(String *str)
        non-empty argument. Because of this we need is_const to be 
        evaluated only for it.
       */
-      is_const= args[i]->const_item() || !args[i]->used_tables();
+      is_const= args[i]->const_item();
     }
     else
     {
@@ -986,7 +985,7 @@ String *Item_func_concat_ws::val_str(String *str)
   for (i=1; i < arg_count; i++)
     if ((res= args[i]->val_str(str)))
     {
-      is_const= args[i]->const_item() || !args[i]->used_tables();
+      is_const= args[i]->const_item();
       break;
     }
 
@@ -4518,6 +4517,8 @@ bool Item_func_dyncol_create::prepare_arguments(bool force_names_arg)
     case DYN_COL_DYNCOL:
     case DYN_COL_STRING:
       res= args[valpos]->val_str(&tmp);
+      if (res && defs[i].cs)
+        res->set_charset(defs[i].cs);
       if (res &&
           (vals[i].x.string.value.str= sql_strmake(res->ptr(), res->length())))
       {

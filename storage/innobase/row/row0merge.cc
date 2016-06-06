@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2005, 2015, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2015, MariaDB Corporation.
+Copyright (c) 2014, 2015, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -78,8 +78,6 @@ UNIV_INTERN char	srv_disable_sort_file_cache;
 /* Maximum pending doc memory limit in bytes for a fts tokenization thread */
 #define FTS_PENDING_DOC_MEMORY_LIMIT	1000000
 
-/* Reserve free space from every block for key_version */
-#define ROW_MERGE_RESERVE_SIZE 4
 
 /******************************************************//**
 Encrypt a merge block. */
@@ -971,6 +969,7 @@ row_merge_read(
 
 	success = os_file_read_no_error_handling(OS_FILE_FROM_FD(fd), buf,
 		                                 ofs, srv_sort_buf_size);
+	srv_stats.merge_buffers_read.inc();
 
 	/* For encrypted tables, decrypt data after reading and copy data */
 	if (crypt_data && crypt_buf) {
@@ -1026,7 +1025,7 @@ row_merge_write(
 	}
 
 	ret = os_file_write("(merge)", OS_FILE_FROM_FD(fd), out_buf, ofs, buf_len);
-
+	srv_stats.merge_buffers_written.inc();
 
 #ifdef UNIV_DEBUG
 	if (row_merge_print_block_write) {
@@ -1909,7 +1908,7 @@ write_buffers:
 			/* We have enough data tuples to form a block.
 			Sort them and write to disk. */
 
-			if (buf->n_tuples) {
+			if (UNIV_LIKELY(buf->n_tuples)) {
 				if (dict_index_is_unique(buf->index)) {
 					row_merge_dup_t	dup = {
 						buf->index, table, col_map, 0};
@@ -1950,13 +1949,18 @@ write_buffers:
 					dict_index_get_lock(buf->index));
 			}
 
-			row_merge_buf_write(buf, file, block);
+			/* Do not write empty buffers to temporary file */
+			if (buf->n_tuples) {
 
-			if (!row_merge_write(file->fd, file->offset++, block,
-					     crypt_data, crypt_block, new_table->space)) {
-				err = DB_TEMP_FILE_WRITE_FAILURE;
-				trx->error_key_num = i;
-				break;
+				row_merge_buf_write(buf, file, block);
+
+				if (!row_merge_write(file->fd, file->offset++,
+					block, crypt_data, crypt_block,
+					new_table->space)) {
+					err = DB_TEMP_FILE_WRITE_FAILURE;
+					trx->error_key_num = i;
+					break;
+				}
 			}
 
 			UNIV_MEM_INVALID(&block[0], srv_sort_buf_size);
@@ -2273,6 +2277,8 @@ done1:
 		b2, of->fd, &of->offset,
 		crypt_data, crypt_block ? &crypt_block[2 * srv_sort_buf_size] : NULL, space);
 
+	srv_stats.merge_buffers_merged.inc();
+
 	return(b2 ? DB_SUCCESS : DB_CORRUPTION);
 }
 
@@ -2528,7 +2534,6 @@ row_merge_sort(
 {
 	const ulint	half	= file->offset / 2;
 	ulint		num_runs;
-	ulint		cur_run = 0;
 	ulint*		run_offset;
 	dberr_t		error	= DB_SUCCESS;
 	ulint		merge_count = 0;
@@ -2563,17 +2568,21 @@ row_merge_sort(
 	of file marker).  Thus, it must be at least one block. */
 	ut_ad(file->offset > 0);
 
-	thd_progress_init(trx->mysql_thd, num_runs);
+	/* Progress report only for "normal" indexes. */
+	if (!(dup->index->type & DICT_FTS)) {
+		thd_progress_init(trx->mysql_thd, 1);
+	}
+
 	sql_print_information("InnoDB: Online DDL : merge-sorting has estimated %lu runs", num_runs);
 
 	/* Merge the runs until we have one big run */
 	do {
-		cur_run++;
-
 		/* Report progress of merge sort to MySQL for
 		show processlist progress field */
-		thd_progress_report(trx->mysql_thd, cur_run, num_runs);
-		sql_print_information("InnoDB: Online DDL : merge-sorting current run %lu estimated %lu runs", cur_run, num_runs);
+		/* Progress report only for "normal" indexes. */
+		if (!(dup->index->type & DICT_FTS)) {
+			thd_progress_report(trx->mysql_thd, file->offset - num_runs, file->offset);
+		}
 
 		error = row_merge(trx, dup, file, block, tmpfd,
 				  &num_runs, run_offset,
@@ -2597,7 +2606,10 @@ row_merge_sort(
 
 	mem_free(run_offset);
 
-	thd_progress_end(trx->mysql_thd);
+	/* Progress report only for "normal" indexes. */
+	if (!(dup->index->type & DICT_FTS)) {
+		thd_progress_end(trx->mysql_thd);
+	}
 
 	DBUG_RETURN(error);
 }
@@ -4092,66 +4104,70 @@ wait_again:
 			DEBUG_FTS_SORT_PRINT("FTS_SORT: Complete Insert\n");
 #endif
 		} else {
-			char		buf[3 * NAME_LEN];
-			char		*bufend;
-			row_merge_dup_t	dup = {
-				sort_idx, table, col_map, 0};
+			/* Sorting and inserting is required only if
+			there really is records */
+			if (UNIV_LIKELY(merge_files[i].n_rec)) {
+				char		buf[3 * NAME_LEN];
+				char		*bufend;
+				row_merge_dup_t	dup = {
+					sort_idx, table, col_map, 0};
 
-			pct_cost = (COST_BUILD_INDEX_STATIC +
-				(total_dynamic_cost * merge_files[i].offset /
-					total_index_blocks)) /
-				(total_static_cost + total_dynamic_cost)
-				* PCT_COST_MERGESORT_INDEX * 100;
-
-			bufend = innobase_convert_name(buf, sizeof buf,
-				indexes[i]->name, strlen(indexes[i]->name),
-				trx ? trx->mysql_thd : NULL,
-				FALSE);
-
-			buf[bufend - buf]='\0';
-
-			sql_print_information("InnoDB: Online DDL : Start merge-sorting"
-				" index %s (%lu / %lu), estimated cost : %2.4f",
-				buf, (i+1), n_indexes, pct_cost);
-
-			error = row_merge_sort(
-					trx, &dup, &merge_files[i],
-					block, &tmpfd, true,
-					pct_progress, pct_cost,
-					crypt_data, crypt_block, new_table->space);
-
-			pct_progress += pct_cost;
-
-			sql_print_information("InnoDB: Online DDL : End of "
-				" merge-sorting index %s (%lu / %lu)",
-				buf, (i+1), n_indexes);
-
-			DBUG_EXECUTE_IF(
-				"ib_merge_wait_after_sort",
-				os_thread_sleep(20000000););  /* 20 sec */
-
-			if (error == DB_SUCCESS) {
 				pct_cost = (COST_BUILD_INDEX_STATIC +
 					(total_dynamic_cost * merge_files[i].offset /
 						total_index_blocks)) /
-					(total_static_cost + total_dynamic_cost) *
-					PCT_COST_INSERT_INDEX * 100;
+					(total_static_cost + total_dynamic_cost)
+					* PCT_COST_MERGESORT_INDEX * 100;
 
-				sql_print_information("InnoDB: Online DDL : Start "
-					"building index %s (%lu / %lu), estimated "
-					"cost : %2.4f", buf, (i+1),
-					n_indexes, pct_cost);
+				bufend = innobase_convert_name(buf, sizeof buf,
+					indexes[i]->name, strlen(indexes[i]->name),
+					trx ? trx->mysql_thd : NULL,
+					FALSE);
 
-				error = row_merge_insert_index_tuples(
-					trx->id, sort_idx, old_table,
-					merge_files[i].fd, block,
-					merge_files[i].n_rec, pct_progress, pct_cost,
-					crypt_data, crypt_block, new_table->space);
+				buf[bufend - buf]='\0';
+
+				sql_print_information("InnoDB: Online DDL : Start merge-sorting"
+					" index %s (%lu / %lu), estimated cost : %2.4f",
+					buf, (i+1), n_indexes, pct_cost);
+
+				error = row_merge_sort(
+						trx, &dup, &merge_files[i],
+						block, &tmpfd, true,
+						pct_progress, pct_cost,
+						crypt_data, crypt_block, new_table->space);
+
 				pct_progress += pct_cost;
 
-				sql_print_information("InnoDB: Online DDL : "
-					"End of building index %s (%lu / %lu)",
+				sql_print_information("InnoDB: Online DDL : End of "
+					" merge-sorting index %s (%lu / %lu)",
 					buf, (i+1), n_indexes);
+
+				DBUG_EXECUTE_IF(
+					"ib_merge_wait_after_sort",
+					os_thread_sleep(20000000););  /* 20 sec */
+
+				if (error == DB_SUCCESS) {
+					pct_cost = (COST_BUILD_INDEX_STATIC +
+						(total_dynamic_cost * merge_files[i].offset /
+							total_index_blocks)) /
+						(total_static_cost + total_dynamic_cost) *
+						PCT_COST_INSERT_INDEX * 100;
+
+					sql_print_information("InnoDB: Online DDL : Start "
+						"building index %s (%lu / %lu), estimated "
+						"cost : %2.4f", buf, (i+1),
+						n_indexes, pct_cost);
+
+					error = row_merge_insert_index_tuples(
+						trx->id, sort_idx, old_table,
+						merge_files[i].fd, block,
+						merge_files[i].n_rec, pct_progress, pct_cost,
+						crypt_data, crypt_block, new_table->space);
+					pct_progress += pct_cost;
+
+					sql_print_information("InnoDB: Online DDL : "
+						"End of building index %s (%lu / %lu)",
+						buf, (i+1), n_indexes);
+				}
 			}
 		}
 

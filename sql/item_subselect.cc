@@ -1,5 +1,5 @@
-/* Copyright (c) 2002, 2012, Oracle and/or its affiliates.
-   Copyright (c) 2010, 2012, Monty Program Ab
+/* Copyright (c) 2002, 2015, Oracle and/or its affiliates.
+   Copyright (c) 2010, 2015, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -5228,12 +5228,13 @@ double get_post_group_estimate(JOIN* join, double join_op_rows)
   for (ORDER *order= join->group_list; order; order= order->next)
   {
     Item *item= order->item[0];
-    if (item->used_tables() & RAND_TABLE_BIT)
+    table_map item_used_tables= item->used_tables();
+    if (item_used_tables & RAND_TABLE_BIT)
     {
       /* Each join output record will be in its own group */
       return join_op_rows;
     }
-    tables_in_group_list|= item->used_tables();
+    tables_in_group_list|= item_used_tables;
   }
   tables_in_group_list &= ~PSEUDO_TABLE_BITS;
 

@@ -1070,10 +1070,15 @@ public:
   ORDER		*group;
   String	alias;            	  /* alias or table name */
   uchar		*null_flags;
-  MY_BITMAP     def_read_set, def_write_set, def_vcol_set, tmp_set; 
+  MY_BITMAP     def_read_set, def_write_set, tmp_set;
+  MY_BITMAP     def_rpl_write_set;
   MY_BITMAP     eq_join_set;         /* used to mark equi-joined fields */
   MY_BITMAP     cond_set;   /* used to mark fields from sargable conditions*/
-  MY_BITMAP     *read_set, *write_set, *vcol_set; /* Active column sets */
+  /* Active column sets */
+  MY_BITMAP     *read_set, *write_set, *rpl_write_set;
+  /* Set if using virtual fields */
+  MY_BITMAP     *vcol_set, *def_vcol_set;
+
   /*
    The ID of the query that opened and is using this table. Has different
    meanings depending on the table type.
@@ -1342,7 +1347,8 @@ public:
   {
     read_set= &def_read_set;
     write_set= &def_write_set;
-    vcol_set= &def_vcol_set;
+    vcol_set= def_vcol_set;                     /* Note that this may be 0 */
+    rpl_write_set= 0;
   }
   /** Should this instance of the table be reopened? */
   inline bool needs_reopen()
@@ -1402,6 +1408,7 @@ public:
   bool prepare_triggers_for_delete_stmt_or_event();
   bool prepare_triggers_for_update_stmt_or_event();
 
+  inline Field **field_to_fill();
   bool validate_default_values_of_unset_fields(THD *thd) const;
 };
 

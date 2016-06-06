@@ -325,6 +325,8 @@
 #cmakedefine HAVE_TIMESPEC_TS_SEC 1
 #cmakedefine STRUCT_DIRENT_HAS_D_INO 1
 #cmakedefine STRUCT_DIRENT_HAS_D_NAMLEN 1
+#cmakedefine STRUCT_TIMESPEC_HAS_TV_SEC 1
+#cmakedefine STRUCT_TIMESPEC_HAS_TV_NSEC 1
 #cmakedefine SPRINTF_RETURNS_INT 1
 
 #define USE_MB 1
@@ -404,7 +406,7 @@
 
 #cmakedefine HAVE_MBSTATE_T 1
 
-#define MAX_INDEXES 64
+#cmakedefine MAX_INDEXES @MAX_INDEXES@
 
 #cmakedefine QSORT_TYPE_IS_VOID 1
 #cmakedefine RETQSORTTYPE @RETQSORTTYPE@
@@ -412,6 +414,7 @@
 #cmakedefine SIGNAL_RETURN_TYPE_IS_VOID 1
 #cmakedefine RETSIGTYPE @RETSIGTYPE@
 #cmakedefine VOID_SIGHANDLER 1
+#cmakedefine HAVE_SIGHANDLER_T 1
 #define STRUCT_RLIMIT struct rlimit
 
 #ifdef __APPLE__
@@ -465,13 +468,13 @@
 
 #cmakedefine HAVE_WEAK_SYMBOL 1
 #cmakedefine HAVE_ABI_CXA_DEMANGLE 1
-
+#cmakedefine HAVE_ATTRIBUTE_CLEANUP 1
 
 #cmakedefine HAVE_POSIX_SIGNALS 1
 #cmakedefine HAVE_BSD_SIGNALS 1
 #cmakedefine HAVE_SVR3_SIGNALS 1
 #cmakedefine HAVE_V7_SIGNALS 1
-
+#cmakedefine HAVE_ERR_remove_thread_state 1
 
 #cmakedefine HAVE_SOLARIS_STYLE_GETHOST 1
 
@@ -496,6 +499,7 @@
 
 #define SYSTEM_TYPE "@SYSTEM_TYPE@"
 #define MACHINE_TYPE "@CMAKE_SYSTEM_PROCESSOR@"
+#define DEFAULT_MACHINE "@DEFAULT_MACHINE@"
 #cmakedefine HAVE_DTRACE 1
 
 #cmakedefine SIGNAL_WITH_VIO_CLOSE 1
@@ -521,6 +525,10 @@
 #cmakedefine strtoll @strtoll@
 #cmakedefine strtoull @strtoull@
 #cmakedefine vsnprintf @vsnprintf@
+#if (_MSC_VER > 1800)
+#define tzname _tzname
+#define P_tmpdir "C:\\TEMP"
+#endif
 #if (_MSC_VER > 1310)
 # define HAVE_SETENV
 #define setenv(a,b,c) _putenv_s(a,b)
@@ -529,7 +537,7 @@
 
 /* We don't want the min/max macros */
 #ifdef __WIN__
-#define NOMINMAX
+#define NOMINMAX 1
 #endif
 
 /*

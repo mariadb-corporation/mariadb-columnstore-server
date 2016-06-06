@@ -20,16 +20,14 @@
 
 /* Classes in mysql */
 
-#include "my_global.h"      /* NO_EMBEDDED_ACCESS_CHECKS */
-#ifdef MYSQL_SERVER
-#include "unireg.h"                    // REQUIRED: for other includes
-#endif
+#include "my_global.h"                          /* NO_EMBEDDED_ACCESS_CHECKS */
 #include <waiting_threads.h>
 #include "sql_const.h"
 #include <mysql/plugin_audit.h>
 #include "log.h"
 #include "rpl_tblmap.h"
 #include "mdl.h"
+#include "field.h"                              // Create_field
 #include "probes_mysql.h"
 #include "sql_locale.h"     /* my_locale_st */
 #include "sql_profile.h"    /* PROFILING */
@@ -4059,6 +4057,7 @@ public:
 #endif /*  GTID_SUPPORT */
   void                      *wsrep_apply_format;
   char                      wsrep_info[128]; /* string for dynamic proc info */
+  bool                      wsrep_skip_append_keys;
 #endif /* WITH_WSREP */
 
   /* Handling of timeouts for commands */

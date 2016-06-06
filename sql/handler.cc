@@ -532,10 +532,6 @@ int ha_initialize_handlerton(st_plugin_int *plugin)
       hton->discover_table_existence= full_discover_for_existence;
   }
 
-  /*
-    the switch below and hton->state should be removed when
-    command-line options for plugins will be implemented
-  */
   switch (hton->state) {
   case SHOW_OPTION_NO:
     break;
@@ -3651,6 +3647,8 @@ void handler::print_error(int error, myf errflag)
 */
 bool handler::get_error_message(int error, String* buf)
 {
+  DBUG_EXECUTE_IF("external_lock_failure",
+                  buf->set_ascii(STRING_WITH_LEN("KABOOM!")););
   return FALSE;
 }
 
@@ -5131,7 +5129,7 @@ bool Discovered_table_list::add_table(const char *tname, size_t tlen)
     custom discover_table_names() method, that calls add_table() directly).
     Note: avoid comparing the same name twice (here and in add_file).
   */
-  if (wild && my_wildcmp(files_charset_info, tname, tname + tlen, wild, wend,
+  if (wild && my_wildcmp(table_alias_charset, tname, tname + tlen, wild, wend,
                          wild_prefix, wild_one, wild_many))
       return 0;
 
@@ -5821,6 +5819,8 @@ int handler::ha_external_lock(THD *thd, int lock_type)
   */
   MYSQL_TABLE_LOCK_WAIT(m_psi, PSI_TABLE_EXTERNAL_LOCK, lock_type,
     { error= external_lock(thd, lock_type); })
+
+  DBUG_EXECUTE_IF("external_lock_failure", error= HA_ERR_GENERIC;);
 
   if (error == 0)
   {

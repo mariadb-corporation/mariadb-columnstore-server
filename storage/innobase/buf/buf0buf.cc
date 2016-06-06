@@ -1452,6 +1452,9 @@ buf_pool_init_instance(
 
 	buf_pool_mutex_exit(buf_pool);
 
+	DBUG_EXECUTE_IF("buf_pool_init_instance_force_oom",
+		return(DB_ERROR); );
+
 	return(DB_SUCCESS);
 }
 
@@ -5717,11 +5720,19 @@ buf_print_io_instance(
 		pool_info->pages_written_rate);
 
 	if (pool_info->n_page_get_delta) {
+		double hit_rate = ((1000 * pool_info->page_read_delta)
+				/ pool_info->n_page_get_delta);
+
+		if (hit_rate > 1000) {
+			hit_rate = 1000;
+		}
+
+		hit_rate = 1000 - hit_rate;
+
 		fprintf(file,
 			"Buffer pool hit rate %lu / 1000,"
 			" young-making rate %lu / 1000 not %lu / 1000\n",
-			(ulong) (1000 - (1000 * pool_info->page_read_delta
-					 / pool_info->n_page_get_delta)),
+			(ulong) hit_rate,
 			(ulong) (1000 * pool_info->young_making_delta
 				 / pool_info->n_page_get_delta),
 			(ulong) (1000 * pool_info->not_young_making_delta

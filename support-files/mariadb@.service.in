@@ -49,6 +49,9 @@ PrivateNetwork=false
 User=mysql
 Group=mysql
 
+# To allow memlock to be used as non-root user if set in configuration
+CapabilityBoundingSet=CAP_IPC_LOCK
+
 # Execute pre and post scripts as root, otherwise it does it as User=
 PermissionsStartOnly=true
 
@@ -59,9 +62,9 @@ PermissionsStartOnly=true
 # MYSQLD_OPTS here is for users to set in /etc/systemd/system/mariadb@.service.d/MY_SPECIAL.conf
 # Use the [service] section and Environment="MYSQLD_OPTS=...".
 # This isn't a replacement for my.cnf.
+# _WSREP_NEW_CLUSTER is for the exclusive use of the script galera_new_cluster
 
-ExecStart=
-ExecStart=/usr/sbin/mysqld $MYSQLD_OPTS --defaults-file=@INSTALL_SYSCONF2DIR@/my%I.cnf
+ExecStart=/usr/sbin/mysqld $MYSQLD_OPTS $_WSREP_NEW_CLUSTER --defaults-file=@INSTALL_SYSCONF2DIR@/my%I.cnf
 # Alternate: (remove ConditionPathExists above)
 # use [mysqld.INSTANCENAME] as sections in my.cnf
 #
@@ -107,7 +110,7 @@ PrivateTmp=false
 ##
 
 # Number of files limit. previously [mysqld_safe] open-file-limit
-# LimitNOFILE=16364
+LimitNOFILE=16364
 
 # Maximium core size. previously [mysqld_safe] core-file-size
 # LimitCore=
