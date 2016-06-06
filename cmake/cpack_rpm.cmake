@@ -31,8 +31,8 @@ SET(CPACK_COMPONENTS_ALL Server ManPagesServer IniFiles Server_Scripts
                          Common Client SharedLibraries ClientPlugins)
 
 ## dhill
-SET(INFINIDB_RPM_PACKAGE_NAME "infinidb-mariadb")
-SET(INFINIDB_VERSION "5.0-0")
+SET(INFINIDB_RPM_PACKAGE_NAME "mariadb-columnstore")
+SET(INFINIDB_VERSION "10.0-1")
 SET(INFINIDB_BIT "x86_64")
 
 SET(CPACK_RPM_PACKAGE_NAME ${CPACK_PACKAGE_NAME})
@@ -75,7 +75,7 @@ SET(CPACK_RPM_SPEC_MORE_DEFINE "${CPACK_RPM_SPEC_MORE_DEFINE}
 %define ignore \#
 ")
 
-SET(CPACK_RPM_PACKAGE_REQUIRES "infinidb-mariadb-common")
+SET(CPACK_RPM_PACKAGE_REQUIRES "mariadb-columnstore-common")
 
 SET(ignored
   "%ignore /etc"
@@ -157,7 +157,7 @@ SETA(CPACK_RPM_test_PACKAGE_PROVIDES
 
 SETA(CPACK_RPM_server_PACKAGE_REQUIRES
   "${CPACK_RPM_PACKAGE_REQUIRES}"
-  "infinidb-mariadb-client")
+  "mariadb-columnstore-client")
 
 IF(WITH_WSREP)
 SETA(CPACK_RPM_server_PACKAGE_REQUIRES
