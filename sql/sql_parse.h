@@ -107,7 +107,7 @@ bool append_file_to_dir(THD *thd, const char **filename_ptr,
                         const char *table_name);
 void execute_init_command(THD *thd, LEX_STRING *init_command,
                           mysql_rwlock_t *var_lock);
-bool add_to_list(THD *thd, SQL_I_List<ORDER> &list, Item *group, bool asc);
+bool add_to_list(THD *thd, SQL_I_List<ORDER> &list, Item *group, bool asc, uint nulls=0); // InfiniDB: add nulls for Window functions
 void add_join_on(THD *thd, TABLE_LIST *b, Item *expr);
 void add_join_natural(TABLE_LIST *a,TABLE_LIST *b,List<String> *using_fields,
                       SELECT_LEX *lex);

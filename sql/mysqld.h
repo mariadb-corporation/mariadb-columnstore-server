@@ -675,7 +675,14 @@ enum enum_query_type
   /// Be more detailed than QT_EXPLAIN.
   /// Perhaps we should eventually include QT_ITEM_IDENT_SKIP_CURRENT_DATABASE
   /// here, as it would give better readable results
-  QT_EXPLAIN_EXTENDED=  QT_TO_SYSTEM_CHARSET | QT_ITEM_FUNC_NULLIF_TO_CASE
+  QT_EXPLAIN_EXTENDED=  QT_TO_SYSTEM_CHARSET | QT_ITEM_FUNC_NULLIF_TO_CASE,
+
+  /// InfiniDB post process to customerize item::print() functions.
+  QT_INFINIDB=(1<<7),
+  /// InfiniDB customized item:print() without quote delimiter
+  QT_INFINIDB_NO_QUOTE,
+  /// InfiniDB for union view as derived table. no view name is appended to the table alias.
+  QT_INFINIDB_DERIVED
 };
 
 

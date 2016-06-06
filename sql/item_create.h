@@ -184,7 +184,9 @@ Item *create_temporal_literal(THD *thd, const String *str,
 }
 
 int item_create_init();
+int item_window_function_create_init();  // @InfiniDB
 void item_create_cleanup();
+void item_window_function_create_cleanup(); // @InfiniDB
 
 Item *create_func_dyncol_create(THD *thd, List<DYNCALL_CREATE_DEF> &list);
 Item *create_func_dyncol_add(THD *thd, Item *str,

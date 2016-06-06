@@ -1406,7 +1406,7 @@ public:
   When the CASE expression is specified then it is compared to each WHEN
   expression individually. When an equal WHEN expression is found
   corresponding THEN expression is returned.
-  In order to do correct comparisons several comparators are used. One for
+  In order to do correct comparisons several comparators are used. One forg
   each result type. Different result types that are used in particular
   CASE ... END expression are collected in the fix_length_and_dec() member
   function and only comparators for there result types are used.
@@ -1444,6 +1444,9 @@ public:
   void agg_str_lengths(Item *arg);
   void agg_num_lengths(Item *arg);
   Item* propagate_equal_fields(THD *thd, const Context &ctx, COND_EQUAL *cond);
+
+  // @InfiniDB
+  int get_first_expr_num() { return first_expr_num; }
 };
 
 /*

@@ -143,6 +143,10 @@ SET (SQL_SOURCE
                ${GEN_SOURCES}
                ${GEN_DIGEST_SOURCES}
                ${MYSYS_LIBWRAP_SOURCE}
+
+               # added for InfiniDB
+               item_create_window_function.h item_create_window_function.cc
+               item_window_function.h item_window_function.cc
 			   )
   
 IF (CMAKE_SYSTEM_NAME MATCHES "Linux" OR

@@ -40,9 +40,15 @@
 #include <ft_global.h>
 #include <keycache.h>
 #include <mysql/psi/mysql_table.h>
-
+#include <stdint.h>
 #if MAX_KEY > 128
 #error MAX_KEY is too large.  Values up to 128 are supported.
+#endif
+
+#ifdef _MSC_VER
+#ifndef STDINT_H
+typedef unsigned long long uint64_t;
+#endif
 #endif
 
 class Alter_info;
@@ -1198,6 +1204,7 @@ struct handlerton
    int (*fill_is_table)(handlerton *hton, THD *thd, TABLE_LIST *tables, 
                         class Item *cond, 
                         enum enum_schema_tables);
+   void (*set_error)(THD*, uint64_t errCode, LEX_STRING*, uint argCount); //@InfiniDB Window Function Error util
    uint32 flags;                                /* global handler flags */
    /*
       Those handlerton functions below are properly initialized at handler

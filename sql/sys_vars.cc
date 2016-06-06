@@ -399,6 +399,134 @@ static Sys_var_ulonglong Sys_binlog_stmt_cache_size(
        CMD_LINE(REQUIRED_ARG),
        VALID_RANGE(IO_SIZE, SIZE_T_MAX), DEFAULT(32768), BLOCK_SIZE(IO_SIZE));
 
+/* InfiniDB */
+static Sys_var_ulong	sys_infinidb_vtable_mode(
+	   "infinidb_vtable_mode",
+       "The default mode in which to start InfiniDB.",
+       SESSION_VAR(infinidb_vtable_mode),
+       CMD_LINE(REQUIRED_ARG),
+       VALID_RANGE(0, 2), DEFAULT(1), BLOCK_SIZE(1));
+
+static Sys_var_ulong	sys_infinidb_decimal_scale( 
+       "infinidb_decimal_scale",
+       "The default decimal precision for calculated column sub-operations "
+	   "in InfiniDB.",
+       SESSION_VAR(infinidb_decimal_scale),
+	   CMD_LINE(REQUIRED_ARG),
+	   VALID_RANGE(0, 18), DEFAULT(8), BLOCK_SIZE(1));
+
+static Sys_var_mybool	sys_infinidb_use_decimal_scale(
+       "infinidb_use_decimal_scale",
+       "Enable/disable the InfiniDB decimal scale to be used internally",
+       SESSION_VAR(infinidb_use_decimal_scale),
+	   CMD_LINE(OPT_ARG),
+	   DEFAULT(FALSE));
+
+static Sys_var_mybool   sys_infinidb_ordered_only(
+       "infinidb_ordered_only",
+	   "Always use the first table in the from clause as the large side "
+	   "table for joins",
+       SESSION_VAR(infinidb_ordered_only),
+	   CMD_LINE(OPT_ARG),
+	   DEFAULT(FALSE));
+
+static Sys_var_ulong	sys_infinidb_string_scan_threshold(
+       "infinidb_string_scan_threshold",
+	   "Max number of blocks in a dictionary file to be scanned for filtering",
+	   SESSION_VAR(infinidb_string_scan_threshold),
+	   CMD_LINE(REQUIRED_ARG),
+	   VALID_RANGE(1, ULONG_MAX), DEFAULT(10), BLOCK_SIZE(1));
+
+static Sys_var_ulong	sys_infinidb_compression_type(
+       "infinidb_compression_type",
+	   "The column compression algorithm to use for InfiniDB tables.",
+	   SESSION_VAR(infinidb_compression_type),
+	   CMD_LINE(REQUIRED_ARG),
+	   VALID_RANGE(0, 65535), DEFAULT(0), BLOCK_SIZE(1));
+
+static Sys_var_ulong	sys_stringtable_threshold(
+       "infinidb_stringtable_threshold",
+	   "The minimum width of a string column to be stored in a string table; min=9.",
+	   SESSION_VAR(infinidb_stringtable_threshold),
+	   CMD_LINE(REQUIRED_ARG),
+	   VALID_RANGE(9, ULONG_MAX), DEFAULT(20), BLOCK_SIZE(1));
+
+static Sys_var_ulong	sys_diskjoin_smallsidelimit(
+       "infinidb_diskjoin_smallsidelimit",
+	   "The maximum amount of disk space in MB to use per query for storing "
+	   "'small side' tables for a disk-based join. (0 = unlimited)",
+	   SESSION_VAR(infinidb_diskjoin_smallsidelimit),
+	   CMD_LINE(REQUIRED_ARG),
+	   VALID_RANGE(0, ULONG_MAX), DEFAULT(0), BLOCK_SIZE(1));
+
+static Sys_var_ulong	sys_diskjoin_largesidelimit(
+       "infinidb_diskjoin_largesidelimit",
+	   "The maximum amount of disk space in MB to use per join for storing "
+	   "'large side' table data for a disk-based join. (0 = unlimited)",
+	   SESSION_VAR(infinidb_diskjoin_largesidelimit),
+	   CMD_LINE(REQUIRED_ARG),
+	   VALID_RANGE(0, ULONG_MAX), DEFAULT(0), BLOCK_SIZE(1));
+
+static Sys_var_ulong	sys_diskjoin_bucketsize(
+       "infinidb_diskjoin_bucketsize",
+	   "The maximum size in MB of each 'small side' table in memory.",
+	   SESSION_VAR(infinidb_diskjoin_bucketsize),
+	   CMD_LINE(REQUIRED_ARG),
+	   VALID_RANGE(1, ULONG_MAX), DEFAULT(100), BLOCK_SIZE(1));
+
+static Sys_var_ulong	sys_um_mem_limit(
+       "infinidb_um_mem_limit",
+	   "A per-session memory limit (in MB) on large data structures on the UM. "
+	   "(0 = unlimited)",
+	   SESSION_VAR(infinidb_um_mem_limit),
+	   CMD_LINE(REQUIRED_ARG),
+	   VALID_RANGE(0, ULONG_MAX), DEFAULT(0), BLOCK_SIZE(1));
+
+
+static Sys_var_mybool   sys_infinidb_varbin_always_hex(
+       "infinidb_varbin_always_hex",
+	   "Always display/process varbinary columns as if they have been hexified.",
+	   SESSION_VAR(infinidb_varbin_always_hex),
+	   CMD_LINE(OPT_ARG),
+	   DEFAULT(FALSE));
+
+static Sys_var_mybool   sys_infinidb_double_for_decimal_math(
+       "infinidb_double_for_decimal_math",
+	   "Enable/disable the InfiniDB to replace DECIMAL with DOUBLE in arithmetic operation.",
+	   SESSION_VAR(infinidb_double_for_decimal_math),
+	   CMD_LINE(OPT_ARG),
+	   DEFAULT(FALSE));
+
+static Sys_var_ulong    sys_infinidb_local_query(
+       "infinidb_local_query",
+	   "Enable/disable the Infinidb local PM query only feature.",
+	   SESSION_VAR(infinidb_local_query),
+	   CMD_LINE(REQUIRED_ARG),
+	   VALID_RANGE(0,2), DEFAULT(0), BLOCK_SIZE(1));
+
+static Sys_var_mybool	sys_infinidb_use_import_for_batchinsert(
+       "infinidb_use_import_for_batchinsert",
+	   "LDI and insert with select will use cpimport to load data when "
+	   "autocommit is on. (false = will not use cpimport, true = will use cpimport)",
+	   SESSION_VAR(infinidb_use_import_for_batchinsert),
+	   CMD_LINE(OPT_ARG),
+	   DEFAULT(TRUE));
+
+static Sys_var_ulong    sys_infinidb_import_for_batchinsert_delimiter(
+       "infinidb_import_for_batchinsert_delimiter",
+	   "LDI and insert with select will use the input character as delimiter. (default to 7)",
+	   SESSION_VAR(infinidb_import_for_batchinsert_delimiter),
+	   CMD_LINE(OPT_ARG),
+	   VALID_RANGE(0, 127), DEFAULT(7), BLOCK_SIZE(1));
+
+static Sys_var_ulong    sys_infinidb_import_for_batchinsert_enclosed_by(
+       "infinidb_import_for_batchinsert_enclosed_by",
+	   "LDI and insert with select will use the input character as enclosed by. (default to 17)",
+	   SESSION_VAR(infinidb_import_for_batchinsert_enclosed_by),
+	   CMD_LINE(OPT_ARG),
+	   VALID_RANGE(17, 127), DEFAULT(17), BLOCK_SIZE(1));
+/* InfiniDB */
+
 /*
   Some variables like @sql_log_bin and @binlog_format change how/if binlogging
   is done. We must not change them inside a running transaction or statement,

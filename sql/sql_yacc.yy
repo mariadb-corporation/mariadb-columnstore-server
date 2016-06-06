@@ -44,6 +44,8 @@
 #include "slave.h"
 #include "lex_symbol.h"
 #include "item_create.h"
+#include "item_create_window_function.h"   // InfiniDB Window functions
+#include "item_window_function.h"          // InfiniDB Window functions
 #include "sp_head.h"
 #include "sp_rcontext.h"
 #include "sp.h"
@@ -929,6 +931,12 @@ bool LEX::set_bincmp(CHARSET_INFO *cs, bool bin)
   return charset == NULL;
 }
 
+// InfiniDB
+static char idb_on_clause_err_str[] = "ON clause";
+static char idb_where_clause_err_str[] = "WHERE clause";
+static char idb_having_clause_err_str[] = "HAVING clause";
+static char idb_group_by_clause_err_str[] = "GROUP BY clause";
+
 #define bincmp_collation(X,Y)           \
   do                                    \
   {                                     \
@@ -1008,6 +1016,14 @@ bool LEX::set_bincmp(CHARSET_INFO *cs, bool bin)
   enum thr_lock_type lock_type;
   enum enum_mysql_timestamp_type date_time_type;
   DDL_options_st object_ddl_options;
+
+  /* InfiniDB Window functions */
+  struct Window_context *Window_context;
+  struct Ordering *ordering;
+  struct Frame *frame;
+  struct Boundary *boundary;
+  enum BOUND bound;
+  SQL_LIST *list;
 }
 
 %{
@@ -1020,8 +1036,10 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
 /*
   Currently there are 160 shift/reduce conflicts.
   We should not introduce new conflicts any more.
+
+  InfiniDB: +4
 */
-%expect 160
+%expect 164
 
 /*
    Comments for TOKENS.
@@ -1233,6 +1251,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
 %token  FLOAT_NUM
 %token  FLOAT_SYM                     /* SQL-2003-R */
 %token  FLUSH_SYM
+%token  FOLLOWING_SYM                 /* InfiniDB Window Function */
 %token  FORCE_SYM
 %token  FOREIGN                       /* SQL-2003-R */
 %token  FOR_SYM                       /* SQL-2003-R */
@@ -1409,7 +1428,9 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
 %token  NO_SYM                        /* SQL-2003-R */
 %token  NO_WAIT_SYM
 %token  NO_WRITE_TO_BINLOG
+%token  NTH_VALUE_SYM                 /* @InfiniDB Window Function */
 %token  NULL_SYM                      /* SQL-2003-R */
+%token  NULLS_SYM                     /* @InfiniDB Window Function */
 %token  NUM
 %token  NUMBER_SYM                    /* SQL-2003-N */
 %token  NUMERIC_SYM                   /* SQL-2003-R */
@@ -1432,6 +1453,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
 %token  OUTER
 %token  OUTFILE
 %token  OUT_SYM                       /* SQL-2003-R */
+%token  OVER_SYM                      /* InfiniDB Window Function */
 %token  OWNER_SYM
 %token  PACK_KEYS_SYM
 %token  PAGE_SYM
@@ -1444,6 +1466,8 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
 %token  PARTITIONS_SYM
 %token  PARTITIONING_SYM
 %token  PASSWORD_SYM
+%token  PERCENTILE_CONT_SYM           /* InfiniDB Window Function */
+%token  PERCENTILE_DISC_SYM           /* InfiniDB Window Function */
 %token  PERSISTENT_SYM
 %token  PHASE_SYM
 %token  PLUGINS_SYM
@@ -1452,6 +1476,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
 %token  POLYGON
 %token  PORT_SYM
 %token  POSITION_SYM                  /* SQL-2003-N */
+%token  PRECEDING_SYM                 /* InfiniDB Window Function */
 %token  PRECISION                     /* SQL-2003-R */
 %token  PREPARE_SYM                   /* SQL-2003-R */
 %token  PRESERVE_SYM
@@ -1500,6 +1525,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
 %token  RESET_SYM
 %token  RESIGNAL_SYM                  /* SQL-2003-R */
 %token  RESOURCES
+%token  RESPECT_SYM                   /* InfiniDB Window Function */
 %token  RESTORE_SYM
 %token  RESTRICT
 %token  RESUME_SYM
@@ -1564,6 +1590,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
 %token  SQL_CACHE_SYM
 %token  SQL_CALC_FOUND_ROWS
 %token  SQL_NO_CACHE_SYM
+%token  INFINIDB_ORDERED_SYM
 %token  SQL_SMALL_RESULT
 %token  SQL_SYM                       /* SQL-2003-R */
 %token  SQL_THREAD
@@ -1628,6 +1655,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
 %token  TYPE_SYM                      /* SQL-2003-N */
 %token  UDF_RETURNS_SYM
 %token  ULONGLONG_NUM
+%token  UNBOUNDED_SYM                 /* InfiniDB Window Function */
 %token  UNCOMMITTED_SYM               /* SQL-2003-N */
 %token  UNDEFINED_SYM
 %token  UNDERSCORE_CHARSET
@@ -1671,6 +1699,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
 %token  WHERE                         /* SQL-2003-R */
 %token  WHILE_SYM
 %token  WITH                          /* SQL-2003-R */
+%token  WITHIN                        /* InfiniDB Window Function */
 %token  WITH_CUBE_SYM                 /* INTERNAL */
 %token  WITH_ROLLUP_SYM               /* INTERNAL */
 %token  WORK_SYM                      /* SQL-2003-N */
@@ -1748,7 +1777,9 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
         opt_default_time_precision
         case_stmt_body opt_bin_mod
         opt_if_exists_table_element opt_if_not_exists_table_element
-        opt_into opt_procedure_clause
+        opt_into opt_procedure_clause opt_nulls
+        opt_from opt_respect respect boundary_unit
+
 
 %type <object_ddl_options>
         create_or_replace 
@@ -1798,6 +1829,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
         part_func_expr
         function_call_keyword
         function_call_nonkeyword
+        function_call_window
         function_call_generic
         function_call_conflict kill_expr
         signal_allowed_expr
@@ -1812,6 +1844,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
 %type <item_list>
         expr_list opt_udf_expr_list udf_expr_list when_list
         ident_list ident_list_arg opt_expr_list
+        opt_window_partition_by_clause in_sum_expr_list
 
 %type <var_type>
         option_type opt_var_type opt_var_ident_type
@@ -1982,6 +2015,14 @@ END_OF_INPUT
 %type <cond_info_item> condition_information_item;
 %type <cond_info_item_name> condition_information_item_name;
 %type <cond_info_list> condition_information;
+
+/* InfiniDB Window functions */
+%type <Window_context> window_clause;
+%type <list> window_order_list;
+%type <ordering> opt_window_order_by_clause;
+%type <frame> opt_frame frame;
+%type <boundary> bounding;
+%type <bound> preceding_following;
 
 %type <NONE>
         '-' '+' '*' '/' '%' '(' ')'
@@ -8600,6 +8641,10 @@ select_option:
               Lex->select_lex.sql_cache= SELECT_LEX::SQL_NO_CACHE;
             }
           }
+        | INFINIDB_ORDERED_SYM
+          {
+            Lex->thd->infinidb_vtable.override_largeside_estimate=1;
+          }
         | SQL_CACHE_SYM
           {
             /* 
@@ -9279,6 +9324,7 @@ simple_expr:
           simple_ident
         | function_call_keyword
         | function_call_nonkeyword
+        | function_call_window     /* InfiniDB Window function */
         | function_call_generic
         | function_call_conflict
         | simple_expr COLLATE_SYM ident_or_text %prec NEG
@@ -9355,7 +9401,7 @@ simple_expr:
         | '{' ident expr '}'
           {
             $$= NULL;
-            /*
+           /*
               If "expr" is reasonably short pure ASCII string literal,
               try to parse known ODBC style date, time or timestamp literals,
               e.g:
@@ -10107,6 +10153,432 @@ geometry_function:
         ;
 
 /*
+  @InfiniDB Window function parsing
+*/
+function_call_window:
+          IDENT_sys '(' opt_udf_expr_list ')' window_clause
+          {
+            Create_window_func *builder;
+            Item *item= NULL;
+
+            builder= find_native_window_function_builder(thd, $1);
+            if (builder)
+            {
+              ((Create_window_func*)builder)->respectNulls = 1;
+              item= builder->create(thd, $1, $3);
+              if (!item)
+                MYSQL_YYABORT;
+              ((Item_func_window*)item)->window_ctx($5);
+              $$ = item;
+            }
+            else
+            {
+              LEX_STRING args[1];
+              args[0] = $1;
+              IDB_set_error(thd, logging::ERR_WF_FUNCTION_NOT_EXISTS, args, 1);
+              MYSQL_YYABORT;
+            }
+          }
+           // for functions that take RESPECT|IGNORE NULLS
+        |  IDENT_sys '(' opt_udf_expr_list ')' respect window_clause
+          {
+            Create_window_func *builder = NULL;
+            Item *item= NULL;
+
+            builder= find_native_window_function_builder_nulls(thd, $1);
+            if (builder)
+            {
+              ((Create_window_func*)builder)->respectNulls = $5;
+              item= builder->create(thd, $1, $3);
+              if (!item)
+                MYSQL_YYABORT;
+              ((Item_func_window*)item)->window_ctx($6);
+              $$ = item;
+            }
+            else
+            {
+              builder= find_native_window_function_builder(thd, $1);
+              if (builder)
+              {
+                my_parse_error(thd, ER_SYNTAX_ERROR);
+              }
+              else
+              {
+                LEX_STRING args[1];
+                args[0] = $1;
+                IDB_set_error(thd, logging::ERR_WF_FUNCTION_NOT_EXISTS, args, 1);
+                MYSQL_YYABORT;
+              }
+              MYSQL_YYABORT;
+            }
+          }
+
+          // @infinidb the following window functions have the same name
+          // as aggregate functions, so each of them need specific rules to parse.
+        | SUM_SYM '(' in_sum_expr ')' window_clause
+          {
+              LEX_STRING funcname= { C_STRING_WITH_LEN("SUM") };
+              $$= new (thd->mem_root) Item_func_window_sum(thd, funcname, $3, $5);
+              if ($$ == NULL)
+                MYSQL_YYABORT;
+              Select->in_sum_expr--; // not really aggregate
+          }
+        | SUM_SYM '(' DISTINCT in_sum_expr ')' window_clause
+          {
+              // order by clause is not allowed for distinct
+              if ($6->ordering)
+              {
+                IDB_set_error(thd, logging::ERR_WF_ORDER_BY_DISTINCT, NULL, 0);
+                MYSQL_YYABORT;
+              }
+              LEX_STRING funcname= { C_STRING_WITH_LEN("SUM_DISTINCT") };
+              $$= new (thd->mem_root) Item_func_window_sum(thd, funcname, $4, $6, true);
+              if ($$ == NULL)
+                MYSQL_YYABORT;
+              Select->in_sum_expr--; // not really aggregate
+          }
+        | AVG_SYM '(' in_sum_expr ')' window_clause
+          {
+              LEX_STRING funcname= { C_STRING_WITH_LEN("AVG") };
+              $$= new (thd->mem_root) Item_func_window_avg(thd, funcname, $3, $5);
+              if ($$ == NULL)
+                MYSQL_YYABORT;
+              Select->in_sum_expr--; // not really aggregate
+          }
+        | AVG_SYM '(' DISTINCT in_sum_expr ')' window_clause
+          {
+              // order by clause is not allowed for distinct
+              if ($6->ordering)
+              {
+                IDB_set_error(thd, logging::ERR_WF_ORDER_BY_DISTINCT, NULL, 0);
+                MYSQL_YYABORT;
+              }
+              LEX_STRING funcname= { C_STRING_WITH_LEN("AVG_DISTINCT") };
+              $$= new (thd->mem_root) Item_func_window_avg(thd, funcname, $4, $6, true);
+              if ($$ == NULL)
+                MYSQL_YYABORT;
+              Select->in_sum_expr--; // not really aggregate
+          }
+        | COUNT_SYM '(' opt_all '*' ')' window_clause
+          {
+            LEX_STRING funcname= { C_STRING_WITH_LEN("COUNT(*)") };
+            $$= new (thd->mem_root) Item_func_window_int(thd, funcname, $6);
+            if ($$ == NULL)
+              MYSQL_YYABORT;
+            Select->in_sum_expr--; // not really aggregate
+          }
+        | COUNT_SYM '(' in_sum_expr ')' window_clause
+          {
+            LEX_STRING funcname= { C_STRING_WITH_LEN("COUNT") };
+            $$= new (thd->mem_root) Item_func_window_int(thd, funcname, $3, $5);
+            if ($$ == NULL)
+              MYSQL_YYABORT;
+            Select->in_sum_expr--; // not really aggregate
+          }
+        | COUNT_SYM '(' DISTINCT in_sum_expr_list ')' window_clause
+          {
+            Item* item = NULL;
+            LEX_STRING funcname= { C_STRING_WITH_LEN("COUNT_DISTINCT") };
+            if ($4)
+            {
+              List_iterator_fast<Item> it(*$4);
+              item = it++;
+              if ($4->elements != 1 || !item)
+              {
+                LEX_STRING args[1];
+                args[0] = funcname;
+                IDB_set_error(thd, logging::ERR_WF_WRONG_ARGS, args, 1);
+                MYSQL_YYABORT;
+              }
+            }
+
+            // order by clause is not allowed for distinct
+            if ($6->ordering)
+            {
+              IDB_set_error(thd, logging::ERR_WF_ORDER_BY_DISTINCT, NULL, 0);
+              MYSQL_YYABORT;
+            }
+            $$= new (thd->mem_root) Item_func_window_int(thd, funcname, item, $6, true);
+            if ($$ == NULL)
+              MYSQL_YYABORT;
+            Select->in_sum_expr--; // not really aggregate
+          }
+        | MIN_SYM '(' in_sum_expr ')' window_clause
+          {
+            LEX_STRING funcname= { C_STRING_WITH_LEN("MIN") };
+            $$= new (thd->mem_root) Item_func_window_hybrid(thd,funcname, $3, $5);
+            if ($$ == NULL)
+              MYSQL_YYABORT;
+            Select->in_sum_expr--; // not really aggregate
+          }
+        | MIN_SYM '(' DISTINCT in_sum_expr ')' window_clause
+          {
+            // order by clause is not allowed for distinct
+            if ($6->ordering)
+            {
+              IDB_set_error(thd, logging::ERR_WF_ORDER_BY_DISTINCT, NULL, 0);
+              MYSQL_YYABORT;
+            }
+            LEX_STRING funcname= { C_STRING_WITH_LEN("MIN_DISTINCT") };
+            $$= new (thd->mem_root) Item_func_window_hybrid(thd, funcname, $4, $6, true);
+            if ($$ == NULL)
+              MYSQL_YYABORT;
+            Select->in_sum_expr--; // not really aggregate
+          }
+        | MAX_SYM '(' in_sum_expr ')' window_clause
+          {
+            LEX_STRING funcname= { C_STRING_WITH_LEN("MAX") };
+            $$= new (thd->mem_root) Item_func_window_hybrid(thd, funcname, $3, $5);
+            if ($$ == NULL)
+              MYSQL_YYABORT;
+            Select->in_sum_expr--; // not really aggregate
+          }
+        | MAX_SYM '(' DISTINCT in_sum_expr ')' window_clause
+          {
+            // order by clause is not allowed for distinct
+            if ($6->ordering)
+            {
+              IDB_set_error(thd, logging::ERR_WF_ORDER_BY_DISTINCT, NULL, 0);
+              MYSQL_YYABORT;
+            }
+            LEX_STRING funcname= { C_STRING_WITH_LEN("MAX_DISTINCT") };
+            $$= new (thd->mem_root) Item_func_window_hybrid(thd, funcname, $4, $6, true);
+            if ($$ == NULL)
+              MYSQL_YYABORT;
+            Select->in_sum_expr--; // not really aggregate
+          }
+        | VARIANCE_SYM '(' in_sum_expr ')' window_clause
+          {
+            LEX_STRING funcname= { C_STRING_WITH_LEN("VAR_POP") };
+            $$= new (thd->mem_root) Item_func_window_stats(thd, funcname, $3, $5);
+            if ($$ == NULL)
+              MYSQL_YYABORT;
+            Select->in_sum_expr--; // not really aggregate
+          }
+        | VAR_SAMP_SYM '(' in_sum_expr ')' window_clause
+          {
+            LEX_STRING funcname= { C_STRING_WITH_LEN("VAR_SAMP") };
+            $$= new (thd->mem_root) Item_func_window_stats(thd, funcname, $3, $5);
+            if ($$ == NULL)
+              MYSQL_YYABORT;
+            Select->in_sum_expr--; // not really aggregate
+          }
+        | STD_SYM '(' in_sum_expr ')' window_clause
+          {
+            LEX_STRING funcname= { C_STRING_WITH_LEN("STDDEV_POP") };
+            $$= new (thd->mem_root) Item_func_window_stats(thd, funcname, $3, $5);
+            if ($$ == NULL)
+              MYSQL_YYABORT;
+            Select->in_sum_expr--; // not really aggregate
+          }
+        | STDDEV_SAMP_SYM '(' in_sum_expr ')' window_clause
+          {
+            LEX_STRING funcname= { C_STRING_WITH_LEN("STDDEV_SAMP") };
+            $$= new (thd->mem_root) Item_func_window_stats(thd, funcname, $3, $5);
+            if ($$ == NULL)
+              MYSQL_YYABORT;
+            Select->in_sum_expr--; // not really aggregate
+          }
+        // nth_value has special syntax
+        | NTH_VALUE_SYM '(' udf_expr_list ')' opt_from opt_respect window_clause
+          {
+            LEX_STRING funcname= { C_STRING_WITH_LEN("NTH_VALUE") };
+            Create_window_func *builder = & Create_window_func_nth_value::s_singleton;
+            DBUG_ASSERT(builder);
+            ((Create_window_func_nth_value*)builder)->fromFirst = $5;
+            ((Create_window_func_nth_value*)builder)->respectNulls = $6;
+            $$ = builder->create(thd, funcname, $3);
+            if ($$ == NULL)
+              MYSQL_YYABORT;
+            ((Item_func_window*)$$)->window_ctx($7);
+          }
+        | PERCENTILE_CONT_SYM '(' udf_expr ')' WITHIN GROUP_SYM
+          '(' ORDER_SYM BY window_order_list ')' window_clause
+          {
+            LEX_STRING funcname= { C_STRING_WITH_LEN("PERCENTILE_CONT") };
+            $$= new (thd->mem_root) Item_func_window_percentile(thd, funcname, $3, $10, $12);
+            if ($$ == NULL)
+              MYSQL_YYABORT;
+          }
+        | PERCENTILE_DISC_SYM '(' udf_expr ')' WITHIN GROUP_SYM
+          '(' ORDER_SYM BY window_order_list ')' window_clause
+          {
+            LEX_STRING funcname= { C_STRING_WITH_LEN("PERCENTILE_DISC") };
+            $$= new (thd->mem_root) Item_func_window_percentile(thd, funcname, $3, $10, $12);
+            if ($$ == NULL)
+              MYSQL_YYABORT;
+          }
+        ;
+
+opt_from:
+          /* empty */     { $$ = 1; }
+        | FROM FIRST_SYM  { $$ = 1; }
+        | FROM LAST_SYM   { $$ = 0; }
+
+opt_respect:
+          /* empty */           { $$ = 1; }
+        | respect               { $$ = $1; }
+        ;
+respect:
+          RESPECT_SYM NULLS_SYM { $$ = 1; }
+        | IGNORE_SYM NULLS_SYM  { $$ = 0; }
+
+window_clause:
+          OVER_SYM '(' opt_window_partition_by_clause opt_window_order_by_clause ')'
+          {
+            if (Select->parsing_place == IN_ON)
+            {
+              IDB_set_error(thd, logging::ERR_WF_NOT_ALLOWED, idb_on_clause_err_str);
+              MYSQL_YYABORT;
+            }
+            if (Select->parsing_place == IN_WHERE)
+            {
+              IDB_set_error(thd, logging::ERR_WF_NOT_ALLOWED, idb_where_clause_err_str);
+              MYSQL_YYABORT;
+            }
+            if (Select->parsing_place == IN_HAVING)
+            {
+              IDB_set_error(thd, logging::ERR_WF_NOT_ALLOWED, idb_having_clause_err_str);
+              MYSQL_YYABORT;
+            }
+            if (Select->parsing_place == IN_GROUP_BY)
+            {
+              IDB_set_error(thd, logging::ERR_WF_NOT_ALLOWED, idb_group_by_clause_err_str);
+              MYSQL_YYABORT;
+            }
+            $$ = new Window_context();
+            $$->setPartitions($3);
+            $$->setOrders($4);
+          }
+        ;
+opt_window_partition_by_clause:
+          /* empty */ { $$ = 0; }
+        | PARTITION_SYM BY expr_list { $$ = $3; }
+        ;
+
+opt_window_order_by_clause:
+          /* empty */ { $$ = 0; }
+        | frame
+          {
+            IDB_set_error(thd, logging::ERR_WF_WINDOW_WITHOUT_ORDER, NULL, 0);
+            MYSQL_YYABORT;
+          }
+        | ORDER_SYM BY window_order_list opt_frame
+          {
+            /*
+            If RANGE is specified, order list shall contain a single <sort key> SK.
+            The declared type of SK shall be numeric, date, or interval. The declared type of UVS shall be
+            numeric if the declared type of SK is numeric -- reference ANSI-SQL 2003
+            */
+            if ($3 && $3->elements > 1 && $4 && $4->isRange &&
+                (($4->start && $4->start->bound == PRECEDING) ||
+                ($4->end && $4->end->bound == FOLLOWING)))
+            {
+              IDB_set_error(thd, logging::ERR_WF_INVALID_ORDER_KEY, NULL, 0);
+              MYSQL_YYABORT;
+            }
+            $$ = new Ordering();
+            $$->orders = $3;
+            $$->frame = $4;
+          }
+        ;
+
+window_order_list:
+          window_order_list ',' order_ident order_dir opt_nulls
+          {
+            if (add_to_list(thd, *$1, $3,(bool) $4, (uint)$5))
+              MYSQL_YYABORT;
+            $$ = $1;
+          }
+        | order_ident order_dir opt_nulls
+          {
+            $$ = new SQL_LIST();
+            $$->elements= 0;
+            $$->first= 0;
+            $$->next= &($$->first);
+            if ($$ == NULL)
+              MYSQL_YYABORT;
+            if (add_to_list(thd, *$$, $1, (bool) $2, (uint) $3))
+              MYSQL_YYABORT;
+          }
+        ;
+
+opt_nulls:
+          /* empty */     { $$= 2; }
+        | NULLS_SYM FIRST_SYM { $$= 1; }
+        | NULLS_SYM LAST_SYM  { $$= 0; }
+        ;
+
+opt_frame:
+          /* empty */ { $$= 0; }
+        | frame { $$= $1; }
+        ;
+
+frame:
+          boundary_unit BETWEEN_SYM bounding AND_SYM bounding
+          {
+            if ($3->bound == UNBOUNDED_FOLLOWING || $5->bound == UNBOUNDED_PRECEDING ||
+                ($3->bound == CURRENT_ROW && $5->bound == PRECEDING) ||
+                ($3->bound == FOLLOWING && $5->bound == PRECEDING) ||
+                ($3->bound == FOLLOWING && $5->bound == CURRENT_ROW))
+            {
+              IDB_set_error(thd, logging::ERR_WF_INVALID_WINDOW, NULL, 0);
+              MYSQL_YYABORT;
+            }
+            $$ = new Frame();
+            $$->start = $3;
+            $$->end = $5;
+            $$->isRange = $1;
+          }
+        | boundary_unit bounding
+          {
+            if ($2->bound == FOLLOWING || $2->bound == UNBOUNDED_FOLLOWING)
+            {
+              IDB_set_error(thd, logging::ERR_WF_INVALID_WINDOW, NULL, 0);
+              MYSQL_YYABORT;
+            }
+            $$ = new Frame();
+            $$->start = $2;
+            $$->isRange = $1;
+          }
+        ;
+boundary_unit:
+          ROWS_SYM { $$= 0; }
+        | RANGE_SYM { $$= 1; }
+        ;
+
+bounding:
+          UNBOUNDED_SYM preceding_following
+          {
+            $$ = new Boundary();
+            $$->bound = ($2 == PRECEDING? UNBOUNDED_PRECEDING : UNBOUNDED_FOLLOWING);
+          }
+        | CURRENT_SYM ROW_SYM
+          {
+            $$ = new Boundary();
+            $$->bound = CURRENT_ROW;
+          }
+        | expr preceding_following
+          {
+            $$ = new Boundary();
+            $$->bound = $2;
+            $$->item = $1;
+          }
+        | INTERVAL_SYM expr interval preceding_following
+          {
+            // @todo interval range support
+            $$ = new Boundary();
+            $$->bound = $4;
+            $$->item = new (thd->mem_root) Item_interval($2, $3);
+          }
+        ;
+
+preceding_following:
+          PRECEDING_SYM { $$= PRECEDING; }
+        | FOLLOWING_SYM { $$= FOLLOWING; }
+        ;
+
+/*
   Regular function calls.
   The function name is *not* a token, and therefore is guaranteed to not
   introduce side effects to the language in general.
@@ -10114,9 +10586,13 @@ geometry_function:
   All the new functions implemented for new features should fit into
   this category. The place to implement the function itself is
   in sql/item_create.cc
+
+  @InfiniDB Note: mid-rule action was converted to end rule action to allow analtyic
+  function to parse. Didn't see why mid-rule action is necessary here. Will
+  watch for potential conflict.
 */
 function_call_generic:
-          IDENT_sys '('
+          IDENT_sys '(' opt_udf_expr_list ')'
           {
 #ifdef HAVE_DLOPEN
             udf_func *udf= 0;
@@ -10132,11 +10608,13 @@ function_call_generic:
               }
             }
             /* Temporary placing the result of find_udf in $3 */
-            $<udf>$= udf;
+            // InfiniDB: comment out
+            // $<udf>$= udf;
 #endif
-          }
-          opt_udf_expr_list ')'
-          {
+          // InfiniDB: comment out
+          //}
+          //opt_udf_expr_list ')'
+          //{
             Create_func *builder;
             Item *item= NULL;
 
@@ -10157,13 +10635,16 @@ function_call_generic:
             builder= find_native_function_builder(thd, $1);
             if (builder)
             {
-              item= builder->create_func(thd, $1, $4);
+              // InfiniDB use $3
+              item= builder->create_func(thd, $1, $3);
+              // item= builder->create_func(thd, $1, $4);
             }
             else
             {
 #ifdef HAVE_DLOPEN
               /* Retrieving the result of find_udf */
-              udf_func *udf= $<udf>3;
+              // InfiniDB: comment out
+              // udf_func *udf= $<udf>3;
 
               if (udf)
               {
@@ -10171,15 +10652,18 @@ function_call_generic:
                 {
                   Select->in_sum_expr--;
                 }
-
-                item= Create_udf_func::s_singleton.create(thd, udf, $4);
+                // InfiniDB: use $3
+                item= Create_udf_func::s_singleton.create(thd, udf, $3);
+                //item= Create_udf_func::s_singleton.create(thd, udf, $4);
               }
               else
 #endif
               {
                 builder= find_qualified_function_builder(thd);
                 DBUG_ASSERT(builder);
-                item= builder->create_func(thd, $1, $4);
+                // InfiniDB: use $3
+                item= builder->create_func(thd, $1, $3);
+                // item= builder->create_func(thd, $1, $4);
               }
             }
 
@@ -10338,6 +10822,9 @@ sum_expr:
             if ($$ == NULL)
               MYSQL_YYABORT;
           }
+        /* @InfiniDB Note: mid-rule action was converted to end rule action to allow analtyic
+           function to parse. Didn't see why mid-rule action is necessary here. Will
+           watch for potential conflict.
         | COUNT_SYM '(' DISTINCT
           { Select->in_sum_expr++; }
           expr_list
@@ -10345,6 +10832,13 @@ sum_expr:
           ')'
           {
             $$= new (thd->mem_root) Item_sum_count(thd, *$5);
+            if ($$ == NULL)
+              MYSQL_YYABORT;
+          }
+        */
+        | COUNT_SYM '(' DISTINCT in_sum_expr_list ')'
+          {
+            $$= new (thd->mem_root) Item_sum_count(thd, * $4);
             if ($$ == NULL)
               MYSQL_YYABORT;
           }
@@ -10594,6 +11088,24 @@ expr_list:
           {
             $1->push_back($3, thd->mem_root);
             $$= $1;
+          }
+        ;
+
+// InfiniDB
+in_sum_expr_list:
+          opt_all
+          {
+            LEX *lex= Lex;
+            if (lex->current_select->inc_in_sum_expr())
+            {
+              my_parse_error(thd, ER_SYNTAX_ERROR);
+              MYSQL_YYABORT;
+            }
+          }
+          expr_list
+          {
+            Select->in_sum_expr--;
+            $$= $3;
           }
         ;
 
@@ -11311,7 +11823,12 @@ opt_escape:
 
 opt_group_clause:
           /* empty */
-        | GROUP_SYM BY group_list olap_opt
+          /* InfiniDB changes
+        | GROUP_SYM BY
+          {
+            Select->parsing_place= IN_GROUP_BY;
+          }
+          group_list olap_opt
         ;
 
 group_list:
@@ -14545,6 +15062,7 @@ keyword_sp:
         | SQL_CACHE_SYM            {}
         | SQL_BUFFER_RESULT        {}
         | SQL_NO_CACHE_SYM         {}
+        | INFINIDB_ORDERED_SYM     {}
         | SQL_THREAD               {}
         | STARTS_SYM               {}
         | STATEMENT_SYM            {}

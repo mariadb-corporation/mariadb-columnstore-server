@@ -17,10 +17,9 @@
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
 #include "sql_error.h"
-
+#include "sql_class.h"
 class THD;
 struct LEX;
-
 /**
   An interface that is used to take an action when
   the locking module notices that a table version has changed
@@ -356,5 +355,6 @@ private:
   Ed_column *m_column_array;
   size_t m_column_count; /* TODO: change to point to metadata */
 };
+
 
 #endif // SQL_PREPARE_H

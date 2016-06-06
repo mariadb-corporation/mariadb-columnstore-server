@@ -220,6 +220,11 @@ typedef struct st_order {
   char	 *buff;				/* If tmp-table group */
   table_map used; /* NOTE: the below is only set to 0 but is still used by eq_ref_table */
   table_map depend_map;
+  uint   nulls;                         /* @InfiniDB. For window function order by clause 
+                                           2 -- not definied. default nulls last if ascending
+                                                default nulls first if descending
+                                           1 -- nulls first
+                                           0 -- nulls last */
 } ORDER;
 
 /**
@@ -1280,6 +1285,23 @@ public:
   void mark_virtual_columns_for_write(bool insert_fl);
   void mark_default_fields_for_write();
   bool has_default_function(bool is_update);
+  // @Infinidb if this is InfiniDB table.
+  inline bool isInfiniDB()
+  {
+    // @5978. Sometimes for internal temporary table, e.g.,
+    // derived table, the s structure is not fully initialized.
+    // However, it can never be infinidb table in such case,
+    // therefore false to be ruturned.
+    if (!s || s->table_category == TABLE_CATEGORY_TEMPORARY)
+      return false;
+#if (defined(_MSC_VER) && defined(_DEBUG)) || defined(SAFE_MUTEX)
+    if (s && s->db_plugin && (strcmp((*s->db_plugin)->name.str, "InfiniDB") == 0))
+#else
+    if (s && s->db_plugin && (strcmp(s->db_plugin->name.str, "InfiniDB") == 0))
+#endif
+      return true;
+    return false;
+  }
   inline void column_bitmaps_set(MY_BITMAP *read_set_arg,
                                  MY_BITMAP *write_set_arg)
   {

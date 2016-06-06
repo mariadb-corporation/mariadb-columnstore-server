@@ -906,6 +906,8 @@ public:
   String *val_str(String *a);
   void fix_length_and_dec();
   void print(String *str, enum_query_type query_type);
+  // @InfiniDB. add accessor
+  int castLength() { return (int) cast_length; }
 };
 
 
@@ -982,6 +984,8 @@ public:
   bool get_date(MYSQL_TIME *ltime, ulonglong fuzzy_date);
   void print(String *str, enum_query_type query_type);
   const char *func_name() const { return "add_time"; }
+  // @InfiniDB add accessor
+  int get_sign() { return sign; }
 };
 
 class Item_func_timediff :public Item_timefunc
@@ -1036,8 +1040,8 @@ public:
 
 class Item_func_timestamp_diff :public Item_int_func
 {
-  const interval_type int_type;
 public:
+  const interval_type int_type;  // InfiniDB: Keep public
   Item_func_timestamp_diff(THD *thd, Item *a, Item *b, interval_type type_arg):
     Item_int_func(thd, a, b), int_type(type_arg) {}
   const char *func_name() const { return "timestampdiff"; }

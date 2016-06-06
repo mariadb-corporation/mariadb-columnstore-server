@@ -2309,6 +2309,9 @@ bool open_table(THD *thd, TABLE_LIST *table_list, Open_table_context *ot_ctx)
       so we may only end up here if the table did not exist when
       locked tables list was created.
     */
+	/* InfiniDB. Internal aliases start with '$' */
+    if (table_list->alias && table_list->alias[0] == '$')
+    	DBUG_RETURN(table);
     if (thd->locked_tables_mode == LTM_PRELOCKED)
       my_error(ER_NO_SUCH_TABLE, MYF(0), table_list->db, table_list->alias);
     else

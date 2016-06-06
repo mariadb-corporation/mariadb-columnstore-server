@@ -49,6 +49,8 @@ bool trace_unsupported_func(const char *where, const char *processor_name)
 #define trace_unsupported_func(X,Y) TRUE
 #endif
 
+typedef SQL_I_List<ORDER> SQL_LIST;
+
 static inline
 bool trace_unsupported_by_check_vcol_func_processor(const char *where)
 {
@@ -621,6 +623,7 @@ class Item: public Value_source,
   uint join_tab_idx;
 
   static void *operator new(size_t size);
+  THD* m_thd;
 
 public:
   static void *operator new(size_t size, MEM_ROOT *mem_root) throw ()
@@ -637,7 +640,8 @@ public:
              PARAM_ITEM, TRIGGER_FIELD_ITEM, DECIMAL_ITEM,
              XPATH_NODESET, XPATH_NODESET_CMP,
              VIEW_FIXER_ITEM, EXPR_CACHE_ITEM,
-             DATE_ITEM};
+             DATE_ITEM,
+	         WINDOW_FUNC_ITEM, INTERVAL_ITEM};  // InfiniDB: these last two
 
   enum cond_result { COND_UNDEF,COND_OK,COND_TRUE,COND_FALSE };
 
@@ -659,6 +663,9 @@ protected:
   SEL_TREE *get_mm_tree_for_const(RANGE_OPT_PARAM *param);
 
 public:
+  // InfiniDB needs access to thd.
+  THD* thd() {return m_thd;}
+
   /*
     Cache val_str() into the own buffer, e.g. to evaluate constant
     expressions with subqueries in the ORDER/GROUP clauses.
@@ -4498,6 +4505,7 @@ public:
 #include "item_subselect.h"
 #include "item_xmlfunc.h"
 #include "item_create.h"
+#include "item_window_function.h"
 #endif
 
 /**
@@ -5064,6 +5072,8 @@ public:
     return (this->*processor)(arg);
   }
   virtual Item *safe_charset_converter(THD *thd, CHARSET_INFO *tocs);
+  // InfiniDB
+  Item * get_example() { return example; }
 };
 
 
@@ -5274,6 +5284,21 @@ public:
   Field::geometry_type get_geometry_type() const { return geometry_type; };
 };
 
+//@ InfiniDB interval item type for window function
+class Item_interval : public Item
+{
+  Item_interval():Item(current_thd){}
+public:
+  Item_interval(Item* it):Item(current_thd), item(it) {}
+  Item_interval(Item* it, const interval_type unit):Item(current_thd), item(it), interval(unit) {}
+  enum Type type() const { return INTERVAL_ITEM; }
+  double val_real() {assert(0); return 0.0; }
+  longlong val_int() {assert(0); return 0; }
+  my_decimal *val_decimal(my_decimal *) {assert(0); return 0; }
+  String *val_str(String*) {assert(0); return 0; }
+  Item* item;
+  interval_type interval;
+};
 
 class st_select_lex;
 void mark_select_range_as_dependent(THD *thd,

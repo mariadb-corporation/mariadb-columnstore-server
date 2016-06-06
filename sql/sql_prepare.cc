@@ -85,6 +85,8 @@ When one supplies long data for a placeholder:
 */
 
 #include <my_global.h>                          /* NO_EMBEDDED_ACCESS_CHECKS */
+#include <string>
+#include <sstream>
 #include "sql_priv.h"
 #include "unireg.h"
 #include "sql_class.h"                          // set_var.h: THD
@@ -119,105 +121,16 @@ When one supplies long data for a placeholder:
 #include "transaction.h"                        // trans_rollback_implicit
 #include "wsrep_mysqld.h"
 
-/**
-  A result class used to send cursor rows using the binary protocol.
-*/
-
-class Select_fetch_protocol_binary: public select_send
-{
-  Protocol_binary protocol;
-public:
-  Select_fetch_protocol_binary(THD *thd);
-  virtual bool send_result_set_metadata(List<Item> &list, uint flags);
-  virtual int send_data(List<Item> &items);
-  virtual bool send_eof();
-#ifdef EMBEDDED_LIBRARY
-  void begin_dataset()
-  {
-    protocol.begin_dataset();
-  }
-#endif
-};
+#include "sp_head.h"
+#include "sp.h"
+#include "sp_cache.h"
+#include "events.h"
+#include "sql_trigger.h"
+#include "sp_pcontext.h"
 
 /****************************************************************************/
-
-/**
-  Prepared_statement: a statement that can contain placeholders.
-*/
-
-class Prepared_statement: public Statement
-{
-public:
-  enum flag_values
-  {
-    IS_IN_USE= 1,
-    IS_SQL_PREPARE= 2
-  };
-
-  THD *thd;
-  Select_fetch_protocol_binary result;
-  Item_param **param_array;
-  Server_side_cursor *cursor;
-  uint param_count;
-  uint last_errno;
-  uint flags;
-  /*
-    The value of thd->select_number at the end of the PREPARE phase.
-
-    The issue is: each statement execution opens VIEWs, which may cause 
-    select_lex objects to be created, and select_number values to be assigned.
-
-    On the other hand, PREPARE assigns select_number values for triggers and
-    subqueries.
-
-    In order for select_number values from EXECUTE not to conflict with
-    select_number values from PREPARE, we keep the number and set it at each
-    execution.
-  */
-  uint select_number_after_prepare;
-  char last_error[MYSQL_ERRMSG_SIZE];
-#ifndef EMBEDDED_LIBRARY
-  bool (*set_params)(Prepared_statement *st, uchar *data, uchar *data_end,
-                     uchar *read_pos, String *expanded_query);
-#else
-  bool (*set_params_data)(Prepared_statement *st, String *expanded_query);
-#endif
-  bool (*set_params_from_vars)(Prepared_statement *stmt,
-                               List<LEX_STRING>& varnames,
-                               String *expanded_query);
-public:
-  Prepared_statement(THD *thd_arg);
-  virtual ~Prepared_statement();
-  void setup_set_params();
-  virtual Query_arena::Type type() const;
-  virtual void cleanup_stmt();
-  bool set_name(LEX_STRING *name);
-  inline void close_cursor() { delete cursor; cursor= 0; }
-  inline bool is_in_use() { return flags & (uint) IS_IN_USE; }
-  inline bool is_sql_prepare() const { return flags & (uint) IS_SQL_PREPARE; }
-  void set_sql_prepare() { flags|= (uint) IS_SQL_PREPARE; }
-  bool prepare(const char *packet, uint packet_length);
-  bool execute_loop(String *expanded_query,
-                    bool open_cursor,
-                    uchar *packet_arg, uchar *packet_end_arg);
-  bool execute_server_runnable(Server_runnable *server_runnable);
-  /* Destroy this statement */
-  void deallocate();
-private:
-  /**
-    The memory root to allocate parsed tree elements (instances of Item,
-    SELECT_LEX and other classes).
-  */
-  MEM_ROOT main_mem_root;
-private:
-  bool set_db(const char *db, uint db_length);
-  bool set_parameters(String *expanded_query,
-                      uchar *packet, uchar *packet_end);
-  bool execute(String *expanded_query, bool open_cursor);
-  bool reprepare();
-  bool validate_metadata(Prepared_statement  *copy);
-  void swap_prepared_statement(Prepared_statement *copy);
-};
+// InfiniDB vtable processing
+extern int idb_vtable_process(THD* thd, Statement* stmt = NULL);
 
 /**
   Execute one SQL statement in an isolated context.
@@ -2915,7 +2828,10 @@ void mysqld_stmt_close(THD *thd, char *packet)
     The only way currently a statement can be deallocated when it's
     in use is from within Dynamic SQL.
   */
-  DBUG_ASSERT(! stmt->is_in_use());
+  // @InfiniDB relax the assertion for vtable create
+  //if (thd->infinidb_vtable.vtable_state == THD::INFINIDB_DISABLE_VTABLE)
+  //	DBUG_ASSERT(! stmt->is_in_use());
+
   stmt->deallocate();
   general_log_print(thd, thd->get_command(), NullS);
 
@@ -3508,7 +3424,6 @@ bool Prepared_statement::prepare(const char *packet, uint packet_len)
   DBUG_RETURN(error);
 }
 
-
 /**
   Assign parameter values either from variables, in case of SQL PS
   or from the execute packet.
@@ -3901,6 +3816,10 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
   Query_arena *old_stmt_arena;
   bool error= TRUE;
 
+  // InfiniDB
+  TABLE_LIST* global_list = NULL;
+  bool bHasInfiniDB = false;
+
   char saved_cur_db_name_buf[SAFE_NAME_LEN+1];
   LEX_STRING saved_cur_db_name=
     { saved_cur_db_name_buf, sizeof(saved_cur_db_name_buf) };
@@ -3972,6 +3891,67 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
     my_error(ER_OUTOFMEMORY, MYF(ME_FATALERROR), expanded_query->length());
     goto error;
   }
+
+  // @infinidb. vtable process around stmt_execute. 
+  // @bug3742. mysqli php support for prepare/execute stmt
+  // @bug4833. the state checking will be done inside idb_vtable_process() function
+  // check infinidb table
+  // @bug 2976. Check global tables for IDB table. If no IDB tables involved, redo this query with normal path.
+  //TABLE_LIST* global_list = thd->lex->query_tables;
+  global_list = thd->lex->query_tables;
+
+  for (; global_list; global_list = global_list->next_global)
+  {
+    //if (!global_list->table || !global_list->table->s->db_plugin)
+    if (!(global_list->table && global_list->table->s && global_list->table->s->db_plugin))
+      continue;
+    //Windows never has SAFE_MUTEX defined...
+    // @InfiniDB watch out for FROM clause derived table. union memeory table has tablename="union" 
+    if (global_list->table && global_list->table->isInfiniDB())
+    {
+      bHasInfiniDB = true;
+      continue;
+    }
+#if (defined(_MSC_VER) && defined(_DEBUG)) || defined(SAFE_MUTEX)
+    else if (global_list->table &&
+             global_list->table->s &&
+             ((global_list->table->s->table_category == TABLE_CATEGORY_TEMPORARY) ||
+             (global_list->table->s->db_plugin &&
+             (strcmp((*global_list->table->s->db_plugin)->name.str, "MEMORY") == 0))))
+#else
+    else if (global_list->table &&
+             global_list->table->s &&
+             ((global_list->table->s->table_category == TABLE_CATEGORY_TEMPORARY) ||
+             (global_list->table->s->db_plugin &&
+             (strcmp(global_list->table->s->db_plugin->name.str, "MEMORY") == 0))))
+#endif
+    {
+      continue;
+    }
+  }
+ 
+  if (bHasInfiniDB && thd->get_command() == COM_STMT_EXECUTE)
+  {
+    // @bug5298. disable re-prepare observer for infinidb query
+    thd->m_reprepare_observer = NULL;
+    if (thd->lex)
+      thd->lex->result = 0;
+    // @bug5962. reset the in_use flag so the prepared stmt
+    // can be executed again in IDB.
+    //flags|= IS_IN_USE;
+    flags&= ~ (uint) IS_IN_USE;
+    if (idb_vtable_process(thd, this)) // if failed, fall through to normal path
+    {
+      thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
+    }
+    else
+    {
+      thd->set_statement(&stmt_backup);
+      return false;
+    }
+  }
+  // End InfiniDB
+
   /*
     Expanded query is needed for slow logging, so we want thd->query
     to point at it even after we restore from backup. This is ok, as
@@ -4106,6 +4086,13 @@ void Prepared_statement::deallocate()
   thd->stmt_map.erase(this);
 }
 
+// InfiniDB: This can't be declared inline in the header because curser 
+// isn't fully defined there.
+void 
+Prepared_statement::close_cursor() 
+{ 
+	delete cursor; cursor= 0; 
+}
 
 /***************************************************************************
 * Ed_result_set
@@ -4670,7 +4657,6 @@ Protocol_local::send_error(uint sql_errno, const char *err_msg, const char*)
   */
   return FALSE;
 }
-
 
 #ifdef EMBEDDED_LIBRARY
 void Protocol_local::remove_last_row()

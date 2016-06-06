@@ -360,6 +360,7 @@ public:
     Reference on the Item_in_optimizer wrapper of this subquery
   */
   Item_in_optimizer *optimizer;
+  const Item_in_optimizer* getOptimizer() const { return optimizer; }
   /* true if we got this from EXISTS or to IN */
   bool exists_transformed;
 

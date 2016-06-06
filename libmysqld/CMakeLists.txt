@@ -111,6 +111,9 @@ SET(SQL_EMBEDDED_SOURCES emb_qcache.cc libmysqld.c lib_sql.cc
            ../sql/wsrep_dummy.cc ../sql/encryption.cc
            ${GEN_SOURCES}
            ${MYSYS_LIBWRAP_SOURCE}
+           ../sql/item_create_window_function.cc
+           ../sql/item_window_function.cc
+
 )
 
 

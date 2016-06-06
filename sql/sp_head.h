@@ -518,6 +518,10 @@ public:
 
   sp_pcontext *get_parse_context() { return m_pcont; }
 
+  // InfiniDB adds accessor
+  sp_pcontext* context() { return m_pcont; }
+  uint sp_elements() {return m_instr.elements;}
+
 private:
 
   MEM_ROOT *m_thd_root;		///< Temp. store for thd's mem_root

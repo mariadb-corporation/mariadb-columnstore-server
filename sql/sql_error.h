@@ -973,5 +973,27 @@ inline bool is_sqlstate_not_found(const char *s)
 inline bool is_sqlstate_exception(const char *s)
 { return s[0] != '0' || s[1] > '2'; }
 
+// @InfiniDB util API for error handling
+#include "handler.h"                            /* ha_resolve_by_name */
+#include "sql_plugin.h"                         /* plugin_ref */
+const LEX_STRING InfiniDB= { C_STRING_WITH_LEN("InfiniDB") };
+
+// generic API
+inline void IDB_set_error(THD* thd, uint64_t errCode, LEX_STRING* args, uint argCount)
+{
+    plugin_ref plugin =     ha_resolve_by_name(thd, &InfiniDB, false);
+    handlerton* hton = plugin_data(plugin, handlerton*);
+    hton->set_error(thd, errCode, args, argCount);
+}
+
+// one arg API
+inline void IDB_set_error(THD* thd, uint64_t errCode, char* arg)
+{
+    plugin_ref plugin =     ha_resolve_by_name(thd, &InfiniDB, false);
+    handlerton* hton = plugin_data(plugin, handlerton*);
+    LEX_STRING args[1];
+    args[0].str = arg;
+    hton->set_error(thd, errCode, args, 1);
+}
 
 #endif // SQL_ERROR_H

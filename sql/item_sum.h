@@ -377,7 +377,7 @@ protected:
   
   static ulonglong ram_limitation(THD *thd);
 
-public:  
+public:
 
   void mark_as_sum_func();
   Item_sum(THD *thd): Item_func_or_sum(thd), quick_group(1)
@@ -1485,13 +1485,7 @@ public:
   const char *func_name() const { return "group_concat"; }
   virtual Item_result result_type () const { return STRING_RESULT; }
   virtual Field *make_string_field(TABLE *table);
-  enum_field_types field_type() const
-  {
-    if (too_big_for_varchar())
-      return MYSQL_TYPE_BLOB;
-    else
-      return MYSQL_TYPE_VARCHAR;
-  }
+  enum_field_types field_type() const;
   void clear();
   bool add();
   void reset_field() { DBUG_ASSERT(0); }        // not used
@@ -1529,6 +1523,14 @@ public:
   virtual void print(String *str, enum_query_type query_type);
   virtual bool change_context_processor(uchar *cntx)
     { context= (Name_resolution_context *)cntx; return FALSE; }
+
+  // InfiniDB added interface
+  bool isDistinct() { return distinct; }
+  uint count_field() { return arg_count_field; }
+  uint order_field() { return arg_count_order; }
+  String* str_separator() { return separator; }
+  ORDER** get_order() { return order; }
+//  Name_resolution_context *context; // InfiniDB: keep it in public place
 };
 
 #endif /* ITEM_SUM_INCLUDED */

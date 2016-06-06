@@ -2104,6 +2104,7 @@ void clean_up(bool print_message)
   item_func_sleep_free();
   lex_free();				/* Free some memory */
   item_create_cleanup();
+  item_window_function_create_cleanup();  // @InfiniDB
   if (!opt_noacl)
   {
 #ifdef HAVE_DLOPEN
@@ -4428,6 +4429,8 @@ static int init_common_variables()
   mysql_library_init(unused,unused,unused); /* for replication */
   lex_init();
   if (item_create_init())
+    return 1;
+  if (item_window_function_create_init()) //@InfiniDB
     return 1;
   item_init();
   init_pcre();
@@ -7660,6 +7663,7 @@ struct my_option my_long_options[]=
   /* The following options were added after 5.6.10 */
   MYSQL_TO_BE_IMPLEMENTED_OPTION("rpl-stop-slave-timeout"),
   MYSQL_TO_BE_IMPLEMENTED_OPTION("validate-user-plugins") // NO_EMBEDDED_ACCESS_CHECKS
+
 };
 
 static int show_queries(THD *thd, SHOW_VAR *var, char *buff,

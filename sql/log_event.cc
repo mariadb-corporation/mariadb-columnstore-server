@@ -748,6 +748,36 @@ int append_query_string(CHARSET_INFO *csinfo, String *to,
   to->length(orig_len + ptr - beg);
   return 0;
 }
+/*
+InfiniDB: Checks to see if we should replicate 
+vtables and InfiniDB tables do not replicate
+*/
+static bool idb_okay_to_repl(THD* thd, char const* query, uint32 q_len)
+{
+	char* ptr = 0;
+
+	if (thd->db_length == 15 && strncmp(thd->db, "infinidb_vtable", 15) == 0)
+		return FALSE;
+
+	//we only care about a few patterns, and they're always the same because we write them
+
+	//drop table infinidb_vtable.$vtable_nnn ...
+	ptr = strstr((char*)query, "drop table infinidb_vtable.$vtable_");
+	if (ptr)
+	{
+		return FALSE;
+	}
+
+	//alter table infinidb_vtable.$vtable_nnn ...
+	ptr = strstr((char*)query, "alter table infinidb_vtable.$vtable_");
+	if (ptr)
+	{
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
 #endif
 
 
@@ -3435,7 +3465,9 @@ Query_log_event::Query_log_event(const char* buf, uint event_len,
   
   slave_proxy_id= thread_id = uint4korr(buf + Q_THREAD_ID_OFFSET);
   exec_time = uint4korr(buf + Q_EXEC_TIME_OFFSET);
-  db_len = (uint)buf[Q_DB_LEN_OFFSET]; // TODO: add a check of all *_len vars
+  // @InfiniDB @bug5910 fix for db_len=128
+  db_len = (uchar)buf[Q_DB_LEN_OFFSET]; // TODO: add a check of all *_len vars
+//  db_len = (uint)buf[Q_DB_LEN_OFFSET]; // TODO: add a check of all *_len vars
   error_code = uint2korr(buf + Q_ERR_CODE_OFFSET);
 
   /*
@@ -4163,7 +4195,10 @@ int Query_log_event::do_apply_event(rpl_group_info *rgi,
             ::do_apply_event(), then the companion SET also have so
             we don't need to reset_one_shot_variables().
   */
-  if (is_trans_keyword() || rpl_filter->db_ok(thd->db))
+  // Add check for InfiniDB OK to replicate.
+  bool idb_okay = true;
+  idb_okay = idb_okay_to_repl(thd, query_arg, q_len_arg);
+  if (idb_okay && (is_trans_keyword() || rpl_filter->db_ok(thd->db)) )
   {
     thd->set_time(when, when_sec_part);
     thd->set_query_and_id((char*)query_arg, q_len_arg,
