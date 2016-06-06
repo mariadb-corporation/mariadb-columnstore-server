@@ -941,7 +941,14 @@ int mysql_update(THD *thd,
                   {
                     thd->killed= KILL_QUERY;
                   };);
-  error= (killed_status == NOT_KILLED)?  error : 1;
+  // @InfiniDB. Add isInfiniDBDML to make sure it's InfiniDB dml stmt.
+  if (thd->infinidb_vtable.isInfiniDBDML)
+  {
+    if (killed_status != NOT_KILLED || thd->is_error())
+      error= 1;
+    else
+      error= (killed_status == NOT_KILLED)?  error : 1;
+  }
   
   if (error &&
       will_batch &&
@@ -1034,6 +1041,10 @@ int mysql_update(THD *thd,
           id, buff);
     DBUG_PRINT("info",("%ld records updated", (long) updated));
   }
+  //@Infinidb don't set row count to thd to push row count to the front. 
+  if (!(thd->infinidb_vtable.isInfiniDBDML))
+    thd->set_row_count_func((thd->client_capabilities & CLIENT_FOUND_ROWS) ? found : updated);
+
   thd->count_cuted_fields= CHECK_FIELD_IGNORE;		/* calc cuted fields */
   thd->abort_on_warning= 0;
   if (thd->lex->current_select->first_cond_optimization)
@@ -2598,8 +2609,13 @@ bool multi_update::send_eof()
     thd->first_successful_insert_id_in_prev_stmt : 0;
     my_snprintf(buff, sizeof(buff), ER_THD(thd, ER_UPDATE_INFO),
                 (ulong) found, (ulong) updated, (ulong) thd->cuted_fields);
-    ::my_ok(thd, (thd->client_capabilities & CLIENT_FOUND_ROWS) ? found : updated,
-            id, buff);
+	//@Infinidb don't set row count on thd to push row count to the front
+	longlong row_count_func = 0;
+	if (!(thd->infinidb_vtable.isInfiniDBDML))
+	  row_count_func = (thd->client_capabilities & CLIENT_FOUND_ROWS) ? found : updated;
+
+	::my_ok(thd, row_count_func, id, buff);
   }
+
   DBUG_RETURN(FALSE);
 }
