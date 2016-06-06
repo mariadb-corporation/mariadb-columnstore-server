@@ -96,8 +96,8 @@ ELSE()
 ENDIF()
 PROJECT(${MYSQL_PROJECT_NAME})
 
-SET(CPACK_PACKAGE_NAME "InfiniDB-MariaDB")
-SET(CPACK_PACKAGE_DESCRIPTION_SUMMARY "InfiniDB-MariaDB: a very fast and robust SQL database server")
+SET(CPACK_PACKAGE_NAME "infinidb-mariadb")
+SET(CPACK_PACKAGE_DESCRIPTION_SUMMARY "infinidb-mariadb: a very fast and robust SQL database server")
 SET(CPACK_PACKAGE_URL "http://mariadb.org")
 
 IF(BUILD_CONFIG)
