@@ -279,7 +279,7 @@ void Item_func_window::fix_length_and_dec()
 	DBUG_VOID_RETURN;
 }
 
-// No mysql evalluation. error out
+// No mysql evaluation. error out
 double Item_func_window::val_real()
 {
 	if (!(current_thd->infinidb_vtable.vtable_state == THD::INFINIDB_CREATE_VTABLE))
@@ -287,7 +287,7 @@ double Item_func_window::val_real()
 	return 0;
 }
 
-// No mysql evalluation. error out
+// No mysql evaluation. error out
 longlong Item_func_window::val_int()
 {
 	if (!(current_thd->infinidb_vtable.vtable_state == THD::INFINIDB_CREATE_VTABLE))
@@ -295,7 +295,7 @@ longlong Item_func_window::val_int()
 	return 0;
 }
 
-// No mysql evalluation. error out
+// No mysql evaluation. error out
 String* Item_func_window::val_str(String*)
 {
 	if (!(current_thd->infinidb_vtable.vtable_state == THD::INFINIDB_CREATE_VTABLE))
@@ -303,7 +303,7 @@ String* Item_func_window::val_str(String*)
 	return 0;
 }
 
-enum_field_types Item_func_window_hybrid::field_type()
+enum_field_types Item_func_window_hybrid::field_type() const
 {
 	if (args && arg_count < 1)
 	{
@@ -548,7 +548,7 @@ bool Item_func_window_median::fix_fields(THD* thd, Item** ref)
 	orders->elements= 0;
 	orders->first= 0;
 	orders->next= &(orders->first);
-	if (add_to_list(thd, *orders, args[0], true, 0)) // decending, null last
+	if (add_to_list(thd, *orders, args[0], true/*, 0*/)) // decending, null last
 	{
 		IDB_set_error(thd, logging::ERR_WF_ORDER_BY, funcname);
 		return TRUE;

@@ -128,7 +128,7 @@ public:
 	bool respectNulls; // for some window functions
 
 	// @bug5777, to distinguish two types of real result type.
-	virtual enum_field_types field_type() { return MYSQL_TYPE_DOUBLE; }
+	virtual enum_field_types field_type() const { return MYSQL_TYPE_DOUBLE; }
 
 protected:
 	Window_context* window_context;
@@ -176,7 +176,7 @@ public:
 	                 Item_func_window(thd, name, arg1, arg2, arg3, arg4, ctx, dist)
 	{}
 	virtual ~Item_func_window_hybrid() {}
-	virtual enum_field_types field_type();
+	virtual enum_field_types field_type() const;
 };
 
 // avg

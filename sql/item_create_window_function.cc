@@ -347,7 +347,7 @@ int item_window_function_create_init()
 #ifndef DBUG_OFF
 	for (uint i=0 ; i < native_window_functions_hash.records ; i++)
 	{
-		func= (Native_window_func_registry*) hash_element(& native_window_functions_hash, i);
+		func= (Native_window_func_registry*) my_hash_element(& native_window_functions_hash, i);
 		DBUG_PRINT("info", ("native function: %s  length: %u",
 		          func->name.str, (uint) func->name.length));
 	}
@@ -372,7 +372,7 @@ int item_window_function_create_init()
 #ifndef DBUG_OFF
 	for (uint i=0 ; i < native_window_functions_hash_nulls.records ; i++)
 	{
-		func= (Native_window_func_registry*) hash_element(& native_window_functions_hash_nulls, i);
+		func= (Native_window_func_registry*) my_hash_element(& native_window_functions_hash_nulls, i);
 		DBUG_PRINT("info", ("native function: %s  length: %u",
 		          func->name.str, (uint) func->name.length));
 	}
