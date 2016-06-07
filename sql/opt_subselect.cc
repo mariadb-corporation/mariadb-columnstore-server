@@ -833,12 +833,14 @@ bool subquery_types_allow_materialization(Item_in_subselect *in_subs)
   in_subs->sjm_scan_allowed= FALSE;
   
   bool all_are_fields= TRUE;
+  uint32 total_key_length = 0;
   for (uint i= 0; i < elements; i++)
   {
     Item *outer= in_subs->left_expr->element_index(i);
     Item *inner= it++;
     all_are_fields &= (outer->real_item()->type() == Item::FIELD_ITEM && 
                        inner->real_item()->type() == Item::FIELD_ITEM);
+    total_key_length += inner->max_length;
     if (outer->cmp_type() != inner->cmp_type())
       DBUG_RETURN(FALSE);
     switch (outer->cmp_type()) {
@@ -868,6 +870,15 @@ bool subquery_types_allow_materialization(Item_in_subselect *in_subs)
       break;
     }
   }
+
+  /*
+     Make sure that create_tmp_table will not fail due to too long keys.
+     See MDEV-7122. This check is performed inside create_tmp_table also and
+     we must do it so that we know the table has keys created.
+  */
+  if (total_key_length > tmp_table_max_key_length() ||
+      elements > tmp_table_max_key_parts())
+    DBUG_RETURN(FALSE);
 
   in_subs->types_allow_materialization= TRUE;
   in_subs->sjm_scan_allowed= all_are_fields;
@@ -2240,7 +2251,8 @@ bool optimize_semijoin_nests(JOIN *join, table_map all_table_map)
             rows *= join->map2table[tableno]->table->quick_condition_rows;
           sjm->rows= MY_MIN(sjm->rows, rows);
         }
-        memcpy(sjm->positions, join->best_positions + join->const_tables, 
+        memcpy((uchar*) sjm->positions,
+               (uchar*) (join->best_positions + join->const_tables),
                sizeof(POSITION) * n_tables);
 
         /*
@@ -3343,7 +3355,7 @@ void fix_semijoin_strategies_for_picked_join_order(JOIN *join)
       SJ_MATERIALIZATION_INFO *sjm= s->emb_sj_nest->sj_mat_info;
       sjm->is_used= TRUE;
       sjm->is_sj_scan= FALSE;
-      memcpy(pos - sjm->tables + 1, sjm->positions, 
+      memcpy((uchar*) (pos - sjm->tables + 1), (uchar*) sjm->positions,
              sizeof(POSITION) * sjm->tables);
       recalculate_prefix_record_count(join, tablenr - sjm->tables + 1,
                                       tablenr);
@@ -3359,8 +3371,8 @@ void fix_semijoin_strategies_for_picked_join_order(JOIN *join)
       sjm->is_used= TRUE;
       sjm->is_sj_scan= TRUE;
       first= pos->sjmat_picker.sjm_scan_last_inner - sjm->tables + 1;
-      memcpy(join->best_positions + first, 
-             sjm->positions, sizeof(POSITION) * sjm->tables);
+      memcpy((uchar*) (join->best_positions + first),
+             (uchar*) sjm->positions, sizeof(POSITION) * sjm->tables);
       recalculate_prefix_record_count(join, first, first + sjm->tables);
       join->best_positions[first].sj_strategy= SJ_OPT_MATERIALIZE_SCAN;
       join->best_positions[first].n_sj_tables= sjm->tables;
@@ -5533,7 +5545,8 @@ bool JOIN::choose_subquery_plan(table_map join_tables)
           outer join has not been optimized yet).
     */
     if (outer_join && outer_join->table_count > 0 && // (1)
-        outer_join->join_tab)                        // (2)
+        outer_join->join_tab &&                      // (2)
+        !in_subs->const_item())
     {
       /*
         TODO:

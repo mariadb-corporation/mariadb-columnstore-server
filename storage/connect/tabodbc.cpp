@@ -5,7 +5,7 @@
 /*                                                                     */
 /* COPYRIGHT:                                                          */
 /* ----------                                                          */
-/*  (C) Copyright to the author Olivier BERTRAND          2000-2015    */
+/*  (C) Copyright to the author Olivier BERTRAND          2000-2016    */
 /*                                                                     */
 /* WHAT THIS PROGRAM DOES:                                             */
 /* -----------------------                                             */
@@ -97,8 +97,8 @@ ODBCDEF::ODBCDEF(void)
   {
   Connect = Tabname = Tabschema = Username = Password = NULL;
   Tabcat = Srcdef = Qchar = Qrystr = Sep = NULL;
-  Catver = Options = Cto = Qto = Quoted = Maxerr = Maxres = 0;
-  Scrollable = Memory = Xsrc = UseCnc = false;
+  Catver = Options = Cto = Qto = Quoted = Maxerr = Maxres = Memory = 0;
+  Scrollable = Xsrc = UseCnc = false;
   }  // end of ODBCDEF constructor
 
 /***********************************************************************/
@@ -818,7 +818,7 @@ int TDBODBC::GetMaxSize(PGLOBAL g)
     else if (!Cardinality(NULL))
       MaxSize = 10;   // To make MySQL happy
     else if ((MaxSize = Cardinality(g)) < 0)
-      MaxSize = 12;   // So we can see an error occured
+      MaxSize = 12;   // So we can see an error occurred
 
     } // endif MaxSize
 
@@ -912,19 +912,21 @@ bool TDBODBC::OpenDB(PGLOBAL g)
         if ((n = Ocp->GetResultSize(Query->GetStr(), Cnp)) < 0) {
           strcpy(g->Message, "Cannot get result size");
           return true;
-          } // endif n
+				} else if (n) {
+					Ocp->m_Rows = n;
 
-        Ocp->m_Rows = n;
+					if ((Qrp = Ocp->AllocateResult(g)))
+						Memory = 2;            // Must be filled
+					else {
+						strcpy(g->Message, "Result set memory allocation failed");
+						return true;
+					} // endif n
 
-        if ((Qrp = Ocp->AllocateResult(g)))
-          Memory = 2;            // Must be filled
-        else {
-          strcpy(g->Message, "Result set memory allocation failed");
-          return true;
-          } // endif n
+				} else				 // Void result
+					Memory = 0;
 
-        Ocp->m_Rows = 0;
-      } else
+				Ocp->m_Rows = 0;
+			} else
         return true;
 
       } // endif Memory
@@ -1007,7 +1009,7 @@ bool TDBODBC::SetRecpos(PGLOBAL g, int recpos)
   } // end of SetRecpos
 
 /***********************************************************************/
-/*  Data Base indexed read routine for MYSQL access method.            */
+/*  Data Base indexed read routine for ODBC access method.             */
 /***********************************************************************/
 bool TDBODBC::ReadKey(PGLOBAL g, OPVAL op, const key_range *kr)
 {
@@ -1026,7 +1028,7 @@ bool TDBODBC::ReadKey(PGLOBAL g, OPVAL op, const key_range *kr)
 
 		return false;
 	}	else {
-		if (To_Def->GetHandler()->MakeKeyWhere(g, Query, op, c, kr))
+		if (hc->MakeKeyWhere(g, Query, op, c, kr))
 			return true;
 
 		if (To_CondFil) {

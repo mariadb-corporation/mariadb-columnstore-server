@@ -561,22 +561,34 @@ bool Item_subselect::is_expensive()
   for (SELECT_LEX *sl= unit->first_select(); sl; sl= sl->next_select())
   {
     JOIN *cur_join= sl->join;
+
+    /* not optimized subquery */
     if (!cur_join)
-      continue;
+      return true;
+
+    /* very simple subquery */
+    if (!cur_join->tables_list && !sl->first_inner_unit())
+      return false;
+
+    /*
+      If the subquery is not optimised or in the process of optimization
+      it supposed to be expensive
+    */
+    if (!cur_join->optimized)
+      return true;
 
     /*
       Subqueries whose result is known after optimization are not expensive.
       Such subqueries have all tables optimized away, thus have no join plan.
     */
-    if (cur_join->optimized &&
-        (cur_join->zero_result_cause || !cur_join->tables_list))
+    if ((cur_join->zero_result_cause || !cur_join->tables_list))
       return false;
 
     /*
       If a subquery is not optimized we cannot estimate its cost. A subquery is
       considered optimized if it has a join plan.
     */
-    if (!(cur_join->optimized && cur_join->join_tab))
+    if (!cur_join->join_tab)
       return true;
 
     if (sl->first_inner_unit())
@@ -5328,6 +5340,7 @@ int subselect_hash_sj_engine::exec()
     item_in->reset();
     item_in->make_const();
     item_in->set_first_execution();
+    thd->lex->current_select= save_select;
     DBUG_RETURN(FALSE);
   }
 
@@ -5371,6 +5384,7 @@ int subselect_hash_sj_engine::exec()
       item_in->null_value= 1;
       item_in->make_const();
       item_in->set_first_execution();
+      thd->lex->current_select= save_select;
       DBUG_RETURN(FALSE);
     }
 
@@ -5913,7 +5927,7 @@ int subselect_partial_match_engine::exec()
       /* Search for a complete match. */
       if ((lookup_res= lookup_engine->index_lookup()))
       {
-        /* An error occured during lookup(). */
+        /* An error occurred during lookup(). */
         item_in->value= 0;
         item_in->null_value= 0;
         return lookup_res;

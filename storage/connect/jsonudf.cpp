@@ -31,6 +31,8 @@ uint GetJsonGrpSize(void);
 static int IsJson(UDF_ARGS *args, uint i);
 static PSZ MakePSZ(PGLOBAL g, UDF_ARGS *args, int i);
 
+static uint JsonGrpSize = 10;
+
 /* ----------------------------------- JSNX ------------------------------------ */
 
 /*********************************************************************************/
@@ -531,7 +533,7 @@ PVAL JSNX::CalculateArray(PGLOBAL g, PJAR arp, int n)
 /*********************************************************************************/
 my_bool JSNX::CheckPath(PGLOBAL g)
 {
-	PJVAL   val;
+	PJVAL   val= NULL;
 	PJSON   row = Row;
 
 	for (int i = 0; i < Nod && row; i++) {
@@ -1040,6 +1042,14 @@ static void SetChanged(PBSON bsp)
 } /* end of SetChanged */
 
 /*********************************************************************************/
+/*  Replaces GetJsonGrpSize not usable when CONNECT is not installed.            */
+/*********************************************************************************/
+static uint GetJsonGroupSize(void)
+{
+	return (JsonGrpSize) ? JsonGrpSize : GetJsonGrpSize();
+} // end of GetJsonGroupSize
+
+/*********************************************************************************/
 /*  Program for SubSet re-initialization of the memory pool.                     */
 /*********************************************************************************/
 static my_bool JsonSubSet(PGLOBAL g)
@@ -1292,7 +1302,7 @@ static my_bool CalcLen(UDF_ARGS *args, my_bool obj,
 {
 	char fn[_MAX_PATH];
   unsigned long i, k, m, n;
-	long fl, j = -1;
+	long fl= 0, j = -1;
 
   reslen = args->arg_count + 2;
 
@@ -2077,7 +2087,7 @@ my_bool json_object_nonull_init(UDF_INIT *initid, UDF_ARGS *args,
 char *json_object_nonull(UDF_INIT *initid, UDF_ARGS *args, char *result, 
                          unsigned long *res_length, char *, char *)
 {
-  char   *str;
+  char   *str= 0;
   PGLOBAL g = (PGLOBAL)initid->ptr;
 
 	if (!g->Xchk) {
@@ -2394,11 +2404,50 @@ void json_object_list_deinit(UDF_INIT* initid)
 } // end of json_object_list_deinit
 
 /*********************************************************************************/
+/*  Set the value of JsonGrpSize.                                                */
+/*********************************************************************************/
+my_bool jsonset_grp_size_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
+{
+	if (args->arg_count != 1 || args->arg_type[0] != INT_RESULT) {
+		strcpy(message, "This function must have 1 integer argument");
+		return true;
+	} else
+		return false;
+
+} // end of jsonset_grp_size_init
+
+long long jsonset_grp_size(UDF_INIT *initid, UDF_ARGS *args, char *, char *)
+{
+	long long n = *(long long*)args->args[0];
+
+	JsonGrpSize = (uint)n;
+	return (long long)GetJsonGroupSize();
+} // end of jsonset_grp_size
+
+/*********************************************************************************/
+/*  Get the value of JsonGrpSize.                                                */
+/*********************************************************************************/
+my_bool jsonget_grp_size_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
+{
+	if (args->arg_count != 0) {
+		strcpy(message, "This function must have no arguments");
+		return true;
+	} else
+		return false;
+
+} // end of jsonget_grp_size_init
+
+long long jsonget_grp_size(UDF_INIT *initid, UDF_ARGS *args, char *, char *)
+{
+	return (long long)GetJsonGroupSize();
+} // end of jsonget_grp_size
+
+/*********************************************************************************/
 /*  Make a Json array from values coming from rows.                              */
 /*********************************************************************************/
 my_bool json_array_grp_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
 {
-  unsigned long reslen, memlen, n = GetJsonGrpSize();
+  unsigned long reslen, memlen, n = GetJsonGroupSize();
 
   if (args->arg_count != 1) {
     strcpy(message, "This function can only accept 1 argument");
@@ -2458,7 +2507,7 @@ void json_array_grp_clear(UDF_INIT *initid, char*, char*)
 
   PlugSubSet(g, g->Sarea, g->Sarea_Size);
   g->Activityp = (PACTIVITY)new(g) JARRAY;
-  g->N = GetJsonGrpSize();
+  g->N = GetJsonGroupSize();
 } // end of json_array_grp_clear
 
 void json_array_grp_deinit(UDF_INIT* initid)
@@ -2471,7 +2520,7 @@ void json_array_grp_deinit(UDF_INIT* initid)
 /*********************************************************************************/
 my_bool json_object_grp_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
 {
-  unsigned long reslen, memlen, n = GetJsonGrpSize();
+  unsigned long reslen, memlen, n = GetJsonGroupSize();
 
 	if (args->arg_count != 2) {
     strcpy(message, "This function requires 2 arguments (key, value)");
@@ -2529,7 +2578,7 @@ void json_object_grp_clear(UDF_INIT *initid, char*, char*)
 
   PlugSubSet(g, g->Sarea, g->Sarea_Size);
   g->Activityp = (PACTIVITY)new(g) JOBJECT;
-  g->N = GetJsonGrpSize();
+  g->N = GetJsonGroupSize();
 } // end of json_object_grp_clear
 
 void json_object_grp_deinit(UDF_INIT* initid)
@@ -2572,7 +2621,7 @@ char *json_item_merge(UDF_INIT *initid, UDF_ARGS *args, char *result,
 	} // endif Xchk
 
 	if (!CheckMemory(g, initid, args, 2, false, false, true)) {
-		PJSON top;
+		PJSON top= 0;
 		PJVAL jvp;
 		PJSON jsp[2] = {NULL, NULL};
 
@@ -3365,7 +3414,7 @@ my_bool jsoncontains_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
 long long jsoncontains(UDF_INIT *initid, UDF_ARGS *args, char *result,
 	unsigned long *res_length, char *is_null, char *error)
 {
-	char         *p, res[256];
+	char         *p __attribute__((unused)), res[256];
 	long long     n;
 	unsigned long reslen;
 
@@ -4672,7 +4721,7 @@ char *jbin_set_item(UDF_INIT *initid, UDF_ARGS *args, char *result,
 	my_bool b = true;
 	PJSON   jsp;
 	PJSNX   jsx;
-	PJVAL   jvp;
+	PJVAL   jvp= 0;
 	PBSON   bsp = NULL;
 	PGLOBAL g = (PGLOBAL)initid->ptr;
 	PGLOBAL gb = GetMemPtr(g, args, 0);
@@ -4693,6 +4742,7 @@ char *jbin_set_item(UDF_INIT *initid, UDF_ARGS *args, char *result,
 	if (!g->Xchk) {
 		if (CheckMemory(g, initid, args, 1, true, false, true)) {
 			PUSH_WARNING("CheckMemory error");
+                        goto fin;
 		} else
 			jvp = MakeValue(g, args, 0);
 

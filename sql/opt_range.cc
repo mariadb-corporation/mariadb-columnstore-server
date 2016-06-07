@@ -4336,15 +4336,14 @@ static bool create_partition_index_description(PART_PRUNE_PARAM *ppar)
   Field **field= (ppar->part_fields)? part_info->part_field_array :
                                            part_info->subpart_field_array;
   bool in_subpart_fields= FALSE;
-  uint max_key_len= 0;
-  uint cur_key_len= 0;
+  uint total_key_len= 0;
   for (uint part= 0; part < total_parts; part++, key_part++)
   {
     key_part->key=          0;
     key_part->part=	    part;
     key_part->length= (uint16)(*field)->key_length();
     key_part->store_length= (uint16)get_partition_field_store_length(*field);
-    cur_key_len += key_part->store_length;
+    total_key_len += key_part->store_length;
 
     DBUG_PRINT("info", ("part %u length %u store_length %u", part,
                          key_part->length, key_part->store_length));
@@ -4370,18 +4369,13 @@ static bool create_partition_index_description(PART_PRUNE_PARAM *ppar)
     {
       field= part_info->subpart_field_array;
       in_subpart_fields= TRUE;
-      max_key_len= cur_key_len;
-      cur_key_len= 0;
     }
   }
   range_par->key_parts_end= key_part;
 
-  if (cur_key_len > max_key_len)
-    max_key_len= cur_key_len;
-
-  max_key_len++; /* Take into account the "+1" in QUICK_RANGE::QUICK_RANGE */
-  if (!(range_par->min_key= (uchar*)alloc_root(alloc,max_key_len)) ||
-      !(range_par->max_key= (uchar*)alloc_root(alloc,max_key_len)))
+  total_key_len++; /* Take into account the "+1" in QUICK_RANGE::QUICK_RANGE */
+  if (!(range_par->min_key= (uchar*)alloc_root(alloc,total_key_len)) ||
+      !(range_par->max_key= (uchar*)alloc_root(alloc,total_key_len)))
   {
     return true;
   }
@@ -13111,7 +13105,17 @@ void cost_group_min_max(TABLE* table, KEY *index_info, uint used_key_parts,
   num_blocks= (ha_rows)(table_records / keys_per_block) + 1;
 
   /* Compute the number of keys in a group. */
-  keys_per_group= (ha_rows) index_info->actual_rec_per_key(group_key_parts - 1);
+  if (!group_key_parts)
+  {
+    /* Summary over the whole table */
+    keys_per_group= table_records;
+  }
+  else
+  {
+    keys_per_group= (ha_rows) index_info->actual_rec_per_key(group_key_parts -
+                                                             1);
+  }
+
   if (keys_per_group == 0) /* If there is no statistics try to guess */
     /* each group contains 10% of all records */
     keys_per_group= (table_records / 10) + 1;

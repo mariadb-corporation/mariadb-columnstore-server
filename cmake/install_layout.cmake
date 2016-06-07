@@ -138,7 +138,7 @@ SET(INSTALL_SCRIPTDIR_RPM               "bin")
 SET(INSTALL_SYSCONFDIR_RPM		"/usr/local/mariadb/columnstore/mysql")
 SET(INSTALL_SYSCONF2DIR_RPM             "/usr/local/mariadb/columnstore/mysql/my.cnf.d")
 #
-IF(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
+IF(CMAKE_SIZEOF_VOID_P EQUAL 8)
   SET(INSTALL_LIBDIR_RPM                "lib64")
   SET(INSTALL_PLUGINDIR_RPM             "lib64/mysql/plugin")
 ELSE()

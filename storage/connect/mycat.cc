@@ -1,4 +1,4 @@
-/* Copyright (C) Olivier Bertrand 2004 - 2015
+/* Copyright (C) Olivier Bertrand 2004 - 2016
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -18,7 +18,7 @@
 /* -------------                                                       */
 /*  Version 1.4                                                        */
 /*                                                                     */
-/*  Author: Olivier Bertrand                       2012 - 2015         */
+/*  Author: Olivier Bertrand                       2012 - 2016         */
 /*                                                                     */
 /* WHAT THIS PROGRAM DOES:                                             */
 /* -----------------------                                             */
@@ -80,6 +80,10 @@
 #define NODBC
 #include "tabodbc.h"
 #endif   // ODBC_SUPPORT
+#if defined(JDBC_SUPPORT)
+#define NJDBC
+#include "tabjdbc.h"
+#endif   // ODBC_SUPPORT
 #if defined(PIVOT_SUPPORT)
 #include "tabpivot.h"
 #endif   // PIVOT_SUPPORT
@@ -140,7 +144,10 @@ TABTYPE GetTypeID(const char *type)
 #ifdef ODBC_SUPPORT
                  : (!stricmp(type, "ODBC"))  ? TAB_ODBC
 #endif
-                 : (!stricmp(type, "MYSQL")) ? TAB_MYSQL
+#ifdef JDBC_SUPPORT
+								 : (!stricmp(type, "JDBC"))  ? TAB_JDBC
+#endif
+								 : (!stricmp(type, "MYSQL")) ? TAB_MYSQL
                  : (!stricmp(type, "MYPRX")) ? TAB_MYSQL
                  : (!stricmp(type, "DIR"))   ? TAB_DIR
 #ifdef __WIN__
@@ -301,12 +308,12 @@ int GetIndexType(TABTYPE type)
       break;
     case TAB_MYSQL:
     case TAB_ODBC:
-      xtyp= 2;
+		case TAB_JDBC:
+			xtyp= 2;
       break;
     case TAB_VIR:
       xtyp= 3;
       break;
-//  case TAB_ODBC:
     default:
       xtyp= 0;
       break;
@@ -509,30 +516,33 @@ void MYCAT::SetPath(PGLOBAL g, LPCSTR *datapath, const char *path)
 /*  GetTableDesc: retrieve a table descriptor.                         */
 /*  Look for a table descriptor matching the name and type.            */
 /***********************************************************************/
-PRELDEF MYCAT::GetTableDesc(PGLOBAL g, LPCSTR name,
+PRELDEF MYCAT::GetTableDesc(PGLOBAL g, PTABLE tablep,
                                        LPCSTR type, PRELDEF *)
   {
 	if (trace)
-		printf("GetTableDesc: name=%s am=%s\n", name, SVP(type));
+		printf("GetTableDesc: name=%s am=%s\n", tablep->GetName(), SVP(type));
 
  	// If not specified get the type of this table
   if (!type)
     type= Hc->GetStringOption("Type","*");
 
-  return MakeTableDesc(g, name, type);
+  return MakeTableDesc(g, tablep, type);
   } // end of GetTableDesc
 
 /***********************************************************************/
 /*  MakeTableDesc: make a table/view description.                      */
 /*  Note: caller must check if name already exists before calling it.  */
 /***********************************************************************/
-PRELDEF MYCAT::MakeTableDesc(PGLOBAL g, LPCSTR name, LPCSTR am)
+PRELDEF MYCAT::MakeTableDesc(PGLOBAL g, PTABLE tablep, LPCSTR am)
   {
   TABTYPE tc;
+	LPCSTR  name = (PSZ)PlugDup(g, tablep->GetName());
+	LPCSTR  schema = (PSZ)PlugDup(g, tablep->GetSchema());
   PRELDEF tdp= NULL;
 
 	if (trace)
-		printf("MakeTableDesc: name=%s am=%s\n", name, SVP(am));
+		printf("MakeTableDesc: name=%s schema=%s am=%s\n",
+		                       name, SVP(schema), SVP(am));
 
   /*********************************************************************/
   /*  Get a unique enum identifier for types.                          */
@@ -555,6 +565,9 @@ PRELDEF MYCAT::MakeTableDesc(PGLOBAL g, LPCSTR name, LPCSTR am)
 #if defined(ODBC_SUPPORT)
     case TAB_ODBC: tdp= new(g) ODBCDEF; break;
 #endif   // ODBC_SUPPORT
+#if defined(JDBC_SUPPORT)
+		case TAB_JDBC: tdp= new(g)JDBCDEF; break;
+#endif   // JDBC_SUPPORT
 #if defined(__WIN__)
     case TAB_MAC: tdp= new(g) MACDEF;   break;
     case TAB_WMI: tdp= new(g) WMIDEF;   break;
@@ -571,11 +584,11 @@ PRELDEF MYCAT::MakeTableDesc(PGLOBAL g, LPCSTR name, LPCSTR am)
     case TAB_VIR: tdp= new(g) VIRDEF;   break;
     case TAB_JSON: tdp= new(g) JSONDEF; break;
     default:
-      sprintf(g->Message, MSG(BAD_TABLE_TYPE), am, name);
+			sprintf(g->Message, MSG(BAD_TABLE_TYPE), am, name);
     } // endswitch
 
   // Do make the table/view definition
-  if (tdp && tdp->Define(g, this, name, am))
+  if (tdp && tdp->Define(g, this, name, schema, am))
     tdp= NULL;
 
   return tdp;
@@ -588,20 +601,20 @@ PTDB MYCAT::GetTable(PGLOBAL g, PTABLE tablep, MODE mode, LPCSTR type)
   {
   PRELDEF tdp;
   PTDB    tdbp= NULL;
-  LPCSTR  name= tablep->GetName();
+//  LPCSTR  name= tablep->GetName();
 
 	if (trace)
-		printf("GetTableDB: name=%s\n", name);
+		printf("GetTableDB: name=%s\n", tablep->GetName());
 
   // Look for the description of the requested table
-  tdp= GetTableDesc(g, name, type);
+  tdp= GetTableDesc(g, tablep, type);
 
   if (tdp) {
 		if (trace)
 			printf("tdb=%p type=%s\n", tdp, tdp->GetType());
 
-		if (tablep->GetQualifier())
-			tdp->Database = SetPath(g, tablep->GetQualifier());
+		if (tablep->GetSchema())
+			tdp->Database = SetPath(g, tablep->GetSchema());
 		
     tdbp= tdp->GetTable(g, mode);
 		} // endif tdp

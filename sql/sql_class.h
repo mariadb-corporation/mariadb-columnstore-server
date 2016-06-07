@@ -1,6 +1,6 @@
 /*
-   Copyright (c) 2000, 2015, Oracle and/or its affiliates.
-   Copyright (c) 2009, 2015, MariaDB
+   Copyright (c) 2000, 2016, Oracle and/or its affiliates.
+   Copyright (c) 2009, 2016, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -722,6 +722,7 @@ typedef struct system_status_var
   ulong com_stmt_reset;
   ulong com_stmt_close;
 
+  ulong com_register_slave;
   ulong created_tmp_disk_tables_;
   ulong created_tmp_tables_;
   ulong ha_commit_count;
@@ -839,6 +840,20 @@ void add_to_status(STATUS_VAR *to_var, STATUS_VAR *from_var);
 
 void add_diff_to_status(STATUS_VAR *to_var, STATUS_VAR *from_var,
                         STATUS_VAR *dec_var);
+
+/*
+  Update global_memory_used. We have to do this with atomic_add as the
+  global value can change outside of LOCK_status.
+*/
+inline void update_global_memory_status(int64 size)
+{
+  DBUG_PRINT("info", ("global memory_used: %lld  size: %lld",
+                      (longlong) global_status_var.global_memory_used,
+                      size));
+  // workaround for gcc 4.2.4-1ubuntu4 -fPIE (from DEB_BUILD_HARDENING=1)
+  int64 volatile * volatile ptr= &global_status_var.global_memory_used;
+  my_atomic_add64_explicit(ptr, size, MY_MEMORY_ORDER_RELAXED);
+}
 
 /**
   Get collation by name, send error to client on failure.
@@ -2197,7 +2212,19 @@ public:
   int is_current_stmt_binlog_format_row() const {
     DBUG_ASSERT(current_stmt_binlog_format == BINLOG_FORMAT_STMT ||
                 current_stmt_binlog_format == BINLOG_FORMAT_ROW);
-    return WSREP_FORMAT(current_stmt_binlog_format) == BINLOG_FORMAT_ROW;
+    return current_stmt_binlog_format == BINLOG_FORMAT_ROW;
+  }
+  /**
+    Determine if binlogging is disabled for this session
+    @retval 0 if the current statement binlogging is disabled
+              (could be because of binlog closed/binlog option
+               is set to false).
+    @retval 1 if the current statement will be binlogged
+  */
+  inline bool is_current_stmt_binlog_disabled() const
+  {
+    return (!(variables.option_bits & OPTION_BIN_LOG) ||
+            !mysql_bin_log.is_open());
   }
 
   enum binlog_filter_state
@@ -3916,9 +3943,11 @@ public:
 
   void add_status_to_global()
   {
+    DBUG_ASSERT(status_in_global == 0);
     mysql_mutex_lock(&LOCK_status);
     add_to_status(&global_status_var, &status_var);
     /* Mark that this THD status has already been added in global status */
+    status_var.global_memory_used= 0;
     status_in_global= 1;
     mysql_mutex_unlock(&LOCK_status);
   }
@@ -4070,7 +4099,13 @@ public:
 #endif /*  GTID_SUPPORT */
   void                      *wsrep_apply_format;
   char                      wsrep_info[128]; /* string for dynamic proc info */
-  bool                      wsrep_skip_append_keys;
+  /*
+    When enabled, do not replicate/binlog updates from the current table that's
+    being processed. At the moment, it is used to keep mysql.gtid_slave_pos
+    table updates from being replicated to other nodes via galera replication.
+  */
+  bool                      wsrep_ignore_table;
+  wsrep_gtid_t              wsrep_sync_wait_gtid;
 #endif /* WITH_WSREP */
 
   /* Handling of timeouts for commands */
@@ -4540,10 +4575,14 @@ public:
 #define TMP_ENGINE_COLUMNDEF MARIA_COLUMNDEF
 #define TMP_ENGINE_HTON maria_hton
 #define TMP_ENGINE_NAME "Aria"
+inline uint tmp_table_max_key_length() { return maria_max_key_length(); }
+inline uint tmp_table_max_key_parts() { return maria_max_key_segments(); }
 #else
 #define TMP_ENGINE_COLUMNDEF MI_COLUMNDEF
 #define TMP_ENGINE_HTON myisam_hton
 #define TMP_ENGINE_NAME "MyISAM"
+inline uint tmp_table_max_key_length() { return MI_MAX_KEY_LENGTH; }
+inline uint tmp_table_max_key_parts() { return MI_MAX_KEY_SEG; }
 #endif
 
 /*
@@ -4599,8 +4638,6 @@ public:
   uint	group_parts,group_length,group_null_parts;
   uint	quick_group;
   bool  using_indirect_summary_function;
-  /* If >0 convert all blob fields to varchar(convert_blob_length) */
-  uint  convert_blob_length;
   CHARSET_INFO *table_charset;
   bool schema_table;
   /* TRUE if the temp table is created for subquery materialization. */
@@ -4629,7 +4666,7 @@ public:
 
   TMP_TABLE_PARAM()
     :copy_field(0), group_parts(0),
-     group_length(0), group_null_parts(0), convert_blob_length(0),
+     group_length(0), group_null_parts(0),
     schema_table(0), materialized_subquery(0), force_not_null_cols(0),
     precomputed_group_by(0),
     force_copy_fields(0), bit_fields_as_long(0), skip_create_table(0)

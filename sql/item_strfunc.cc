@@ -814,9 +814,10 @@ String *Item_func_des_encrypt::val_str(String *str)
 
     /* We make good 24-byte (168 bit) key from given plaintext key with MD5 */
     bzero((char*) &ivec,sizeof(ivec));
-    EVP_BytesToKey(EVP_des_ede3_cbc(),EVP_md5(),NULL,
+    if (!EVP_BytesToKey(EVP_des_ede3_cbc(),EVP_md5(),NULL,
 		   (uchar*) keystr->ptr(), (int) keystr->length(),
-		   1, (uchar*) &keyblock,ivec);
+		   1, (uchar*) &keyblock,ivec))
+      goto error;
     DES_set_key_unchecked(&keyblock.key1,&keyschedule.ks1);
     DES_set_key_unchecked(&keyblock.key2,&keyschedule.ks2);
     DES_set_key_unchecked(&keyblock.key3,&keyschedule.ks3);
@@ -909,9 +910,10 @@ String *Item_func_des_decrypt::val_str(String *str)
       goto error;
 
     bzero((char*) &ivec,sizeof(ivec));
-    EVP_BytesToKey(EVP_des_ede3_cbc(),EVP_md5(),NULL,
+    if (!EVP_BytesToKey(EVP_des_ede3_cbc(),EVP_md5(),NULL,
 		   (uchar*) keystr->ptr(),(int) keystr->length(),
-		   1,(uchar*) &keyblock,ivec);
+		   1,(uchar*) &keyblock,ivec))
+      goto error;
     // Here we set all 64-bit keys (56 effective) one by one
     DES_set_key_unchecked(&keyblock.key1,&keyschedule.ks1);
     DES_set_key_unchecked(&keyblock.key2,&keyschedule.ks2);
@@ -1564,7 +1566,7 @@ String *Item_func_insert::val_str(String *str)
    length= res->charpos((int) length, (uint32) start);
 
   /* Re-testing with corrected params */
-  if (start > res->length())
+  if (start + 1 > res->length()) // remember, start = args[1].val_int() - 1
     return res; /* purecov: inspected */        // Wrong param; skip insert
   if (length > res->length() - start)
     length= res->length() - start;
@@ -3435,7 +3437,7 @@ String *Item_func_conv_charset::val_str(String *str)
   String *arg= args[0]->val_str(str);
   String_copier_for_item copier(current_thd);
   return ((null_value= args[0]->null_value ||
-                       copier.copy_with_warn(conv_charset, &tmp_value,
+                       copier.copy_with_warn(collation.collation, &tmp_value,
                                              arg->charset(), arg->ptr(),
                                              arg->length(), arg->length()))) ?
     0 : &tmp_value;
@@ -3443,7 +3445,7 @@ String *Item_func_conv_charset::val_str(String *str)
 
 void Item_func_conv_charset::fix_length_and_dec()
 {
-  collation.set(conv_charset, DERIVATION_IMPLICIT);
+  DBUG_ASSERT(collation.derivation == DERIVATION_IMPLICIT);
   fix_char_length(args[0]->max_char_length());
 }
 
@@ -3452,7 +3454,7 @@ void Item_func_conv_charset::print(String *str, enum_query_type query_type)
   str->append(STRING_WITH_LEN("convert("));
   args[0]->print(str, query_type);
   str->append(STRING_WITH_LEN(" using "));
-  str->append(conv_charset->csname);
+  str->append(collation.collation->csname);
   str->append(')');
 }
 

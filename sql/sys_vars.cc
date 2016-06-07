@@ -1311,6 +1311,19 @@ static Sys_var_mybool Sys_log_queries_not_using_indexes(
        GLOBAL_VAR(opt_log_queries_not_using_indexes),
        CMD_LINE(OPT_ARG), DEFAULT(FALSE));
 
+static Sys_var_mybool Sys_log_slow_admin_statements(
+       "log_slow_admin_statements",
+       "Log slow OPTIMIZE, ANALYZE, ALTER and other administrative statements to "
+       "the slow log if it is open.",
+       GLOBAL_VAR(opt_log_slow_admin_statements),
+       CMD_LINE(OPT_ARG), DEFAULT(FALSE));
+
+static Sys_var_mybool Sys_log_slow_slave_statements(
+       "log_slow_slave_statements",
+       "Log slow statements executed by slave thread to the slow log if it is open.",
+       GLOBAL_VAR(opt_log_slow_slave_statements),
+       CMD_LINE(OPT_ARG), DEFAULT(FALSE));
+
 static Sys_var_ulong Sys_log_warnings(
        "log_warnings",
        "Log some not critical warnings to the general log file."
@@ -5197,7 +5210,7 @@ static Sys_var_set Sys_log_slow_filter(
        "Log only certain types of queries",
        SESSION_VAR(log_slow_filter), CMD_LINE(REQUIRED_ARG),
        log_slow_filter_names,
-       DEFAULT(MAX_SET(array_elements(log_slow_filter_names)-1)));
+       DEFAULT(my_set_bits(array_elements(log_slow_filter_names)-1)));
 
 static const char *default_regex_flags_names[]= 
 {

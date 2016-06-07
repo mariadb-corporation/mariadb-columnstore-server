@@ -1,5 +1,5 @@
-/* Copyright (c) 2000, 2015 Oracle and/or its affiliates.
-   Copyright (c) 2009, 2015 MariaDB
+/* Copyright (c) 2000, 2016 Oracle and/or its affiliates.
+   Copyright (c) 2009, 2016 MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -454,7 +454,7 @@ bool handle_select(THD *thd, LEX *lex, select_result *result,
     this field from inner subqueries.
 
   @return Status
-  @retval true An error occured.
+  @retval true An error occurred.
   @retval false OK.
  */
 
@@ -9573,7 +9573,7 @@ static void add_not_null_conds(JOIN *join)
           if (!referred_tab)
             continue;
           if (!(notnull= new (join->thd->mem_root)
-                Item_func_isnotnull(join->thd, not_null_item)))
+                Item_func_isnotnull(join->thd, item)))
             DBUG_VOID_RETURN;
           /*
             We need to do full fix_fields() call here in order to have correct
@@ -13195,7 +13195,7 @@ bool Item_func_eq::check_equality(THD *thd, COND_EQUAL *cond_equal,
     equality predicates that is equivalent to the conjunction.
     Thus, =(a1,a2,a3) can substitute for ((a1=a3) AND (a2=a3) AND (a2=a1)) as
     it is equivalent to ((a1=a2) AND (a2=a3)).
-    The function always makes a substitution of all equality predicates occured
+    The function always makes a substitution of all equality predicates occurred
     in a conjuction for a minimal set of multiple equality predicates.
     This set can be considered as a canonical representation of the
     sub-conjunction of the equality predicates.
@@ -15970,8 +15970,6 @@ const_expression_in_where(COND *cond, Item *comp_item, Field *comp_field,
                       the record in the original table.
                       If item == NULL then fill_record() will update
                       the temporary table
-  @param convert_blob_length   If >0 create a varstring(convert_blob_length)
-                               field instead of blob.
 
   @retval
     NULL		on error
@@ -15981,23 +15979,12 @@ const_expression_in_where(COND *cond, Item *comp_item, Field *comp_field,
 
 Field *create_tmp_field_from_field(THD *thd, Field *org_field,
                                    const char *name, TABLE *table,
-                                   Item_field *item, uint convert_blob_length)
+                                   Item_field *item)
 {
   Field *new_field;
 
-  /* 
-    Make sure that the blob fits into a Field_varstring which has 
-    2-byte lenght. 
-  */
-  if (convert_blob_length && convert_blob_length <= Field_varstring::MAX_SIZE &&
-      (org_field->flags & BLOB_FLAG))
-    new_field= new Field_varstring(convert_blob_length,
-                                   org_field->maybe_null(),
-                                   org_field->field_name, table->s,
-                                   org_field->charset());
-  else
-    new_field= org_field->make_new_field(thd->mem_root, table,
-                                         table == org_field->table);
+  new_field= org_field->make_new_field(thd->mem_root, table,
+                                       table == org_field->table);
   if (new_field)
   {
     new_field->init(table);
@@ -16039,8 +16026,6 @@ Field *create_tmp_field_from_field(THD *thd, Field *org_field,
                                update the record in the original table.
                                If modify_item is 0 then fill_record() will
                                update the temporary table
-  @param convert_blob_length   If >0 create a varstring(convert_blob_length)
-                               field instead of blob.
 
   @retval
     0  on error
@@ -16049,13 +16034,20 @@ Field *create_tmp_field_from_field(THD *thd, Field *org_field,
 */
 
 static Field *create_tmp_field_from_item(THD *thd, Item *item, TABLE *table,
-                                         Item ***copy_func, bool modify_item,
-                                         uint convert_blob_length)
+                                         Item ***copy_func, bool modify_item)
 {
   bool maybe_null= item->maybe_null;
   Field *UNINIT_VAR(new_field);
   MEM_ROOT *mem_root= thd->mem_root;
 
+  /*
+    To preserve type or DATE/TIME and GEOMETRY fields,
+    they need to be handled separately.
+  */
+  if (item->cmp_type() == TIME_RESULT ||
+      item->field_type() == MYSQL_TYPE_GEOMETRY)
+    new_field= item->tmp_table_field_from_field_type(table, true, false);
+  else
   switch (item->result_type()) {
   case REAL_RESULT:
     // @InfiniDB: create field according to arg field type for
@@ -16091,27 +16083,7 @@ static Field *create_tmp_field_from_item(THD *thd, Item *item, TABLE *table,
     break;
   case STRING_RESULT:
     DBUG_ASSERT(item->collation.collation);
-  
-    /*
-      DATE/TIME and GEOMETRY fields have STRING_RESULT result type. 
-      To preserve type they needed to be handled separately.
-    */
-    if (item->cmp_type() == TIME_RESULT ||
-        item->field_type() == MYSQL_TYPE_GEOMETRY)
-      new_field= item->tmp_table_field_from_field_type(table, true, false);
-    /* 
-      Make sure that the blob fits into a Field_varstring which has 
-      2-byte lenght. 
-    */
-    else if (item->max_length/item->collation.collation->mbmaxlen > 255 &&
-             convert_blob_length <= Field_varstring::MAX_SIZE && 
-             convert_blob_length)
-      new_field= new (mem_root)
-        Field_varstring(convert_blob_length, maybe_null,
-                        item->name, table->s,
-                        item->collation.collation);
-    else
-      new_field= item->make_string_field(table);
+    new_field= item->make_string_field(table);
     new_field->set_derivation(item->collation.derivation);
     break;
   case DECIMAL_RESULT:
@@ -16188,8 +16160,6 @@ Field *Item::create_field_for_schema(THD *thd, TABLE *table)
                        the record in the original table.
                        If modify_item is 0 then fill_record() will update
                        the temporary table
-  @param convert_blob_length If >0 create a varstring(convert_blob_length)
-                             field instead of blob.
 
   @retval
     0			on error
@@ -16202,8 +16172,7 @@ Field *create_tmp_field(THD *thd, TABLE *table,Item *item, Item::Type type,
                         Field **default_field,
                         bool group, bool modify_item,
                         bool table_cant_handle_bit_fields,
-                        bool make_copy_field,
-                        uint convert_blob_length)
+                        bool make_copy_field)
 {
   Field *result;
   Item::Type orig_type= type;
@@ -16221,7 +16190,7 @@ Field *create_tmp_field(THD *thd, TABLE *table,Item *item, Item::Type type,
   case Item::SUM_FUNC_ITEM:
   {
     Item_sum *item_sum=(Item_sum*) item;
-    result= item_sum->create_tmp_field(group, table, convert_blob_length);
+    result= item_sum->create_tmp_field(group, table);
     if (!result)
       my_error(ER_OUT_OF_RESOURCES, MYF(ME_FATALERROR));
     return result;
@@ -16257,7 +16226,7 @@ Field *create_tmp_field(THD *thd, TABLE *table,Item *item, Item::Type type,
         item->maybe_null= orig_item->maybe_null;
       }
       result= create_tmp_field_from_item(thd, item, table, NULL,
-                                         modify_item, convert_blob_length);
+                                         modify_item);
       *from_field= field->field;
       if (result && modify_item)
         field->result_field= result;
@@ -16269,7 +16238,7 @@ Field *create_tmp_field(THD *thd, TABLE *table,Item *item, Item::Type type,
     {
       *from_field= field->field;
       result= create_tmp_field_from_item(thd, item, table, copy_func,
-                                        modify_item, convert_blob_length);
+                                         modify_item);
       if (result && modify_item)
         field->result_field= result;
     }
@@ -16279,8 +16248,7 @@ Field *create_tmp_field(THD *thd, TABLE *table,Item *item, Item::Type type,
                                           item->name,
                                           table,
                                           modify_item ? field :
-                                          NULL,
-                                          convert_blob_length);
+                                          NULL);
     if (orig_type == Item::REF_ITEM && orig_modify)
       ((Item_ref*)orig_item)->set_result_field(result);
     /*
@@ -16315,8 +16283,7 @@ Field *create_tmp_field(THD *thd, TABLE *table,Item *item, Item::Type type,
                                     sp_result_field,
                                     item_func_sp->name,
                                     table,
-                                    NULL,
-                                    convert_blob_length);
+                                    NULL);
 
       if (modify_item)
         item->set_result_field(result_field);
@@ -16348,7 +16315,7 @@ Field *create_tmp_field(THD *thd, TABLE *table,Item *item, Item::Type type,
     }
     return create_tmp_field_from_item(thd, item, table,
                                       (make_copy_field ? 0 : copy_func),
-                                       modify_item, convert_blob_length);
+                                       modify_item);
   case Item::TYPE_HOLDER:  
     result= ((Item_type_holder *)item)->make_field_by_type(table);
     result->set_derivation(item->collation.derivation);
@@ -16651,8 +16618,7 @@ create_tmp_table(THD *thd, TMP_TABLE_PARAM *param, List<Item> &fields,
             create_tmp_field(thd, table, arg, arg->type(), &copy_func,
                              tmp_from_field, &default_field[fieldnr],
                              group != 0,not_all_columns,
-                             distinct, 0,
-                             param->convert_blob_length);
+                             distinct, false);
 	  if (!new_field)
 	    goto err;					// Should be OOM
 	  tmp_from_field++;
@@ -16722,8 +16688,7 @@ create_tmp_table(THD *thd, TMP_TABLE_PARAM *param, List<Item> &fields,
                            to be usable in this case too.
                          */
                          item->marker == 4  || param->bit_fields_as_long,
-                         force_copy_fields,
-                         param->convert_blob_length);
+                         force_copy_fields);
 
       if (!new_field)
       {
@@ -17492,6 +17457,12 @@ bool create_internal_tmp_table(TABLE *table, KEY *keyinfo,
       goto err;
 
     bzero(seg, sizeof(*seg) * keyinfo->user_defined_key_parts);
+    /*
+       Note that a similar check is performed during
+       subquery_types_allow_materialization. See MDEV-7122 for more details as
+       to why. Whenever this changes, it must be updated there as well, for
+       all tmp_table engines.
+    */
     if (keyinfo->key_length > table->file->max_key_length() ||
 	keyinfo->user_defined_key_parts > table->file->max_key_parts() ||
 	share->uniques)
@@ -17691,6 +17662,12 @@ bool create_internal_tmp_table(TABLE *table, KEY *keyinfo,
       goto err;
 
     bzero(seg, sizeof(*seg) * keyinfo->user_defined_key_parts);
+    /*
+       Note that a similar check is performed during
+       subquery_types_allow_materialization. See MDEV-7122 for more details as
+       to why. Whenever this changes, it must be updated there as well, for
+       all tmp_table engines.
+    */
     if (keyinfo->key_length > table->file->max_key_length() ||
 	keyinfo->user_defined_key_parts > table->file->max_key_parts() ||
 	share->uniques)
@@ -19164,7 +19141,18 @@ int join_read_key2(THD *thd, JOIN_TAB *tab, TABLE *table, TABLE_REF *table_ref)
     }
   }
 
+  /*
+    The following is needed when one makes ref (or eq_ref) access from row
+    comparisons: one must call row->bring_value() to get the new values.
+  */
+  if (tab && tab->bush_children)
+  {
+    TABLE_LIST *emb_sj_nest= tab->bush_children->start->emb_sj_nest;
+    emb_sj_nest->sj_subq_pred->left_expr->bring_value();
+  }
+
   /* TODO: Why don't we do "Late NULLs Filtering" here? */
+
   if (cmp_buffer_with_ref(thd, table, table_ref) ||
       (table->status & (STATUS_GARBAGE | STATUS_NO_PARENT | STATUS_NULL_ROW)))
   {
@@ -21014,7 +21002,15 @@ test_if_skip_sort_order(JOIN_TAB *tab,ORDER *order,ha_rows select_limit,
         quick_type == QUICK_SELECT_I::QS_TYPE_INDEX_INTERSECT ||
         quick_type == QUICK_SELECT_I::QS_TYPE_ROR_UNION || 
         quick_type == QUICK_SELECT_I::QS_TYPE_ROR_INTERSECT)
-      ref_key= -1;
+    {
+      /*
+        we set ref_key=MAX_KEY instead of -1, because test_if_cheaper ordering
+        assumes that "ref_key==-1" means doing full index scan. 
+        (This is not very straightforward and we got into this situation for 
+         historical reasons. Should be fixed at some point).
+      */
+      ref_key= MAX_KEY;
+    }
     else
     {
       ref_key= select->quick->index;
@@ -21567,7 +21563,7 @@ create_sort_index(THD *thd, JOIN *join, ORDER *order,
                             &examined_rows, &found_rows, 
                             join->explain->ops_tracker.report_sorting(thd));
   table->sort.found_records= filesort_retval;
-  tab->records= found_rows;                     // For SQL_CALC_ROWS
+  tab->records= join->select_options & OPTION_FOUND_ROWS ? found_rows : filesort_retval;
 
   if (quick_created)
   {
@@ -22114,7 +22110,11 @@ find_order_in_list(THD *thd, Item **ref_pointer_array, TABLE_LIST *tables,
   */
   if (order_item->type() == Item::INT_ITEM && order_item->basic_const_item())
   {						/* Order by position */
-    uint count= (uint) order_item->val_int();
+    uint count;
+    if (order->counter_used)
+      count= order->counter; // counter was once resolved
+    else
+      count= (uint) order_item->val_int();
     if (!count || count > fields.elements)
     {
       my_error(ER_BAD_FIELD_ERROR, MYF(0),
@@ -22131,7 +22131,7 @@ find_order_in_list(THD *thd, Item **ref_pointer_array, TABLE_LIST *tables,
   select_item= find_item_in_list(order_item, fields, &counter,
                                  REPORT_EXCEPT_NOT_FOUND, &resolution);
   if (!select_item)
-    return TRUE; /* The item is not unique, or some other error occured. */
+    return TRUE; /* The item is not unique, or some other error occurred. */
 
 
   /* Check whether the resolved field is not ambiguos. */
@@ -24894,33 +24894,53 @@ static void print_join(THD *thd,
   /* List is reversed => we should reverse it before using */
   List_iterator_fast<TABLE_LIST> ti(*tables);
   TABLE_LIST **table;
-  uint non_const_tables= 0;
   DBUG_ENTER("print_join");
+
+  /*
+    If the QT_NO_DATA_EXPANSION flag is specified, we print the
+    original table list, including constant tables that have been
+    optimized away, as the constant tables may be referenced in the
+    expression printed by Item_field::print() when this flag is given.
+    Otherwise, only non-const tables are printed.
+
+    Example:
+
+    Original SQL:
+    select * from (select 1) t
+
+    Printed without QT_NO_DATA_EXPANSION:
+    select '1' AS `1` from dual
+
+    Printed with QT_NO_DATA_EXPANSION:
+    select `t`.`1` from (select 1 AS `1`) `t`
+  */
+  const bool print_const_tables= (query_type & QT_NO_DATA_EXPANSION);
+  size_t tables_to_print= 0;
 
   for (TABLE_LIST *t= ti++; t ; t= ti++)
   {
-    /* 
-      See comment in print_table_array() about the second part of the
-      condition 
-    */
-    if (!t->optimized_away && !is_eliminated_table(eliminated_tables, t))
-      non_const_tables++;
+    /* See comment in print_table_array() about the second condition */
+    if (print_const_tables || !t->optimized_away)
+      if (!is_eliminated_table(eliminated_tables, t))
+        tables_to_print++;
   }
-  if (!non_const_tables)
+  if (tables_to_print == 0)
   {
     str->append(STRING_WITH_LEN("dual"));
     DBUG_VOID_RETURN;                   // all tables were optimized away
   }
   ti.rewind();
 
-  if (!(table= (TABLE_LIST **)thd->alloc(sizeof(TABLE_LIST*) *
-                                                non_const_tables)))
+  if (!(table= static_cast<TABLE_LIST **>(thd->alloc(sizeof(TABLE_LIST*) *
+                                                     tables_to_print))))
     DBUG_VOID_RETURN;                   // out of memory
 
-  TABLE_LIST *tmp, **t= table + (non_const_tables - 1);
+  TABLE_LIST *tmp, **t= table + (tables_to_print - 1);
   while ((tmp= ti++))
   {
-    if (tmp->optimized_away || is_eliminated_table(eliminated_tables, tmp))
+    if (tmp->optimized_away && !print_const_tables)
+      continue;
+    if (is_eliminated_table(eliminated_tables, tmp))
       continue;
     *t--= tmp;
   }
@@ -24940,7 +24960,7 @@ static void print_join(THD *thd,
   */
   if ((*table)->sj_inner_tables)
   {
-    TABLE_LIST **end= table + non_const_tables;
+    TABLE_LIST **end= table + tables_to_print;
     for (TABLE_LIST **t2= table; t2!=end; t2++)
     {
       if (!(*t2)->sj_inner_tables)
@@ -24953,7 +24973,7 @@ static void print_join(THD *thd,
     }
   }
   print_table_array(thd, eliminated_tables, str, table, 
-                    table +  non_const_tables, query_type);
+                    table +  tables_to_print, query_type);
   DBUG_VOID_RETURN;
 }
 
@@ -25373,7 +25393,7 @@ void JOIN::save_query_plan(Join_plan_state *save_to)
   }
   memcpy((uchar*) save_to->best_positions, (uchar*) best_positions,
          sizeof(POSITION) * (table_count + 1));
-  memset(best_positions, 0, sizeof(POSITION) * (table_count + 1));
+  memset((uchar*) best_positions, 0, sizeof(POSITION) * (table_count + 1));
   
   /* Save SJM nests */
   List_iterator<TABLE_LIST> it(select_lex->sj_nests);
@@ -25458,7 +25478,7 @@ void JOIN::restore_query_plan(Join_plan_state *restore_from)
  
   @retval REOPT_NEW_PLAN  there is a new plan.
   @retval REOPT_OLD_PLAN  no new improved plan was produced, use the old one.
-  @retval REOPT_ERROR     an irrecovarable error occured during reoptimization.
+  @retval REOPT_ERROR     an irrecovarable error occurred during reoptimization.
 */
 
 JOIN::enum_reopt_result
@@ -25684,8 +25704,12 @@ static bool get_range_limit_read_cost(const JOIN_TAB *tab,
   @param          table               Table if tab == NULL or tab->table
   @param          usable_keys         Key map to find a cheaper key in
   @param          ref_key             
-                * 0 <= key < MAX_KEY   - key number (hint) to start the search
-                * -1                   - no key number provided
+                   0 <= key < MAX_KEY  - Key that is currently used for finding
+                                         row
+                   MAX_KEY             - means index_merge is used
+                   -1                  - means we're currently not using an
+                                         index to find rows.
+
   @param          select_limit        LIMIT value
   @param [out]    new_key             Key number if success, otherwise undefined
   @param [out]    new_key_direction   Return -1 (reverse) or +1 if success,
@@ -25714,7 +25738,6 @@ test_if_cheaper_ordering(const JOIN_TAB *tab, ORDER *order, TABLE *table,
                          uint *saved_best_key_parts)
 {
   DBUG_ENTER("test_if_cheaper_ordering");
-  DBUG_ASSERT(ref_key < int(MAX_KEY));
   /*
     Check whether there is an index compatible with the given order
     usage of which is cheaper than usage of the ref_key index (ref_key>=0)
@@ -25779,7 +25802,7 @@ test_if_cheaper_ordering(const JOIN_TAB *tab, ORDER *order, TABLE *table,
     Calculate the selectivity of the ref_key for REF_ACCESS. For
     RANGE_ACCESS we use table->quick_condition_rows.
   */
-  if (ref_key >= 0 && !is_hash_join_key_no(ref_key) && tab->type == JT_REF)
+  if (ref_key >= 0 && ref_key != MAX_KEY && tab->type == JT_REF)
   {
     if (table->quick_keys.is_set(ref_key))
       refkey_rows_estimate= table->quick_rows[ref_key];

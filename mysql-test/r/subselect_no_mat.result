@@ -7103,6 +7103,20 @@ NULL
 deallocate prepare stmt;
 drop table t1,t2,t3,t4;
 #
+# MDEV-7122
+# Assertion `0' failed in subselect_hash_sj_engine::init
+#
+SET SESSION big_tables=1;
+CREATE TABLE t1(a char(255) DEFAULT '', KEY(a(10))) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+INSERT INTO t1 VALUES(0),(0),(0);
+SELECT * FROM t1 WHERE a IN(SELECT MIN(a) FROM t1);
+a
+0
+0
+0
+DROP TABLE t1;
+SET SESSION big_tables=0;
+#
 # MDEV-7930: Assertion `table_share->tmp_table != NO_TMP_TABLE ||
 # m_lock_type != 2' failed in  handler::ha_index_read_map
 #
@@ -7126,6 +7140,18 @@ sq
 NULL
 drop view v2;
 drop table t1,t2;
+#
+# MDEV-9487: Server crashes in Time_and_counter_tracker::incr_loops
+# with UNION in ALL subquery
+#
+SET NAMES utf8;
+CREATE TABLE t1 (f VARCHAR(8)) ENGINE=MyISAM;
+INSERT INTO t1 VALUES ('foo');
+SELECT f FROM t1 WHERE f > ALL ( SELECT 'bar' UNION SELECT 'baz' );
+f
+foo
+drop table t1;
+SET NAMES default;
 set optimizer_switch=default;
 select @@optimizer_switch like '%materialization=on%';
 @@optimizer_switch like '%materialization=on%'

@@ -96,6 +96,7 @@
 #cmakedefine HAVE_SYS_UN_H 1
 #cmakedefine HAVE_SYS_VADVISE_H 1
 #cmakedefine HAVE_SYS_STATVFS_H 1
+#cmakedefine HAVE_UCONTEXT_H 1
 #cmakedefine HAVE_TERM_H 1
 #cmakedefine HAVE_TERMBITS_H 1
 #cmakedefine HAVE_TERMIOS_H 1
@@ -224,6 +225,7 @@
 #cmakedefine HAVE_PREAD 1
 #cmakedefine HAVE_PAUSE_INSTRUCTION 1
 #cmakedefine HAVE_FAKE_PAUSE_INSTRUCTION 1
+#cmakedefine HAVE_HMT_PRIORITY_INSTRUCTION 1
 #cmakedefine HAVE_RDTSCLL 1
 #cmakedefine HAVE_READ_REAL_TIME 1
 #cmakedefine HAVE_PTHREAD_ATTR_CREATE 1
@@ -297,7 +299,6 @@
 #cmakedefine HAVE_THR_YIELD 1
 #cmakedefine HAVE_TIME 1
 #cmakedefine HAVE_TIMES 1
-#cmakedefine HAVE_UCONTEXT 1
 #cmakedefine HAVE_VALLOC 1
 #cmakedefine HAVE_VIDATTR 1
 #define HAVE_VIO_READ_BUFF 1

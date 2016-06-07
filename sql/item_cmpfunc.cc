@@ -1,5 +1,5 @@
 /* Copyright (c) 2000, 2013, Oracle and/or its affiliates.
-   Copyright (c) 2009, 2015, MariaDB
+   Copyright (c) 2009, 2016, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -120,10 +120,11 @@ static int cmp_row_type(Item* item1, Item* item2)
 
 static int agg_cmp_type(Item_result *type, Item **items, uint nitems)
 {
-  uint i;
+  uint unsigned_count= items[0]->unsigned_flag;
   type[0]= items[0]->cmp_type();
-  for (i= 1 ; i < nitems ; i++)
+  for (uint i= 1 ; i < nitems ; i++)
   {
+    unsigned_count+= items[i]->unsigned_flag;
     type[0]= item_cmp_type(type[0], items[i]);
     /*
       When aggregating types of two row expressions we have to check
@@ -135,6 +136,12 @@ static int agg_cmp_type(Item_result *type, Item **items, uint nitems)
     if (type[0] == ROW_RESULT && cmp_row_type(items[0], items[i]))
       return 1;     // error found: invalid usage of rows
   }
+  /**
+    If all arguments are of INT type but have different unsigned_flag values,
+    switch to DECIMAL_RESULT.
+  */
+  if (type[0] == INT_RESULT && unsigned_count != nitems && unsigned_count != 0)
+    type[0]= DECIMAL_RESULT;
   return 0;
 }
 
@@ -2246,50 +2253,6 @@ void Item_func_between::print(String *str, enum_query_type query_type)
 }
 
 
-void
-Item_func_case_abbreviation2::fix_length_and_dec2(Item **args)
-{
-  uint32 char_length;
-  set_handler_by_field_type(agg_field_type(args, 2, true));
-  maybe_null=args[0]->maybe_null || args[1]->maybe_null;
-  decimals= MY_MAX(args[0]->decimals, args[1]->decimals);
-  unsigned_flag= args[0]->unsigned_flag && args[1]->unsigned_flag;
-
-  if (Item_func_case_abbreviation2::result_type() == DECIMAL_RESULT ||
-      Item_func_case_abbreviation2::result_type() == INT_RESULT)
-  {
-    int len0= args[0]->max_char_length() - args[0]->decimals
-      - (args[0]->unsigned_flag ? 0 : 1);
-
-    int len1= args[1]->max_char_length() - args[1]->decimals
-      - (args[1]->unsigned_flag ? 0 : 1);
-
-    char_length= MY_MAX(len0, len1) + decimals + (unsigned_flag ? 0 : 1);
-  }
-  else
-    char_length= MY_MAX(args[0]->max_char_length(), args[1]->max_char_length());
-
-  switch (Item_func_case_abbreviation2::result_type()) {
-  case STRING_RESULT:
-    if (count_string_result_length(Item_func_case_abbreviation2::field_type(),
-                                   args, 2))
-      return;
-    break;
-  case DECIMAL_RESULT:
-  case REAL_RESULT:
-    break;
-  case INT_RESULT:
-    decimals= 0;
-    break;
-  case ROW_RESULT:
-  case TIME_RESULT:
-    DBUG_ASSERT(0);
-  }
-  fix_char_length(char_length);
-}
-
-
-
 uint Item_func_case_abbreviation2::decimal_precision2(Item **args) const
 {
   int arg0_int_part= args[0]->decimal_int_part();
@@ -2378,10 +2341,7 @@ bool Item_func_ifnull::date_op(MYSQL_TIME *ltime, uint fuzzydate)
   DBUG_ASSERT(fixed == 1);
   if (!args[0]->get_date_with_conversion(ltime, fuzzydate & ~TIME_FUZZY_DATES))
     return (null_value= false);
-  if (!args[1]->get_date_with_conversion(ltime, fuzzydate & ~TIME_FUZZY_DATES))
-    return (null_value= false);
-  bzero((char*) ltime,sizeof(*ltime));
-  return null_value= !(fuzzydate & TIME_FUZZY_DATES);
+  return (null_value= args[1]->get_date_with_conversion(ltime, fuzzydate & ~TIME_FUZZY_DATES));
 }
 
 
@@ -2531,19 +2491,225 @@ bool Item_func_if::date_op(MYSQL_TIME *ltime, uint fuzzydate)
 }
 
 
+void Item_func_nullif::split_sum_func(THD *thd, Item **ref_pointer_array,
+                                      List<Item> &fields, uint flags)
+{
+  if (m_cache)
+  {
+    flags|= SPLIT_SUM_SKIP_REGISTERED; // See Item_func::split_sum_func
+    m_cache->split_sum_func2_example(thd, ref_pointer_array, fields, flags);
+    args[1]->split_sum_func2(thd, ref_pointer_array, fields, &args[1], flags);
+  }
+  else
+  {
+    Item_func::split_sum_func(thd, ref_pointer_array, fields, flags);
+  }
+}
+
+
+bool Item_func_nullif::walk(Item_processor processor,
+                            bool walk_subquery, uchar *arg)
+{
+  /*
+    No needs to iterate through args[2] when it's just a copy of args[0].
+    See MDEV-9712 Performance degradation of nested NULLIF
+  */
+  uint tmp_count= arg_count == 2 || args[0] == args[2] ? 2 : 3;
+  for (uint i= 0; i < tmp_count; i++)
+  {
+    if (args[i]->walk(processor, walk_subquery, arg))
+      return true;
+  }
+  return (this->*processor)(arg);
+}
+
+
+void Item_func_nullif::update_used_tables()
+{
+  if (m_cache)
+  {
+    used_tables_and_const_cache_init();
+    used_tables_and_const_cache_update_and_join(m_cache->get_example());
+    used_tables_and_const_cache_update_and_join(arg_count, args);
+  }
+  else
+  {
+    /*
+      MDEV-9712 Performance degradation of nested NULLIF
+      No needs to iterate through args[2] when it's just a copy of args[0].
+    */
+    DBUG_ASSERT(arg_count == 3);
+    used_tables_and_const_cache_init();
+    used_tables_and_const_cache_update_and_join(args[0] == args[2] ? 2 : 3,
+                                                args);
+  }
+}
+
+
+
 void
 Item_func_nullif::fix_length_and_dec()
 {
-  if (!args[2])					// Only false if EOM
-    return;
+  /*
+    If this is the first invocation of fix_length_and_dec(), create the
+    third argument as a copy of the first. This cannot be done before
+    fix_fields(), because fix_fields() might replace items,
+    for exampe NOT x --> x==0, or (SELECT 1) --> 1.
+    See also class Item_func_nullif declaration.
+  */
+  if (arg_count == 2)
+    args[arg_count++]= args[0];
 
+  THD *thd= current_thd;
+  /*
+    At prepared statement EXECUTE time, args[0] can already
+    point to a different Item, created during PREPARE time fix_length_and_dec().
+    For example, if character set conversion was needed, arguments can look
+    like this:
+
+      args[0]= > Item_func_conv_charset \
+                                         l_expr
+      args[2]= >------------------------/
+
+    Otherwise (during PREPARE or convensional execution),
+    args[0] and args[2] should still point to the same original l_expr.
+  */
+  DBUG_ASSERT(args[0] == args[2] || thd->stmt_arena->is_stmt_execute());
+  if (args[0]->type() == SUM_FUNC_ITEM &&
+      !thd->lex->is_ps_or_view_context_analysis())
+  {
+    /*
+      NULLIF(l_expr, r_expr)
+
+        is calculated in the way to return a result equal to:
+
+      CASE WHEN l_expr = r_expr THEN NULL ELSE r_expr END.
+
+      There's nothing special with r_expr, because it's referenced
+      only by args[1] and nothing else.
+
+      l_expr needs a special treatment, as it's referenced by both
+      args[0] and args[2] initially.
+
+      args[2] is used to return the value. Afrer all transformations
+      (e.g. in fix_length_and_dec(), equal field propagation, etc)
+      args[2] points to a an Item which preserves the exact data type and
+      attributes (e.g. collation) of the original l_expr.
+      It can point:
+      - to the original l_expr
+      - to an Item_cache pointing to l_expr
+      - to a constant of the same data type with l_expr.
+
+      args[0] is used for comparison. It can be replaced:
+
+      - to Item_func_conv_charset by character set aggregation routines
+      - to a constant Item by equal field propagation routines
+        (in case of Item_field)
+
+      The data type and/or the attributes of args[0] can differ from
+      the data type and the attributes of the original l_expr, to make
+      it comparable to args[1] (which points to r_expr or its replacement).
+
+      For aggregate functions we have to wrap the original args[0]/args[2]
+      into Item_cache (see MDEV-9181). In this case the Item_cache
+      instance becomes the subject to character set conversion instead of
+      the original args[0]/args[2], while the original args[0]/args[2] get
+      hidden inside the cache.
+
+      Some examples of what NULLIF can end up with after argument
+      substitution (we don't mention args[1] in some cases for simplicity):
+
+      1. l_expr is not an aggragate function:
+
+        a. No conversion happened.
+           args[0] and args[2] were not replaced to something else
+           (i.e. neither by character set conversion, nor by propagation):
+
+          args[1] > r_expr
+          args[0] \
+                    l_expr
+          args[2] /
+
+        b. Conversion of args[0] happened:
+
+           CREATE OR REPLACE TABLE t1 (
+             a CHAR(10) CHARACTER SET latin1,
+             b CHAR(10) CHARACTER SET utf8);
+           SELECT * FROM t1 WHERE NULLIF(a,b);
+
+           args[1] > r_expr                          (Item_field for t1.b)
+           args[0] > Item_func_conv_charset\
+                                            l_expr   (Item_field for t1.a)
+           args[2] > ----------------------/
+
+        c. Conversion of args[1] happened:
+
+          CREATE OR REPLACE TABLE t1 (
+            a CHAR(10) CHARACTER SET utf8,
+            b CHAR(10) CHARACTER SET latin1);
+          SELECT * FROM t1 WHERE NULLIF(a,b);
+
+          args[1] > Item_func_conv_charset -> r_expr (Item_field for t1.b)
+          args[0] \
+                   l_expr                            (Item_field for t1.a)
+          args[2] /
+
+        d. Conversion of only args[0] happened (by equal field proparation):
+
+           CREATE OR REPLACE TABLE t1 (
+             a CHAR(10),
+             b CHAR(10));
+           SELECT * FROM t1 WHERE NULLIF(a,b) AND a='a';
+
+           args[1] > r_expr            (Item_field for t1.b)
+           args[0] > Item_string('a')  (constant replacement for t1.a)
+           args[2] > l_expr            (Item_field for t1.a)
+
+        e. Conversion of both args[0] and args[2] happened
+           (by equal field propagation):
+
+           CREATE OR REPLACE TABLE t1 (a INT,b INT);
+           SELECT * FROM t1 WHERE NULLIF(a,b) AND a=5;
+
+           args[1] > r_expr         (Item_field for "b")
+           args[0] \
+                    Item_int (5)    (constant replacement for "a")
+           args[2] /
+
+      2. In case if l_expr is an aggregate function:
+
+        a. No conversion happened:
+
+          args[0] \
+                   Item_cache > l_expr
+          args[2] /
+
+        b. Conversion of args[0] happened:
+
+          args[0] > Item_func_conv_charset \
+                                            Item_cache > l_expr
+          args[2] >------------------------/
+
+        c. Conversion of both args[0] and args[2] happened.
+           (e.g. by equal expression propagation)
+           TODO: check if it's possible (and add an example query if so).
+    */
+    m_cache= args[0]->cmp_type() == STRING_RESULT ?
+             new (thd->mem_root) Item_cache_str_for_nullif(thd, args[0]) :
+             Item_cache::get_cache(thd, args[0]);
+    m_cache->setup(thd, args[0]);
+    m_cache->store(args[0]);
+    m_cache->set_used_tables(args[0]->used_tables());
+    thd->change_item_tree(&args[0], m_cache);
+    thd->change_item_tree(&args[2], m_cache);
+  }
   set_handler_by_field_type(args[2]->field_type());
   collation.set(args[2]->collation);
   decimals= args[2]->decimals;
   unsigned_flag= args[2]->unsigned_flag;
   fix_char_length(args[2]->max_char_length());
   maybe_null=1;
-  setup_args_and_comparator(current_thd, &cmp);
+  setup_args_and_comparator(thd, &cmp);
 }
 
 
@@ -2562,10 +2728,10 @@ void Item_func_nullif::print(String *str, enum_query_type query_type)
     Therefore, after equal field propagation args[0] and args[2] can point
     to different items.
   */
-  if (!(query_type & QT_ITEM_FUNC_NULLIF_TO_CASE) || args[0] == args[2])
+  if ((query_type & QT_ITEM_ORIGINAL_FUNC_NULLIF) || args[0] == args[2])
   {
     /*
-      If no QT_ITEM_FUNC_NULLIF_TO_CASE is requested,
+      If QT_ITEM_ORIGINAL_FUNC_NULLIF is requested,
       that means we want the original NULLIF() representation,
       e.g. when we are in:
         SHOW CREATE {VIEW|FUNCTION|PROCEDURE}
@@ -2573,17 +2739,14 @@ void Item_func_nullif::print(String *str, enum_query_type query_type)
       The original representation is possible only if
       args[0] and args[2] still point to the same Item.
 
-      The caller must pass call print() with QT_ITEM_FUNC_NULLIF_TO_CASE
+      The caller must never pass call print() with QT_ITEM_ORIGINAL_FUNC_NULLIF
       if an expression has undergone some optimization
       (e.g. equal field propagation done in optimize_cond()) already and
       NULLIF() potentially has two different representations of "a":
       - one "a" for comparison
       - another "a" for the returned value!
-
-      Note, the EXPLAIN EXTENDED and EXPLAIN FORMAT=JSON routines
-      do pass QT_ITEM_FUNC_NULLIF_TO_CASE to print().
     */
-    DBUG_ASSERT(args[0] == args[2]);
+    DBUG_ASSERT(args[0] == args[2] || current_thd->lex->context_analysis_only);
     str->append(func_name());
     str->append('(');
     args[2]->print(str, query_type);
@@ -2611,6 +2774,13 @@ void Item_func_nullif::print(String *str, enum_query_type query_type)
 }
 
 
+int Item_func_nullif::compare()
+{
+  if (m_cache)
+    m_cache->cache_value();
+  return cmp.compare();
+}
+
 /**
   @note
   Note that we have to evaluate the first argument twice as the compare
@@ -2626,7 +2796,7 @@ Item_func_nullif::real_op()
 {
   DBUG_ASSERT(fixed == 1);
   double value;
-  if (!cmp.compare())
+  if (!compare())
   {
     null_value=1;
     return 0.0;
@@ -2641,7 +2811,7 @@ Item_func_nullif::int_op()
 {
   DBUG_ASSERT(fixed == 1);
   longlong value;
-  if (!cmp.compare())
+  if (!compare())
   {
     null_value=1;
     return 0;
@@ -2656,7 +2826,7 @@ Item_func_nullif::str_op(String *str)
 {
   DBUG_ASSERT(fixed == 1);
   String *res;
-  if (!cmp.compare())
+  if (!compare())
   {
     null_value=1;
     return 0;
@@ -2672,7 +2842,7 @@ Item_func_nullif::decimal_op(my_decimal * decimal_value)
 {
   DBUG_ASSERT(fixed == 1);
   my_decimal *res;
-  if (!cmp.compare())
+  if (!compare())
   {
     null_value=1;
     return 0;
@@ -2687,7 +2857,7 @@ bool
 Item_func_nullif::date_op(MYSQL_TIME *ltime, uint fuzzydate)
 {
   DBUG_ASSERT(fixed == 1);
-  if (!cmp.compare())
+  if (!compare())
     return (null_value= true);
   return (null_value= args[2]->get_date(ltime, fuzzydate));
 }
@@ -2696,7 +2866,7 @@ Item_func_nullif::date_op(MYSQL_TIME *ltime, uint fuzzydate)
 bool
 Item_func_nullif::is_null()
 {
-  return (null_value= (!cmp.compare() ? 1 : args[2]->null_value));
+  return (null_value= (!compare() ? 1 : args[2]->null_value));
 }
 
 
@@ -2772,7 +2942,7 @@ Item *Item_func_case::find_item(String *str)
           return else_expr_num != -1 ? args[else_expr_num] : 0;
         value_added_map|= 1U << (uint)cmp_type;
       }
-      if (!cmp_items[(uint)cmp_type]->cmp(args[i]) && !args[i]->null_value)
+      if (cmp_items[(uint)cmp_type]->cmp(args[i]) == FALSE)
         return args[i + 1];
     }
   }
@@ -2890,24 +3060,6 @@ bool Item_func_case::fix_fields(THD *thd, Item **ref)
 }
 
 
-void Item_func_case::agg_str_lengths(Item* arg)
-{
-  fix_char_length(MY_MAX(max_char_length(), arg->max_char_length()));
-  set_if_bigger(decimals, arg->decimals);
-  unsigned_flag= unsigned_flag && arg->unsigned_flag;
-}
-
-
-void Item_func_case::agg_num_lengths(Item *arg)
-{
-  uint len= my_decimal_length_to_precision(arg->max_length, arg->decimals,
-                                           arg->unsigned_flag) - arg->decimals;
-  set_if_bigger(max_length, len); 
-  set_if_bigger(decimals, arg->decimals);
-  unsigned_flag= unsigned_flag && arg->unsigned_flag; 
-}
-
-
 /**
   Check if (*place) and new_value points to different Items and call
   THD::change_item_tree() if needed.
@@ -2969,18 +3121,7 @@ void Item_func_case::fix_length_and_dec()
   }
   else
   {
-    collation.set_numeric();
-    max_length=0;
-    decimals=0;
-    unsigned_flag= TRUE;
-    for (uint i= 0; i < ncases; i+= 2)
-      agg_num_lengths(args[i + 1]);
-    if (else_expr_num != -1) 
-      agg_num_lengths(args[else_expr_num]);
-    max_length= my_decimal_precision_to_length_no_truncation(max_length +
-                                                             decimals,
-                                                             decimals,
-                                                             unsigned_flag);
+    fix_attributes(agg, nagg);
   }
   
   /*
@@ -3254,16 +3395,12 @@ double Item_func_coalesce::real_op()
 bool Item_func_coalesce::date_op(MYSQL_TIME *ltime,uint fuzzydate)
 {
   DBUG_ASSERT(fixed == 1);
-  null_value= 0;
   for (uint i= 0; i < arg_count; i++)
   {
-    bool res= args[i]->get_date_with_conversion(ltime,
-                                                fuzzydate & ~TIME_FUZZY_DATES);
-    if (!args[i]->null_value)
-      return res;
+    if (!args[i]->get_date_with_conversion(ltime, fuzzydate & ~TIME_FUZZY_DATES))
+      return (null_value= false);
   }
-  bzero((char*) ltime,sizeof(*ltime));
-  return null_value|= !(fuzzydate & TIME_FUZZY_DATES);
+  return (null_value= true);
 }
 
 
@@ -3282,23 +3419,25 @@ my_decimal *Item_func_coalesce::decimal_op(my_decimal *decimal_value)
 }
 
 
-void Item_func_coalesce::fix_length_and_dec()
+void Item_hybrid_func::fix_attributes(Item **items, uint nitems)
 {
-  set_handler_by_field_type(agg_field_type(args, arg_count, true));
-  switch (Item_func_coalesce::result_type()) {
+  switch (Item_hybrid_func::result_type()) {
   case STRING_RESULT:
-    if (count_string_result_length(Item_func_coalesce::field_type(),
-                                   args, arg_count))
+    if (count_string_result_length(Item_hybrid_func::field_type(),
+                                   items, nitems))
       return;          
     break;
   case DECIMAL_RESULT:
-    count_decimal_length();
+    collation.set_numeric();
+    count_decimal_length(items, nitems);
     break;
   case REAL_RESULT:
-    count_real_length();
+    collation.set_numeric();
+    count_real_length(items, nitems);
     break;
   case INT_RESULT:
-    count_only_length(args, arg_count);
+    collation.set_numeric();
+    count_only_length(items, nitems);
     decimals= 0;
     break;
   case ROW_RESULT:
@@ -3430,11 +3569,11 @@ static int cmp_decimal(void *cmp_arg, my_decimal *a, my_decimal *b)
 }
 
 
-int in_vector::find(Item *item)
+bool in_vector::find(Item *item)
 {
   uchar *result=get_value(item);
   if (!result || !used_count)
-    return 0;				// Null value
+    return false;				// Null value
 
   uint start,end;
   start=0; end=used_count-1;
@@ -3443,13 +3582,13 @@ int in_vector::find(Item *item)
     uint mid=(start+end+1)/2;
     int res;
     if ((res=(*compare)(collation, base+mid*size, result)) == 0)
-      return 1;
+      return true;
     if (res < 0)
       start=mid;
     else
       end=mid-1;
   }
-  return (int) ((*compare)(collation, base+start*size, result) == 0);
+  return ((*compare)(collation, base+start*size, result) == 0);
 }
 
 in_string::in_string(uint elements,qsort2_cmp cmp_func, CHARSET_INFO *cs)
@@ -3779,14 +3918,20 @@ int cmp_item_row::cmp(Item *arg)
   arg->bring_value();
   for (uint i=0; i < n; i++)
   {
-    if (comparators[i]->cmp(arg->element_index(i)))
+    const int rc= comparators[i]->cmp(arg->element_index(i));
+    switch (rc)
     {
-      if (!arg->element_index(i)->null_value)
-	return 1;
-      was_null= 1;
+    case UNKNOWN:
+      was_null= true;
+      break;
+    case TRUE:
+      return TRUE;
+    case FALSE:
+      break;                                    // elements #i are equal
     }
+    arg->null_value|= arg->element_index(i)->null_value;
   }
-  return (arg->null_value= was_null);
+  return was_null ? UNKNOWN : FALSE;
 }
 
 
@@ -3809,15 +3954,15 @@ void cmp_item_decimal::store_value(Item *item)
   /* val may be zero if item is nnull */
   if (val && val != &value)
     my_decimal2decimal(val, &value);
+  m_null_value= item->null_value;
 }
 
 
 int cmp_item_decimal::cmp(Item *arg)
 {
   my_decimal tmp_buf, *tmp= arg->val_decimal(&tmp_buf);
-  if (arg->null_value)
-    return 1;
-  return my_decimal_cmp(&value, tmp);
+  return (m_null_value || arg->null_value) ?
+    UNKNOWN : (my_decimal_cmp(&value, tmp) != 0);
 }
 
 
@@ -3841,12 +3986,14 @@ void cmp_item_datetime::store_value(Item *item)
   enum_field_types f_type=
     tmp_item[0]->field_type_for_temporal_comparison(warn_item);
   value= get_datetime_value(thd, &tmp_item, &lval_cache, f_type, &is_null);
+  m_null_value= item->null_value;
 }
 
 
 int cmp_item_datetime::cmp(Item *arg)
 {
-  return value != arg->val_temporal_packed(warn_item);
+  const bool rc= value != arg->val_temporal_packed(warn_item);
+  return (m_null_value || arg->null_value) ? UNKNOWN : rc;
 }
 
 
@@ -3870,10 +4017,10 @@ bool Item_func_in::count_sargable_conds(uchar *arg)
 }
 
 
-bool Item_func_in::nulls_in_row()
+bool Item_func_in::list_contains_null()
 {
   Item **arg,**arg_end;
-  for (arg= args+1, arg_end= args+arg_count; arg != arg_end ; arg++)
+  for (arg= args + 1, arg_end= args+arg_count; arg != arg_end ; arg++)
   {
     if ((*arg)->null_inside())
       return 1;
@@ -3988,6 +4135,32 @@ void Item_func_in::fix_length_and_dec()
     }
   }
 
+  /*
+    First conditions for bisection to be possible:
+     1. All types are similar, and
+     2. All expressions in <in value list> are const
+  */
+  bool bisection_possible=
+    type_cnt == 1 &&                                   // 1
+    const_itm;                                         // 2
+  if (bisection_possible)
+  {
+    /*
+      In the presence of NULLs, the correct result of evaluating this item
+      must be UNKNOWN or FALSE. To achieve that:
+      - If type is scalar, we can use bisection and the "have_null" boolean.
+      - If type is ROW, we will need to scan all of <in value list> when
+        searching, so bisection is impossible. Unless:
+        3. UNKNOWN and FALSE are equivalent results
+        4. Neither left expression nor <in value list> contain any NULL value
+      */
+
+    if (m_compare_type == ROW_RESULT &&
+        ((!is_top_level_item() || negated) &&              // 3
+         (list_contains_null() || args[0]->maybe_null)))   // 4
+      bisection_possible= false;
+  }
+
   if (type_cnt == 1)
   {
     if (m_compare_type == STRING_RESULT &&
@@ -4000,7 +4173,7 @@ void Item_func_in::fix_length_and_dec()
       uint cols= args[0]->cols();
       cmp_item_row *cmp= 0;
 
-      if (const_itm && !nulls_in_row())
+      if (bisection_possible)
       {
         array= new (thd->mem_root) in_row(thd, arg_count-1, 0);
         cmp= &((in_row*)array)->tmp;
@@ -4029,11 +4202,8 @@ void Item_func_in::fix_length_and_dec()
       }
     }
   }
-  /*
-    Row item with NULLs inside can return NULL or FALSE =>
-    they can't be processed as static
-  */
-  if (type_cnt == 1 && const_itm && !nulls_in_row())
+
+  if (bisection_possible)
   {
     /*
       IN must compare INT columns and constants as int values (the same
@@ -4088,20 +4258,25 @@ void Item_func_in::fix_length_and_dec()
       array= new (thd->mem_root) in_datetime(date_arg, arg_count - 1);
       break;
     }
-    if (array && !(thd->is_fatal_error))		// If not EOM
+    if (!array || thd->is_fatal_error)		// OOM
+      return;
+    uint j=0;
+    for (uint i=1 ; i < arg_count ; i++)
     {
-      uint j=0;
-      for (uint i=1 ; i < arg_count ; i++)
+      array->set(j,args[i]);
+      if (!args[i]->null_value)
+        j++; // include this cell in the array.
+      else
       {
-        array->set(j,args[i]);
-        if (!args[i]->null_value)                      // Skip NULL values
-          j++;
-        else
-          have_null= 1;
+        /*
+          We don't put NULL values in array, to avoid erronous matches in
+          bisection.
+        */
+        have_null= 1;
       }
-      if ((array->used_count= j))
-	array->sort();
     }
+    if ((array->used_count= j))
+      array->sort();
   }
   else
   {
@@ -4169,7 +4344,14 @@ longlong Item_func_in::val_int()
   uint value_added_map= 0;
   if (array)
   {
-    int tmp=array->find(args[0]);
+    bool tmp=array->find(args[0]);
+    /*
+      NULL on left -> UNKNOWN.
+      Found no match, and NULL on right -> UNKNOWN.
+      NULL on right can never give a match, as it is not stored in
+      array.
+      See also the 'bisection_possible' variable in fix_length_and_dec().
+    */
     null_value=args[0]->null_value || (!tmp && have_null);
     return (longlong) (!null_value && tmp != negated);
   }
@@ -4191,13 +4373,12 @@ longlong Item_func_in::val_int()
     if (!(value_added_map & (1U << (uint)cmp_type)))
     {
       in_item->store_value(args[0]);
-      if ((null_value= args[0]->null_value))
-        return 0;
       value_added_map|= 1U << (uint)cmp_type;
     }
-    if (!in_item->cmp(args[i]) && !args[i]->null_value)
+    const int rc= in_item->cmp(args[i]);
+    if (rc == FALSE)
       return (longlong) (!negated);
-    have_null|= args[i]->null_value;
+    have_null|= (rc == UNKNOWN);
   }
 
   null_value= have_null;
@@ -5607,7 +5788,7 @@ bool Item_func_not::fix_fields(THD *thd, Item **ref)
   args[0]->under_not(this);
   if (args[0]->type() == FIELD_ITEM)
   {
-    /* replace  "NOT <field>" with "<filed> == 0" */
+    /* replace  "NOT <field>" with "<field> == 0" */
     Query_arena backup, *arena;
     Item *new_item;
     bool rc= TRUE;
@@ -6319,7 +6500,8 @@ longlong Item_equal::val_int()
     /* Skip fields of tables that has not been read yet */
     if (!field->table->status || (field->table->status & STATUS_NULL_ROW))
     {
-      if (eval_item->cmp(item) || (null_value= item->null_value))
+      const int rc= eval_item->cmp(item);
+      if ((rc == TRUE) || (null_value= (rc == UNKNOWN)))
         return 0;
     }
   }
