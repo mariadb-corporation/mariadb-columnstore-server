@@ -18494,10 +18494,8 @@ sub_select(JOIN *join,JOIN_TAB *join_tab,bool end_of_records)
     change should probably be made in 5.1, too.
   */
   bool skip_over= FALSE;
-  int record_count=0;
   while (rc == NESTED_LOOP_OK && join->return_tab >= join_tab)
   {
-	  ++record_count;
     if (join_tab->loosescan_match_tab && 
         join_tab->loosescan_match_tab->found_match)
     {
@@ -18508,10 +18506,6 @@ sub_select(JOIN *join,JOIN_TAB *join_tab,bool end_of_records)
     }
 
     error= info->read_record(info);
-	if (error)
-	{
-//	  printf("******read_record returns error %d after %d records\n", error, record_count);
-	}
 
     if (skip_over && !error) 
     {

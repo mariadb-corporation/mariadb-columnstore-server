@@ -1527,7 +1527,6 @@ public:
   uint order_field() { return arg_count_order; }
   String* str_separator() { return separator; }
   ORDER** get_order() { return order; }
-//  Name_resolution_context *context; // InfiniDB: keep it in public place
 };
 
 #endif /* ITEM_SUM_INCLUDED */

@@ -124,13 +124,6 @@ When one supplies long data for a placeholder:
 #include "transaction.h"                        // trans_rollback_implicit
 #include "wsrep_mysqld.h"
 
-#include "sp_head.h"
-#include "sp.h"
-#include "sp_cache.h"
-#include "events.h"
-#include "sql_trigger.h"
-#include "sp_pcontext.h"
-
 /****************************************************************************/
 // InfiniDB vtable processing
 extern int idb_vtable_process(THD* thd, Statement* stmt = NULL);

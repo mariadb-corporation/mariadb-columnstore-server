@@ -1460,7 +1460,7 @@ public:
   When the CASE expression is specified then it is compared to each WHEN
   expression individually. When an equal WHEN expression is found
   corresponding THEN expression is returned.
-  In order to do correct comparisons several comparators are used. One forg
+  In order to do correct comparisons several comparators are used. One for
   each result type. Different result types that are used in particular
   CASE ... END expression are collected in the fix_length_and_dec() member
   function and only comparators for there result types are used.
