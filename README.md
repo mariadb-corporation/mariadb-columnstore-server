@@ -17,9 +17,9 @@ build.
 Additional features and product enhancements will be pushed in future releases. 
 
 ##The structure of this repository is:
-Branch "master" - this is the latest released version of the source code.  Each major release is tagged.
-Branch "development" - this is the mainline development branch.  All code in this branch should have unit tests.
-Branch "mcol-xxx" - these are specific bug and feature branches. These are merged into development which is merged to master.
+* Branch "master" - this is the latest released version of the source code.  Each major release is tagged.
+* Branch "development" - this is the mainline development branch.  All code in this branch should have unit tests.
+* Branch "mcol-xxx" - these are specific bug and feature branches. These are merged into development which is merged to master.
 
 MariaDB columnstore server and the storage/execution engine are in separate repositories, but the engine repository is integrated into the server repository using a git "sub repository".  The server currently uses CMake but the engine is still based on autotools.
 
@@ -27,8 +27,10 @@ MariaDB columnstore server and the storage/execution engine are in separate repo
 The current (1.0.1) master branch does not build properly.  This has been rectified in the *development* branch and once version 1.0.2 is released, building the master branch will work correctly.
 
 ##Building development branch
-### Currently building has only been certified on CentOS 7.0.  Building on other platforms will be supported in a later release.
-### Currently ancillary ColumnStore adminstrative scripts and tools used a fixed path into /usr/local/mariadb/columnstore.  This is the only supported CMake/Autotools "prefix" supported at this time, and the proper prefixes are defaulted for the product.
+
+Currently building has only been certified on CentOS 7.0.  Building on other platforms will be supported in a later release.
+
+Currently ancillary ColumnStore adminstrative scripts and tools used a fixed path into /usr/local/mariadb/columnstore.  This is the only supported CMake/Autotools "prefix" supported at this time, and the proper prefixes are defaulted for the product.
 
 To build the current development branch
   * git checkout https://github.com/mariadb-corporation/mariadb-columnstore-server.git 
