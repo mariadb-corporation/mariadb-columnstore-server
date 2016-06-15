@@ -23,6 +23,8 @@ Additional features and product enhancements will be pushed in future releases.
 
 MariaDB columnstore server and the storage/execution engine are in separate repositories, but the engine repository is integrated into the server repository using a git "sub repository".  The server currently uses CMake but the engine is still based on autotools.
 
+**While following build process will allow you to compile and build, The install instructions that goes with this build process are still being worked upon. Do not use this build process until install instrucitons have been added.**
+
 ##Building the master branch
 The current (1.0.1) master branch does not build properly.  This has been rectified in the *development* branch and once version 1.0.2 is released, building the master branch will work correctly.
 
