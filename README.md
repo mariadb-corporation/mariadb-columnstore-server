@@ -25,6 +25,9 @@ Additional features and product enhancements will be pushed in future releases.
 
 MariaDB columnstore server and the engine are in separate repositories, but the engine repository is integrated into the server repository using a git "sub repository".  The server currently uses CMake but the engine is still based on autotools.
 
+##Build dependencies
+These packages need to be install along with the group development packages:
+bison ncurces_develop readline_devel boost_devel perl_devel openssl_devel cmake libxml2_devel
 
 ##Building the master branch
 The current (1.0.1) master branch does not build properly.  This has been rectified in the *development* branch and once version 1.0.2 is released, building the master branch will work correctly.
@@ -61,6 +64,10 @@ To develop a new branch/feature/pull request
   * git push -u origin new-branch-name
   * issue pull request for merge from new-branch-name into develop
   * MariaDB ColumnStore team will evaluate the changes and may request further development or changes before merge 
+
+##Run dependencies
+These packages need to be install::
+expect perl perl-DBI openssl zlib
 
 ##Configure and Starting of MariaDB Columnstore 
 
