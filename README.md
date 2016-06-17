@@ -1,8 +1,12 @@
-#ColumnStore Server (version 1.0)
-This is the server part of MariaDB ColumnStore 1.0.1
+#MariaDB ColumnStore Server (version 1.0)
+This is the server part of MariaDB ColumnStore 1.0.1.
 MariaDB ColumnStore 1.0.1 is the development version of MariaDB ColumnStore. 
-It is built by porting InfiniDB 4.6.2 on MariaDB 10.1.14 and adding entirely 
+It is built by porting InfiniDB 4.6.7 on MariaDB 10.1.14 and adding entirely 
 new features not found anywhere else.
+
+#MariaDB Columnstore Engine (version 1.0)
+This is the engine part of MariaDB ColumnStore 1.0.1.
+Engine is a submodule of Server in the build process.
 
 ###Alpha release notice
 MariaDB ColumnStore 1.0.1 is an Alpha release. This is the first MariaDB 
@@ -11,33 +15,31 @@ series are included in this release.
 
 A few things to notice:
 - Do not use alpha releases on production systems.
-- The building of the ColumnStore engine 1.0.1 needs a special build environment. We're working on making it available for everyone to 
-build.
 
 Additional features and product enhancements will be pushed in future releases. 
 
 ##The structure of this repository is:
 * Branch "master" - this is the latest released version of the source code.  Each major release is tagged.
-* Branch "development" - this is the mainline development branch.  All code in this branch should have unit tests.
+* Branch "develop" - this is the mainline development branch.
 * Branch "mcol-xxx" - these are specific bug and feature branches. These are merged into development which is merged to master.
 
-MariaDB columnstore server and the storage/execution engine are in separate repositories, but the engine repository is integrated into the server repository using a git "sub repository".  The server currently uses CMake but the engine is still based on autotools.
+MariaDB columnstore server and the engine are in separate repositories, but the engine repository is integrated into the server repository using a git "sub repository".  The server currently uses CMake but the engine is still based on autotools.
 
-**While following build process will allow you to compile and build, The install instructions that goes with this build process are still being worked upon. Do not use this build process until install instrucitons have been added.**
 
 ##Building the master branch
 The current (1.0.1) master branch does not build properly.  This has been rectified in the *development* branch and once version 1.0.2 is released, building the master branch will work correctly.
 
 ##Building development branch
 
-Currently building has only been certified on CentOS 7.0.  Building on other platforms will be supported in a later release.
+Building can do be as a non-root user. If you do a "build install", it will install the binaries in /usr/local/mariadb/columnstore
+and the use of sudo is required.
 
-Currently ancillary ColumnStore adminstrative scripts and tools used a fixed path into /usr/local/mariadb/columnstore.  This is the only supported CMake/Autotools "prefix" supported at this time, and the proper prefixes are defaulted for the product.
+Currently building has only been certified on CentOS 7.0.  Building on other platforms will be certified in a later release.
 
 To build the current development branch
   * git checkout https://github.com/mariadb-corporation/mariadb-columnstore-server.git 
   * cd mariadb-columnstore-server
-  * git checkout development    # switch to development code
+  * git checkout develop        # switch to develop code
   * git submodule update --init # pull in engine code
   * cmake .                     # note that out-of-tree builds are currently not supported.  This will be resolved in a later release
   * make -jN                    # N is the number of concurrent build processes and should likely be the number of cores available
@@ -45,11 +47,11 @@ To build the current development branch
   * cd mariadb-columnstore-engine
   * ./configure 
   * make -jN                    # same as above with respect to concurrent processes
-  * sudo make install
+  * sudo make install           # 
   
 To develop a new branch/feature/pull request
-  * fork the server
-  * fork the engine
+  * fork the server repo from github mariadb-corporation/mariadb-columnstore-server
+  * fork the engine report from github mariadb-corporation/mariadb-columnstore-engine
   * git checkout develop  #branch in server
   * git submodule update --init
   * git branch new-branch-name (this can be in engine or server code)
@@ -58,4 +60,18 @@ To develop a new branch/feature/pull request
   * git commit -m 'meaningful checkin comment'
   * git push -u origin new-branch-name
   * issue pull request for merge from new-branch-name into develop
-  * MariaDB ColumnStore team will evaluate the changes and may request further development or changes before merge  
+  * MariaDB ColumnStore team will evaluate the changes and may request further development or changes before merge 
+
+##Configure and Starting of MariaDB Columnstore 
+
+Follow the binary package install instructions in the Columnstore Getting Starter Guide:
+
+  https://mariadb.com/kb/en/mariadb/columnstore-getting-started/
+
+Commands to run as root user:
+
+cd /usr/local/mariadb/columnstore/bin/
+./post-install
+./postConfigure
+
+ 
