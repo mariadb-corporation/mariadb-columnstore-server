@@ -29,10 +29,10 @@ MariaDB columnstore server and the engine are in separate repositories, but the 
 These packages need to be install along with the group development packages:
 bison ncurces_develop readline_devel boost_devel perl_devel openssl_devel cmake libxml2_devel
 
-##Building the master branch
+##Building master branch
 The current (1.0.1) master branch does not build properly.  This has been rectified in the *development* branch and once version 1.0.2 is released, building the master branch will work correctly.
 
-##Building development branch
+##Building develop branch
 
 Building can do be as a non-root user. If you do a "build install", it will install the binaries in /usr/local/mariadb/columnstore
 and the use of sudo is required.
