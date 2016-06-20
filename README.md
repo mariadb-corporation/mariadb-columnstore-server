@@ -27,6 +27,7 @@ MariaDB columnstore server and the engine are in separate repositories, but the 
 
 ##Build dependencies
 These packages need to be install along with the group development packages:
+
 bison ncurces_develop readline_devel boost_devel perl_devel openssl_devel cmake libxml2_devel
 
 ##Building master branch
@@ -66,7 +67,8 @@ To develop a new branch/feature/pull request
   * MariaDB ColumnStore team will evaluate the changes and may request further development or changes before merge 
 
 ##Run dependencies
-These packages need to be install::
+These packages need to be install:
+
 expect perl perl-DBI openssl zlib
 
 ##Configure and Starting of MariaDB Columnstore 
