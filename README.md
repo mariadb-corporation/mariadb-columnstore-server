@@ -40,7 +40,7 @@ and the use of sudo is required.
 Currently building has only been certified on CentOS 7.0.  Building on other platforms will be certified in a later release.
 
 To build the current development branch
-  * git checkout https://github.com/mariadb-corporation/mariadb-columnstore-server.git 
+  * git clone https://github.com/mariadb-corporation/mariadb-columnstore-server.git 
   * cd mariadb-columnstore-server
   * git checkout develop        # switch to develop code
   * git submodule update --init # pull in engine code
