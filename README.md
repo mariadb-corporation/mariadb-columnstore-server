@@ -77,8 +77,8 @@ Follow the binary package install instructions in the Columnstore Getting Starte
 
 Commands to run as root user:
 
-cd /usr/local/mariadb/columnstore/bin/
-./post-install
-./postConfigure
+  * cd /usr/local/mariadb/columnstore/bin/
+  * ./post-install
+  * ./postConfigure
 
  
