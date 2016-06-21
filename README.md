@@ -49,7 +49,7 @@ To build the current development branch
   * make -jN                    # N is the number of concurrent build processes and should likely be the number of cores available
   * sudo make install
   * cd mariadb-columnstore-engine
-  # ./build/bootstrap
+  * ./build/bootstrap
   * ./configure 
   * make -jN                    # same as above with respect to concurrent processes
   * sudo make install           # 
