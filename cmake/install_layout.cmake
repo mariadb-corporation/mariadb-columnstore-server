@@ -67,7 +67,7 @@
 # When changing this page,  _please_ do not forget to update public Wiki
 # http://forge.mysql.com/wiki/CMake#Fine-tuning_installation_paths
 
-#IF(NOT INSTALL_LAYOUT)
+IF(NOT INSTALL_LAYOUT)
 #  IF(DEB)
 #    SET(INSTALL_LAYOUT "DEB")
 #  ELSEIF(RPM)
@@ -75,7 +75,7 @@
 #  ELSE()
     SET(INSTALL_LAYOUT "STANDALONE")
 #  ENDIF()
-#ENDIF()
+ENDIF()
 
 SET(INSTALL_LAYOUT "${INSTALL_LAYOUT}"
 CACHE STRING "Installation directory layout. Options are: STANDALONE (as in zip or tar.gz installer) RPM DEB SVR4")
@@ -141,10 +141,10 @@ SET(INSTALL_SYSCONF2DIR_RPM             "/usr/local/mariadb/columnstore/mysql/my
 IF(CMAKE_SIZEOF_VOID_P EQUAL 8)
   SET(INSTALL_LIBDIR_RPM                "lib64")
   SET(INSTALL_PLUGINDIR_RPM             "lib64/mysql/plugin")
-#ELSE()
+ELSE()
   SET(INSTALL_LIBDIR_RPM                "lib")
   SET(INSTALL_PLUGINDIR_RPM             "lib/mysql/plugin")
-#ENDIF()
+ENDIF()
 #
 SET(INSTALL_INCLUDEDIR_RPM              "include/mysql")
 #
