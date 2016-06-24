@@ -68,13 +68,13 @@
 # http://forge.mysql.com/wiki/CMake#Fine-tuning_installation_paths
 
 IF(NOT INSTALL_LAYOUT)
-#  IF(DEB)
-#    SET(INSTALL_LAYOUT "DEB")
-#  ELSEIF(RPM)
-#    SET(INSTALL_LAYOUT "RPM")
-#  ELSE()
+  IF(DEB)
+    SET(INSTALL_LAYOUT "DEB")
+  ELSEIF(RPM)
+    SET(INSTALL_LAYOUT "RPM")
+  ELSE()
     SET(INSTALL_LAYOUT "STANDALONE")
-#  ENDIF()
+  ENDIF()
 ENDIF()
 
 SET(INSTALL_LAYOUT "${INSTALL_LAYOUT}"
@@ -115,36 +115,31 @@ SET(INSTALL_PLUGINDIR_STANDALONE        "lib/plugin")
 #
 SET(INSTALL_INCLUDEDIR_STANDALONE       "include/mysql")
 #
-SET(INSTALL_DOCDIR_STANDALONE           "docs")
-SET(INSTALL_DOCREADMEDIR_STANDALONE     ".")
-SET(INSTALL_MANDIR_STANDALONE           "man")
-SET(INSTALL_INFODIR_STANDALONE          "docs")
+SET(INSTALL_DOCDIR_STANDALONE           "share/doc")
+SET(INSTALL_DOCREADMEDIR_STANDALONE     "share/doc")
+SET(INSTALL_MANDIR_STANDALONE           "share/man")
+SET(INSTALL_INFODIR_STANDALONE          "share/doc")
 #
 SET(INSTALL_SHAREDIR_STANDALONE         "share")
-SET(INSTALL_MYSQLSHAREDIR_STANDALONE    "share")
-SET(INSTALL_MYSQLTESTDIR_STANDALONE     "mysql-test")
-SET(INSTALL_SQLBENCHDIR_STANDALONE      ".")
-SET(INSTALL_SUPPORTFILESDIR_STANDALONE  "support-files")
+SET(INSTALL_MYSQLSHAREDIR_STANDALONE    "share/doc")
+SET(INSTALL_MYSQLTESTDIR_STANDALONE     "share/mysql-test")
+SET(INSTALL_SQLBENCHDIR_STANDALONE      "")
+SET(INSTALL_SUPPORTFILESDIR_STANDALONE  "share/mysql")
 #
-SET(INSTALL_MYSQLDATADIR_STANDALONE     "data")
+SET(INSTALL_MYSQLDATADIR_STANDALONE     "/usr/local/mariadb/columnstore/mysql/db")
 
 SET(INSTALL_UNIX_ADDRDIR_STANDALONE     "/tmp/mysql.sock")
 #
 # RPM layout
 #
 SET(INSTALL_BINDIR_RPM                  "bin")
-SET(INSTALL_SBINDIR_RPM                 "sbin")
-SET(INSTALL_SCRIPTDIR_RPM               "bin")
+SET(INSTALL_SBINDIR_RPM                 "bin")
+SET(INSTALL_SCRIPTDIR_RPM               "scripts")
 SET(INSTALL_SYSCONFDIR_RPM		"/usr/local/mariadb/columnstore/mysql")
 SET(INSTALL_SYSCONF2DIR_RPM             "/usr/local/mariadb/columnstore/mysql/my.cnf.d")
 #
-IF(CMAKE_SIZEOF_VOID_P EQUAL 8)
-  SET(INSTALL_LIBDIR_RPM                "lib64")
-  SET(INSTALL_PLUGINDIR_RPM             "lib64/mysql/plugin")
-ELSE()
-  SET(INSTALL_LIBDIR_RPM                "lib")
-  SET(INSTALL_PLUGINDIR_RPM             "lib/mysql/plugin")
-ENDIF()
+SET(INSTALL_LIBDIR_RPM                  "lib")
+SET(INSTALL_PLUGINDIR_RPM               "lib/plugin")
 #
 SET(INSTALL_INCLUDEDIR_RPM              "include/mysql")
 #
@@ -154,10 +149,10 @@ SET(INSTALL_INFODIR_RPM                 "share/info")
 SET(INSTALL_MANDIR_RPM                  "share/man")
 #
 SET(INSTALL_SHAREDIR_RPM                "share")
-SET(INSTALL_MYSQLSHAREDIR_RPM           "share/mysql")
+SET(INSTALL_MYSQLSHAREDIR_RPM           "share")
 SET(INSTALL_MYSQLTESTDIR_RPM            "share/mysql-test")
 SET(INSTALL_SQLBENCHDIR_RPM             "")
-SET(INSTALL_SUPPORTFILESDIR_RPM         "share/mysql")
+SET(INSTALL_SUPPORTFILESDIR_RPM         "share")
 #
 SET(INSTALL_MYSQLDATADIR_RPM            "/usr/local/mariadb/columnstore/mysql/db")
 
