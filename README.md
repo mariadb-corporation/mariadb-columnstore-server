@@ -38,7 +38,7 @@ The current (1.0.1) master branch does not build properly.  This has been rectif
 Building can do be as a non-root user. If you do a "build install", it will install the binaries in /usr/local/mariadb/columnstore
 and the use of sudo is required.
 
-Currently building has only been certified on CentOS 7.0.  Building on other platforms will be certified in a later release.
+Currently building has only been certified on CentOS 6.6, 6.7 and 7.0.  Building on other platforms will be certified in a later release.
 
 To build the current development branch
   * git clone https://github.com/mariadb-corporation/mariadb-columnstore-server.git 
