@@ -163,12 +163,12 @@ SET(INSTALL_SYSTEMD_UNITDIR_RPM         "/usr/lib/systemd/system")
 # DEB layout
 #
 SET(INSTALL_BINDIR_DEB                  "bin")
-SET(INSTALL_SBINDIR_DEB                 "sbin")
-SET(INSTALL_SCRIPTDIR_DEB               "bin")
-SET(INSTALL_SYSCONF2DIR_DEB             "/etc/mysql/conf.d")
+SET(INSTALL_SBINDIR_DEB                 "bin")
+SET(INSTALL_SCRIPTDIR_DEB               "scripts")
+SET(INSTALL_SYSCONF2DIR_DEB             "/usr/local/mariadb/columnstore/mysql/my.cnf.d")
 #
 SET(INSTALL_LIBDIR_DEB                  "lib")
-SET(INSTALL_PLUGINDIR_DEB               "lib/mysql/plugin")
+SET(INSTALL_PLUGINDIR_DEB               "lib/plugin")
 #
 SET(INSTALL_INCLUDEDIR_DEB              "include/mysql")
 #
@@ -178,15 +178,15 @@ SET(INSTALL_MANDIR_DEB                  "share/man")
 SET(INSTALL_INFODIR_DEB                 "share/info")
 #
 SET(INSTALL_SHAREDIR_DEB                "share")
-SET(INSTALL_MYSQLSHAREDIR_DEB           "share/mysql")
-SET(INSTALL_MYSQLTESTDIR_DEB            "mysql-test")
-SET(INSTALL_SQLBENCHDIR_DEB             ".")
-SET(INSTALL_SUPPORTFILESDIR_DEB         "share/mysql")
+SET(INSTALL_MYSQLSHAREDIR_DEB           "share")
+SET(INSTALL_MYSQLTESTDIR_DEB            "share/mysql-test")
+SET(INSTALL_SQLBENCHDIR_DEB             "")
+SET(INSTALL_SUPPORTFILESDIR_DEB         "share")
 #
-SET(INSTALL_MYSQLDATADIR_DEB            "/var/lib/mysql")
+SET(INSTALL_MYSQLDATADIR_DEB            "db")
 
-SET(INSTALL_UNIX_ADDRDIR_DEB            "/var/run/mysqld/mysqld.sock")
-SET(INSTALL_SYSTEMD_UNITDIR_DEB         "/lib/systemd/system")
+SET(INSTALL_UNIX_ADDRDIR_DEB            "/${INSTALL_MYSQLDATADIR_DEB}/mysqld.sock")
+SET(INSTALL_SYSTEMD_UNITDIR_DEB         "/usr/lib/systemd/system")
 
 #
 # SVR4 layout
