@@ -26,7 +26,7 @@ Additional features and product enhancements will be pushed in future releases.
 MariaDB columnstore server and the engine are in separate repositories, but the engine repository is integrated into the server repository using a git "sub repository".  The server currently uses CMake but the engine is still based on autotools.
 
 ##Build dependencies
-These packages need to be install along with the group development packages:
+These packages need to be install along with the "group development Tools" package:
 
 bison ncurses-develop readline-devel boost-devel perl-devel openssl-devel cmake libxml2-devel
 
@@ -45,7 +45,7 @@ To build the current development branch
   * cd mariadb-columnstore-server
   * git checkout develop        # switch to develop code
   * git submodule update --init # pull in engine code
-  * cmake . DCMAKE_INSTALL_PREFIX=/usr/local/mariadb/columnstore/mysql
+  * cmake . -DCMAKE_INSTALL_PREFIX=/usr/local/mariadb/columnstore/mysql
   * make -jN                    # N is the number of concurrent build processes and should likely be the number of cores available
   * sudo make install
   * cd mariadb-columnstore-engine
