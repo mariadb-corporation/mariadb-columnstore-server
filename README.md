@@ -28,7 +28,7 @@ MariaDB columnstore server and the engine are in separate repositories, but the 
 ##Build dependencies
 These packages need to be install along with the "group development Tools" package:
 
-bison ncurses-develop readline-devel boost-devel perl-devel openssl-devel cmake libxml2-devel
+bison ncurses-devel readline-devel boost-devel perl-devel openssl-devel cmake libxml2-devel
 
 ##Building master branch
 The current (1.0.1) master branch does not build properly.  This has been rectified in the *development* branch and once version 1.0.2 is released, building the master branch will work correctly.
