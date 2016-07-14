@@ -1,6 +1,7 @@
 #ifndef ITEM_TIMEFUNC_INCLUDED
 #define ITEM_TIMEFUNC_INCLUDED
 /* Copyright (c) 2000, 2011, Oracle and/or its affiliates.
+Copyright (c) 2016, MariaDB Corporation
    Copyright (c) 2009-2011, Monty Program Ab
 
    This program is free software; you can redistribute it and/or modify
