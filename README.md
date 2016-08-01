@@ -70,7 +70,7 @@ To develop a new branch/feature/pull request
 ##Run dependencies
 These packages need to be install:
 
-expect perl perl-DBI openssl zlib file sudo
+expect perl perl-DBI openssl zlib file sudo libnl
 
 ##MariaDB Columnstore utilizes the System Logging for logging purposes
 So you will want to make sure that one of these system logging packages is installed:
