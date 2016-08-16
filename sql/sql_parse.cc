@@ -9520,7 +9520,7 @@ int idb_parse_vtable(THD* thd, String& vquery, THD::infinidb_state vtable_state)
 	
 	Parser_state parser_state;
 	parser_state.init(thd, thd->query(), thd->query_length());
-	#ifdef SAFE_MUTEX
+	#ifdef INFINIDB_DEBUG
 	printf("<<< Parse vtable: %s\n", vquery.c_ptr());
 	#endif
 	mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
@@ -9748,7 +9748,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 						}
 
 						std::string tmp_query = std::string (sel_query->m_query.str);
-		#ifdef SAFE_MUTEX
+		#ifdef INFINIDB_DEBUG
 						printf("query: %s length: %lu\n", tmp_query.c_str(), tmp_query.length());
 		#endif
 						if (args->elements > 0)
@@ -9837,7 +9837,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 							// auto switch -- vtablemode = 2. rerun the original query
 							thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
 							alloc_query(thd, thd->infinidb_vtable.original_query.c_ptr(), thd->infinidb_vtable.original_query.length());
-		#ifdef SAFE_MUTEX
+		#ifdef INFINIDB_DEBUG
 							printf("<<< V-TABLE unsupported components encountered. Auto switch to table mode\n");
 		#endif
 							delete_explain_query(thd->lex);
@@ -10079,7 +10079,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 								thd->infinidb_vtable.select_vtable_query.append(select.c_str(), select.length());
 							}
 							thd->infinidb_vtable.isUnion = false; // make state change to create_vtable in sql_select
-	#ifdef SAFE_MUTEX
+	#ifdef INFINIDB_DEBUG
 							printf("<<< V-TABLE Redo Phase 1: %s\n", thd->query());
 	#endif
 							idb_parse_vtable(thd, thd->infinidb_vtable.create_vtable_query, THD::INFINIDB_CREATE_VTABLE);
@@ -10100,7 +10100,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 						// Not an InfiniDB query. Normal mysql processing
 						thd->set_query(thd->infinidb_vtable.original_query.c_ptr(),
 									   thd->infinidb_vtable.original_query.length());
-	#ifdef SAFE_MUTEX
+	#ifdef INFINIDB_DEBUG
 						printf("<<< Non InfiniDB query: %s\n", thd->query());
 	#endif
 						thd->infinidb_vtable.isInfiniDBDML = false;
@@ -10121,7 +10121,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 							// Normal mysql processing
 							thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
 							alloc_query(thd, thd->infinidb_vtable.original_query.c_ptr(), thd->infinidb_vtable.original_query.length());
-	#ifdef SAFE_MUTEX
+	#ifdef INFINIDB_DEBUG
 							printf("<<< V-TABLE unsupported components encountered. Auto switch to table mode\n");
 	#endif
 							delete_explain_query(thd->lex);
@@ -10150,7 +10150,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 						
 							alloc_query(thd, thd->infinidb_vtable.insert_vtable_query.c_ptr(), thd->infinidb_vtable.insert_vtable_query.length());
 							thd->infinidb_vtable.vtable_state = THD::INFINIDB_SELECT_VTABLE;
-	#ifdef SAFE_MUTEX
+	#ifdef INFINIDB_DEBUG
 							printf("<<< V-TABLE insert select: %s\n", thd->query());
 	#endif
 							Parser_state parser_state;
@@ -10162,7 +10162,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 						{
 							alloc_query(thd, thd->infinidb_vtable.select_vtable_query.c_ptr(), thd->infinidb_vtable.select_vtable_query.length());
 							thd->infinidb_vtable.vtable_state = THD::INFINIDB_SELECT_VTABLE;
-	#ifdef SAFE_MUTEX
+	#ifdef INFINIDB_DEBUG
 							printf("<<< V-TABLE insert %s\n", thd->query());
 	#endif
 							Parser_state parser_state;
