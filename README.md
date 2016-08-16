@@ -29,13 +29,13 @@ Additional features and product enhancements will be pushed in future releases.
 MariaDB columnstore server and the engine are in separate repositories, but the engine repository is integrated into the server repository using a git "sub repository".  The server currently uses CMake but the engine is still based on autotools.
 
 ##Build dependencies
-# For Centos
+### For Centos
 
 These packages need to be install along with the group development packages:
 
 bison ncurses-develop readline-devel boost-devel perl-devel openssl-devel cmake libxml2-devel
 
-# For Ubuntu 16.04
+### For Ubuntu 16.04
 
 These packages need to be install along with the group development packages:
 
@@ -77,18 +77,17 @@ To develop a new branch/feature/pull request
   * MariaDB ColumnStore team will evaluate the changes and may request further development or changes before merge 
 
 ##Run dependencies
-# for Centos
+### for Centos
 
 These packages need to be install:
 
 expect perl perl-DBI openssl zlib file sudo
 
-# Ubuntu 16.04
+### Ubuntu 16.04
 
 These packages need to be install:
 
 expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev
-
 
 ##MariaDB Columnstore utilizes the System Logging for logging purposes
 So you will want to make sure that one of these system logging packages is installed:
