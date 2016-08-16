@@ -77,13 +77,13 @@ To develop a new branch/feature/pull request
   * MariaDB ColumnStore team will evaluate the changes and may request further development or changes before merge 
 
 ##Run dependencies
-### for Centos
+### For Centos
 
 These packages need to be install:
 
 expect perl perl-DBI openssl zlib file sudo
 
-### Ubuntu 16.04
+### For Ubuntu 16.04
 
 These packages need to be install:
 
