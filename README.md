@@ -33,7 +33,8 @@ MariaDB columnstore server and the engine are in separate repositories, but the 
 
 These packages need to be install along with the group development packages:
 
-bison ncurses-develop readline-devel boost-devel perl-devel openssl-devel cmake libxml2-devel
+yum groupinstall "Development Tools"
+yum install bison ncurses-develop readline-devel boost-devel perl-devel openssl-devel cmake libxml2-devel
 
 ### For Ubuntu 16.04
 
