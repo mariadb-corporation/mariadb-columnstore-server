@@ -29,6 +29,26 @@ Additional features and product enhancements will be pushed in future releases.
 MariaDB columnstore server and the engine are in separate repositories, but the engine repository is integrated into the server repository using a git "sub repository".  The server currently uses CMake but the engine is still based on autotools.
 
 ##Build dependencies
+
+### Boost Libraries
+MariaDB Columnstore requires that the boost package of 1.53 or newer is installed for both building and executing
+
+For Centos 7 and Ubuntu 16 and other newer OS's, you can just install the boost packages via yum or apt-get.
+For Centos 6 OS's, you will need to install the boost source of 1.55 and build it to generate the required libraries.
+So that means both the build and the install machines require this.
+
+NOTE: This means that the "Development Tools" group install be done prior to this.
+
+Here is the procedure to download and build the boost source:
+
+cd /usr/
+wget http://sourceforge.net/projects/boost/files/boost/1.55.0/boost_1_55_0.tar.gz
+tar zxvf boost_1_55_0.tar.gz
+cd boost_1_55_0
+./bootstrap.sh --with-libraries=atomic,date_time,exception,filesystem,iostreams,locale,program_options,regex,signals,system,test,thread,timer,log --prefix=/usr
+./b2 install
+
+
 ### For Centos
 
 These packages need to be install along with the group development packages:
