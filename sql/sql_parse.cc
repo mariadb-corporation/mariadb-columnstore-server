@@ -9460,11 +9460,41 @@ static std::string idb_cleanQuery(char* str)
 {
 	DBUG_ENTER("idb_cleanQuery");
 	bool inquote = false;
+	bool incomment = false;
 	std::string temp;
 	char quote = 0;
 	uint length = strlen(str);
 	for (uint i = 0; i < length; i++)
 	{
+		/* MCOL-256
+		* Strip the comments out as well otherwise temp table creation
+		* uses a bad query
+		*/
+		if (incomment)
+		{
+			if (str[i] == '\n')
+			{
+				incomment = false;
+			}
+			else
+			{
+				continue;
+			}
+		}
+		if (!inquote)
+		{
+			if ((i-1 != length) && (str[i] == '-') && (str[i+1] == '-'))
+			{
+				incomment = true;
+				continue;
+			}
+			if (str[i] == '#')
+			{
+				incomment = true;
+				continue;
+			}
+		}
+
 		temp.append(1, str[i]);
 		// @bug3935.
 		if (str[i] == '`' || str[i] == '\'' || str[i] == '"')
