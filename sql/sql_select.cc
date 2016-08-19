@@ -1372,9 +1372,15 @@ JOIN::optimize_inner()
   simple_group= 1;
   if (group_list && table_count == 1)
   {
-    group_list= remove_const(this, group_list, conds,
-                             rollup.state == ROLLUP::STATE_NONE,
-                             &simple_group);
+	  // @InfiniDB mysql treats subquery (with other engine?) as const table so will
+	  // remove the columns from the subquery on the order by list. InfiniDB needs to
+	  // keep them for the post process. So skip remove_const optimization.
+	  if (thd->infinidb_vtable.vtable_state != THD::INFINIDB_CREATE_VTABLE)
+	  {
+		  group_list= remove_const(this, group_list, conds,
+							 rollup.state == ROLLUP::STATE_NONE,
+							 &simple_group);
+	  }
     if (thd->is_error())
     {
       error= 1;
