@@ -813,7 +813,7 @@ inline unsigned long long my_double2ulonglong(double d)
 #endif /* HAVE_FINITE */
 #elif (__cplusplus >= 201103L)
 #include <cmath>
-static inline bool isfinite(double x) { return std::isfinite(x); }
+static inline bool isfinite(long double x) { return std::isfinite(x); }
 #endif /* isfinite */
 
 #ifndef HAVE_ISNAN

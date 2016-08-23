@@ -1,6 +1,7 @@
 /*
    Copyright (c) 2000, 2010, Oracle and/or its affiliates.
    Copyright (c) 2010, 2015, MariaDB
+Copyright (c) 2016, MariaDB Corporation
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by

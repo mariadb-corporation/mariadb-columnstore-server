@@ -32,7 +32,7 @@ SET(CPACK_COMPONENTS_ALL Server ManPagesServer IniFiles Server_Scripts
 
 ## dhill
 SET(INFINIDB_RPM_PACKAGE_NAME "mariadb-columnstore")
-SET(INFINIDB_VERSION "1.0-1")
+SET(INFINIDB_VERSION "1.0.2-1")
 SET(INFINIDB_BIT "x86_64")
 
 SET(CPACK_RPM_PACKAGE_NAME ${CPACK_PACKAGE_NAME})
@@ -96,6 +96,9 @@ SET(ignored
   "%ignore ${CMAKE_INSTALL_PREFIX}/share/man/man1"
   "%ignore ${CMAKE_INSTALL_PREFIX}/share/man/man8"
   "%ignore ${CMAKE_INSTALL_PREFIX}/share/pkgconfig"
+  "%ignore /usr"
+  "%ignore /usr/local"
+  "%ignore /usr/lib"
   )
 
 SET(CPACK_RPM_server_USER_FILELIST ${ignored} "%config(noreplace) ${INSTALL_SYSCONF2DIR}/*")
