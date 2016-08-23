@@ -61,7 +61,7 @@ yum install bison ncurses-develop readline-devel boost-devel perl-devel openssl-
 
 ### For Ubuntu 16.04
 
-These packages need to be install along with the group development packages:
+These packages need to be installed along with the group development packages:
 
 build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev flex
 
@@ -87,6 +87,10 @@ To build the current development branch
   * make -jN                    # same as above with respect to concurrent processes
   * sudo make install
   
+To build a debug version
+  * Add "-DCMAKE_BUILD_TYPE=debug" to each of the cmake commands in the build process
+  * Do not mix release and debug versions of server and engine
+
 To develop a new branch/feature/pull request
   * fork the server repo from github mariadb-corporation/mariadb-columnstore-server
   * fork the engine report from github mariadb-corporation/mariadb-columnstore-engine
@@ -109,7 +113,7 @@ expect perl perl-DBI openssl zlib file sudo
 
 ### For Ubuntu 16.04
 
-These packages need to be install:
+These packages need to be installed:
 
 expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev
 
