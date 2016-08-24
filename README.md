@@ -1,15 +1,15 @@
 #MariaDB ColumnStore Server (version 1.0)
-This is the server part of MariaDB ColumnStore 1.0.2.
-MariaDB ColumnStore 1.0.2 is the development version of MariaDB ColumnStore. 
+This is the server part of MariaDB ColumnStore 1.0.3.
+MariaDB ColumnStore 1.0.3 is the development version of MariaDB ColumnStore. 
 It is built by porting InfiniDB 4.6.7 on MariaDB 10.1.14 and adding entirely 
 new features not found anywhere else.
 
 #MariaDB Columnstore Engine (version 1.0)
-This is the engine part of MariaDB ColumnStore 1.0.2.
+This is the engine part of MariaDB ColumnStore 1.0.3.
 Engine is a submodule of Server in the build process.
 
 ###Alpha release notice
-MariaDB ColumnStore 1.0.2 is an Alpha release. This is the first MariaDB 
+MariaDB ColumnStore 1.0.3 is an Alpha release. This is the first MariaDB 
 ColumnStore release, not all features planned for the MariaDB ColumnStore 1.0 
 series are included in this release. 
 
@@ -63,7 +63,7 @@ These packages need to be install along with the group development packages:
 build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev flex
 
 ##Building master branch
-The current (1.0.2) master branch is the released version.
+The current (1.0.3) master branch is the released version.
 
 ##Building develop branch
 The develop branch is used for develop updates
