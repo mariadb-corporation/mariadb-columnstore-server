@@ -21,6 +21,9 @@ A few things to notice:
 
 Additional features and product enhancements will be pushed in future releases. 
 
+#Issue tracking
+Issue tracking of MariaDB ColumnStore happens in JIRA, https://jira.mariadb.org/browse/MCOL
+
 ##The structure of this repository is:
 * Branch "master" - this is the latest released version of the source code.  Each major release is tagged.
 * Branch "develop" - this is the mainline development branch.
