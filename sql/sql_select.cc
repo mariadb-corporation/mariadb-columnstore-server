@@ -16060,7 +16060,7 @@ Field *Item::create_tmp_field(bool group, TABLE *table, uint convert_int_length)
     // @InfiniDB: create field according to arg field type for
     // some window functions
     if (type() == Item::WINDOW_FUNC_ITEM &&
-        (field_type() == MYSQL_TYPE_FLOAT)
+        (field_type() == MYSQL_TYPE_FLOAT))
     {
       new_field= new Field_float(max_length, maybe_null,
                                  name, decimals);
