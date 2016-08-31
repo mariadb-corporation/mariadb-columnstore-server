@@ -4191,14 +4191,6 @@ static int init_common_variables()
   else
     opt_log_basename= glob_hostname;
 
-#ifdef WITH_WSREP
-  if (wsrep_node_name == 0 || wsrep_node_name[0] == 0)
-  {
-    my_free((void *)wsrep_node_name);
-    wsrep_node_name= my_strdup(glob_hostname, MYF(MY_WME));
-  }
-#endif /* WITH_WSREP */
-
   strmake(pidfile_name, opt_log_basename, sizeof(pidfile_name)-5);
   strmov(fn_ext(pidfile_name),".pid");		// Add proper extension
   SYSVAR_AUTOSIZE(pidfile_name_ptr, pidfile_name);
@@ -9278,6 +9270,16 @@ mysqld_get_one_option(int optid, const struct my_option *opt, char *argument)
 #endif
     break;
   }
+#ifdef WITH_WSREP
+  case OPT_WSREP_CAUSAL_READS:
+    wsrep_causal_reads_update(&global_system_variables);
+    break;
+  case OPT_WSREP_SYNC_WAIT:
+    global_system_variables.wsrep_causal_reads=
+      MY_TEST(global_system_variables.wsrep_sync_wait &
+              WSREP_SYNC_WAIT_BEFORE_READ);
+    break;
+#endif /* WITH_WSREP */
   }
   return 0;
 }
