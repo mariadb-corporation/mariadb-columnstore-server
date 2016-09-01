@@ -9615,6 +9615,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 	{
 		// MariaDB issue 8078: The InfiniDB code reparses the statement and corrupts
 		// the query table list for the next run. We need to save and restore it.
+		// Is this an issue in mariadb columnstore? Needs to be checked.
 		Query_tables_list backup;
 		thd->lex->reset_n_backup_query_tables_list(&backup);
 
@@ -9623,8 +9624,8 @@ int idb_vtable_process(THD* thd, Statement* statement)
 		thd->reset_for_next_command();
 		if (query_cache_send_result_to_client(thd, thd->query(), thd->query_length()) <= 0)
 		{
-//			sp_cache_flush_obsolete(&thd->sp_proc_cache);
-//			sp_cache_flush_obsolete(&thd->sp_func_cache);
+			sp_cache_enforce_limit(thd->sp_proc_cache, stored_program_cache_size);
+			sp_cache_enforce_limit(thd->sp_func_cache, stored_program_cache_size);
 			Parser_state parser_state;
 			parser_state.init(thd, thd->query(), thd->query_length());
 			parse_sql(thd, &parser_state, NULL, true);
@@ -9842,8 +9843,8 @@ int idb_vtable_process(THD* thd, Statement* statement)
 						thd->reset_for_next_command();
 						if (query_cache_send_result_to_client(thd, thd->query(), thd->query_length()) <= 0)
 						{
-//							sp_cache_flush_obsolete(&thd->sp_proc_cache);
-//							sp_cache_flush_obsolete(&thd->sp_func_cache);
+							sp_cache_enforce_limit(thd->sp_proc_cache, stored_program_cache_size);
+							sp_cache_enforce_limit(thd->sp_func_cache, stored_program_cache_size);
 							Parser_state parser_state;
 							parser_state.init(thd, thd->query(), thd->query_length());
 							parse_sql(thd, &parser_state, NULL, true);
@@ -10218,6 +10219,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 			{
 				thd->infinidb_vtable.isInfiniDBDML = false;
 				thd->infinidb_vtable.hasInfiniDBTable = false;
+				lex_end(thd->lex);
 				DBUG_RETURN(-1);
 			}
 		}
@@ -10225,6 +10227,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 		{
 			thd->infinidb_vtable.isInfiniDBDML = false;
 			thd->infinidb_vtable.hasInfiniDBTable = false;
+			lex_end(thd->lex);
 			DBUG_RETURN(-1);
 		}
 
