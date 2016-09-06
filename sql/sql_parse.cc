@@ -9488,10 +9488,16 @@ static std::string idb_cleanQuery(char* str)
 		}
 		if (!inquote)
 		{
-			if ((i-1 != length) && (str[i] == '-') && (str[i+1] == '-'))
+			if ((i+2 <= length) && (str[i] == '-') && (str[i+1] == '-'))
 			{
-				incomment = true;
-				continue;
+				/* MCOL-284
+				* Need whitespace after double dash
+				*/
+				if (str[i+2] == ' ' || str[i+2] == '\t')
+				{
+					incomment = true;
+					continue;
+				}
 			}
 			if (str[i] == '#')
 			{
