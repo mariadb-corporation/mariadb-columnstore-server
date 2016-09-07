@@ -1502,7 +1502,7 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
       break;
 
 	// InfiniDB: Do InfiniDB Processing.
-	if (idb_vtable_process(thd))   // retuns non 0 when not InfiniDB query
+	if (idb_vtable_process(thd))   // returns non 0 when not InfiniDB query
 	{
 	  thd->set_row_count_func(0); //Bug 5315
 	  thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
