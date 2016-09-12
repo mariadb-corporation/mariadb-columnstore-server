@@ -107,6 +107,8 @@ SET(CPACK_RPM_client_USER_FILELIST ${ignored} "%config(noreplace) ${INSTALL_SYSC
 SET(CPACK_RPM_compat_USER_FILELIST ${ignored})
 SET(CPACK_RPM_devel_USER_FILELIST ${ignored})
 SET(CPACK_RPM_test_USER_FILELIST ${ignored})
+SET(CPACK_RPM_common_USER_FILELIST ${ignored})
+
 
 # "set/append array" - append a set of strings, separated by a space
 MACRO(SETA var)
