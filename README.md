@@ -40,15 +40,25 @@ For Centos 7 and Ubuntu 16 and other newer OS's, you can just install the boost 
 For Centos 6 OS's, you will need to install the boost source of 1.55 and build it to generate the required libraries.
 So that means both the build and the install machines require this.
 
+yum install boost-devel
+
 NOTE: This means that the "Development Tools" group install be done prior to this.
+
+yum groupinstall "Development Tools"
+yum install cmake
 
 Here is the procedure to download and build the boost source:
 
 cd /usr/
+
 wget http://sourceforge.net/projects/boost/files/boost/1.55.0/boost_1_55_0.tar.gz
+
 tar zxvf boost_1_55_0.tar.gz
+
 cd boost_1_55_0
+
 ./bootstrap.sh --with-libraries=atomic,date_time,exception,filesystem,iostreams,locale,program_options,regex,signals,system,test,thread,timer,log --prefix=/usr
+
 ./b2 install
 
 
@@ -57,13 +67,13 @@ cd boost_1_55_0
 These packages need to be install along with the group development packages:
 
 yum groupinstall "Development Tools"
-yum install bison ncurses-develop readline-devel boost-devel perl-devel openssl-devel cmake libxml2-devel
+yum install bison ncurses-develop readline-devel perl-devel openssl-devel cmake libxml2-devel
 
 ### For Ubuntu 16.04
 
 These packages need to be installed along with the group development packages:
 
-build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev flex
+apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev flex
 
 ##Building master branch
 The current (1.0.3) master branch is the released version.
@@ -107,15 +117,18 @@ To develop a new branch/feature/pull request
 ##Run dependencies
 ### For Centos
 
+### Boost Libraries
+Follow the install procedure for boost from the build Dependecy section above
+
 These packages need to be install:
 
-expect perl perl-DBI openssl zlib file sudo
+yum install expect perl perl-DBI openssl zlib file sudo
 
 ### For Ubuntu 16.04
 
 These packages need to be installed:
 
-expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev
 
 ##MariaDB Columnstore utilizes the System Logging for logging purposes
 So you will want to make sure that one of these system logging packages is installed:
