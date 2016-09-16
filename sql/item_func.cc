@@ -2534,7 +2534,7 @@ void Item_func_round::fix_length_and_dec()
     int precision= args[0]->decimal_precision();
     int length_increase= ((decimals_delta <= 0) || truncate) ? 0:1;
 
-    if (current_thd->infinidb_vtable.vtable_state == THD::INFINIDB_DISABLE_VTABLE)
+    if (current_thd->infinidb_vtable.vtable_state != THD::INFINIDB_DISABLE_VTABLE)
     	precision+=1;
 
     precision-= decimals_delta - length_increase;
