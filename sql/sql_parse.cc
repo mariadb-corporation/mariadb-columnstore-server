@@ -549,6 +549,7 @@ void init_update_queries(void)
   sql_command_flags[SQLCOM_INSERT_SELECT]|=   CF_PREOPEN_TMP_TABLES;
   sql_command_flags[SQLCOM_DELETE]|=          CF_PREOPEN_TMP_TABLES;
   sql_command_flags[SQLCOM_DELETE_MULTI]|=    CF_PREOPEN_TMP_TABLES;
+  sql_command_flags[SQLCOM_RENAME_TABLE]|=    CF_PREOPEN_TMP_TABLES;
   sql_command_flags[SQLCOM_REPLACE_SELECT]|=  CF_PREOPEN_TMP_TABLES;
   sql_command_flags[SQLCOM_SELECT]|=          CF_PREOPEN_TMP_TABLES;
   sql_command_flags[SQLCOM_SET_OPTION]|=      CF_PREOPEN_TMP_TABLES;
@@ -1501,7 +1502,7 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
       break;
 
 	// InfiniDB: Do InfiniDB Processing.
-	if (idb_vtable_process(thd))   // retuns non 0 when not InfiniDB query
+	if (idb_vtable_process(thd))   // returns non 0 when not InfiniDB query
 	{
 	  thd->set_row_count_func(0); //Bug 5315
 	  thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
@@ -6833,6 +6834,7 @@ bool check_stack_overrun(THD *thd, long margin,
   if ((stack_used=used_stack(thd->thread_stack,(char*) &stack_used)) >=
       (long) (my_thread_stack_size - margin))
   {
+    thd->is_fatal_error= 1;
     /*
       Do not use stack for the message buffer to ensure correct
       behaviour in cases we have close to no stack left.
@@ -6921,10 +6923,13 @@ void THD::reset_for_next_command()
   /*
     Autoinc variables should be adjusted only for locally executed
     transactions. Appliers and replayers are either processing ROW
-    events or get autoinc variable values from Query_log_event.
+    events or get autoinc variable values from Query_log_event and
+    mysql slave may be processing STATEMENT format events, but he should
+    use autoinc values passed in binlog events, not the values forced by
+    the cluster.
   */
   if (WSREP(thd) && thd->wsrep_exec_mode == LOCAL_STATE &&
-      wsrep_auto_increment_control)
+      !thd->slave_thread && wsrep_auto_increment_control)
   {
     thd->variables.auto_increment_offset=
       global_system_variables.auto_increment_offset;
@@ -9460,11 +9465,47 @@ static std::string idb_cleanQuery(char* str)
 {
 	DBUG_ENTER("idb_cleanQuery");
 	bool inquote = false;
+	bool incomment = false;
 	std::string temp;
 	char quote = 0;
 	uint length = strlen(str);
 	for (uint i = 0; i < length; i++)
 	{
+		/* MCOL-256
+		* Strip the comments out as well otherwise temp table creation
+		* uses a bad query
+		*/
+		if (incomment)
+		{
+			if (str[i] == '\n')
+			{
+				incomment = false;
+			}
+			else
+			{
+				continue;
+			}
+		}
+		if (!inquote)
+		{
+			if ((i+2 <= length) && (str[i] == '-') && (str[i+1] == '-'))
+			{
+				/* MCOL-284
+				* Need whitespace after double dash
+				*/
+				if (str[i+2] == ' ' || str[i+2] == '\t')
+				{
+					incomment = true;
+					continue;
+				}
+			}
+			if (str[i] == '#')
+			{
+				incomment = true;
+				continue;
+			}
+		}
+
 		temp.append(1, str[i]);
 		// @bug3935.
 		if (str[i] == '`' || str[i] == '\'' || str[i] == '"')
@@ -9574,6 +9615,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 	{
 		// MariaDB issue 8078: The InfiniDB code reparses the statement and corrupts
 		// the query table list for the next run. We need to save and restore it.
+		// Is this an issue in mariadb columnstore? Needs to be checked.
 		Query_tables_list backup;
 		thd->lex->reset_n_backup_query_tables_list(&backup);
 
@@ -9582,8 +9624,8 @@ int idb_vtable_process(THD* thd, Statement* statement)
 		thd->reset_for_next_command();
 		if (query_cache_send_result_to_client(thd, thd->query(), thd->query_length()) <= 0)
 		{
-//			sp_cache_flush_obsolete(&thd->sp_proc_cache);
-//			sp_cache_flush_obsolete(&thd->sp_func_cache);
+			sp_cache_enforce_limit(thd->sp_proc_cache, stored_program_cache_size);
+			sp_cache_enforce_limit(thd->sp_func_cache, stored_program_cache_size);
 			Parser_state parser_state;
 			parser_state.init(thd, thd->query(), thd->query_length());
 			parse_sql(thd, &parser_state, NULL, true);
@@ -9801,8 +9843,8 @@ int idb_vtable_process(THD* thd, Statement* statement)
 						thd->reset_for_next_command();
 						if (query_cache_send_result_to_client(thd, thd->query(), thd->query_length()) <= 0)
 						{
-//							sp_cache_flush_obsolete(&thd->sp_proc_cache);
-//							sp_cache_flush_obsolete(&thd->sp_func_cache);
+							sp_cache_enforce_limit(thd->sp_proc_cache, stored_program_cache_size);
+							sp_cache_enforce_limit(thd->sp_func_cache, stored_program_cache_size);
 							Parser_state parser_state;
 							parser_state.init(thd, thd->query(), thd->query_length());
 							parse_sql(thd, &parser_state, NULL, true);
@@ -10177,6 +10219,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 			{
 				thd->infinidb_vtable.isInfiniDBDML = false;
 				thd->infinidb_vtable.hasInfiniDBTable = false;
+				lex_end(thd->lex);
 				DBUG_RETURN(-1);
 			}
 		}
@@ -10184,6 +10227,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 		{
 			thd->infinidb_vtable.isInfiniDBDML = false;
 			thd->infinidb_vtable.hasInfiniDBTable = false;
+			lex_end(thd->lex);
 			DBUG_RETURN(-1);
 		}
 

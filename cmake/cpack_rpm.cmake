@@ -32,7 +32,7 @@ SET(CPACK_COMPONENTS_ALL Server ManPagesServer IniFiles Server_Scripts
 
 ## dhill
 SET(INFINIDB_RPM_PACKAGE_NAME "mariadb-columnstore")
-SET(INFINIDB_VERSION "1.0.2-1")
+SET(INFINIDB_VERSION "1.0.3-1")
 SET(INFINIDB_BIT "x86_64")
 
 SET(CPACK_RPM_PACKAGE_NAME ${CPACK_PACKAGE_NAME})
@@ -107,6 +107,8 @@ SET(CPACK_RPM_client_USER_FILELIST ${ignored} "%config(noreplace) ${INSTALL_SYSC
 SET(CPACK_RPM_compat_USER_FILELIST ${ignored})
 SET(CPACK_RPM_devel_USER_FILELIST ${ignored})
 SET(CPACK_RPM_test_USER_FILELIST ${ignored})
+SET(CPACK_RPM_common_USER_FILELIST ${ignored})
+
 
 # "set/append array" - append a set of strings, separated by a space
 MACRO(SETA var)
@@ -210,10 +212,8 @@ ELSEIF(RPM MATCHES "fedora" OR RPM MATCHES "(rhel|centos)7")
   ALTERNATIVE_NAME("devel"  "mariadb-devel")
   ALTERNATIVE_NAME("server" "mariadb-server")
   ALTERNATIVE_NAME("server" "mysql-compat-server")
-  ALTERNATIVE_NAME("shared" "mariadb-libs")
   ALTERNATIVE_NAME("shared" "mysql-libs")
   ALTERNATIVE_NAME("test"   "mariadb-test")
-  SET(CPACK_RPM_common_PACKAGE_CONFLICTS "mariadb-libs < 1:%{version}-%{release}") 
 ENDIF()
 
 # workaround for lots of perl dependencies added by rpmbuild

@@ -206,7 +206,7 @@ my_context_spawn(struct my_context *c, void (*f)(void *), void *d)
     (
      "movq %%rsp, (%[save])\n\t"
      "movq %[stack], %%rsp\n\t"
-#if __GNUC__ >= 4 && __GNUC_MINOR__ >= 4 && !defined(__INTEL_COMPILER)
+#if (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 4)) && !defined(__INTEL_COMPILER)
      /*
        This emits a DWARF DW_CFA_undefined directive to make the return address
        undefined. This indicates that this is the top of the stack frame, and
@@ -454,7 +454,7 @@ my_context_spawn(struct my_context *c, void (*f)(void *), void *d)
     (
      "movl %%esp, (%[save])\n\t"
      "movl %[stack], %%esp\n\t"
-#if __GNUC__ >= 4 && __GNUC_MINOR__ >= 4 && !defined(__INTEL_COMPILER)
+#if (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 4)) && !defined(__INTEL_COMPILER)
      /*
        This emits a DWARF DW_CFA_undefined directive to make the return address
        undefined. This indicates that this is the top of the stack frame, and
@@ -696,30 +696,27 @@ my_context_destroy(struct my_context *c)
 int
 my_context_spawn(struct my_context *c, void (*f)(void *), void *d)
 {
-  void *current_fiber;
   c->user_func= f;
   c->user_arg= d;
+  return my_context_continue(c);
+}
+
+int
+my_context_continue(struct my_context *c)
+{
   /*
     This seems to be a common trick to run ConvertThreadToFiber() only on the
     first occurence in a thread, in a way that works on multiple Windows
     versions.
   */
-  current_fiber= GetCurrentFiber();
+  void *current_fiber= GetCurrentFiber();
   if (current_fiber == NULL || current_fiber == (void *)0x1e00)
     current_fiber= ConvertThreadToFiber(c);
   c->app_fiber= current_fiber;
   DBUG_SWAP_CODE_STATE(&c->dbug_state);
   SwitchToFiber(c->lib_fiber);
   DBUG_SWAP_CODE_STATE(&c->dbug_state);
-  return c->return_value;
-}
 
-int
-my_context_continue(struct my_context *c)
-{
-  DBUG_SWAP_CODE_STATE(&c->dbug_state);
-  SwitchToFiber(c->lib_fiber);
-  DBUG_SWAP_CODE_STATE(&c->dbug_state);
   return c->return_value;
 }
 
