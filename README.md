@@ -88,11 +88,12 @@ To build the current development branch
   * git clone https://github.com/mariadb-corporation/mariadb-columnstore-server.git 
   * cd mariadb-columnstore-server
   * git checkout develop        # switch to develop code
-  * git submodule update --init # pull in engine code
   * cmake . -DCMAKE_INSTALL_PREFIX=/usr/local/mariadb/columnstore/mysql
   * make -jN                    # N is the number of concurrent build processes and should likely be the number of cores available
   * sudo make install
+  * git clone https://github.com/mariadb-corporation/mariadb-columnstore-engine.git
   * cd mariadb-columnstore-engine
+  * git checkout develop
   * cmake . 
   * make -jN                    # same as above with respect to concurrent processes
   * sudo make install
