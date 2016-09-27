@@ -10,7 +10,7 @@ We currently use C++ with Boost extensions. Due to the requirement of supporting
 
 Everyone has a preferred coding style, there is no real correct style. What is important is that we stick to one style throughout the code.
 
-We should use a variant of the [Allman coding style](http://en.wikipedia.org/wiki/Indent_style#Allman_style). The variation is to use 2 spaces instead of tabs. The exception to the rule is Makefiles where space indentation can break them.
+We should use a variant of the [Allman coding style](http://en.wikipedia.org/wiki/Indent_style#Allman_style). The variation is to use 4 spaces instead of tabs. The exception to the rule is Makefiles where space indentation can break them.
 
 Allman style specifies that braces associated with a statement should be on the following line with the same indentation and the statements inside the braces are next level indented. The closing braces are also on a new line at the same indentation as the original statement.
 
