@@ -9985,7 +9985,6 @@ function_call_window:
               MYSQL_YYABORT;
             }
           }
-           // for functions that take RESPECT|IGNORE NULLS
         | LAST_VALUE '(' expr_list ')' respect window_clause
           {
             Create_window_func *builder = NULL;

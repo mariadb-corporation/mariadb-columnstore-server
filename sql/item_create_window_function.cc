@@ -287,6 +287,7 @@ static Native_window_func_registry func_array[] =
 	{ { C_STRING_WITH_LEN("LAG") }, BUILDER(Create_window_func_lead_lag)},
 	{ { C_STRING_WITH_LEN("LEAD") }, BUILDER(Create_window_func_lead_lag)},
 	{ { C_STRING_WITH_LEN("MEDIAN") }, BUILDER(Create_window_func_median)},
+	{ { C_STRING_WITH_LEN("NTH_VALUE") }, BUILDER(Create_window_func_nth_value)},
 	{ { C_STRING_WITH_LEN("NTILE") }, BUILDER(Create_window_func_ntile)},
 	{ { C_STRING_WITH_LEN("PERCENT_RANK") }, BUILDER(Create_window_func_rank)},
 	{ { C_STRING_WITH_LEN("RANK") }, BUILDER(Create_window_func_rank)},
