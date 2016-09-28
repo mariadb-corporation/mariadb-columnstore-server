@@ -9959,6 +9959,66 @@ function_call_window:
             }
           }
 
+        // LAST_VALUE conflicts with MariaDB LAST_VALUE function
+        // LAST_VALUE can be with or without RESPECT|IGNORE NULLS clause
+        | LAST_VALUE '(' expr_list ')' window_clause
+          {
+            Create_window_func *builder;
+            Item *item= NULL;
+            LEX_STRING funcname= { C_STRING_WITH_LEN("LAST_VALUE") };
+
+            builder= find_native_window_function_builder(thd, funcname);
+            if (builder)
+            {
+              ((Create_window_func*)builder)->respectNulls = 1;
+              item= builder->create(thd, funcname, $3);
+              if (!item)
+                MYSQL_YYABORT;
+              ((Item_func_window*)item)->window_ctx($5);
+              $$ = item;
+            }
+            else
+            {
+              LEX_STRING args[1];
+              args[0] = funcname;
+              IDB_set_error(thd, logging::ERR_WF_FUNCTION_NOT_EXISTS, args, 1);
+              MYSQL_YYABORT;
+            }
+          }
+           // for functions that take RESPECT|IGNORE NULLS
+        | LAST_VALUE '(' expr_list ')' respect window_clause
+          {
+            Create_window_func *builder = NULL;
+            Item *item= NULL;
+            LEX_STRING funcname= { C_STRING_WITH_LEN("LAST_VALUE") };
+
+            builder= find_native_window_function_builder_nulls(thd, funcname);
+            if (builder)
+            {
+              ((Create_window_func*)builder)->respectNulls = $5;
+              item= builder->create(thd, funcname, $3);
+              if (!item)
+                MYSQL_YYABORT;
+              ((Item_func_window*)item)->window_ctx($6);
+              $$ = item;
+            }
+            else
+            {
+              builder= find_native_window_function_builder(thd, funcname);
+              if (builder)
+              {
+                my_parse_error(thd, ER_SYNTAX_ERROR);
+              }
+              else
+              {
+                LEX_STRING args[1];
+                args[0] = funcname;
+                IDB_set_error(thd, logging::ERR_WF_FUNCTION_NOT_EXISTS, args, 1);
+                MYSQL_YYABORT;
+              }
+              MYSQL_YYABORT;
+            }
+          }
           // @infinidb the following window functions have the same name
           // as aggregate functions, so each of them need specific rules to parse.
         | SUM_SYM '(' in_sum_expr ')' window_clause
