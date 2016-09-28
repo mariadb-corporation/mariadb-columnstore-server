@@ -16055,7 +16055,7 @@ Field *Item::create_tmp_field(bool group, TABLE *table, uint convert_int_length)
   Field *UNINIT_VAR(new_field);
   MEM_ROOT *mem_root= table->in_use->mem_root;
 
-  switch (cmp_type()) {
+  switch ((type() == Item::WINDOW_FUNC_ITEM) ? result_type() : cmp_type()) {
   case REAL_RESULT:
     // @InfiniDB: create field according to arg field type for
     // some window functions
