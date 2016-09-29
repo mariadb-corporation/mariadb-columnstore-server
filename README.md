@@ -88,18 +88,50 @@ The develop branch is used for develop updates
 Building can be done as a non-root user. If you do a "build install", it will install the binaries in /usr/local/mariadb/columnstore
 and the use of sudo is required.
 
-To build the current development branch
-  * git clone https://github.com/mariadb-corporation/mariadb-columnstore-server.git 
+To build the current development branch (Engine checkout inside Server):
+  * git clone https://github.com/mariadb-corporation/mariadb-columnstore-server.git
   * cd mariadb-columnstore-server
-  * git checkout develop        # switch to develop code
+  * git checkout develop # switch to develop code
   * cmake . -DCMAKE_INSTALL_PREFIX=/usr/local/mariadb/columnstore/mysql
-  * make -jN                    # N is the number of concurrent build processes and should likely be the number of cores available
+  * make -jN # N is the number of concurrent build processes and should likely be the number of cores available
   * sudo make install
   * git clone https://github.com/mariadb-corporation/mariadb-columnstore-engine.git
   * cd mariadb-columnstore-engine
   * git checkout develop
-  * cmake . 
-  * make -jN                    # same as above with respect to concurrent processes
+  * cmake .
+  * make -jN # same as above with respect to concurrent processes
+  * sudo make install
+
+This method will work with no new options building out-of-source or with the engine checked out in a separate location the following values need to be set by cmake command.
+SERVER_BUILD_INCLUDE_DIR=Path to the server build include directory.
+SERVER_SOURCE_ROOT_DIR=Path the directory the server source checked out from github.
+
+Examples:
+Engine not located inside server:
+  * git clone https://github.com/mariadb-corporation/mariadb-columnstore-server.git
+  * git clone https://github.com/mariadb-corporation/mariadb-columnstore-engine.git
+  * cd mariadb-columnstore-server
+  * cmake . -DCMAKE_INSTALL_PREFIX=/usr/local/mariadb/columnstore/mysql
+  * make -jN # N is the number of concurrent build processes and should likely be the number of cores available
+  * sudo make install
+  * cd ../mariadb-columnstore-engine
+  * cmake . -DSERVER_BUILD_INCLUDE_DIR=../mariadb-columnstore-server/include -DSERVER_SOURCE_ROOT_DIR=../mariadb-columnstore-server
+  * make -jN # same as above with respect to concurrent processes
+  * sudo make install
+
+Build out-of-source:
+  * git clone https://github.com/mariadb-corporation/mariadb-columnstore-server.git
+  * git clone https://github.com/mariadb-corporation/mariadb-columnstore-engine.git
+  * mkdir buildServer
+  * cd buildServer
+  * cmake ../mariadb-columnstore-server -DCMAKE_INSTALL_PREFIX=/usr/local/mariadb/columnstore/mysql
+  * make -jN # N is the number of concurrent build processes and should likely be the number of cores available
+  * sudo make install
+  * cd ..
+  * mkdir buildEngine
+  * cd buildEngine
+  * cmake ../mariadb-columnstore-engine -DSERVER_BUILD_INCLUDE_DIR=../buildServer/include -DSERVER_SOURCE_ROOT_DIR=../mariadb-columnstore-server
+  * make -jN # same as above with respect to concurrent processes
   * sudo make install
   
 To build a debug version
