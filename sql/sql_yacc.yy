@@ -10185,17 +10185,41 @@ function_call_window:
             Select->in_sum_expr--; // not really aggregate
           }
         // nth_value has special syntax
-        | NTH_VALUE_SYM '(' udf_expr_list ')' opt_from opt_respect window_clause
+        | NTH_VALUE_SYM '(' udf_expr_list ')' opt_respect window_clause
           {
             LEX_STRING funcname= { C_STRING_WITH_LEN("NTH_VALUE") };
             Create_window_func *builder = & Create_window_func_nth_value::s_singleton;
             DBUG_ASSERT(builder);
-            ((Create_window_func_nth_value*)builder)->fromFirst = $5;
-            ((Create_window_func_nth_value*)builder)->respectNulls = $6;
+            ((Create_window_func_nth_value*)builder)->fromFirst = 1;
+            ((Create_window_func_nth_value*)builder)->respectNulls = $5;
             $$ = builder->create(thd, funcname, $3);
             if ($$ == NULL)
               MYSQL_YYABORT;
-            ((Item_func_window*)$$)->window_ctx($7);
+            ((Item_func_window*)$$)->window_ctx($6);
+          }
+        | NTH_VALUE_SYM '(' udf_expr_list ')' FROM LAST_SYM opt_respect window_clause
+          {
+            LEX_STRING funcname= { C_STRING_WITH_LEN("NTH_VALUE") };
+            Create_window_func *builder = & Create_window_func_nth_value::s_singleton;
+            DBUG_ASSERT(builder);
+            ((Create_window_func_nth_value*)builder)->fromFirst = 0;
+            ((Create_window_func_nth_value*)builder)->respectNulls = $7;
+            $$ = builder->create(thd, funcname, $3);
+            if ($$ == NULL)
+              MYSQL_YYABORT;
+            ((Item_func_window*)$$)->window_ctx($8);
+          }
+        | NTH_VALUE_SYM '(' udf_expr_list ')' FROM FIRST_SYM opt_respect window_clause
+          {
+            LEX_STRING funcname= { C_STRING_WITH_LEN("NTH_VALUE") };
+            Create_window_func *builder = & Create_window_func_nth_value::s_singleton;
+            DBUG_ASSERT(builder);
+            ((Create_window_func_nth_value*)builder)->fromFirst = 1;
+            ((Create_window_func_nth_value*)builder)->respectNulls = $7;
+            $$ = builder->create(thd, funcname, $3);
+            if ($$ == NULL)
+              MYSQL_YYABORT;
+            ((Item_func_window*)$$)->window_ctx($8);
           }
         | PERCENTILE_CONT_SYM '(' udf_expr ')' WITHIN GROUP_SYM
           '(' ORDER_SYM BY window_order_list ')' window_clause
