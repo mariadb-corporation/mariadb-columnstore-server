@@ -31,6 +31,10 @@ Issue tracking of MariaDB ColumnStore happens in JIRA, https://jira.mariadb.org/
 
 MariaDB columnstore server and the engine are in separate repositories, but the engine repository is integrated into the server repository using a git "sub repository".  The server currently uses CMake but the engine is still based on autotools.
 
+#Contributing
+
+To contribute to ColumnStore please see the [Contributions Documentation](CONTRIBUTING.md).
+
 ##Build dependencies
 
 ### Boost Libraries
