@@ -1,19 +1,20 @@
 #MariaDB ColumnStore Server (version 1.0)
 This is the server part of MariaDB ColumnStore 1.0.3.
 MariaDB ColumnStore 1.0.3 is the development version of MariaDB ColumnStore. 
-It is built by porting InfiniDB 4.6.7 on MariaDB 10.1.14 and adding entirely 
+It is built by porting InfiniDB 4.6.7 on MariaDB 10.1.17 and adding entirely 
 new features not found anywhere else.
 
-#MariaDB Columnstore Engine (version 1.0)
-This is the engine part of MariaDB ColumnStore 1.0.3.
-Engine is a submodule of Server in the build process.
+##MariaDB ColumnStore Engine (version 1.0)
+MariaDB ColumnStore also requires the matching engine version. This can be found at https://github.com/mariadb-corporation/mariadb-columnstore-engine.
+
+Always match the server engine / git branch with the engine git branch.
 
 ###Alpha release notice
 MariaDB ColumnStore 1.0.3 is an Alpha release. This is the first MariaDB 
 ColumnStore release, not all features planned for the MariaDB ColumnStore 1.0 
 series are included in this release. 
 
-Currently building has only been certified on CentOS 6.6, 6.8 and 7.0 and Ubuntu 16.04. 
+Currently building has only been certified on CentOS 6 and 7 and Ubuntu 16.04. 
 Building on other platforms will be certified in a later release.
 
 A few things to notice:
@@ -40,11 +41,16 @@ To contribute to ColumnStore please see the [Contributions Documentation](CONTRI
 ### Boost Libraries
 MariaDB Columnstore requires that the boost package of 1.53 or newer is installed for both building and executing
 
-For Centos 7 and Ubuntu 16 and other newer OS's, you can just install the boost packages via yum or apt-get.
-For Centos 6 OS's, you will need to install the boost source of 1.55 and build it to generate the required libraries.
-So that means both the build and the install machines require this.
+For CentOS 7 and Ubuntu 16 and other newer OS's, you can just install the boost packages via yum or apt-get.
 
 yum install boost-devel
+
+or
+
+apt-get install libboost-dev-all
+
+For CentOS 6, you will need to install the boost source of 1.55 and build it to generate the required libraries.
+So that means both the build and the install machines require this.
 
 NOTE: This means that the "Development Tools" group install be done prior to this.
 
@@ -66,18 +72,18 @@ cd boost_1_55_0
 ./b2 install
 
 
-### For Centos
+### For CentOS
 
 These packages need to be install along with the group development packages:
 
 yum groupinstall "Development Tools"
-yum install bison ncurses-develop readline-devel perl-devel openssl-devel cmake libxml2-devel
+yum install bison ncurses-develop readline-devel perl-devel openssl-devel cmake libxml2-devel net-snmp-devel
 
 ### For Ubuntu 16.04
 
 These packages need to be installed along with the group development packages:
 
-apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev flex
+apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev libsnmp-dev flex
 
 ##Building master branch
 The current (1.0.3) master branch is the released version.
@@ -152,29 +158,30 @@ To develop a new branch/feature/pull request
   * MariaDB ColumnStore team will evaluate the changes and may request further development or changes before merge 
 
 ##Run dependencies
-### For Centos
+## For CentOS
 
-### Boost Libraries
-Follow the install procedure for boost from the build Dependecy section above
+For CentOS 6 follow the install procedure for boost from the build Dependecy section above, with CentOS 7 you can just do:
 
-These packages need to be install:
+yum install boost
 
-yum install expect perl perl-DBI openssl zlib file sudo
+In addition these packages need to be install:
 
-### For Ubuntu 16.04
+yum install expect perl perl-DBI openssl zlib file sudo net-snmp-devel
+
+## For Ubuntu 16.04
 
 These packages need to be installed:
 
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev libsnmp30 snmp
 
-##MariaDB Columnstore utilizes the System Logging for logging purposes
+##MariaDB ColumnStore utilizes the System Logging for logging purposes
 So you will want to make sure that one of these system logging packages is installed:
 
   syslog, rsyslog, or syslog-ng
 
-##Configure and Starting of MariaDB Columnstore 
+##Configure and Starting of MariaDB ColumnStore
 
-Follow the binary package install instructions in the Columnstore Getting Starter Guide:
+Follow the binary package install instructions in the ColumnStore Getting Starter Guide:
 
   https://mariadb.com/kb/en/mariadb/columnstore-getting-started/
 
