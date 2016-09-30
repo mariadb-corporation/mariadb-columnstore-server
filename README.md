@@ -30,7 +30,7 @@ Issue tracking of MariaDB ColumnStore happens in JIRA, https://jira.mariadb.org/
 * Branch "develop" - this is the mainline development branch.
 * Branch "mcol-xxx" - these are specific bug and feature branches. These are merged into development which is merged to master.
 
-MariaDB columnstore server and the engine are in separate repositories.
+MariaDB ColumnStore server and the engine are in separate repositories.
 
 ##Contributing
 
@@ -39,7 +39,7 @@ To contribute to ColumnStore please see the [Contributions Documentation](CONTRI
 ##Build dependencies
 
 ### Boost Libraries
-MariaDB Columnstore requires that the boost package of 1.53 or newer is installed for both building and executing
+MariaDB ColumnStore requires that the boost package of 1.53 or newer is installed for both building and executing
 
 For CentOS 7 and Ubuntu 16 and other newer OS's, you can just install the boost packages via yum or apt-get.
 
