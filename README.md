@@ -121,7 +121,7 @@ make -jN # same as above with respect to concurrent processes
 sudo make install
 ```
 
-This method will work with no new options building out-of-source or with the engine checked out in a separate location the following values need to be set by cmake command.
+With the engine checked out in a separate location the following values need to be set by cmake command.
 
 ```bash
 SERVER_BUILD_INCLUDE_DIR=Path to the server build include directory.
