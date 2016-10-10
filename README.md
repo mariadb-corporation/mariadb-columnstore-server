@@ -191,7 +191,7 @@ yum install boost
 In addition these packages need to be install:
 
 ```bash
-yum install expect perl perl-DBI openssl zlib file sudo net-snmp-devel
+yum install expect perl perl-DBI openssl zlib file sudo net-snmp net-snmp-libs
 ```
 
 ## For Ubuntu 16.04
