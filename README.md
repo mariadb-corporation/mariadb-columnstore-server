@@ -1,6 +1,6 @@
 #MariaDB ColumnStore Server (version 1.0)
-This is the server part of MariaDB ColumnStore 1.0.3.
-MariaDB ColumnStore 1.0.3 is the development version of MariaDB ColumnStore. 
+This is the server part of MariaDB ColumnStore 1.0.4.
+MariaDB ColumnStore 1.0.4 is the development version of MariaDB ColumnStore. 
 It is built by porting InfiniDB 4.6.7 on MariaDB 10.1.18 and adding entirely 
 new features not found anywhere else.
 
@@ -191,7 +191,7 @@ yum install boost
 In addition these packages need to be install:
 
 ```bash
-yum install expect perl perl-DBI openssl zlib file sudo net-snmp net-snmp-libs
+yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL
 ```
 
 ## For Ubuntu 16.04
