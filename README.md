@@ -10,7 +10,7 @@ MariaDB ColumnStore also requires the matching engine version. This can be found
 Always match the server engine / git branch with the engine git branch.
 
 ##Alpha release notice
-MariaDB ColumnStore 1.0.3 is an Alpha release. This is the first MariaDB 
+MariaDB ColumnStore 1.0.4 is an Alpha release. This is the first MariaDB 
 ColumnStore release, not all features planned for the MariaDB ColumnStore 1.0 
 series are included in this release. 
 
