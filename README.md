@@ -9,8 +9,8 @@ MariaDB ColumnStore also requires the matching engine version. This can be found
 
 Always match the server engine / git branch with the engine git branch.
 
-##Alpha release notice
-MariaDB ColumnStore 1.0.4 is an Alpha release. This is the first MariaDB 
+##Beta release notice
+MariaDB ColumnStore 1.0.4 is an Beta release. This is the first MariaDB 
 ColumnStore release, not all features planned for the MariaDB ColumnStore 1.0 
 series are included in this release. 
 
@@ -18,7 +18,7 @@ Currently building has only been certified on CentOS 6 and 7 and Ubuntu 16.04.
 Building on other platforms will be certified in a later release.
 
 A few things to notice:
-- Do not use alpha releases on production systems.
+- Do not use beta releases on production systems.
 
 Additional features and product enhancements will be pushed in future releases. 
 
@@ -199,7 +199,7 @@ yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL
 These packages need to be installed:
 
 ```bash
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev libsnmp30 snmp
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev
 ```
 
 ##MariaDB ColumnStore utilizes the System Logging for logging purposes
