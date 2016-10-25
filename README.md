@@ -85,7 +85,7 @@ These packages need to be install along with the group development packages:
 
 ```bash
 yum groupinstall "Development Tools"
-yum install bison ncurses-develop readline-devel perl-devel openssl-devel cmake libxml2-devel net-snmp-devel
+yum install bison ncurses-develop readline-devel perl-devel openssl-devel cmake libxml2-devel
 ```
 
 ### For Ubuntu 16.04
@@ -93,7 +93,7 @@ yum install bison ncurses-develop readline-devel perl-devel openssl-devel cmake 
 These packages need to be installed along with the group development packages:
 
 ```bash
-apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev libsnmp-dev flex
+apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev flex
 ```
 
 ##Building master branch
