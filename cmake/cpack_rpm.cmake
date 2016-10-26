@@ -32,11 +32,18 @@ SET(CPACK_COMPONENTS_ALL Server ManPagesServer IniFiles Server_Scripts
 
 ## dhill
 SET(INFINIDB_RPM_PACKAGE_NAME "mariadb-columnstore")
-SET(INFINIDB_VERSION "1.0.3-1")
 SET(INFINIDB_BIT "x86_64")
 
+IF (NOT CPACK_RPM_PACKAGE_VERSION)
+SET (CPACK_RPM_PACKAGE_VERSION "1.0.0")
+ENDIF()
+IF (NOT CPACK_RPM_PACKAGE_RELEASE)
+SET (CPACK_RPM_PACKAGE_RELEASE "0")
+ENDIF()
+
 SET(CPACK_RPM_PACKAGE_NAME ${CPACK_PACKAGE_NAME})
-SET(CPACK_PACKAGE_FILE_NAME "${INFINIDB_RPM_PACKAGE_NAME}-${INFINIDB_VERSION}-${INFINIDB_BIT}-${RPM}")
+SET(CPACK_PACKAGE_FILE_NAME "${INFINIDB_RPM_PACKAGE_NAME}-${CPACK_RPM_PACKAGE_VERSION}-${CPACK_RPM_PACKAGE_RELEASE}-${INFINIDB_BIT}-${RPM}")
+SET(COLUMNSTORE_NO_DASH_VERSION ${CPACK_RPM_PACKAGE_VERSION})
 
 SET(CPACK_RPM_PACKAGE_RELEASE "1%{?dist}")
 SET(CPACK_RPM_PACKAGE_LICENSE "GPLv2")
@@ -57,7 +64,7 @@ MariaDB bug reports should be submitted through https://jira.mariadb.org
 
 SET(CPACK_RPM_SPEC_MORE_DEFINE "
 %define mysql_vendor ${CPACK_PACKAGE_VENDOR}
-%define mysqlversion ${MYSQL_NO_DASH_VERSION}
+%define mysqlversion ${COLUMNSTORE_NO_DASH_VERSION}
 %define mysqlbasedir ${CMAKE_INSTALL_PREFIX}
 %define mysqldatadir ${INSTALL_MYSQLDATADIR}
 %define mysqld_user  mysql
@@ -239,6 +246,9 @@ SETA(CPACK_RPM_test_PACKAGE_PROVIDES
   "perl(mtr_io.pl)"
   "perl(mtr_match)"
   "perl(mtr_misc.pl)"
+  "perl(mtr_gcov.pl)"
+  "perl(mtr_gprof.pl)"
+  "perl(mtr_process.pl)"
   "perl(mtr_report)"
   "perl(mtr_results)"
   "perl(mtr_unique)")
