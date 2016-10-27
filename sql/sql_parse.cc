@@ -120,7 +120,7 @@ static void wsrep_mysql_parse(THD *thd, char *rawbuf, uint length,
  * InfiniDB Functions
  */
 // InfiniDB: vtable processing
-int idb_vtable_process(THD* thd, Statement* stmt = NULL);
+int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* statement = NULL);
 
 // InfiniDB: Execute a sql statement about a vtable
 int idb_parse_vtable(THD* thd, String& vquery, THD::infinidb_state vtable_state);
@@ -1489,7 +1489,8 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
                       &thd->security_ctx->priv_user[0],
                       (char *) thd->security_ctx->host_or_ip);
     char *packet_end= thd->query() + thd->query_length();
-    ulonglong old_optimizer_switch;
+    ulonglong old_optimizer_switch = thd->variables.optimizer_switch;
+
     general_log_write(thd, command, thd->query(), thd->query_length());
     DBUG_PRINT("query",("%-.4096s",thd->query()));
 #if defined(ENABLED_PROFILING)
@@ -1502,15 +1503,8 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
     if (parser_state.init(thd, thd->query(), thd->query_length()))
       break;
 
-	if (thd->variables.infinidb_vtable_mode > 0)
-	{
-		old_optimizer_switch = thd->variables.optimizer_switch;
-
-		thd->variables.optimizer_switch = OPTIMIZER_SWITCH_IN_TO_EXISTS | \
-			                          OPTIMIZER_SWITCH_EXISTS_TO_IN;
-	}
 	// InfiniDB: Do InfiniDB Processing.
-	if (idb_vtable_process(thd))   // returns non 0 when not InfiniDB query
+	if (idb_vtable_process(thd, old_optimizer_switch, NULL))   // returns non 0 when not InfiniDB query
 	{
 	  thd->set_row_count_func(0); //Bug 5315
 	  thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
@@ -1523,10 +1517,8 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
 	  thd->infinidb_vtable.isInfiniDBDML = false;
 	  thd->infinidb_vtable.hasInfiniDBTable = false;
 	}
-	if (thd->variables.infinidb_vtable_mode > 0)
-	{
-		thd->variables.optimizer_switch = old_optimizer_switch;
-	}
+
+	thd->variables.optimizer_switch = old_optimizer_switch;
 
 
     while (!thd->killed && (parser_state.m_lip.found_semicolon != NULL) &&
@@ -9584,15 +9576,15 @@ int idb_parse_vtable(THD* thd, String& vquery, THD::infinidb_state vtable_state)
 	DBUG_RETURN(1);
 }
 
-int idb_vtable_process(THD* thd, Statement* statement)
+int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* statement)
 {
 	DBUG_ENTER("idb_vtable_process");
     Parser_state parser_state;
+    // MCOL-260
     if (parser_state.init(thd, thd->query(), thd->query_length()))
     {
 		DBUG_RETURN(0);
     }
-
 	// @InfiniDB. check global variable to determine vtable mode
 	if (thd->variables.infinidb_vtable_mode == 0)
 	{
@@ -9637,6 +9629,8 @@ int idb_vtable_process(THD* thd, Statement* statement)
 			parse_sql(thd, &parser_state, NULL, true);
 			delete_explain_query(thd->lex);
 		}
+		thd->variables.optimizer_switch = OPTIMIZER_SWITCH_IN_TO_EXISTS | \
+						OPTIMIZER_SWITCH_EXISTS_TO_IN;
 
 		if (thd->query() &&
 		    (! thd->db	|| strcmp(thd->db, "information_schema") != 0) &&
@@ -9884,6 +9878,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 						{
 							// auto switch -- vtablemode = 2. rerun the original query
 							thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
+							thd->variables.optimizer_switch = old_optimizer_switch;
 							alloc_query(thd, thd->infinidb_vtable.original_query.c_ptr(), thd->infinidb_vtable.original_query.length());
 		#ifdef INFINIDB_DEBUG
 							printf("<<< V-TABLE unsupported components encountered. Auto switch to table mode\n");
@@ -10017,6 +10012,7 @@ int idb_vtable_process(THD* thd, Statement* statement)
 							thd->lex->result = 0;
 							thd->infinidb_vtable.isInfiniDBDML = false;
 							thd->infinidb_vtable.hasInfiniDBTable = false;
+							thd->variables.optimizer_switch = old_optimizer_switch;
 							DBUG_RETURN(0);
 						}
 					}
