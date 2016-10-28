@@ -97,7 +97,7 @@ apt-get install build-essential automake libboost-all-dev bison cmake libncurses
 ```
 
 ##Building master branch
-The current (1.0.3) master branch is the released version.
+The current (1.0.4) master branch is the released version.
 
 ##Building develop branch
 The develop branch is used for develop updates
