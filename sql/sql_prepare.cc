@@ -127,7 +127,7 @@ When one supplies long data for a placeholder:
 
 /****************************************************************************/
 // InfiniDB vtable processing
-extern int idb_vtable_process(THD* thd, Statement* stmt = NULL);
+extern int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stmt = NULL);
 
 /**
   Execute one SQL statement in an isolated context.
@@ -147,7 +147,7 @@ class Ed_connection;
 
 /**
   Protocol_local: a helper class to intercept the result
-  of the data written to the network. 
+  of the data written to the network.
 */
 
 class Protocol_local :public Protocol
@@ -1382,8 +1382,8 @@ static bool mysql_test_delete(Prepared_statement *stmt,
     goto error;
   }
 
-  DBUG_RETURN(mysql_prepare_delete(thd, table_list, 
-                                   lex->select_lex.with_wild, 
+  DBUG_RETURN(mysql_prepare_delete(thd, table_list,
+                                   lex->select_lex.with_wild,
                                    lex->select_lex.item_list,
                                    &lex->select_lex.where));
 error:
@@ -1429,7 +1429,7 @@ static int mysql_test_select(Prepared_statement *stmt,
 
   if (!lex->result && !(lex->result= new (stmt->mem_root) select_send(thd)))
   {
-    my_error(ER_OUTOFMEMORY, MYF(ME_FATALERROR), 
+    my_error(ER_OUTOFMEMORY, MYF(ME_FATALERROR),
              static_cast<int>(sizeof(select_send)));
     goto error;
   }
@@ -1781,7 +1781,7 @@ static int mysql_test_show_create_db(Prepared_statement *stmt)
   List<Item> fields;
 
   mysqld_show_create_db_get_fields(thd, &fields);
-    
+
   DBUG_RETURN(send_stmt_metadata(thd, stmt, &fields));
 }
 
@@ -1805,7 +1805,7 @@ static int mysql_test_show_grants(Prepared_statement *stmt)
   List<Item> fields;
 
   mysql_show_grants_get_fields(thd, &fields, "Grants for");
-    
+
   DBUG_RETURN(send_stmt_metadata(thd, stmt, &fields));
 }
 #endif /*NO_EMBEDDED_ACCESS_CHECKS*/
@@ -1830,7 +1830,7 @@ static int mysql_test_show_slave_status(Prepared_statement *stmt)
   List<Item> fields;
 
   show_master_info_get_fields(thd, &fields, 0, 0);
-    
+
   DBUG_RETURN(send_stmt_metadata(thd, stmt, &fields));
 }
 
@@ -1853,7 +1853,7 @@ static int mysql_test_show_master_status(Prepared_statement *stmt)
   List<Item> fields;
 
   show_binlog_info_get_fields(thd, &fields);
-    
+
   DBUG_RETURN(send_stmt_metadata(thd, stmt, &fields));
 }
 
@@ -1876,7 +1876,7 @@ static int mysql_test_show_binlogs(Prepared_statement *stmt)
   List<Item> fields;
 
   show_binlogs_get_fields(thd, &fields);
-    
+
   DBUG_RETURN(send_stmt_metadata(thd, stmt, &fields));
 }
 
@@ -1901,7 +1901,7 @@ static int mysql_test_show_create_routine(Prepared_statement *stmt, int type)
   List<Item> fields;
 
   sp_head::show_create_routine_get_fields(thd, type, &fields);
-    
+
   DBUG_RETURN(send_stmt_metadata(thd, stmt, &fields));
 }
 
@@ -3622,7 +3622,7 @@ bool Prepared_statement::prepare(const char *packet, uint packet_len)
   */
   MDL_savepoint mdl_savepoint= thd->mdl_context.mdl_savepoint();
 
-  /* 
+  /*
    The only case where we should have items in the thd->free_list is
    after stmt->set_params_from_vars(), which may in some cases create
    Item_null objects.
@@ -3663,7 +3663,7 @@ bool Prepared_statement::prepare(const char *packet, uint packet_len)
     trans_rollback_implicit(thd);
     thd->mdl_context.release_transactional_locks();
   }
-  
+
   select_number_after_prepare= thd->select_number;
 
   /* Preserve CHANGE MASTER attributes */
@@ -3679,7 +3679,7 @@ bool Prepared_statement::prepare(const char *packet, uint packet_len)
     state= Query_arena::STMT_PREPARED;
     flags&= ~ (uint) IS_IN_USE;
 
-    /* 
+    /*
       Log COM_EXECUTE to the general log. Note, that in case of SQL
       prepared statements this causes two records to be output:
 
@@ -3811,7 +3811,7 @@ Prepared_statement::execute_loop(String *expanded_query,
     return TRUE;
 
 #ifdef NOT_YET_FROM_MYSQL_5_6
-  if (unlikely(thd->security_ctx->password_expired && 
+  if (unlikely(thd->security_ctx->password_expired &&
                !lex->is_change_password))
   {
     my_error(ER_MUST_CHANGE_PASSWORD, MYF(0));
@@ -4096,6 +4096,7 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
   // InfiniDB
   TABLE_LIST* global_list = NULL;
   bool bHasInfiniDB = false;
+  ulonglong old_optimizer_switch = thd->variables.optimizer_switch;
 
   char saved_cur_db_name_buf[SAFE_NAME_LEN+1];
   LEX_STRING saved_cur_db_name=
@@ -4139,7 +4140,7 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
   */
   DBUG_ASSERT(thd->change_list.is_empty());
 
-  /* 
+  /*
    The only case where we should have items in the thd->free_list is
    after stmt->set_params_from_vars(), which may in some cases create
    Item_null objects.
@@ -4169,7 +4170,7 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
     goto error;
   }
 
-  // @infinidb. vtable process around stmt_execute. 
+  // @infinidb. vtable process around stmt_execute.
   // @bug3742. mysqli php support for prepare/execute stmt
   // @bug4833. the state checking will be done inside idb_vtable_process() function
   // check infinidb table
@@ -4183,7 +4184,7 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
     if (!(global_list->table && global_list->table->s && global_list->table->s->db_plugin))
       continue;
     //Windows never has SAFE_MUTEX defined...
-    // @InfiniDB watch out for FROM clause derived table. union memeory table has tablename="union" 
+    // @InfiniDB watch out for FROM clause derived table. union memeory table has tablename="union"
     if (global_list->table && global_list->table->isInfiniDB())
     {
       bHasInfiniDB = true;
@@ -4206,7 +4207,7 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
       continue;
     }
   }
- 
+
   if (bHasInfiniDB && thd->get_command() == COM_STMT_EXECUTE)
   {
     // @bug5298. disable re-prepare observer for infinidb query
@@ -4217,7 +4218,7 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
     // can be executed again in IDB.
     //flags|= IS_IN_USE;
     flags&= ~ (uint) IS_IN_USE;
-    if (idb_vtable_process(thd, this)) // if failed, fall through to normal path
+    if (idb_vtable_process(thd, old_optimizer_switch, this)) // if failed, fall through to normal path
     {
       thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
     }
@@ -4226,6 +4227,7 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
       thd->set_statement(&stmt_backup);
       return false;
     }
+
   }
   // End InfiniDB
 
@@ -4298,13 +4300,13 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
 
   if (! cursor)
     cleanup_stmt();
-  
+
   /*
     EXECUTE command has its own dummy "explain data". We don't need it,
-    instead, we want to keep the query plan of the statement that was 
+    instead, we want to keep the query plan of the statement that was
     executed.
   */
-  if (!stmt_backup.lex->explain || 
+  if (!stmt_backup.lex->explain ||
       !stmt_backup.lex->explain->have_query_plan())
   {
     delete_explain_query(stmt_backup.lex);
@@ -4327,6 +4329,7 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
     else
       thd->protocol->send_out_parameters(&this->lex->param_list);
   }
+  thd->variables.optimizer_switch = old_optimizer_switch;
 
   /*
     Log COM_EXECUTE to the general log. Note, that in case of SQL
@@ -4367,12 +4370,12 @@ void Prepared_statement::deallocate()
   thd->stmt_map.erase(this);
 }
 
-// InfiniDB: This can't be declared inline in the header because curser 
+// InfiniDB: This can't be declared inline in the header because curser
 // isn't fully defined there.
-void 
-Prepared_statement::close_cursor() 
-{ 
-	delete cursor; cursor= 0; 
+void
+Prepared_statement::close_cursor()
+{
+	delete cursor; cursor= 0;
 }
 
 /***************************************************************************
