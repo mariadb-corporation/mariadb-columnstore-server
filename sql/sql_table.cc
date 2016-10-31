@@ -9493,7 +9493,8 @@ copy_data_between_tables(THD *thd, TABLE *from, TABLE *to,
       tables.alias= tables.table_name= from->s->table_name.str;
       tables.db= from->s->db.str;
 
-      THD_STAGE_INFO(thd, stage_sorting);
+	  if (!(thd->infinidb_vtable.vtable_state == THD::INFINIDB_ALTER_VTABLE))
+		  THD_STAGE_INFO(thd, stage_sorting);
       Filesort_tracker dummy_tracker(false);
       if (thd->lex->select_lex.setup_ref_array(thd, order_num) ||
           setup_order(thd, thd->lex->select_lex.ref_pointer_array,
@@ -9510,7 +9511,8 @@ copy_data_between_tables(THD *thd, TABLE *from, TABLE *to,
     thd_progress_next_stage(thd);
   }
 
-  THD_STAGE_INFO(thd, stage_copy_to_tmp_table);
+  if (!(thd->infinidb_vtable.vtable_state == THD::INFINIDB_ALTER_VTABLE))
+	  THD_STAGE_INFO(thd, stage_copy_to_tmp_table);
   /* Tell handler that we have values for all columns in the to table */
   to->use_all_columns();
   to->mark_virtual_columns_for_write(TRUE);
@@ -9634,8 +9636,11 @@ copy_data_between_tables(THD *thd, TABLE *from, TABLE *to,
   free_io_cache(from);
   delete [] copy;
 
-  THD_STAGE_INFO(thd, stage_enabling_keys);
-  thd_progress_next_stage(thd);
+  if (!(thd->infinidb_vtable.vtable_state == THD::INFINIDB_ALTER_VTABLE))
+  {
+	  THD_STAGE_INFO(thd, stage_enabling_keys);
+	  thd_progress_next_stage(thd);
+  }
 
   if (error > 0)
   {
