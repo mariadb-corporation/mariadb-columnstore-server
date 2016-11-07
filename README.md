@@ -191,7 +191,7 @@ yum install boost
 In addition these packages need to be install:
 
 ```bash
-yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL
+yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio
 ```
 
 ## For Ubuntu 16.04
