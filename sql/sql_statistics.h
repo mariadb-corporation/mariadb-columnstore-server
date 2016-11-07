@@ -107,6 +107,7 @@ double get_column_range_cardinality(Field *field,
                                     key_range *min_endp,
                                     key_range *max_endp,
                                     uint range_flag);
+bool is_stat_table(const char *db, const char *table);
 
 class Histogram
 {
@@ -388,6 +389,11 @@ public:
     avg_frequency= (ulong) (val * Scale_factor_avg_frequency);
   }
 
+  bool min_max_values_are_provided()
+  {
+    return !is_null(COLUMN_STAT_MIN_VALUE) && 
+      !is_null(COLUMN_STAT_MIN_VALUE);
+  }          
 };
 
 

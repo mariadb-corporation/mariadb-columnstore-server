@@ -341,6 +341,8 @@ fil_space_get_by_id(
 		    ut_ad(space->magic_n == FIL_SPACE_MAGIC_N),
 		    space->id == id);
 
+	/* The system tablespace must always be found */
+	ut_ad(space || id != 0 || srv_is_being_started);
 	return(space);
 }
 
@@ -1002,8 +1004,13 @@ retry:
 	/* If the file is already open, no need to do anything; if the space
 	does not exist, we handle the situation in the function which called
 	this function */
+	if (!space) {
+		return;
+	}
 
-	if (!space || UT_LIST_GET_FIRST(space->chain)->open) {
+	fil_node_t*	node = UT_LIST_GET_FIRST(space->chain);
+
+	if (!node || node->open) {
 
 		return;
 	}
@@ -7390,7 +7397,14 @@ fil_space_get_crypt_data(
 
 		crypt_data = space->crypt_data;
 
-		ut_ad(space->page_0_crypt_read);
+		if (!space->page_0_crypt_read) {
+			ib_logf(IB_LOG_LEVEL_WARN,
+				"Space %lu name %s contains encryption %d information for key_id %d but page0 is not read.",
+				space->id,
+				space->name,
+				space->crypt_data ? space->crypt_data->encryption : 0,
+				space->crypt_data ? space->crypt_data->key_id : 0);
+		}
 	}
 
 	return(crypt_data);

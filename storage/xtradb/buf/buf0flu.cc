@@ -2222,7 +2222,7 @@ buf_flush_single_page_from_LRU(
 		if (ready) {
 			bool	evict_zip;
 
-			evict_zip = !buf_LRU_evict_from_unzip_LRU(buf_pool);;
+			evict_zip = !buf_LRU_evict_from_unzip_LRU(buf_pool);
 
 			freed = buf_LRU_free_page(bpage, evict_zip);
 
@@ -2629,6 +2629,11 @@ page_cleaner_sleep_if_needed(
 	ulint	next_loop_time)	/*!< in: time when next loop iteration
 				should start */
 {
+	/* No sleep if we are cleaning the buffer pool during the shutdown
+	with everything else finished */
+	if (srv_shutdown_state == SRV_SHUTDOWN_FLUSH_PHASE)
+		return;
+
 	ulint	cur_time = ut_time_ms();
 
 	if (next_loop_time > cur_time) {
