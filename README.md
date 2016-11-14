@@ -77,6 +77,8 @@ cd boost_1_55_0
 ./bootstrap.sh --with-libraries=atomic,date_time,exception,filesystem,iostreams,locale,program_options,regex,signals,system,test,thread,timer,log --prefix=/usr
 
 ./b2 install
+
+ldconfig
 ```
 
 ### For CentOS
