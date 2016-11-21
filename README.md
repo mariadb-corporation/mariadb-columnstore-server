@@ -1,6 +1,6 @@
 #MariaDB ColumnStore Server (version 1.0)
-This is the server part of MariaDB ColumnStore 1.0.4.
-MariaDB ColumnStore 1.0.4 is the development version of MariaDB ColumnStore. 
+This is the server part of MariaDB ColumnStore 1.0.5.
+MariaDB ColumnStore 1.0.5 is the development version of MariaDB ColumnStore. 
 It is built by porting InfiniDB 4.6.7 on MariaDB 10.1.19 and adding entirely 
 new features not found anywhere else.
 
@@ -10,11 +10,11 @@ MariaDB ColumnStore also requires the matching engine version. This can be found
 Always match the server engine / git branch with the engine git branch.
 
 ##Beta release notice
-MariaDB ColumnStore 1.0.4 is an Beta release. This is the first MariaDB 
+MariaDB ColumnStore 1.0.5 is an Beta release. This is the first MariaDB 
 ColumnStore release, not all features planned for the MariaDB ColumnStore 1.0 
 series are included in this release. 
 
-Currently building has only been certified on CentOS 6 and 7 and Ubuntu 16.04. 
+Currently building has only been certified on CentOS 6 and 7, and Ubuntu 16.04.. 
 Building on other platforms will be certified in a later release.
 
 A few things to notice:
