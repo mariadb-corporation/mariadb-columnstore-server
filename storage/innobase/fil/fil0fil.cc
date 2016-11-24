@@ -1001,8 +1001,13 @@ retry:
 	does not exist, we handle the situation in the function which called
 	this function */
 
-	if (!space || UT_LIST_GET_FIRST(space->chain)->open) {
+	if (!space) {
+		return;
+	}
 
+	fil_node_t*	node = UT_LIST_GET_FIRST(space->chain);
+
+	if (!node || node->open) {
 		return;
 	}
 
@@ -7286,7 +7291,14 @@ fil_space_get_crypt_data(
 
 		crypt_data = space->crypt_data;
 
-		ut_ad(space->page_0_crypt_read);
+		if (!space->page_0_crypt_read) {
+			ib_logf(IB_LOG_LEVEL_WARN,
+				"Space %lu name %s contains encryption %d information for key_id %d but page0 is not read.",
+				space->id,
+				space->name,
+				space->crypt_data ? space->crypt_data->encryption : 0,
+				space->crypt_data ? space->crypt_data->key_id : 0);
+		}
 	}
 
 	return(crypt_data);

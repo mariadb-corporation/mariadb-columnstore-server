@@ -2440,7 +2440,8 @@ int mysql_rm_table_no_locks(THD *thd, TABLE_LIST *tables, bool if_exists,
       if (table_type && table_type != view_pseudo_hton)
         ha_lock_engine(thd, table_type);
 
-      if (thd->locked_tables_mode)
+      if (thd->locked_tables_mode == LTM_LOCK_TABLES ||
+          thd->locked_tables_mode == LTM_PRELOCKED_UNDER_LOCK_TABLES)
       {
         if (wait_while_table_is_used(thd, table->table, HA_EXTRA_NOT_USED))
         {
@@ -6318,6 +6319,7 @@ static bool fill_alter_inplace_info(THD *thd,
           (field->stored_in_db || field->vcol_info->is_in_partitioning_expr()))
       {
         if (is_equal == IS_EQUAL_NO ||
+            !new_field->vcol_info ||
             !field->vcol_info->is_equal(new_field->vcol_info))
           ha_alter_info->handler_flags|= Alter_inplace_info::ALTER_COLUMN_VCOL;
         else
@@ -9493,7 +9495,8 @@ copy_data_between_tables(THD *thd, TABLE *from, TABLE *to,
       tables.alias= tables.table_name= from->s->table_name.str;
       tables.db= from->s->db.str;
 
-      THD_STAGE_INFO(thd, stage_sorting);
+	  if (!(thd->infinidb_vtable.vtable_state == THD::INFINIDB_ALTER_VTABLE))
+		  THD_STAGE_INFO(thd, stage_sorting);
       Filesort_tracker dummy_tracker(false);
       if (thd->lex->select_lex.setup_ref_array(thd, order_num) ||
           setup_order(thd, thd->lex->select_lex.ref_pointer_array,
@@ -9510,7 +9513,8 @@ copy_data_between_tables(THD *thd, TABLE *from, TABLE *to,
     thd_progress_next_stage(thd);
   }
 
-  THD_STAGE_INFO(thd, stage_copy_to_tmp_table);
+  if (!(thd->infinidb_vtable.vtable_state == THD::INFINIDB_ALTER_VTABLE))
+	  THD_STAGE_INFO(thd, stage_copy_to_tmp_table);
   /* Tell handler that we have values for all columns in the to table */
   to->use_all_columns();
   to->mark_virtual_columns_for_write(TRUE);
@@ -9634,8 +9638,11 @@ copy_data_between_tables(THD *thd, TABLE *from, TABLE *to,
   free_io_cache(from);
   delete [] copy;
 
-  THD_STAGE_INFO(thd, stage_enabling_keys);
-  thd_progress_next_stage(thd);
+  if (!(thd->infinidb_vtable.vtable_state == THD::INFINIDB_ALTER_VTABLE))
+  {
+	  THD_STAGE_INFO(thd, stage_enabling_keys);
+	  thd_progress_next_stage(thd);
+  }
 
   if (error > 0)
   {
