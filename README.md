@@ -1,6 +1,6 @@
 #MariaDB ColumnStore Server (version 1.0)
-This is the server part of MariaDB ColumnStore 1.0.5.
-MariaDB ColumnStore 1.0.5 is the development version of MariaDB ColumnStore. 
+This is the server part of MariaDB ColumnStore 1.0.6.
+MariaDB ColumnStore 1.0.6 is the development version of MariaDB ColumnStore. 
 It is built by porting InfiniDB 4.6.7 on MariaDB 10.1.19 and adding entirely 
 new features not found anywhere else.
 
@@ -9,12 +9,12 @@ MariaDB ColumnStore also requires the matching engine version. This can be found
 
 Always match the server engine / git branch with the engine git branch.
 
-##Beta release notice
-MariaDB ColumnStore 1.0.5 is an Beta release. This is the first MariaDB 
+##GA release notice
+MariaDB ColumnStore 1.0.6 is an GA release. This is the first MariaDB 
 ColumnStore release, not all features planned for the MariaDB ColumnStore 1.0 
 series are included in this release. 
 
-Currently building has only been certified on CentOS 6 and 7, and Ubuntu 16.04.. 
+Currently building has only been certified on CentOS 6 and 7, Ubuntu 16.04, Debain 8.. 
 Building on other platforms will be certified in a later release.
 
 A few things to notice:
@@ -41,7 +41,7 @@ To contribute to ColumnStore please see the [Contributions Documentation](CONTRI
 ### Boost Libraries
 MariaDB ColumnStore requires that the boost package of 1.53 or newer is installed for both building and executing
 
-For CentOS 7 and Ubuntu 16 and other newer OS's, you can just install the boost packages via yum or apt-get.
+For CentOS 7, Ubuntu 16, Debian 8 and other newer OS's, you can just install the boost packages via yum or apt-get.
 
 ```bash
 yum install boost-devel
@@ -97,9 +97,16 @@ These packages need to be installed along with the group development packages:
 ```bash
 apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev flex
 ```
+### For Ubuntu 16.04
+
+These packages need to be installed along with the group development packages:
+
+```bash
+apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev flex
+```
 
 ##Building master branch
-The current (1.0.4) master branch is the released version.
+The current (1.0.5) master branch is the released version.
 
 ##Building develop branch
 The develop branch is used for develop updates
@@ -197,6 +204,14 @@ yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio
 ```
 
 ## For Ubuntu 16.04
+
+These packages need to be installed:
+
+```bash
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev
+```
+
+## For Debian 8
 
 These packages need to be installed:
 
