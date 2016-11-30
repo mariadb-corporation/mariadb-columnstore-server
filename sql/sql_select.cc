@@ -3585,6 +3585,41 @@ mysql_select(THD *thd, Item ***rref_pointer_array,
   bool free_join= 1;
   DBUG_ENTER("mysql_select");
 
+  // MCOL-424 Disable indexes on all tables for a ColumnStore query
+  // We do this because cross-engine tables may have direct key access to a
+  // where condition. This means that the where condition isn't pushed down
+  // and we can't build the correct query for cross engine.
+  // Disabling indexes means that all queries get turned into a 'where'
+  // condition which is pushed down to us.
+  // When the cross-engine query happens it won't be a ColumnStore query so
+  // will use the appropriate index.
+  // TODO: Longer term we should support index condition pushdown for this.
+  TABLE_LIST* global_list;
+  bool hasCalpont = false;
+
+  for (global_list = thd->lex->query_tables; global_list; global_list = global_list->next_global)
+  {
+    if (global_list->table && global_list->table->isInfiniDB())
+    {
+      hasCalpont = true;
+      break;
+    }
+  }
+  if ((thd->infinidb_vtable.vtable_state != THD::INFINIDB_DISABLE_VTABLE) && hasCalpont)
+  {
+    for (global_list = thd->lex->query_tables; global_list; global_list = global_list->next_global)
+    {
+      if (!global_list->index_hints)
+        global_list->index_hints= new (thd->mem_root) List<Index_hint>();
+
+      global_list->index_hints->push_front(new (thd->mem_root)
+                                           Index_hint(INDEX_HINT_USE,
+                                                      INDEX_HINT_MASK_JOIN,
+                                                      NULL,
+                                                      0), thd->mem_root);
+    }
+  }
+
   select_lex->context.resolve_in_select_list= TRUE;
   JOIN *join;
   if (select_lex->join != 0)
