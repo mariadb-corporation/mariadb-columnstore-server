@@ -3605,12 +3605,11 @@ mysql_select(THD *thd, Item ***rref_pointer_array,
       break;
     }
   }
-  if ((thd->infinidb_vtable.vtable_state != THD::INFINIDB_DISABLE_VTABLE) && hasCalpont)
+  if ((thd->infinidb_vtable.vtable_state == THD::INFINIDB_CREATE_VTABLE) && hasCalpont)
   {
     for (global_list = thd->lex->query_tables; global_list; global_list = global_list->next_global)
     {
-      if (!global_list->index_hints)
-        global_list->index_hints= new (thd->mem_root) List<Index_hint>();
+      global_list->index_hints= new (thd->mem_root) List<Index_hint>();
 
       global_list->index_hints->push_front(new (thd->mem_root)
                                            Index_hint(INDEX_HINT_USE,
@@ -3705,6 +3704,14 @@ err:
     err|= select_lex->cleanup();
     DBUG_RETURN(err || thd->is_error());
   }
+  if (thd->is_error())
+  {
+    for (global_list = thd->lex->query_tables; global_list; global_list = global_list->next_global)
+    {
+      global_list->index_hints = NULL;
+    }
+  }
+
   DBUG_RETURN(join->error ? join->error: err);
 }
 
