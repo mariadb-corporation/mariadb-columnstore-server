@@ -3609,8 +3609,7 @@ mysql_select(THD *thd, Item ***rref_pointer_array,
   {
     for (global_list = thd->lex->query_tables; global_list; global_list = global_list->next_global)
     {
-      if (!global_list->index_hints)
-        global_list->index_hints= new (thd->mem_root) List<Index_hint>();
+      global_list->index_hints= new (thd->mem_root) List<Index_hint>();
 
       global_list->index_hints->push_front(new (thd->mem_root)
                                            Index_hint(INDEX_HINT_USE,
