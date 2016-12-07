@@ -1,0 +1,6 @@
+#!/bin/bash -e
+
+if [ -x sbin/restorecon ] ; then
+	sbin/restorecon -R /usr/local/mariadb/columnstore/mysql
+fi
+

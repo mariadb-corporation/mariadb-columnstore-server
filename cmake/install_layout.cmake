@@ -135,7 +135,7 @@ SET(INSTALL_UNIX_ADDRDIR_STANDALONE     "${INSTALL_MYSQLDATADIR_STANDALONE}/mysq
 SET(INSTALL_BINDIR_RPM                  "bin")
 SET(INSTALL_SBINDIR_RPM                 "bin")
 SET(INSTALL_SCRIPTDIR_RPM               "scripts")
-SET(INSTALL_SYSCONFDIR_RPM		"/usr/local/mariadb/columnstore/mysql")
+SET(INSTALL_SYSCONFDIR_RPM		        "/usr/local/mariadb/columnstore/mysql")
 SET(INSTALL_SYSCONF2DIR_RPM             "/usr/local/mariadb/columnstore/mysql/my.cnf.d")
 #
 SET(INSTALL_LIBDIR_RPM                  "lib")
@@ -165,6 +165,7 @@ SET(INSTALL_SYSTEMD_UNITDIR_RPM         "/usr/lib/systemd/system")
 SET(INSTALL_BINDIR_DEB                  "bin")
 SET(INSTALL_SBINDIR_DEB                 "bin")
 SET(INSTALL_SCRIPTDIR_DEB               "scripts")
+SET(INSTALL_SYSCONFDIR_DEB		        "/usr/local/mariadb/columnstore/mysql")
 SET(INSTALL_SYSCONF2DIR_DEB             "/usr/local/mariadb/columnstore/mysql/my.cnf.d")
 #
 SET(INSTALL_LIBDIR_DEB                  "lib")
