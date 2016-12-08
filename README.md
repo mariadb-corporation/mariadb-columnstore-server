@@ -14,7 +14,7 @@ MariaDB ColumnStore 1.0.6 is an GA release. This is the first MariaDB
 ColumnStore release, not all features planned for the MariaDB ColumnStore 1.0 
 series are included in this release. 
 
-Currently building has only been certified on CentOS 6 and 7, Ubuntu 16.04, Debain 8.. 
+Currently building has only been certified on CentOS 6 and 7, Ubuntu 16.04, and Debain 8.. 
 Building on other platforms will be certified in a later release.
 
 A few things to notice:
@@ -90,14 +90,14 @@ yum groupinstall "Development Tools"
 yum install bison ncurses-develop readline-devel perl-devel openssl-devel cmake libxml2-devel
 ```
 
-### For Ubuntu 16.04
+### For Ubuntu 16
 
 These packages need to be installed along with the group development packages:
 
 ```bash
 apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev flex
 ```
-### For Ubuntu 16.04
+### For Debian 8
 
 These packages need to be installed along with the group development packages:
 
@@ -203,7 +203,7 @@ In addition these packages need to be install:
 yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio
 ```
 
-## For Ubuntu 16.04
+## For Ubuntu 16
 
 These packages need to be installed:
 
