@@ -42,6 +42,7 @@ dbug/factorial
 dbug/tests
 dbug/user.ps
 dbug/user.t
+debian/mariadb-server-10.1.files
 extra/comp_err
 extra/innochecksum
 extra/jemalloc/build/
