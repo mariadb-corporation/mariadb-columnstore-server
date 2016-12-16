@@ -1106,6 +1106,8 @@ static SHOW_VAR innodb_status_variables[]= {
   {"scrub_background_page_split_failures_unknown",
    (char*) &export_vars.innodb_scrub_page_split_failures_unknown,
    SHOW_LONG},
+  {"encryption_num_key_requests",
+   (char*) &export_vars.innodb_encryption_key_requests, SHOW_LONGLONG},
 
   {NullS, NullS, SHOW_LONG}
 };
@@ -2253,11 +2255,16 @@ innobase_get_stmt(
 	THD*	thd,		/*!< in: MySQL thread handle */
 	size_t*	length)		/*!< out: length of the SQL statement */
 {
-	LEX_STRING* stmt;
-
-	stmt = thd_query_string(thd);
-	*length = stmt->length;
-	return(stmt->str);
+	const char* query = NULL;
+	LEX_STRING *stmt = NULL;
+	if (thd) {
+		stmt = thd_query_string(thd);
+		if (stmt) {
+			*length = stmt->length;
+			query = stmt->str;
+		}
+	}
+	return (query);
 }
 
 /**********************************************************************//**
@@ -3887,7 +3894,6 @@ innobase_change_buffering_inited_ok:
 	and consequently we do not need to know the ordering internally in
 	InnoDB. */
 
-	ut_a(0 == strcmp(my_charset_latin1.name, "latin1_swedish_ci"));
 	srv_latin1_ordering = my_charset_latin1.sort_order;
 
 	innobase_commit_concurrency_init_default();
@@ -5931,9 +5937,8 @@ table_opened:
 		or used key_id is not available. */
 		if (ib_table) {
 			fil_space_crypt_t* crypt_data = ib_table->crypt_data;
-			if ((crypt_data && crypt_data->encryption == FIL_SPACE_ENCRYPTION_ON) ||
-				(srv_encrypt_tables &&
-					crypt_data && crypt_data->encryption == FIL_SPACE_ENCRYPTION_DEFAULT)) {
+
+			if (crypt_data && crypt_data->should_encrypt()) {
 
 				if (!encryption_key_id_exists(crypt_data->key_id)) {
 					push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
@@ -6719,18 +6724,16 @@ get_innobase_type_from_mysql_type(
 	case MYSQL_TYPE_VARCHAR:	/* new >= 5.0.3 true VARCHAR */
 		if (field->binary()) {
 			return(DATA_BINARY);
-		} else if (strcmp(field->charset()->name,
-				  "latin1_swedish_ci") == 0) {
+		} else if (field->charset() == &my_charset_latin1) {
 			return(DATA_VARCHAR);
 		} else {
 			return(DATA_VARMYSQL);
 		}
 	case MYSQL_TYPE_BIT:
-	case MYSQL_TYPE_STRING: if (field->binary()) {
-
+	case MYSQL_TYPE_STRING:
+		if (field->binary()) {
 			return(DATA_FIXBINARY);
-		} else if (strcmp(field->charset()->name,
-				  "latin1_swedish_ci") == 0) {
+		} else if (field->charset() == &my_charset_latin1) {
 			return(DATA_CHAR);
 		} else {
 			return(DATA_MYSQL);
@@ -7497,7 +7500,66 @@ build_template_field(
 	UNIV_MEM_INVALID(templ, sizeof *templ);
 	templ->col_no = i;
 	templ->clust_rec_field_no = dict_col_get_clust_pos(col, clust_index);
-	ut_a(templ->clust_rec_field_no != ULINT_UNDEFINED);
+
+	/* If clustered index record field is not found, lets print out
+	field names and all the rest to understand why field is not found. */
+	if (templ->clust_rec_field_no == ULINT_UNDEFINED) {
+		const char* tb_col_name = dict_table_get_col_name(clust_index->table, i);
+		dict_field_t* field=NULL;
+		size_t size = 0;
+
+		for(ulint j=0; j < clust_index->n_user_defined_cols; j++) {
+			dict_field_t* ifield = &(clust_index->fields[j]);
+			if (ifield && !memcmp(tb_col_name, ifield->name,
+					strlen(tb_col_name))) {
+				field = ifield;
+				break;
+			}
+		}
+
+		ib_logf(IB_LOG_LEVEL_INFO,
+			"Looking for field %lu name %s from table %s",
+			i,
+			(tb_col_name ? tb_col_name : "NULL"),
+			clust_index->table->name);
+
+
+		for(ulint j=0; j < clust_index->n_user_defined_cols; j++) {
+			dict_field_t* ifield = &(clust_index->fields[j]);
+			ib_logf(IB_LOG_LEVEL_INFO,
+				"InnoDB Table %s field %lu name %s",
+				clust_index->table->name,
+				j,
+				(ifield ? ifield->name : "NULL"));
+		}
+
+		for(ulint j=0; j < table->s->stored_fields; j++) {
+			ib_logf(IB_LOG_LEVEL_INFO,
+				"MySQL table %s field %lu name %s",
+				table->s->table_name.str,
+				j,
+				table->field[j]->field_name);
+		}
+
+		ib_logf(IB_LOG_LEVEL_ERROR,
+			"Clustered record field for column %lu"
+			" not found table n_user_defined %d"
+			" index n_user_defined %d"
+			" InnoDB table %s field name %s"
+			" MySQL table %s field name %s n_fields %d"
+			" query %s",
+			i,
+			clust_index->n_user_defined_cols,
+			clust_index->table->n_cols - DATA_N_SYS_COLS,
+			clust_index->table->name,
+			(field ? field->name : "NULL"),
+			table->s->table_name.str,
+			(tb_col_name ? tb_col_name : "NULL"),
+			table->s->stored_fields,
+			innobase_get_stmt(current_thd, &size));
+
+		ut_a(templ->clust_rec_field_no != ULINT_UNDEFINED);
+	}
 	templ->rec_field_is_prefix = FALSE;
 
 	if (dict_index_is_clust(index)) {
@@ -18659,7 +18721,7 @@ wsrep_fake_trx_id(
 	trx_id_t trx_id = trx_sys_get_new_trx_id();
 	mutex_exit(&trx_sys->mutex);
 
-	(void *)wsrep_ws_handle_for_trx(wsrep_thd_ws_handle(thd), trx_id);
+	wsrep_ws_handle_for_trx(wsrep_thd_ws_handle(thd), trx_id);
 }
 
 #endif /* WITH_WSREP */
@@ -20674,12 +20736,12 @@ ib_push_warning(
 	const char	*format,/*!< in: warning message */
 	...)
 {
-	va_list args;
-	THD *thd = (THD *)trx->mysql_thd;
-	char *buf;
+	if (trx && trx->mysql_thd) {
+		THD *thd = (THD *)trx->mysql_thd;
+		va_list args;
+		char *buf;
 #define MAX_BUF_SIZE 4*1024
 
-	if (thd) {
 		va_start(args, format);
 		buf = (char *)my_malloc(MAX_BUF_SIZE, MYF(MY_WME));
 		vsprintf(buf,format, args);

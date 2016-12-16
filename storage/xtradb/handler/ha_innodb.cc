@@ -202,6 +202,8 @@ static long innobase_buffer_pool_instances = 1;
 static ulong innobase_log_block_size;
 
 static long long innobase_buffer_pool_size, innobase_log_file_size;
+/** Deprecated option that has no effect. */
+static my_bool innodb_buffer_pool_populate;
 
 /** Percentage of the buffer pool to reserve for 'old' blocks.
 Connected to buf_LRU_old_ratio. */
@@ -1318,6 +1320,8 @@ static SHOW_VAR innodb_status_variables[]= {
   {"scrub_background_page_split_failures_unknown",
    (char*) &export_vars.innodb_scrub_page_split_failures_unknown,
    SHOW_LONG},
+  {"encryption_num_key_requests",
+   (char*) &export_vars.innodb_encryption_key_requests, SHOW_LONGLONG},
 
   {NullS, NullS, SHOW_LONG}
 };
@@ -2599,11 +2603,16 @@ innobase_get_stmt(
 	THD*	thd,		/*!< in: MySQL thread handle */
 	size_t*	length)		/*!< out: length of the SQL statement */
 {
-	LEX_STRING* stmt;
-
-	stmt = thd_query_string(thd);
-	*length = stmt->length;
-	return(stmt->str);
+	const char* query = NULL;
+	LEX_STRING *stmt = NULL;
+	if (thd) {
+		stmt = thd_query_string(thd);
+		if (stmt) {
+			*length = stmt->length;
+			query = stmt->str;
+		}
+	}
+	return (query);
 }
 
 /**********************************************************************//**
@@ -4282,6 +4291,15 @@ innobase_change_buffering_inited_ok:
 			"allocator.\n");
 	}
 
+	if (innodb_buffer_pool_populate) {
+		ut_print_timestamp(stderr);
+		fprintf(stderr,
+			" InnoDB: Warning: Setting "
+			"innodb_buffer_pool_populate is DEPRECATED"
+			" and has no effect. "
+			"This option will be removed in MariaDB 10.2.3.\n");
+	}
+
 	srv_n_file_io_threads = (ulint) innobase_file_io_threads;
 	srv_n_read_io_threads = (ulint) innobase_read_io_threads;
 	srv_n_write_io_threads = (ulint) innobase_write_io_threads;
@@ -4365,7 +4383,6 @@ innobase_change_buffering_inited_ok:
 	and consequently we do not need to know the ordering internally in
 	InnoDB. */
 
-	ut_a(0 == strcmp(my_charset_latin1.name, "latin1_swedish_ci"));
 	srv_latin1_ordering = my_charset_latin1.sort_order;
 
 	innobase_commit_concurrency_init_default();
@@ -6699,9 +6716,8 @@ table_opened:
 		or used key_id is not available. */
 		if (ib_table) {
 			fil_space_crypt_t* crypt_data = ib_table->crypt_data;
-			if ((crypt_data && crypt_data->encryption == FIL_SPACE_ENCRYPTION_ON) ||
-				(srv_encrypt_tables &&
-					crypt_data && crypt_data->encryption == FIL_SPACE_ENCRYPTION_DEFAULT)) {
+
+			if (crypt_data && crypt_data->should_encrypt()) {
 
 				if (!encryption_key_id_exists(crypt_data->key_id)) {
 					push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
@@ -7487,18 +7503,16 @@ get_innobase_type_from_mysql_type(
 	case MYSQL_TYPE_VARCHAR:	/* new >= 5.0.3 true VARCHAR */
 		if (field->binary()) {
 			return(DATA_BINARY);
-		} else if (strcmp(field->charset()->name,
-				  "latin1_swedish_ci") == 0) {
+		} else if (field->charset() == &my_charset_latin1) {
 			return(DATA_VARCHAR);
 		} else {
 			return(DATA_VARMYSQL);
 		}
 	case MYSQL_TYPE_BIT:
-	case MYSQL_TYPE_STRING: if (field->binary()) {
-
+	case MYSQL_TYPE_STRING:
+		if (field->binary()) {
 			return(DATA_FIXBINARY);
-		} else if (strcmp(field->charset()->name,
-				  "latin1_swedish_ci") == 0) {
+		} else if (field->charset() == &my_charset_latin1) {
 			return(DATA_CHAR);
 		} else {
 			return(DATA_MYSQL);
@@ -8284,7 +8298,66 @@ build_template_field(
 	UNIV_MEM_INVALID(templ, sizeof *templ);
 	templ->col_no = i;
 	templ->clust_rec_field_no = dict_col_get_clust_pos(col, clust_index);
-	ut_a(templ->clust_rec_field_no != ULINT_UNDEFINED);
+
+	/* If clustered index record field is not found, lets print out
+	field names and all the rest to understand why field is not found. */
+	if (templ->clust_rec_field_no == ULINT_UNDEFINED) {
+		const char* tb_col_name = dict_table_get_col_name(clust_index->table, i);
+		dict_field_t* field=NULL;
+		size_t size = 0;
+
+		for(ulint j=0; j < clust_index->n_user_defined_cols; j++) {
+			dict_field_t* ifield = &(clust_index->fields[j]);
+			if (ifield && !memcmp(tb_col_name, ifield->name,
+					strlen(tb_col_name))) {
+				field = ifield;
+				break;
+			}
+		}
+
+		ib_logf(IB_LOG_LEVEL_INFO,
+			"Looking for field %lu name %s from table %s",
+			i,
+			(tb_col_name ? tb_col_name : "NULL"),
+			clust_index->table->name);
+
+
+		for(ulint j=0; j < clust_index->n_user_defined_cols; j++) {
+			dict_field_t* ifield = &(clust_index->fields[j]);
+			ib_logf(IB_LOG_LEVEL_INFO,
+				"InnoDB Table %s field %lu name %s",
+				clust_index->table->name,
+				j,
+				(ifield ? ifield->name : "NULL"));
+		}
+
+		for(ulint j=0; j < table->s->stored_fields; j++) {
+			ib_logf(IB_LOG_LEVEL_INFO,
+				"MySQL table %s field %lu name %s",
+				table->s->table_name.str,
+				j,
+				table->field[j]->field_name);
+		}
+
+		ib_logf(IB_LOG_LEVEL_ERROR,
+			"Clustered record field for column %lu"
+			" not found table n_user_defined %d"
+			" index n_user_defined %d"
+			" InnoDB table %s field name %s"
+			" MySQL table %s field name %s n_fields %d"
+			" query %s",
+			i,
+			clust_index->n_user_defined_cols,
+			clust_index->table->n_cols - DATA_N_SYS_COLS,
+			clust_index->table->name,
+			(field ? field->name : "NULL"),
+			table->s->table_name.str,
+			(tb_col_name ? tb_col_name : "NULL"),
+			table->s->stored_fields,
+			innobase_get_stmt(current_thd, &size));
+
+		ut_a(templ->clust_rec_field_no != ULINT_UNDEFINED);
+	}
 	templ->rec_field_is_prefix = FALSE;
 
 	if (dict_index_is_clust(index)) {
@@ -8996,12 +9069,6 @@ no_commit:
 	error = row_insert_for_mysql((byte*) record, prebuilt);
 	DEBUG_SYNC(user_thd, "ib_after_row_insert");
 
-#ifdef EXTENDED_FOR_USERSTAT
-	if (UNIV_LIKELY(error == DB_SUCCESS && !trx->fake_changes)) {
-		rows_changed++;
-	}
-#endif
-
 	/* Handle duplicate key errors */
 	if (auto_inc_used) {
 		ulonglong	auto_inc;
@@ -9669,12 +9736,6 @@ ha_innobase::update_row(
 		}
 	}
 
-#ifdef EXTENDED_FOR_USERSTAT
-	if (UNIV_LIKELY(error == DB_SUCCESS && !trx->fake_changes)) {
-		rows_changed++;
-	}
-#endif
-
 	innobase_srv_conc_exit_innodb(trx);
 
 func_exit:
@@ -9770,12 +9831,6 @@ ha_innobase::delete_row(
 	innobase_srv_conc_enter_innodb(trx);
 
 	error = row_update_for_mysql((byte*) record, prebuilt);
-
-#ifdef EXTENDED_FOR_USERSTAT
-	if (UNIV_LIKELY(error == DB_SUCCESS && !trx->fake_changes)) {
-		rows_changed++;
-	}
-#endif
 
 	innobase_srv_conc_exit_innodb(trx);
 
@@ -10147,11 +10202,6 @@ ha_innobase::index_read(
 			srv_stats.n_rows_read.add(
 				(size_t) prebuilt->trx->id, 1);
 		}
-#ifdef EXTENDED_FOR_USERSTAT
-		rows_read++;
-		if (active_index < MAX_KEY)
-			index_rows_read[active_index]++;
-#endif
 		break;
 	case DB_RECORD_NOT_FOUND:
 		error = HA_ERR_KEY_NOT_FOUND;
@@ -10448,11 +10498,6 @@ ha_innobase::general_fetch(
 		error = 0;
 		table->status = 0;
 		srv_stats.n_rows_read.add((size_t) prebuilt->trx->id, 1);
-#ifdef EXTENDED_FOR_USERSTAT
-		rows_read++;
-		if (active_index < MAX_KEY)
-			index_rows_read[active_index]++;
-#endif
 		break;
 	case DB_RECORD_NOT_FOUND:
 		error = HA_ERR_END_OF_FILE;
@@ -12897,6 +12942,12 @@ ha_innobase::create(
 	heap = mem_heap_create(form->s->fields * sizeof(ulint));
 	zip_dict_ids = static_cast<ulint*>(
 		mem_heap_alloc(heap, form->s->fields * sizeof(ulint)));
+
+	/* This is currently required for valgrind because MariaDB does
+	not currently support compressed columns. */
+	for (size_t field_idx = 0; field_idx < form->s->fields; ++field_idx) {
+		zip_dict_ids[field_idx] = ULINT_UNDEFINED;
+	}
 
 	const char*	err_zip_dict_name = 0;
 	if (!innobase_check_zip_dicts(form, zip_dict_ids,
@@ -20248,7 +20299,7 @@ wsrep_fake_trx_id(
 	trx_id_t trx_id = trx_sys_get_new_trx_id();
 	mutex_exit(&trx_sys->mutex);
 
-	(void *)wsrep_ws_handle_for_trx(wsrep_thd_ws_handle(thd), trx_id);
+	wsrep_ws_handle_for_trx(wsrep_thd_ws_handle(thd), trx_id);
 }
 
 #endif /* WITH_WSREP */
@@ -20758,9 +20809,10 @@ static MYSQL_SYSVAR_LONGLONG(buffer_pool_size, innobase_buffer_pool_size,
   "The size of the memory buffer InnoDB uses to cache data and indexes of its tables.",
   NULL, NULL, 128*1024*1024L, 5*1024*1024L, LONGLONG_MAX, 1024*1024L);
 
-static MYSQL_SYSVAR_BOOL(buffer_pool_populate, srv_numa_interleave,
+static MYSQL_SYSVAR_BOOL(buffer_pool_populate, innodb_buffer_pool_populate,
   PLUGIN_VAR_NOCMDARG | PLUGIN_VAR_READONLY,
-  "Depricated. This option is temporary alias of --innodb-numa-interleave.",
+  "Deprecated. This option has no effect and "
+  "will be removed in MariaDB 10.2.3.",
   NULL, NULL, FALSE);
 
 static MYSQL_SYSVAR_ENUM(foreground_preflush, srv_foreground_preflush,
@@ -22661,12 +22713,12 @@ ib_push_warning(
 	const char	*format,/*!< in: warning message */
 	...)
 {
-	va_list args;
-	THD *thd = (THD *)trx->mysql_thd;
-	char *buf;
+	if (trx && trx->mysql_thd) {
+		THD *thd = (THD *)trx->mysql_thd;
+		va_list args;
+		char *buf;
 #define MAX_BUF_SIZE 4*1024
 
-	if (thd) {
 		va_start(args, format);
 		buf = (char *)my_malloc(MAX_BUF_SIZE, MYF(MY_WME));
 		vsprintf(buf,format, args);

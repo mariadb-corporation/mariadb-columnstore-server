@@ -900,9 +900,34 @@ lock_reset_lock_and_trx_wait(
 /*=========================*/
 	lock_t*	lock)	/*!< in/out: record lock */
 {
-	ut_ad(lock->trx->lock.wait_lock == lock);
 	ut_ad(lock_get_wait(lock));
 	ut_ad(lock_mutex_own());
+
+	if (lock->trx->lock.wait_lock &&
+	    lock->trx->lock.wait_lock != lock) {
+		const char*	stmt=NULL;
+		const char*	stmt2=NULL;
+		size_t		stmt_len;
+		trx_id_t trx_id = 0;
+		stmt = innobase_get_stmt(lock->trx->mysql_thd, &stmt_len);
+
+		if (lock->trx->lock.wait_lock &&
+			lock->trx->lock.wait_lock->trx) {
+			trx_id = lock->trx->lock.wait_lock->trx->id;
+			stmt2 = innobase_get_stmt(lock->trx->lock.wait_lock->trx->mysql_thd, &stmt_len);
+		}
+
+		ib_logf(IB_LOG_LEVEL_INFO,
+			"Trx id %lu is waiting a lock in statement %s"
+			" for this trx id %lu and statement %s wait_lock %p",
+			lock->trx->id,
+			stmt ? stmt : "NULL",
+			trx_id,
+			stmt2 ? stmt2 : "NULL",
+			lock->trx->lock.wait_lock);
+
+		ut_ad(lock->trx->lock.wait_lock == lock);
+	}
 
 	lock->trx->lock.wait_lock = NULL;
 	lock->type_mode &= ~LOCK_WAIT;
@@ -2242,8 +2267,6 @@ lock_rec_create(
 /*********************************************************************//**
 Check if lock1 has higher priority than lock2.
 NULL has lowest priority.
-Respect the preference of the upper server layer to reduce conflict
-during in-order parallel replication.
 If neither of them is wait lock, the first one has higher priority.
 If only one of them is a wait lock, it has lower priority.
 Otherwise, the one with an older transaction has higher priority.
@@ -2257,22 +2280,13 @@ has_higher_priority(
 		return false;
 	} else if (lock2 == NULL) {
 		return true;
-	}
-	// Ask the upper server layer if any of the two trx should be prefered.
-	int preference = thd_deadlock_victim_preference(lock1->trx->mysql_thd, lock2->trx->mysql_thd);
-	if (preference == -1) {
-		// lock1 is preferred as a victim, so lock2 has higher priority
-		return false;
-	} else if (preference == 1) {
-		// lock2 is preferred as a victim, so lock1 has higher priority
-		return true;
-	}
-	// No preference. Compre them by wait mode and trx age.
-	if (!lock_get_wait(lock1)) {
-		return true;
-	} else if (!lock_get_wait(lock2)) {
-		return false;
-	}
+    }
+    // No preference. Compre them by wait mode and trx age.
+    if (!lock_get_wait(lock1)) {
+        return true;
+    } else if (!lock_get_wait(lock2)) {
+        return false;
+    }
 	return lock1->trx->start_time_micro <= lock2->trx->start_time_micro;
 }
 
@@ -2341,7 +2355,6 @@ lock_queue_validate(
 	ulint				space;
 	ulint				page_no;
 	ulint				rec_fold;
-	hash_table_t*		hash;
 	hash_cell_t*		cell;
 	lock_t*				next;
 	bool				wait_lock = false;
@@ -6628,7 +6641,6 @@ lock_rec_queue_validate(
 
 		if (!lock_rec_get_gap(lock) && !lock_get_wait(lock)) {
 
-#ifndef WITH_WSREP
 			enum lock_mode	mode;
 
 			if (lock_get_mode(lock) == LOCK_S) {
@@ -6636,9 +6648,20 @@ lock_rec_queue_validate(
 			} else {
 				mode = LOCK_S;
 			}
-			ut_a(!lock_rec_other_has_expl_req(
-				mode, 0, 0, block, heap_no, lock->trx));
+
+			const lock_t*	other_lock
+				= lock_rec_other_has_expl_req(
+					mode, 0, 0, block, heap_no,
+					lock->trx);
+#ifdef WITH_WSREP
+			ut_a(!other_lock
+			     || wsrep_thd_is_BF(lock->trx->mysql_thd, FALSE)
+			     || wsrep_thd_is_BF(other_lock->trx->mysql_thd, FALSE));
+
+#else
+			ut_a(!other_lock);
 #endif /* WITH_WSREP */
+
 
 		} else if (lock_get_wait(lock) && !lock_rec_get_gap(lock)
 				   && innodb_lock_schedule_algorithm == INNODB_LOCK_SCHEDULE_ALGORITHM_FCFS) {

@@ -3811,6 +3811,13 @@ static int exec_relay_log_event(THD* thd, Relay_log_info* rli,
     if (rli->mi->using_parallel())
     {
       int res= rli->parallel.do_event(serial_rgi, ev, event_size);
+      /*
+        In parallel replication, we need to update the relay log position
+        immediately so that it will be the correct position from which to
+        read the next event.
+      */
+      if (res == 0)
+        rli->event_relay_log_pos= rli->future_event_relay_log_pos;
       if (res >= 0)
         DBUG_RETURN(res);
       /*
@@ -4766,7 +4773,21 @@ pthread_handler_t handle_slave_sql(void *arg)
 
   serial_rgi->gtid_sub_id= 0;
   serial_rgi->gtid_pending= false;
-  rli->gtid_skip_flag = GTID_SKIP_NOT;
+  if (mi->using_gtid != Master_info::USE_GTID_NO && mi->using_parallel() &&
+      rli->restart_gtid_pos.count() > 0)
+  {
+    /*
+      With parallel replication in GTID mode, if we have a multi-domain GTID
+      position, we need to start some way back in the relay log and skip any
+      GTID that was already applied before. Since event groups can be split
+      across multiple relay logs, this earlier starting point may be in the
+      middle of an already applied event group, so we also need to skip any
+      remaining part of such group.
+    */
+    rli->gtid_skip_flag = GTID_SKIP_TRANSACTION;
+  }
+  else
+    rli->gtid_skip_flag = GTID_SKIP_NOT;
   if (init_relay_log_pos(rli,
                          rli->group_relay_log_name,
                          rli->group_relay_log_pos,

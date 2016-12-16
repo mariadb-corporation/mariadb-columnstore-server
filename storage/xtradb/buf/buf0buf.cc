@@ -946,13 +946,6 @@ buf_page_print(
 #endif /* !UNIV_HOTBACKUP */
 	ulint		size = zip_size;
 
-	if (!read_buf) {
-		fprintf(stderr,
-			" InnoDB: Not dumping page as (in memory) pointer "
-			"is NULL\n");
-		return;
-	}
-
 	if (!size) {
 		size = UNIV_PAGE_SIZE;
 	}
@@ -1196,6 +1189,7 @@ buf_block_init(
 	block->frame = frame;
 
 	block->page.buf_pool_index = buf_pool_index(buf_pool);
+	block->page.flush_type = BUF_FLUSH_LRU;
 	block->page.state = BUF_BLOCK_NOT_USED;
 	block->page.buf_fix_count = 0;
 	block->page.io_fix = BUF_IO_NONE;
@@ -4702,7 +4696,7 @@ buf_page_io_complete(
 	if (io_type == BUF_IO_READ) {
 		ulint	read_page_no;
 		ulint	read_space_id;
-		byte*	frame = NULL;
+		byte*	frame;
 
 		if (!buf_page_decrypt_after_read(bpage)) {
 			/* encryption error! */
@@ -6333,12 +6327,12 @@ buf_page_encrypt_before_write(
 		return src_frame;
 	}
 
-	if (crypt_data != NULL && crypt_data->encryption == FIL_SPACE_ENCRYPTION_OFF) {
+	if (crypt_data != NULL && crypt_data->not_encrypted()) {
 		/* Encryption is disabled */
 		encrypted = false;
 	}
 
-	if (!srv_encrypt_tables && (crypt_data == NULL || crypt_data->encryption == FIL_SPACE_ENCRYPTION_DEFAULT)) {
+	if (!srv_encrypt_tables && (crypt_data == NULL || crypt_data->is_default_encryption())) {
 		/* Encryption is disabled */
 		encrypted = false;
 	}
