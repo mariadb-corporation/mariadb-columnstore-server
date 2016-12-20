@@ -36,10 +36,10 @@ SET(INFINIDB_DEBIAN_PACKAGE_NAME "mariadb-columnstore")
 SET(INFINIDB_BIT "x86_64")
 
 IF (NOT CPACK_DEBIAN_PACKAGE_VERSION)
-SET (CPACK_DEBIAN_PACKAGE_VERSION "1.0.0")
+SET (CPACK_DEBIAN_PACKAGE_VERSION ${PACKAGE_VERSION})
 ENDIF()
 IF (NOT CPACK_DEBIAN_PACKAGE_RELEASE)
-SET (CPACK_DEBIAN_PACKAGE_RELEASE "0")
+SET (CPACK_DEBIAN_PACKAGE_RELEASE ${PACKAGE_RELEASE})
 ENDIF()
 
 SET(CPACK_DEBIAN_PACKAGE_NAME ${CPACK_PACKAGE_NAME})
@@ -77,8 +77,10 @@ IF(WITH_WSREP)
 SET(CPACK_DEBIAN_SERVER_PACKAGE_DEPENDS "${CPACK_DEBIAN_SERVER_PACKAGE_DEPENDS}, galera, rsync, lsof, grep, gawk, iproute, coreutils, findutils, tar")
 ENDIF()
 
-#set( CPACK_DEBIAN_server_PACKAGE_CONTROL_EXTRA "${CMAKE_CURRENT_SOURCE_DIR}/support-files/debian/server/postinst;${CMAKE_CURRENT_SOURCE_DIR}/support-files/debian/server/prerm;${CMAKE_CURRENT_SOURCE_DIR}/support-files/debian/server/postrm;" )
-set( CPACK_DEBIAN_shared_PACKAGE_CONTROL_EXTRA "${CMAKE_CURRENT_SOURCE_DIR}/support-files/debian/shared/postinst;${CMAKE_CURRENT_SOURCE_DIR}/support-files/debian/shared/postrm;" )
+set( CPACK_DEBIAN_SERVER_PACKAGE_CONTROL_EXTRA "${CMAKE_CURRENT_SOURCE_DIR}/support-files/debian/server/postinst;${CMAKE_CURRENT_SOURCE_DIR}/support-files/debian/server/prerm;${CMAKE_CURRENT_SOURCE_DIR}/support-files/debian/server/postrm;" )
+#set( CPACK_DEBIAN_SERVER_PACKAGE_CONTROL_EXTRA "${CMAKE_CURRENT_SOURCE_DIR}/debian/mariadb-server-10.1.preinst;${CMAKE_CURRENT_SOURCE_DIR}/debian/mariadb-server-10.1.postinst;${CMAKE_CURRENT_SOURCE_DIR}/debian/mariadb-server-10.1.prerm;${CMAKE_CURRENT_SOURCE_DIR}/debian/mariadb-server-10.1.postrm;" )
+set( CPACK_DEBIAN_SHARED_PACKAGE_CONTROL_EXTRA "${CMAKE_CURRENT_SOURCE_DIR}/support-files/debian/shared/postinst;${CMAKE_CURRENT_SOURCE_DIR}/support-files/debian/shared/postrm;" )
+
 
 MACRO(ALTERNATIVE_NAME real alt)
   SET(ver "${CPACK_DEBIAN_PACKAGE_VERSION}-${CPACK_DEBIAN_PACKAGE_RELEASE}")
