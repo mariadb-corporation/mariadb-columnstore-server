@@ -87,7 +87,7 @@ These packages need to be install along with the group development packages:
 
 ```bash
 yum groupinstall "Development Tools"
-yum install bison ncurses-develop readline-devel perl-devel openssl-devel cmake libxml2-devel
+yum install bison ncurses-devel readline-devel perl-devel openssl-devel cmake libxml2-devel
 ```
 
 ### For Ubuntu 16
