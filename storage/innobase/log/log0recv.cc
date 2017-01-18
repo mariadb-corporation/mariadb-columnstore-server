@@ -2,7 +2,7 @@
 
 Copyright (c) 1997, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2012, Facebook Inc.
-Copyright (c) 2013, 2016, MariaDB Corporation. All Rights Reserved.
+Copyright (c) 2013, 2017, MariaDB Corporation. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -396,12 +396,6 @@ recv_sys_init(
 	}
 
 #ifndef UNIV_HOTBACKUP
-	/* Initialize red-black tree for fast insertions into the
-	flush_list during recovery process.
-	As this initialization is done while holding the buffer pool
-	mutex we perform it before acquiring recv_sys->mutex. */
-	buf_flush_init_flush_rbt();
-
 	mutex_enter(&(recv_sys->mutex));
 
 	recv_sys->heap = mem_heap_create_typed(256,
@@ -2170,11 +2164,19 @@ recv_parse_log_rec(
 	}
 #endif /* UNIV_LOG_LSN_DEBUG */
 
+	byte*	old_ptr = new_ptr;
 	new_ptr = recv_parse_or_apply_log_rec_body(*type, new_ptr, end_ptr,
 						   NULL, NULL, *space);
 	if (UNIV_UNLIKELY(new_ptr == NULL)) {
 
 		return(0);
+	}
+
+	if (*page_no == 0 && *type == MLOG_4BYTES
+	    && mach_read_from_2(old_ptr) == FSP_HEADER_OFFSET + FSP_SIZE) {
+		ulint	size;
+		mach_parse_compressed(old_ptr + 2, end_ptr, &size);
+		fil_space_set_recv_size(*space, size);
 	}
 
 	if (*page_no > recv_max_parsed_page_no) {
@@ -3043,6 +3045,11 @@ recv_recovery_from_checkpoint_start_func(
 	byte*		buf;
 	byte		log_hdr_buf[LOG_FILE_HDR_SIZE];
 	dberr_t		err;
+
+	/* Initialize red-black tree for fast insertions into the
+	flush_list during recovery process. */
+	buf_flush_init_flush_rbt();
+
 	ut_when_dtor<recv_dblwr_t> tmp(recv_sys->dblwr);
 
 #ifdef UNIV_LOG_ARCHIVE

@@ -1,6 +1,6 @@
 /*****************************************************************************
 Copyright (C) 2013, 2015, Google Inc. All Rights Reserved.
-Copyright (c) 2015, 2016, MariaDB Corporation.
+Copyright (c) 2015, 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -26,6 +26,8 @@ Created 04/01/2015 Jan Lindström
 #ifndef fil0crypt_h
 #define fil0crypt_h
 
+#include "os0sync.h"
+
 /**
 * Magic pattern in start of crypt data on page 0
 */
@@ -33,9 +35,6 @@ Created 04/01/2015 Jan Lindström
 
 static const unsigned char CRYPT_MAGIC[MAGIC_SZ] = {
 	's', 0xE, 0xC, 'R', 'E', 't' };
-
-static const unsigned char EMPTY_PATTERN[MAGIC_SZ] = {
-	0x0, 0x0, 0x0, 0x0, 0x0, 0x0 };
 
 /* This key will be used if nothing else is given */
 #define FIL_DEFAULT_ENCRYPTION_KEY ENCRYPTION_KEY_SYSTEM_DATA
@@ -47,6 +46,8 @@ typedef enum {
 	FIL_SPACE_ENCRYPTION_ON = 1,		/* Tablespace is encrypted always */
 	FIL_SPACE_ENCRYPTION_OFF = 2		/* Tablespace is not encrypted */
 } fil_encryption_t;
+
+extern os_event_t fil_crypt_threads_event;
 
 /**
  * CRYPT_SCHEME_UNENCRYPTED
@@ -393,12 +394,6 @@ void
 fil_crypt_set_thread_cnt(
 /*=====================*/
 	uint new_cnt); /*!< in: requested #threads */
-
-/*********************************************************************
-End threads for key rotation */
-UNIV_INTERN
-void
-fil_crypt_threads_end();
 
 /*********************************************************************
 Cleanup resources for threads for key rotation */
