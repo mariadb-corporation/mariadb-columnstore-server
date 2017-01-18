@@ -25,7 +25,8 @@ Issue tracking of MariaDB ColumnStore happens in JIRA, https://jira.mariadb.org/
 
 ###The structure of this repository is:
 * Branch "master" - this is the latest released version of the source code.  Each major release is tagged.
-* Branch "develop" - this is the mainline development branch.
+* Branch "develop-1.0" - this is the 1.0 mainline development branch.
+* Branch "develop" - this is the 1.1 unstable development branch.
 * Branch "mcol-xxx" - these are specific bug and feature branches. These are merged into development which is merged to master.
 
 MariaDB ColumnStore server and the engine are in separate repositories.
