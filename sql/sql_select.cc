@@ -787,10 +787,15 @@ JOIN::prepare(Item ***rref_pointer_array,
     if (mixed_implicit_grouping && tbl->table)
       tbl->table->maybe_null= 1;
   }
+ 
+  uint real_og_num= og_num;
+  if (skip_order_by && 
+      select_lex != select_lex->master_unit()->global_parameters())
+    real_og_num+= select_lex->order_list.elements;
 
   if ((wild_num && setup_wild(thd, tables_list, fields_list, &all_fields,
                               wild_num)) ||
-      select_lex->setup_ref_array(thd, og_num) ||
+      select_lex->setup_ref_array(thd, real_og_num) ||
       setup_fields(thd, (*rref_pointer_array), fields_list, MARK_COLUMNS_READ,
 		   &all_fields, 1) ||
       setup_without_group(thd, (*rref_pointer_array), tables_list,
@@ -13338,9 +13343,12 @@ COND *Item_cond_and::build_equal_items(THD *thd,
   COND_EQUAL cond_equal;
   cond_equal.upper_levels= inherited;
 
+  if (check_stack_overrun(thd, STACK_MIN_SIZE, NULL))
+    return this;                          // Fatal error flag is set!
+
   List<Item> eq_list;
   List<Item> *cond_args= argument_list();
-  
+
   List_iterator<Item> li(*cond_args);
   Item *item;
 
@@ -13350,7 +13358,7 @@ COND *Item_cond_and::build_equal_items(THD *thd,
      that are subject to substitution by multiple equality items and
      removing each such predicate from the conjunction after having 
      found/created a multiple equality whose inference the predicate is.
- */      
+ */
   while ((item= li++))
   {
     /*
@@ -18179,7 +18187,7 @@ do_select(JOIN *join,List<Item> *fields,TABLE *table,Procedure *procedure)
     join->join_tab[join->top_join_tab_count - 1].next_select= end_select;
     join_tab=join->join_tab+join->const_tables;
   }
-  join->send_records=0;
+  join->duplicate_rows= join->send_records=0;
   if (join->table_count == join->const_tables)
   {
     /*
@@ -18244,7 +18252,7 @@ do_select(JOIN *join,List<Item> *fields,TABLE *table,Procedure *procedure)
       error= NESTED_LOOP_OK;                    /* select_limit used */
   }
 
-  join->thd->limit_found_rows= join->send_records;
+  join->thd->limit_found_rows= join->send_records - join->duplicate_rows;
 
   if (error == NESTED_LOOP_NO_MORE_ROWS || join->thd->killed == ABORT_QUERY)
     error= NESTED_LOOP_OK;
@@ -19718,7 +19726,12 @@ end_send(JOIN *join, JOIN_TAB *join_tab __attribute__((unused)),
       int error;
       /* result < 0 if row was not accepted and should not be counted */
       if ((error= join->result->send_data(*join->fields)))
-        DBUG_RETURN(error < 0 ? NESTED_LOOP_OK : NESTED_LOOP_ERROR);
+      {
+        if (error > 0)
+          DBUG_RETURN(NESTED_LOOP_ERROR);
+        // error < 0 => duplicate row
+        join->duplicate_rows++;
+      }
     }
 
     ++join->send_records;
@@ -19860,7 +19873,7 @@ end_send_group(JOIN *join, JOIN_TAB *join_tab __attribute__((unused)),
               if (error < 0)
               {
                 /* Duplicate row, don't count */
-                join->send_records--;
+                join->duplicate_rows++;
                 error= 0;
               }
             }
@@ -25514,6 +25527,12 @@ void st_select_lex::print(THD *thd, String *str, enum_query_type query_type)
 
   // limit
   print_limit(thd, str, query_type);
+
+  // lock type
+  if (lock_type == TL_READ_WITH_SHARED_LOCKS)
+    str->append(" lock in share mode");
+  else if (lock_type == TL_WRITE)
+    str->append(" for update");
 
   // PROCEDURE unsupported here
 }

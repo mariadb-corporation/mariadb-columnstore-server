@@ -1,24 +1,22 @@
-#MariaDB ColumnStore Server (version 1.0)
-This is the server part of MariaDB ColumnStore 1.0.6.
-MariaDB ColumnStore 1.0.6 is the development version of MariaDB ColumnStore. 
-It is built by porting InfiniDB 4.6.7 on MariaDB 10.1.19 and adding entirely 
+#MariaDB ColumnStore Server (version 1.1)
+This is the server part of MariaDB ColumnStore 1.1.0.
+MariaDB ColumnStore 1.1.0 is the development version of MariaDB ColumnStore. 
+It is built by porting InfiniDB 4.6.7 on MariaDB 10.1.21 and adding entirely 
 new features not found anywhere else.
 
-##MariaDB ColumnStore Engine (version 1.0)
+##MariaDB ColumnStore Engine (version 1.1)
 MariaDB ColumnStore also requires the matching engine version. This can be found at https://github.com/mariadb-corporation/mariadb-columnstore-engine.
 
 Always match the server engine / git branch with the engine git branch.
 
-##GA release notice
-MariaDB ColumnStore 1.0.6 is an GA release. This is the first MariaDB 
-ColumnStore release, not all features planned for the MariaDB ColumnStore 1.0 
-series are included in this release. 
+##Release notice
+MariaDB ColumnStore 1.1.0 is a pre-alpha. Use at your own risk!
 
 Currently building has only been certified on CentOS 6 and 7, Ubuntu 16.04, and Debain 8.. 
 Building on other platforms will be certified in a later release.
 
 A few things to notice:
-- Do not use beta releases on production systems.
+- Do not use pre-alpha releases on production systems.
 
 Additional features and product enhancements will be pushed in future releases. 
 
@@ -27,7 +25,8 @@ Issue tracking of MariaDB ColumnStore happens in JIRA, https://jira.mariadb.org/
 
 ###The structure of this repository is:
 * Branch "master" - this is the latest released version of the source code.  Each major release is tagged.
-* Branch "develop" - this is the mainline development branch.
+* Branch "develop-1.0" - this is the 1.0 mainline development branch.
+* Branch "develop" - this is the 1.1 unstable development branch.
 * Branch "mcol-xxx" - these are specific bug and feature branches. These are merged into development which is merged to master.
 
 MariaDB ColumnStore server and the engine are in separate repositories.
@@ -106,7 +105,7 @@ apt-get install build-essential automake libboost-all-dev bison cmake libncurses
 ```
 
 ##Building master branch
-The current (1.0.5) master branch is the released version.
+The current master branch is the released version.
 
 ##Building develop branch
 The develop branch is used for develop updates
