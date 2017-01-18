@@ -1,6 +1,6 @@
 /*****************************************************************************
 Copyright (C) 2013, 2015, Google Inc. All Rights Reserved.
-Copyright (C) 2014, 2016, MariaDB Corporation. All Rights Reserved.
+Copyright (c) 2014, 2017, MariaDB Corporation. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -41,12 +41,12 @@ Modified           Jan Lindström jan.lindstrom@mariadb.com
 #include <my_crypt.h>
 
 /** Mutex for keys */
-UNIV_INTERN ib_mutex_t fil_crypt_key_mutex;
+static ib_mutex_t fil_crypt_key_mutex;
 
 static bool fil_crypt_threads_inited = false;
 
 #ifdef UNIV_PFS_MUTEX
-UNIV_INTERN mysql_pfs_key_t fil_crypt_key_mutex_key;
+static mysql_pfs_key_t fil_crypt_key_mutex_key;
 #endif
 
 /** Is encryption enabled/disabled */
@@ -56,25 +56,25 @@ UNIV_INTERN ulong srv_encrypt_tables = 0;
 UNIV_INTERN uint srv_n_fil_crypt_threads = 0;
 
 /** No of key rotation threads started */
-static uint srv_n_fil_crypt_threads_started = 0;
+UNIV_INTERN uint srv_n_fil_crypt_threads_started = 0;
 
 /** At this age or older a space/page will be rotated */
 UNIV_INTERN uint srv_fil_crypt_rotate_key_age = 1;
 
 /** Event to signal FROM the key rotation threads. */
-UNIV_INTERN os_event_t fil_crypt_event;
+static os_event_t fil_crypt_event;
 
 /** Event to signal TO the key rotation threads. */
 UNIV_INTERN os_event_t fil_crypt_threads_event;
 
 /** Event for waking up threads throttle */
-UNIV_INTERN os_event_t fil_crypt_throttle_sleep_event;
+static os_event_t fil_crypt_throttle_sleep_event;
 
 /** Mutex for key rotation threads */
-UNIV_INTERN ib_mutex_t fil_crypt_threads_mutex;
+static ib_mutex_t fil_crypt_threads_mutex;
 
 #ifdef UNIV_PFS_MUTEX
-UNIV_INTERN mysql_pfs_key_t fil_crypt_threads_mutex_key;
+static mysql_pfs_key_t fil_crypt_threads_mutex_key;
 #endif
 
 /** Variable ensuring only 1 thread at time does initial conversion */
@@ -96,13 +96,11 @@ static fil_crypt_stat_t crypt_stat;
 static ib_mutex_t crypt_stat_mutex;
 
 #ifdef UNIV_PFS_MUTEX
-UNIV_INTERN mysql_pfs_key_t fil_crypt_stat_mutex_key;
-#endif
+static mysql_pfs_key_t fil_crypt_stat_mutex_key;
 
 /**
  * key for crypt data mutex
 */
-#ifdef UNIV_PFS_MUTEX
 UNIV_INTERN mysql_pfs_key_t fil_crypt_data_mutex_key;
 #endif
 
@@ -140,6 +138,8 @@ fil_space_crypt_cleanup()
 /*=====================*/
 {
 	os_event_free(fil_crypt_throttle_sleep_event);
+	mutex_free(&fil_crypt_key_mutex);
+	mutex_free(&crypt_stat_mutex);
 }
 
 /**
@@ -283,11 +283,6 @@ fil_space_read_crypt_data(
 	const byte*	page,	/*!< in: page 0 */
 	ulint		offset)	/*!< in: offset */
 {
-	if (memcmp(page + offset, EMPTY_PATTERN, MAGIC_SZ) == 0) {
-		/* Crypt data is not stored. */
-		return NULL;
-	}
-
 	if (memcmp(page + offset, CRYPT_MAGIC, MAGIC_SZ) != 0) {
 		/* Crypt data is not stored. */
 		return NULL;
@@ -362,7 +357,7 @@ fil_space_destroy_crypt_data(
 		fil_space_crypt_t* c = *crypt_data;
 		c->~fil_space_crypt_struct();
 		mem_free(c);
-		(*crypt_data) = NULL;
+		*crypt_data = NULL;
 	}
 }
 
@@ -1308,10 +1303,20 @@ struct rotate_thread_t {
 	btr_scrub_t scrub_data;      /* thread local data used by btr_scrub-functions
 				     * when iterating pages of tablespace */
 
-	/* check if this thread should shutdown */
+	/** @return whether this thread should terminate */
 	bool should_shutdown() const {
-		return ! (srv_shutdown_state == SRV_SHUTDOWN_NONE &&
-			  thread_no < srv_n_fil_crypt_threads);
+		switch (srv_shutdown_state) {
+		case SRV_SHUTDOWN_NONE:
+		case SRV_SHUTDOWN_CLEANUP:
+			return thread_no >= srv_n_fil_crypt_threads;
+		case SRV_SHUTDOWN_FLUSH_PHASE:
+			return true;
+		case SRV_SHUTDOWN_LAST_PHASE:
+		case SRV_SHUTDOWN_EXIT_THREADS:
+			break;
+		}
+		ut_ad(0);
+		return true;
 	}
 };
 
@@ -2464,25 +2469,19 @@ fil_crypt_threads_init()
 }
 
 /*********************************************************************
-End threads for key rotation */
-UNIV_INTERN
-void
-fil_crypt_threads_end()
-/*===================*/
-{
-	/* stop threads */
-	fil_crypt_set_thread_cnt(0);
-}
-
-/*********************************************************************
 Clean up key rotation threads resources */
 UNIV_INTERN
 void
 fil_crypt_threads_cleanup()
 /*=======================*/
 {
+	if (!fil_crypt_threads_inited) {
+		return;
+	}
+	ut_a(!srv_n_fil_crypt_threads_started);
 	os_event_free(fil_crypt_event);
 	os_event_free(fil_crypt_threads_event);
+	mutex_free(&fil_crypt_threads_mutex);
 	fil_crypt_threads_inited = false;
 }
 
