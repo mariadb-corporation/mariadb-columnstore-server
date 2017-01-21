@@ -89,14 +89,14 @@ yum install bison ncurses-devel readline-devel perl-devel openssl-devel cmake li
 These packages need to be installed along with the group development packages:
 
 ```bash
-apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev flex
+apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev libkrb5-dev flex
 ```
 ### For Debian 8
 
 These packages need to be installed along with the group development packages:
 
 ```bash
-apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev flex
+apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev libkrb5-dev flex
 ```
 
 ##Building master branch
