@@ -86,7 +86,7 @@ These packages need to be install along with the group development packages:
 
 ```bash
 yum groupinstall "Development Tools"
-yum install bison ncurses-devel readline-devel perl-devel openssl-devel cmake libxml2-devel
+yum install bison ncurses-devel readline-devel perl-devel openssl-devel cmake libxml2-devel snappy-devel
 ```
 
 ### For Ubuntu 16
@@ -94,14 +94,14 @@ yum install bison ncurses-devel readline-devel perl-devel openssl-devel cmake li
 These packages need to be installed along with the group development packages:
 
 ```bash
-apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev flex
+apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev flex libsnappy-dev
 ```
 ### For Debian 8
 
 These packages need to be installed along with the group development packages:
 
 ```bash
-apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev flex
+apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev flex libsnappy-dev
 ```
 
 ##Building master branch
@@ -199,7 +199,7 @@ yum install boost
 In addition these packages need to be install:
 
 ```bash
-yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio
+yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio snappy
 ```
 
 ## For Ubuntu 16
@@ -207,7 +207,7 @@ yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio
 These packages need to be installed:
 
 ```bash
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev snappy1v5
 ```
 
 ## For Debian 8
@@ -215,7 +215,7 @@ apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libre
 These packages need to be installed:
 
 ```bash
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev snappy1v5
 ```
 
 ##MariaDB ColumnStore utilizes the System Logging for logging purposes
