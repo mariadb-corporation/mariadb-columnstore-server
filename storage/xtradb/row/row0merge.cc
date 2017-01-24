@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2005, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -623,8 +624,7 @@ row_merge_buf_add(
 		  ((col->mtype == DATA_VARCHAR || col->mtype == DATA_BINARY
 		   || col->mtype == DATA_VARMYSQL)
 		   && (col->len == 0
-		       || len <= col->len +
-			  prtype_get_compression_extra(col->prtype))));
+		       || len <= col->len)));
 
 		fixed_len = ifield->fixed_len;
 		if (fixed_len && !dict_table_is_comp(index->table)
@@ -653,8 +653,7 @@ row_merge_buf_add(
 		} else if (dfield_is_ext(field)) {
 			extra_size += 2;
 		} else if (len < 128
-			   || (col->len < 256 -
-			       prtype_get_compression_extra(col->prtype)
+			   || (col->len < 256
 			       && col->mtype != DATA_BLOB)) {
 			extra_size++;
 		} else {
@@ -4002,10 +4001,7 @@ row_merge_build_indexes(
 
 	/* If tablespace is encrypted, allocate additional buffer for
 	encryption/decryption. */
-	if ((crypt_data && crypt_data->encryption == FIL_SPACE_ENCRYPTION_ON) ||
-		(srv_encrypt_tables &&
-			crypt_data && crypt_data->encryption == FIL_SPACE_ENCRYPTION_DEFAULT)) {
-
+	if (crypt_data && crypt_data->should_encrypt()) {
 		crypt_block = static_cast<row_merge_block_t*>(
 			os_mem_alloc_large(&block_size));
 
@@ -4203,9 +4199,10 @@ wait_again:
 				(total_static_cost + total_dynamic_cost)
 				* PCT_COST_MERGESORT_INDEX * 100;
 
-			bufend = innobase_convert_name(buf, sizeof buf,
+			bufend = innobase_convert_name(
+				buf, sizeof buf,
 				indexes[i]->name, strlen(indexes[i]->name),
-				trx ? trx->mysql_thd : NULL,
+				trx->mysql_thd,
 				FALSE);
 
 			buf[bufend - buf]='\0';

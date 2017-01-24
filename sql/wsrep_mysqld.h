@@ -89,6 +89,7 @@ extern ulong       wsrep_running_threads;
 extern bool        wsrep_new_cluster;
 extern bool        wsrep_gtid_mode;
 extern uint32      wsrep_gtid_domain_id;
+extern bool        wsrep_dirty_reads;
 
 enum enum_wsrep_OSU_method {
     WSREP_OSU_TOI,
@@ -178,7 +179,7 @@ extern wsrep_seqno_t wsrep_locked_seqno;
    strcmp(wsrep_provider, WSREP_NONE))
 
 #define WSREP(thd) \
-  (WSREP_ON && wsrep && (thd && thd->variables.wsrep_on))
+  (WSREP_ON && thd->variables.wsrep_on)
 
 #define WSREP_CLIENT(thd) \
     (WSREP(thd) && thd->wsrep_client_thread)

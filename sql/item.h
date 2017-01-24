@@ -3213,7 +3213,7 @@ class Item_blob :public Item_partition_func_safe_string
 {
 public:
   Item_blob(THD *thd, const char *name_arg, uint length):
-    Item_partition_func_safe_string(thd, name_arg, length, &my_charset_bin)
+    Item_partition_func_safe_string(thd, name_arg, strlen(name_arg), &my_charset_bin)
   { max_length= length; }
   enum Type type() const { return TYPE_HOLDER; }
   enum_field_types field_type() const { return MYSQL_TYPE_BLOB; }
@@ -4219,7 +4219,7 @@ public:
     if (result_type() == ROW_RESULT)
       orig_item->bring_value();
   }
-  virtual bool is_expensive() { return orig_item->is_expensive(); }
+  bool is_expensive() { return orig_item->is_expensive(); }
   bool is_expensive_processor(uchar *arg)
   { return orig_item->is_expensive_processor(arg); }
   bool check_vcol_func_processor(uchar *arg)
@@ -4831,6 +4831,10 @@ public:
   int save_in_field(Field *field_arg, bool no_conversions);
   table_map used_tables() const { return (table_map)0L; }
 
+  Field *get_tmp_table_field() { return 0; }
+  Item *get_tmp_table_item(THD *thd) { return this; }
+  Item_field *field_for_view_update() { return 0; }
+
   bool walk(Item_processor processor, bool walk_subquery, uchar *args)
   {
     return (arg && arg->walk(processor, walk_subquery, args)) ||
@@ -4871,6 +4875,8 @@ public:
    being treated as a constant and precalculated before execution
   */
   table_map used_tables() const { return RAND_TABLE_BIT; }
+
+  Item_field *field_for_view_update() { return 0; }
 
   bool walk(Item_processor processor, bool walk_subquery, uchar *args)
   {

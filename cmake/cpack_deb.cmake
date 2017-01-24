@@ -36,10 +36,10 @@ SET(INFINIDB_DEBIAN_PACKAGE_NAME "mariadb-columnstore")
 SET(INFINIDB_BIT "x86_64")
 
 IF (NOT CPACK_DEBIAN_PACKAGE_VERSION)
-SET (CPACK_DEBIAN_PACKAGE_VERSION "1.0.0")
+SET (CPACK_DEBIAN_PACKAGE_VERSION ${PACKAGE_VERSION})
 ENDIF()
 IF (NOT CPACK_DEBIAN_PACKAGE_RELEASE)
-SET (CPACK_DEBIAN_PACKAGE_RELEASE "0")
+SET (CPACK_DEBIAN_PACKAGE_RELEASE ${PACKAGE_RELEASE})
 ENDIF()
 
 SET(CPACK_DEBIAN_PACKAGE_NAME ${CPACK_PACKAGE_NAME})
@@ -77,8 +77,10 @@ IF(WITH_WSREP)
 SET(CPACK_DEBIAN_SERVER_PACKAGE_DEPENDS "${CPACK_DEBIAN_SERVER_PACKAGE_DEPENDS}, galera, rsync, lsof, grep, gawk, iproute, coreutils, findutils, tar")
 ENDIF()
 
-#set( CPACK_DEBIAN_server_PACKAGE_CONTROL_EXTRA "${CMAKE_CURRENT_SOURCE_DIR}/support-files/debian/server/postinst;${CMAKE_CURRENT_SOURCE_DIR}/support-files/debian/server/prerm;${CMAKE_CURRENT_SOURCE_DIR}/support-files/debian/server/postrm;" )
-set( CPACK_DEBIAN_shared_PACKAGE_CONTROL_EXTRA "${CMAKE_CURRENT_SOURCE_DIR}/support-files/debian/shared/postinst;${CMAKE_CURRENT_SOURCE_DIR}/support-files/debian/shared/postrm;" )
+set( CPACK_DEBIAN_SERVER_PACKAGE_CONTROL_EXTRA "${CMAKE_CURRENT_SOURCE_DIR}/support-files/debian/server/postinst;${CMAKE_CURRENT_SOURCE_DIR}/support-files/debian/server/prerm;${CMAKE_CURRENT_SOURCE_DIR}/support-files/debian/server/postrm;" )
+#set( CPACK_DEBIAN_SERVER_PACKAGE_CONTROL_EXTRA "${CMAKE_CURRENT_SOURCE_DIR}/debian/mariadb-server-10.1.preinst;${CMAKE_CURRENT_SOURCE_DIR}/debian/mariadb-server-10.1.postinst;${CMAKE_CURRENT_SOURCE_DIR}/debian/mariadb-server-10.1.prerm;${CMAKE_CURRENT_SOURCE_DIR}/debian/mariadb-server-10.1.postrm;" )
+set( CPACK_DEBIAN_SHARED_PACKAGE_CONTROL_EXTRA "${CMAKE_CURRENT_SOURCE_DIR}/support-files/debian/shared/postinst;${CMAKE_CURRENT_SOURCE_DIR}/support-files/debian/shared/postrm;" )
+
 
 MACRO(ALTERNATIVE_NAME real alt)
   SET(ver "${CPACK_DEBIAN_PACKAGE_VERSION}-${CPACK_DEBIAN_PACKAGE_RELEASE}")
@@ -115,8 +117,6 @@ ELSEIF(DEBIAN MATCHES "fedora" OR DEBIAN MATCHES "(rhel|centos)7")
   ALTERNATIVE_NAME("TEST"   "mariadb-test")
 ENDIF()
 
-# workaround for lots of perl dependencies added by rpmbuild
-SET(CPACK_DEBIAN_TEST_PACKAGE_PROVIDES "perl(lib::mtr_gcov.pl), perl(lib::mtr_gprof.pl), perl(lib::mtr_io.pl), perl(lib::mtr_misc.pl), perl(lib::mtr_process.pl), perl(lib::v1/mtr_cases.pl), perl(lib::v1/mtr_gcov.pl), perl(lib::v1/mtr_gprof.pl), perl(lib::v1/mtr_im.pl), perl(lib::v1/mtr_io.pl), perl(lib::v1/mtr_match.pl), perl(lib::v1/mtr_misc.pl), perl(lib::v1/mtr_process.pl), perl(lib::v1/mtr_report.pl), perl(lib::v1/mtr_stress.pl), perl(lib::v1/mtr_timer.pl), perl(lib::v1/mtr_unique.pl), perl(mtr_cases), perl(mtr_io.pl), perl(mtr_match), perl(mtr_misc.pl), perl(mtr_gcov.pl), perl(mtr_gprof.pl), perl(mtr_process.pl), perl(mtr_report), perl(mtr_results), perl(mtr_unique)")
 
 # If we want to build build MariaDB-shared-compat,
 # extract compat libraries from MariaDB-shared-5.3 deb

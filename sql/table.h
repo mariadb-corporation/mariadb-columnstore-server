@@ -323,8 +323,7 @@ enum release_type { RELEASE_NORMAL, RELEASE_WAIT_FOR_DROP };
 enum enum_vcol_update_mode
 {
   VCOL_UPDATE_FOR_READ= 0,
-  VCOL_UPDATE_FOR_WRITE,
-  VCOL_UPDATE_ALL
+  VCOL_UPDATE_FOR_WRITE
 };
 
 class Filesort_info
@@ -527,6 +526,16 @@ public:
 
   /** Checks whether a table is intact. */
   bool check(TABLE *table, const TABLE_FIELD_DEF *table_def);
+};
+
+
+/*
+  If the table isn't valid, report the error to the server log only.
+*/
+class Table_check_intact_log_error : public Table_check_intact
+{
+protected:
+  void report_error(uint, const char *fmt, ...);
 };
 
 

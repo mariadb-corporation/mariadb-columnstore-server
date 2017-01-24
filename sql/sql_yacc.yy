@@ -5127,6 +5127,8 @@ part_name:
           {
             partition_info *part_info= Lex->part_info;
             partition_element *p_elem= part_info->curr_part_elem;
+            if (check_ident_length(&$1))
+              MYSQL_YYABORT;
             p_elem->partition_name= $1.str;
           }
         ;
@@ -5410,7 +5412,11 @@ sub_part_definition:
 
 sub_name:
           ident_or_text
-          { Lex->part_info->curr_part_elem->partition_name= $1.str; }
+          {
+            if (check_ident_length(&$1))
+              MYSQL_YYABORT;
+            Lex->part_info->curr_part_elem->partition_name= $1.str;
+          }
         ;
 
 opt_part_options:
@@ -8434,12 +8440,14 @@ opt_select_lock_type:
         | FOR_SYM UPDATE_SYM
           {
             LEX *lex=Lex;
+            lex->current_select->lock_type= TL_WRITE;
             lex->current_select->set_lock_for_tables(TL_WRITE);
             lex->safe_to_cache_query=0;
           }
         | LOCK_SYM IN_SYM SHARE_SYM MODE_SYM
           {
             LEX *lex=Lex;
+            lex->current_select->lock_type= TL_READ_WITH_SHARED_LOCKS;
             lex->current_select->
               set_lock_for_tables(TL_READ_WITH_SHARED_LOCKS);
             lex->safe_to_cache_query=0;
@@ -15685,6 +15693,7 @@ grant_role:
             CHARSET_INFO *cs= system_charset_info;
             /* trim end spaces (as they'll be lost in mysql.user anyway) */
             $1.length= cs->cset->lengthsp(cs, $1.str, $1.length);
+            $1.str[$1.length] = '\0';
             if ($1.length == 0)
               my_yyabort_error((ER_INVALID_ROLE, MYF(0), ""));
             if (!($$=(LEX_USER*) thd->alloc(sizeof(st_lex_user))))

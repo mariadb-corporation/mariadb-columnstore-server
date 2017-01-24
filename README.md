@@ -1,7 +1,7 @@
 #MariaDB ColumnStore Server (version 1.0)
-This is the server part of MariaDB ColumnStore 1.0.6.
-MariaDB ColumnStore 1.0.6 is the development version of MariaDB ColumnStore. 
-It is built by porting InfiniDB 4.6.7 on MariaDB 10.1.19 and adding entirely 
+This is the server part of MariaDB ColumnStore 1.0.7.
+MariaDB ColumnStore 1.0.7 is the development version of MariaDB ColumnStore. 
+It is built by porting InfiniDB 4.6.7 on MariaDB 10.1.21 and adding entirely 
 new features not found anywhere else.
 
 ##MariaDB ColumnStore Engine (version 1.0)
@@ -10,24 +10,18 @@ MariaDB ColumnStore also requires the matching engine version. This can be found
 Always match the server engine / git branch with the engine git branch.
 
 ##GA release notice
-MariaDB ColumnStore 1.0.6 is an GA release. This is the first MariaDB 
-ColumnStore release, not all features planned for the MariaDB ColumnStore 1.0 
-series are included in this release. 
+MariaDB ColumnStore 1.0.7 is an GA release.
 
 Currently building has only been certified on CentOS 6 and 7, Ubuntu 16.04, and Debain 8.. 
 Building on other platforms will be certified in a later release.
-
-A few things to notice:
-- Do not use beta releases on production systems.
-
-Additional features and product enhancements will be pushed in future releases. 
 
 ##Issue tracking
 Issue tracking of MariaDB ColumnStore happens in JIRA, https://jira.mariadb.org/browse/MCOL
 
 ###The structure of this repository is:
 * Branch "master" - this is the latest released version of the source code.  Each major release is tagged.
-* Branch "develop" - this is the mainline development branch.
+* Branch "develop-1.0" - this is the 1.0 mainline development branch.
+* Branch "develop" - this is the 1.1 unstable development branch.
 * Branch "mcol-xxx" - these are specific bug and feature branches. These are merged into development which is merged to master.
 
 MariaDB ColumnStore server and the engine are in separate repositories.
@@ -87,7 +81,7 @@ These packages need to be install along with the group development packages:
 
 ```bash
 yum groupinstall "Development Tools"
-yum install bison ncurses-develop readline-devel perl-devel openssl-devel cmake libxml2-devel
+yum install bison ncurses-devel readline-devel perl-devel openssl-devel cmake libxml2-devel
 ```
 
 ### For Ubuntu 16
@@ -95,14 +89,14 @@ yum install bison ncurses-develop readline-devel perl-devel openssl-devel cmake 
 These packages need to be installed along with the group development packages:
 
 ```bash
-apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev flex
+apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev libkrb5-dev flex
 ```
 ### For Debian 8
 
 These packages need to be installed along with the group development packages:
 
 ```bash
-apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev flex
+apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev libkrb5-dev flex
 ```
 ### For Debian 8
 
@@ -111,7 +105,7 @@ apt-get install build-essential automake libboost-all-dev bison cmake libncurses
 These packages need to be installed along with the group development packages:
 
 ##Building master branch
-The current (1.0.5) master branch is the released version.
+The current master branch is the released version.
 
 ##Building develop branch
 The develop branch is used for develop updates
@@ -205,7 +199,7 @@ yum install boost
 In addition these packages need to be install:
 
 ```bash
-yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio
+yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio rsync
 ```
 
 ## For Ubuntu 16
@@ -213,7 +207,7 @@ yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio
 These packages need to be installed:
 
 ```bash
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync
 ```
 
 ## For Debian 8
@@ -221,7 +215,7 @@ apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libre
 These packages need to be installed:
 
 ```bash
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync
 ```
 ## For Debian 8
 
