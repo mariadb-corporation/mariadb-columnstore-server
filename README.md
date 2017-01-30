@@ -80,7 +80,16 @@ cd boost_1_55_0
 ldconfig
 ```
 
-### For CentOS
+### For CentOS 6
+
+These packages need to be install along with the group development packages:
+
+```bash
+yum groupinstall "Development Tools"
+yum install bison ncurses-devel readline-devel perl-devel openssl-devel cmake libxml2-devel snappy
+```
+
+### For CentOS 7
 
 These packages need to be install along with the group development packages:
 
@@ -88,6 +97,7 @@ These packages need to be install along with the group development packages:
 yum groupinstall "Development Tools"
 yum install bison ncurses-devel readline-devel perl-devel openssl-devel cmake libxml2-devel snappy-devel
 ```
+
 
 ### For Ubuntu 16
 
