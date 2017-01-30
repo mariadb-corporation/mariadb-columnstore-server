@@ -60,6 +60,7 @@ NOTE: This means that the "Development Tools" group install be done prior to thi
 ```bash
 yum groupinstall "Development Tools"
 yum install cmake
+yum install bzip2-devel
 ```
 
 Here is the procedure to download and build the boost source:
