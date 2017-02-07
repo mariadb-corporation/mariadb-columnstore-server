@@ -9635,6 +9635,11 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 			parser_state.init(thd, thd->query(), thd->query_length());
 			parse_sql(thd, &parser_state, NULL, true);
 			delete_explain_query(thd->lex);
+			if (thd->lex->result)
+			{
+				delete thd->lex->result;
+				thd->lex->result = 0;
+			}
 		}
 		thd->variables.optimizer_switch = OPTIMIZER_SWITCH_IN_TO_EXISTS | \
 						OPTIMIZER_SWITCH_EXISTS_TO_IN;
@@ -9985,7 +9990,6 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 						{
 							/* Write only allowed to dir or subdir specified by secure_file_priv */
 							my_error(ER_OPTION_PREVENTS_STATEMENT, MYF(0), "--secure-file-priv");
-							thd->lex->result = 0;
 							thd->infinidb_vtable.isInfiniDBDML = false;
 							thd->infinidb_vtable.hasInfiniDBTable = false;
 							DBUG_RETURN(0);
@@ -10007,7 +10011,6 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 	#endif
 							{
 								my_error(ER_FILE_EXISTS_ERROR, MYF(0), fileName.c_str(), errno);
-								thd->lex->result = 0;
 								thd->infinidb_vtable.isInfiniDBDML = false;
 								thd->infinidb_vtable.hasInfiniDBTable = false;
 								DBUG_RETURN(0);
@@ -10016,7 +10019,6 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 						else
 						{
 							my_error(ER_CANT_CREATE_FILE, MYF(0), fileName.c_str(), errno);
-							thd->lex->result = 0;
 							thd->infinidb_vtable.isInfiniDBDML = false;
 							thd->infinidb_vtable.hasInfiniDBTable = false;
 							thd->variables.optimizer_switch = old_optimizer_switch;
@@ -10095,7 +10097,6 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 					// Make sure there's no old vtable around to muddle up things.
 					idb_parse_vtable(thd, thd->infinidb_vtable.drop_vtable_query, THD::INFINIDB_DROP_VTABLE);
 
-					thd->lex->result = 0;
 					thd->infinidb_vtable.vtable_state = THD::INFINIDB_INIT;
 					thd->infinidb_vtable.duplicate_field_name = false;
 					thd->infinidb_vtable.isUnion = false;
