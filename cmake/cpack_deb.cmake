@@ -53,9 +53,7 @@ SET(CPACK_DEBIAN_PACKAGE_GROUP "Applications/Databases")
 SET(CPACK_DEBIAN_PACKAGE_SUMMARY ${CPACK_PACKAGE_SUMMARY})
 SET(CPACK_DEBIAN_PACKAGE_URL ${CPACK_PACKAGE_URL})
 
-SET(CPACK_DEBIAN_PACKAGE_DEPENDS "mariadb-columnstore-common")
-
-
+SET(CPACK_DEBIAN_CLIENT_PACKAGE_DEPENDS "mariadb-columnstore-common")
 SET(CPACK_DEBIAN_CLIENT_PACKAGE_REPLACES "mysql-client, MySQL-client, MySQL-OurDelta-client")
 SET(CPACK_DEBIAN_CLIENT_PACKAGE_PROVIDES "MySQL-client, mysql-client")
 
@@ -65,13 +63,14 @@ SET(CPACK_DEBIAN_DEVEL_PACKAGE_PROVIDES "MySQL-devel")
 SET(CPACK_DEBIAN_SERVER_PACKAGE_REPLACES "MariaDB, MySQL, mysql-server, MySQL-server, MariaDB-Galera-server, MySQL-OurDelta-server")
 SET(CPACK_DEBIAN_SERVER_PACKAGE_PROVIDES "MariaDB, MySQL, MySQL-server, msqlormysql, mysql-server")
 
+SET(CPACK_DEBIAN_SHARED_PACKAGE_DEPENDS "mariadb-columnstore-common")
 SET(CPACK_DEBIAN_SHARED_PACKAGE_REPLACES "mysql-shared, MySQL-shared-standard, MySQL-shared-pro, MySQL-shared-pro-cert, MySQL-shared-pro-gpl, MySQL-shared-pro-gpl-cert, MySQL-shared, MySQL-OurDelta-shared")
 SET(CPACK_DEBIAN_SHARED_PACKAGE_PROVIDES "MySQL-shared, mysql-shared")
 
 SET(CPACK_DEBIAN_TEST_PACKAGE_REPLACES "MySQL-test, MySQL-OurDelta-test")
 SET(CPACK_DEBIAN_TEST_PACKAGE_PROVIDES "MySQL-test")
 
-SET(CPACK_DEBIAN_SERVER_PACKAGE_DEPENDS "${CPACK_DEBIAN_PACKAGE_DEPENDS}, mariadb-columnstore-client")
+SET(CPACK_DEBIAN_SERVER_PACKAGE_DEPENDS "mariadb-columnstore-client, mariadb-columnstore-common")
 
 IF(WITH_WSREP)
 SET(CPACK_DEBIAN_SERVER_PACKAGE_DEPENDS "${CPACK_DEBIAN_SERVER_PACKAGE_DEPENDS}, galera, rsync, lsof, grep, gawk, iproute, coreutils, findutils, tar")
