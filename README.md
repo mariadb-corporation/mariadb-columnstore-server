@@ -48,9 +48,11 @@ apt-get install libboost-dev-all
 ```
 or
 
+```bash
 SUSEConnect -p sle-sdk/12.2/x86_64
 
 zypper install boost-devel
+```
 
 For CentOS 6, you will need to install the boost source of 1.55 and build it to generate the required libraries.
 So that means both the build and the install machines require this.
@@ -91,23 +93,20 @@ yum install bison ncurses-devel readline-devel perl-devel openssl-devel cmake li
 
 ### For Ubuntu 16
 
-These packages need to be installed along with the group development packages:
-
 ```bash
 apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev libkrb5-dev flex
 ```
 ### For Debian 8
-
-These packages need to be installed along with the group development packages:
 
 ```bash
 apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev libkrb5-dev flex
 ```
 ### For SuSE 12
 
+```bash
 zypper install gcc-c++ libxml2-devel cmake git automake flex autoconf rpm-build krb5-devel
+```
 
-These packages need to be installed along with the group development packages:
 
 ##Building master branch
 The current master branch is the released version.
@@ -224,7 +223,9 @@ apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libre
 ```
 ## For SuSE 12
 
+```bash
 zypper install expect perl perl-DBI openssl file sudo perl-DBD-MySQL libaio1 rsync
+```
 
 ##MariaDB ColumnStore utilizes the System Logging for logging purposes
 So you will want to make sure that one of these system logging packages is installed:
