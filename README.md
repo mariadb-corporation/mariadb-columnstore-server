@@ -49,6 +49,7 @@ apt-get install libboost-dev-all
 or
 
 SUSEConnect -p sle-sdk/12.2/x86_64
+
 zypper install boost-devel
 
 For CentOS 6, you will need to install the boost source of 1.55 and build it to generate the required libraries.
