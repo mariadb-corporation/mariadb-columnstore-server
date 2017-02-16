@@ -12,7 +12,7 @@ Always match the server engine / git branch with the engine git branch.
 ##GA release notice
 MariaDB ColumnStore 1.0.7 is an GA release.
 
-Currently building has only been certified on CentOS 6 and 7, Ubuntu 16.04, and Debain 8.. 
+Currently building has only been certified on CentOS 6 and 7, Ubuntu 16.04, Debain 8, and SuSE 12. 
 Building on other platforms will be certified in a later release.
 
 ##Issue tracking
@@ -35,7 +35,7 @@ To contribute to ColumnStore please see the [Contributions Documentation](CONTRI
 ### Boost Libraries
 MariaDB ColumnStore requires that the boost package of 1.53 or newer is installed for both building and executing
 
-For CentOS 7, Ubuntu 16, Debian 8 and other newer OS's, you can just install the boost packages via yum or apt-get.
+For CentOS 7, Ubuntu 16, Debian 8, SuSE 12 and other newer OS's, you can just install the boost packages via yum, apt-get or zypper
 
 ```bash
 yum install boost-devel
@@ -46,6 +46,10 @@ or
 ```bash
 apt-get install libboost-dev-all
 ```
+or
+
+SUSEConnect -p sle-sdk/12.2/x86_64
+zypper install boost-devel
 
 For CentOS 6, you will need to install the boost source of 1.55 and build it to generate the required libraries.
 So that means both the build and the install machines require this.
@@ -98,9 +102,9 @@ These packages need to be installed along with the group development packages:
 ```bash
 apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev libkrb5-dev flex
 ```
-### For Debian 8
+### For SuSE 12
 
-apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev flex
+zypper install gcc-c++ libxml2-devel cmake git automake flex autoconf rpm-build krb5-devel
 
 These packages need to be installed along with the group development packages:
 
@@ -217,11 +221,9 @@ These packages need to be installed:
 ```bash
 apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync
 ```
-## For Debian 8
+## For SuSE 12
 
-These packages need to be installed:
-
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev
+zypper install expect perl perl-DBI openssl file sudo perl-DBD-MySQL libaio1 rsync
 
 ##MariaDB ColumnStore utilizes the System Logging for logging purposes
 So you will want to make sure that one of these system logging packages is installed:
