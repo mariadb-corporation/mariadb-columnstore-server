@@ -25,7 +25,9 @@
 #pragma interface			/* gcc class implementation */
 #endif
 
+#include <my_global.h>                          /* For handlers */
 #include "sql_const.h"
+#include "sql_basic_types.h"
 #include "mysqld.h"                             /* server_id */
 #include "sql_plugin.h"        /* plugin_ref, st_plugin_int, plugin */
 #include "thr_lock.h"          /* thr_lock_type, THR_LOCK_DATA */
@@ -40,15 +42,9 @@
 #include <ft_global.h>
 #include <keycache.h>
 #include <mysql/psi/mysql_table.h>
-#include <stdint.h>
-
-#ifdef _MSC_VER
-#ifndef STDINT_H
-typedef unsigned long long uint64_t;
-#endif
-#endif
 
 class Alter_info;
+class Virtual_column_info;
 
 // the following is for checking tables
 
@@ -199,7 +195,7 @@ enum enum_alter_inplace_result {
 #define HA_HAS_NEW_CHECKSUM    (1ULL << 38)
 #define HA_CAN_VIRTUAL_COLUMNS (1ULL << 39)
 #define HA_MRR_CANT_SORT       (1ULL << 40)
-#define HA_RECORD_MUST_BE_CLEAN_ON_WRITE (1ULL << 41)
+#define HA_RECORD_MUST_BE_CLEAN_ON_WRITE (1ULL << 41) /* unused */
 
 /*
   This storage engine supports condition pushdown
@@ -374,16 +370,9 @@ enum enum_alter_inplace_result {
 */
 
 #define HA_OPEN_KEYFILE		1
-#define HA_OPEN_RNDFILE		2
-#define HA_GET_INDEX		4
-#define HA_GET_INFO		8	/* do a ha_info() after open */
 #define HA_READ_ONLY		16	/* File opened as readonly */
 /* Try readonly if can't open with read and write */
 #define HA_TRY_READ_ONLY	32
-#define HA_WAIT_IF_LOCKED	64	/* Wait if locked on open */
-#define HA_ABORT_IF_LOCKED	128	/* skip if locked on open.*/
-#define HA_BLOCK_LOCK		256	/* unlock when reading some records */
-#define HA_OPEN_TEMPORARY	512
 
 	/* Some key definitions */
 #define HA_KEY_NULL_LENGTH	1
@@ -579,11 +568,11 @@ struct xid_t {
   long bqual_length;
   char data[XIDDATASIZE];  // not \0-terminated !
 
-  xid_t() {}                                /* Remove gcc warning */  
+  xid_t() {}                                /* Remove gcc warning */
   bool eq(struct xid_t *xid)
-  { return eq(xid->gtrid_length, xid->bqual_length, xid->data); }
+  { return !xid->is_null() && eq(xid->gtrid_length, xid->bqual_length, xid->data); }
   bool eq(long g, long b, const char *d)
-  { return g == gtrid_length && b == bqual_length && !memcmp(d, data, g+b); }
+  { return !is_null() && g == gtrid_length && b == bqual_length && !memcmp(d, data, g+b); }
   void set(struct xid_t *xid)
   { memcpy(this, xid, xid->length()); }
   void set(long f, const char *g, long gl, const char *b, long bl)
@@ -1212,7 +1201,6 @@ struct handlerton
    int (*fill_is_table)(handlerton *hton, THD *thd, TABLE_LIST *tables, 
                         class Item *cond, 
                         enum enum_schema_tables);
-   void (*set_error)(THD*, uint64_t errCode, LEX_STRING*, uint argCount); //@InfiniDB Window Function Error util
    uint32 flags;                                /* global handler flags */
    /*
       Those handlerton functions below are properly initialized at handler
@@ -1651,6 +1639,7 @@ struct Schema_specification_st
      - LIKE another_table_name ... // Copy structure from another table
      - [AS] SELECT ...             // Copy structure from a subquery
 */
+
 struct Table_scope_and_contents_source_st
 {
   CHARSET_INFO *table_charset;
@@ -1666,6 +1655,8 @@ struct Table_scope_and_contents_source_st
   ulong avg_row_length;
   ulong used_fields;
   ulong key_block_size;
+  ulong expression_length;
+  ulong field_check_constraints;
   /*
     number of pages to sample during
     stats estimation, if used, otherwise 0.
@@ -1693,6 +1684,8 @@ struct Table_scope_and_contents_source_st
   engine_option_value *option_list;     ///< list of table create options
   enum_stats_auto_recalc stats_auto_recalc;
   bool varchar;                         ///< 1 if table has a VARCHAR
+
+  List<Virtual_column_info> *check_constraint_list;
 
   /* the following three are only for ALTER TABLE, check_if_incompatible_data() */
   ha_table_option_struct *option_struct;           ///< structure with parsed table options
@@ -1842,37 +1835,53 @@ public:
      attribute has really changed we might choose to set flag
      pessimistically, for example, relying on parser output only.
   */
-  typedef ulong HA_ALTER_FLAGS;
+  typedef ulonglong HA_ALTER_FLAGS;
 
   // Add non-unique, non-primary index
-  static const HA_ALTER_FLAGS ADD_INDEX                  = 1L << 0;
+  static const HA_ALTER_FLAGS ADD_INDEX                  = 1ULL << 0;
+  //
+  // Adds a spatial index. At the moment all engines treat it
+  // identically to the ADD_INDEX, so it gets the same code
+  static const HA_ALTER_FLAGS ADD_SPATIAL_INDEX          = ADD_INDEX;
 
   // Drop non-unique, non-primary index
-  static const HA_ALTER_FLAGS DROP_INDEX                 = 1L << 1;
+  static const HA_ALTER_FLAGS DROP_INDEX                 = 1ULL << 1;
 
   // Add unique, non-primary index
-  static const HA_ALTER_FLAGS ADD_UNIQUE_INDEX           = 1L << 2;
+  static const HA_ALTER_FLAGS ADD_UNIQUE_INDEX           = 1ULL << 2;
 
   // Drop unique, non-primary index
-  static const HA_ALTER_FLAGS DROP_UNIQUE_INDEX          = 1L << 3;
+  static const HA_ALTER_FLAGS DROP_UNIQUE_INDEX          = 1ULL << 3;
 
   // Add primary index
-  static const HA_ALTER_FLAGS ADD_PK_INDEX               = 1L << 4;
+  static const HA_ALTER_FLAGS ADD_PK_INDEX               = 1ULL << 4;
 
   // Drop primary index
-  static const HA_ALTER_FLAGS DROP_PK_INDEX              = 1L << 5;
+  static const HA_ALTER_FLAGS DROP_PK_INDEX              = 1ULL << 5;
 
-  // Add column
-  static const HA_ALTER_FLAGS ADD_COLUMN                 = 1L << 6;
+  // Virtual generated column
+  static const HA_ALTER_FLAGS ADD_VIRTUAL_COLUMN         = 1ULL << 6;
+  // Stored base (non-generated) column
+  static const HA_ALTER_FLAGS ADD_STORED_BASE_COLUMN     = 1ULL << 7;
+  // Stored generated column
+  static const HA_ALTER_FLAGS ADD_STORED_GENERATED_COLUMN= 1ULL << 8;
+  // Add generic column (convience constant).
+  static const HA_ALTER_FLAGS ADD_COLUMN= ADD_VIRTUAL_COLUMN |
+                                          ADD_STORED_BASE_COLUMN |
+                                          ADD_STORED_GENERATED_COLUMN;
 
   // Drop column
-  static const HA_ALTER_FLAGS DROP_COLUMN                = 1L << 7;
+  static const HA_ALTER_FLAGS DROP_VIRTUAL_COLUMN        = 1ULL << 9;
+  static const HA_ALTER_FLAGS DROP_STORED_COLUMN         = 1ULL << 10;
+  static const HA_ALTER_FLAGS DROP_COLUMN= DROP_VIRTUAL_COLUMN |
+                                           DROP_STORED_COLUMN;
 
   // Rename column
-  static const HA_ALTER_FLAGS ALTER_COLUMN_NAME          = 1L << 8;
+  static const HA_ALTER_FLAGS ALTER_COLUMN_NAME          = 1ULL << 11;
 
   // Change column datatype
-  static const HA_ALTER_FLAGS ALTER_COLUMN_TYPE          = 1L << 9;
+  static const HA_ALTER_FLAGS ALTER_VIRTUAL_COLUMN_TYPE  = 1ULL << 12;
+  static const HA_ALTER_FLAGS ALTER_STORED_COLUMN_TYPE   = 1ULL << 13;
 
   /**
     Change column datatype in such way that new type has compatible
@@ -1880,79 +1889,94 @@ public:
     possible to perform change by only updating data dictionary
     without changing table rows.
   */
-  static const HA_ALTER_FLAGS ALTER_COLUMN_EQUAL_PACK_LENGTH = 1L << 10;
+  static const HA_ALTER_FLAGS ALTER_COLUMN_EQUAL_PACK_LENGTH = 1ULL << 14;
 
   // Reorder column
-  static const HA_ALTER_FLAGS ALTER_COLUMN_ORDER         = 1L << 11;
+  static const HA_ALTER_FLAGS ALTER_STORED_COLUMN_ORDER =  1ULL << 15;
+
+  // Reorder column
+  static const HA_ALTER_FLAGS ALTER_VIRTUAL_COLUMN_ORDER = 1ULL << 16;
 
   // Change column from NOT NULL to NULL
-  static const HA_ALTER_FLAGS ALTER_COLUMN_NULLABLE      = 1L << 12;
+  static const HA_ALTER_FLAGS ALTER_COLUMN_NULLABLE      = 1ULL << 17;
 
   // Change column from NULL to NOT NULL
-  static const HA_ALTER_FLAGS ALTER_COLUMN_NOT_NULLABLE  = 1L << 13;
+  static const HA_ALTER_FLAGS ALTER_COLUMN_NOT_NULLABLE  = 1ULL << 18;
 
   // Set or remove default column value
-  static const HA_ALTER_FLAGS ALTER_COLUMN_DEFAULT       = 1L << 14;
+  static const HA_ALTER_FLAGS ALTER_COLUMN_DEFAULT       = 1ULL << 19;
 
+  // Change column generation expression
+  static const HA_ALTER_FLAGS ALTER_VIRTUAL_GCOL_EXPR    = 1ULL << 20;
+  static const HA_ALTER_FLAGS ALTER_STORED_GCOL_EXPR     = 1ULL << 21;
+  //
   // Add foreign key
-  static const HA_ALTER_FLAGS ADD_FOREIGN_KEY            = 1L << 15;
+  static const HA_ALTER_FLAGS ADD_FOREIGN_KEY            = 1ULL << 22;
 
   // Drop foreign key
-  static const HA_ALTER_FLAGS DROP_FOREIGN_KEY           = 1L << 16;
+  static const HA_ALTER_FLAGS DROP_FOREIGN_KEY           = 1ULL << 23;
 
   // table_options changed, see HA_CREATE_INFO::used_fields for details.
-  static const HA_ALTER_FLAGS CHANGE_CREATE_OPTION       = 1L << 17;
+  static const HA_ALTER_FLAGS CHANGE_CREATE_OPTION       = 1ULL << 24;
 
   // Table is renamed
-  static const HA_ALTER_FLAGS ALTER_RENAME               = 1L << 18;
+  static const HA_ALTER_FLAGS ALTER_RENAME               = 1ULL << 25;
 
   // column's engine options changed, something in field->option_struct
-  static const HA_ALTER_FLAGS ALTER_COLUMN_OPTION        = 1L << 19;
+  static const HA_ALTER_FLAGS ALTER_COLUMN_OPTION        = 1ULL << 26;
 
   // MySQL alias for the same thing:
-  static const HA_ALTER_FLAGS ALTER_COLUMN_STORAGE_TYPE  = 1L << 19;
+  static const HA_ALTER_FLAGS ALTER_COLUMN_STORAGE_TYPE  = 1ULL << 26;
 
   // Change the column format of column
-  static const HA_ALTER_FLAGS ALTER_COLUMN_COLUMN_FORMAT = 1L << 20;
+  static const HA_ALTER_FLAGS ALTER_COLUMN_COLUMN_FORMAT = 1ULL << 27;
 
   // Add partition
-  static const HA_ALTER_FLAGS ADD_PARTITION              = 1L << 21;
+  static const HA_ALTER_FLAGS ADD_PARTITION              = 1ULL << 28;
 
   // Drop partition
-  static const HA_ALTER_FLAGS DROP_PARTITION             = 1L << 22;
+  static const HA_ALTER_FLAGS DROP_PARTITION             = 1ULL << 29;
 
   // Changing partition options
-  static const HA_ALTER_FLAGS ALTER_PARTITION            = 1L << 23;
+  static const HA_ALTER_FLAGS ALTER_PARTITION            = 1ULL << 30;
 
   // Coalesce partition
-  static const HA_ALTER_FLAGS COALESCE_PARTITION         = 1L << 24;
+  static const HA_ALTER_FLAGS COALESCE_PARTITION         = 1ULL << 31;
 
   // Reorganize partition ... into
-  static const HA_ALTER_FLAGS REORGANIZE_PARTITION       = 1L << 25;
+  static const HA_ALTER_FLAGS REORGANIZE_PARTITION       = 1ULL << 32;
 
   // Reorganize partition
-  static const HA_ALTER_FLAGS ALTER_TABLE_REORG          = 1L << 26;
+  static const HA_ALTER_FLAGS ALTER_TABLE_REORG          = 1ULL << 33;
 
   // Remove partitioning
-  static const HA_ALTER_FLAGS ALTER_REMOVE_PARTITIONING  = 1L << 27;
+  static const HA_ALTER_FLAGS ALTER_REMOVE_PARTITIONING  = 1ULL << 34;
 
   // Partition operation with ALL keyword
-  static const HA_ALTER_FLAGS ALTER_ALL_PARTITION        = 1L << 28;
+  static const HA_ALTER_FLAGS ALTER_ALL_PARTITION        = 1ULL << 35;
 
   /**
     Recreate the table for ALTER TABLE FORCE, ALTER TABLE ENGINE
     and OPTIMIZE TABLE operations.
   */
-  static const HA_ALTER_FLAGS RECREATE_TABLE             = 1L << 29;
+  static const HA_ALTER_FLAGS RECREATE_TABLE             = 1ULL << 36;
 
-  // Virtual columns changed
-  static const HA_ALTER_FLAGS ALTER_COLUMN_VCOL          = 1L << 30;
+  /**
+    Changes in generated columns that affect storage,
+    for example, when a vcol type or expression changes
+    and this vcol is indexed or used in a partitioning expression
+  */
+  static const HA_ALTER_FLAGS ALTER_COLUMN_VCOL          = 1ULL << 37;
 
   /**
     ALTER TABLE for a partitioned table. The engine needs to commit
     online alter of all partitions atomically (using group_commit_ctx)
   */
-  static const HA_ALTER_FLAGS ALTER_PARTITIONED          = 1L << 31;
+  static const HA_ALTER_FLAGS ALTER_PARTITIONED          = 1ULL << 38;
+
+  static const HA_ALTER_FLAGS ALTER_ADD_CHECK_CONSTRAINT = 1ULL << 39;
+
+  static const HA_ALTER_FLAGS ALTER_DROP_CHECK_CONSTRAINT= 1ULL << 40;
 
   /**
     Create options (like MAX_ROWS) for the new version of table.
@@ -2603,11 +2627,6 @@ public:
   RANGE_SEQ_IF mrr_funcs;  /* Range sequence traversal functions */
   HANDLER_BUFFER *multi_range_buffer; /* MRR buffer info */
   uint ranges_in_seq; /* Total number of ranges in the traversed sequence */
-  /* TRUE <=> source MRR ranges and the output are ordered */
-  bool mrr_is_output_sorted;
-
-  /** TRUE <=> we're currently traversing a range in mrr_cur_range. */
-  bool mrr_have_range;
   /** Current range (the one we're now returning rows from) */
   KEY_MULTI_RANGE mrr_cur_range;
 
@@ -2615,23 +2634,32 @@ public:
   key_range save_end_range, *end_range;
   KEY_PART_INFO *range_key_part;
   int key_compare_result_on_equal;
-  bool eq_range;
-  bool internal_tmp_table;                      /* If internal tmp table */
 
-  uint errkey;				/* Last dup key */
-  uint key_used_on_scan;
-  uint active_index;
+  /* TRUE <=> source MRR ranges and the output are ordered */
+  bool mrr_is_output_sorted;
+  /** TRUE <=> we're currently traversing a range in mrr_cur_range. */
+  bool mrr_have_range;
+  bool eq_range;
+  bool internal_tmp_table;                 /* If internal tmp table */
+  bool implicit_emptied;                   /* Can be !=0 only if HEAP */
+  bool mark_trx_read_write_done;           /* mark_trx_read_write was called */
+  bool check_table_binlog_row_based_done; /* check_table_binlog.. was called */
+  bool check_table_binlog_row_based_result; /* cached check_table_binlog... */
   /* 
     TRUE <=> the engine guarantees that returned records are within the range
     being scanned.
   */
   bool in_range_check_pushed_down;
 
+  uint errkey;                             /* Last dup key */
+  uint key_used_on_scan;
+  uint active_index, keyread;
+
   /** Length of ref (1-8 or the clustered key length) */
   uint ref_length;
   FT_INFO *ft_handler;
   enum {NONE=0, INDEX, RND} inited;
-  bool implicit_emptied;                /* Can be !=0 only if HEAP */
+
   const COND *pushed_cond;
   /**
     next_insert_id is the next value which should be inserted into the
@@ -2666,7 +2694,6 @@ private:
   Exec_time_tracker *tracker;
 public:
   void set_time_tracker(Exec_time_tracker *tracker_arg) { tracker=tracker_arg;}
-
 
   Item *pushed_idx_cond;
   uint pushed_idx_cond_keyno;  /* The index which the above condition is for */
@@ -2715,11 +2742,16 @@ public:
   handler(handlerton *ht_arg, TABLE_SHARE *share_arg)
     :table_share(share_arg), table(0),
     estimation_rows_to_insert(0), ht(ht_arg),
-    ref(0), end_range(NULL), key_used_on_scan(MAX_KEY), active_index(MAX_KEY),
+    ref(0), end_range(NULL),
+    implicit_emptied(0),
+    mark_trx_read_write_done(0),
+    check_table_binlog_row_based_done(0),
+    check_table_binlog_row_based_result(0),
     in_range_check_pushed_down(FALSE),
+    key_used_on_scan(MAX_KEY),
+    active_index(MAX_KEY), keyread(MAX_KEY),
     ref_length(sizeof(my_off_t)),
     ft_handler(0), inited(NONE),
-    implicit_emptied(0),
     pushed_cond(0), next_insert_id(0), insert_id_for_cur_row(0),
     tracker(NULL),
     pushed_idx_cond(NULL),
@@ -2821,6 +2853,22 @@ public:
   int ha_update_row(const uchar * old_data, uchar * new_data);
   int ha_delete_row(const uchar * buf);
   void ha_release_auto_increment();
+
+  bool keyread_enabled() { return keyread < MAX_KEY; }
+  int ha_start_keyread(uint idx)
+  {
+    if (keyread_enabled())
+      return 0;
+    keyread= idx;
+    return extra(HA_EXTRA_KEYREAD);
+  }
+  int ha_end_keyread()
+  {
+    if (!keyread_enabled())
+      return 0;
+    keyread= MAX_KEY;
+    return extra(HA_EXTRA_NO_KEYREAD);
+  }
 
   int check_collation_compatibility();
   int ha_check_for_upgrade(HA_CHECK_OPT *check_opt);
@@ -2938,7 +2986,6 @@ public:
   virtual const key_map *keys_to_use_for_scanning() { return &key_map_empty; }
   bool has_transactions()
   { return (ha_table_flags() & HA_NO_TRANSACTIONS) == 0; }
-  virtual uint extra_rec_buf_length() const { return 0; }
 
   /**
     This method is used to analyse the error to see whether the error
@@ -3858,25 +3905,10 @@ public:
   }
 
   LEX_STRING *engine_name() { return hton_name(ht); }
-
-  /*
-    @brief
-    Check whether the engine supports virtual columns
-    
-    @retval
-      FALSE   if the engine does not support virtual columns    
-    @retval
-      TRUE    if the engine supports virtual columns
-  */
-
-  virtual bool check_if_supported_virtual_columns(void) { return FALSE;}
   
   TABLE* get_table() { return table; }
   TABLE_SHARE* get_table_share() { return table_share; }
 protected:
-  /* deprecated, don't use in new engines */
-  inline void ha_statistic_increment(ulong SSV::*offset) const { }
-
   /* Service methods for use by storage engines. */
   void **ha_data(THD *) const;
   THD *ha_thd(void) const;
@@ -3901,10 +3933,22 @@ protected:
   */
   virtual int delete_table(const char *name);
 
+public:
+  inline bool check_table_binlog_row_based(bool binlog_row);
 private:
+  /* Cache result to avoid extra calls */
+  inline void mark_trx_read_write()
+  {
+    if (unlikely(!mark_trx_read_write_done))
+    {
+      mark_trx_read_write_done= 1;
+      mark_trx_read_write_internal();
+    }
+  }
+  void mark_trx_read_write_internal();
+  bool check_table_binlog_row_based_internal(bool binlog_row);
+
   /* Private helpers */
-  inline void mark_trx_read_write();
-private:
   inline void increment_statistics(ulong SSV::*offset) const;
   inline void decrement_statistics(ulong SSV::*offset) const;
 

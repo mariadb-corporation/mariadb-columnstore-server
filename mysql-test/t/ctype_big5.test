@@ -18,11 +18,13 @@ SET collation_connection='big5_chinese_ci';
 -- source include/ctype_like_escape.inc
 -- source include/ctype_like_range_f1f2.inc
 -- source include/ctype_ascii_order.inc
+-- source include/ctype_pad_space.inc
 SET collation_connection='big5_bin';
 -- source include/ctype_filesort.inc
 -- source include/ctype_innodb_like.inc
 -- source include/ctype_like_escape.inc
 -- source include/ctype_like_range_f1f2.inc
+-- source include/ctype_pad_space.inc
 
 #
 # Bugs#9357: TEXT columns break string with special word in BIG5 charset.
@@ -120,7 +122,7 @@ ORDER BY head, tail;
 DROP TEMPORARY TABLE head, tail;
 SHOW CREATE TABLE t1;
 SELECT COUNT(*) FROM t1;
-UPDATE t1 SET a=unhex(code) ORDER BY code;
+UPDATE IGNORE t1 SET a=unhex(code) ORDER BY code;
 SELECT COUNT(*) FROM t1 WHERE a<>'?';
 #
 # Display all characters that have upper or lower case mapping.
@@ -246,4 +248,24 @@ DROP TABLE t1;
 
 --echo #
 --echo # End of 10.0 tests
+--echo #
+
+--echo #
+--echo # Start of 10.2 tests
+--echo #
+
+--echo #
+--echo # MDEV-9711 NO PAD Collatons
+--echo #
+SET character_set_connection=big5;
+let $coll='big5_chinese_nopad_ci';
+let $coll_pad='big5_chinese_ci';
+--source include/ctype_pad_all_engines.inc
+
+let $coll='big5_nopad_bin';
+let $coll_pad='big5_bin';
+--source include/ctype_pad_all_engines.inc
+
+--echo #
+--echo # End of 10.2 tests
 --echo #

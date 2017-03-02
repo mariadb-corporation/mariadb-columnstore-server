@@ -267,7 +267,7 @@ select * from t2;
 insert into t2 (a) values (1026);
 --replace_result $MYSQLTEST_VARDIR ..
 --error ER_DUP_ENTRY
-eval load data infile "../../std_data/words.dat" into table t1 (a) set a:=f2(26);
+eval load data infile "../../std_data/words.dat" ignore into table t1 (a) set a:=f2(26);
 
 select * from t2;
 rollback;
@@ -430,9 +430,9 @@ call p_verify_status_increment(2, 2, 2, 2);
 --echo # 4. Read-write statement: UPDATE, update 0 rows, 1 row matches WHERE 
 --echo #
 update t1 set a=2;
-call p_verify_status_increment(2, 2, 1, 0);
+call p_verify_status_increment(2, 0, 1, 0);
 commit;
-call p_verify_status_increment(2, 2, 1, 0);
+call p_verify_status_increment(2, 0, 1, 0);
 
 --echo # 5. Read-write statement: UPDATE, update 0 rows, 0 rows match WHERE 
 --echo #

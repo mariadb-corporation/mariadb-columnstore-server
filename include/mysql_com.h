@@ -21,6 +21,8 @@
 #ifndef _mysql_com_h
 #define _mysql_com_h
 
+#include "my_decimal_limits.h"
+
 #define HOSTNAME_LENGTH 60
 #define SYSTEM_CHARSET_MBMAXLEN 3
 #define NAME_CHAR_LEN	64              /* Field/table name length */
@@ -71,6 +73,14 @@
 #define TABLE_PARTITION_COMMENT_MAXLEN 1024
 
 /*
+  Maximum length of protocol packet.
+  OK packet length limit also restricted to this value as any length greater
+  than this value will have first byte of OK packet to be 254 thus does not
+  provide a means to identify if this is OK or EOF packet.
+*/
+#define MAX_PACKET_LENGTH (256L*256L*256L-1)
+
+/*
   USER_HOST_BUFF_SIZE -- length of string buffer, that is enough to contain
   username and hostname parts of the user identifier with trailing zero in
   MySQL standard format:
@@ -101,10 +111,29 @@ enum enum_server_command
   COM_TABLE_DUMP, COM_CONNECT_OUT, COM_REGISTER_SLAVE,
   COM_STMT_PREPARE, COM_STMT_EXECUTE, COM_STMT_SEND_LONG_DATA, COM_STMT_CLOSE,
   COM_STMT_RESET, COM_SET_OPTION, COM_STMT_FETCH, COM_DAEMON,
+  COM_UNIMPLEMENTED, // COM_BINLOG_DUMP_GTID in MySQL
+  COM_RESET_CONNECTION,
   /* don't forget to update const char *command_name[] in sql_parse.cc */
-
+  COM_MDB_GAP_BEG,
+  COM_MDB_GAP_END=250,
+  COM_SLAVE_WORKER=251,
+  COM_SLAVE_IO=252,
+  COM_SLAVE_SQL=253,
+  COM_MULTI=254,
   /* Must be last */
-  COM_END
+  COM_END=255
+};
+
+
+/*
+  Bulk PS protocol indicator value:
+*/
+enum enum_indicator_type
+{
+  STMT_INDICATOR_NONE= 0,
+  STMT_INDICATOR_NULL,
+  STMT_INDICATOR_DEFAULT,
+  STMT_INDICATOR_IGNORE
 };
 
 /* sql type stored in .frm files for virtual fields */
@@ -139,7 +168,6 @@ enum enum_server_command
 #define NUM_FLAG	32768		/* Field is num (for clients) */
 #define PART_KEY_FLAG	16384		/* Intern; Part of some key */
 #define GROUP_FLAG	32768		/* Intern: Group field */
-#define UNIQUE_FLAG	65536		/* Intern: Used by sql_yacc */
 #define BINCMP_FLAG	131072		/* Intern: Used by sql_yacc */
 #define GET_FIXED_FIELDS_FLAG (1 << 18) /* Used to get fields in item tree */
 #define FIELD_IN_PART_FUNC_FLAG (1 << 19)/* Field part of partition func */
@@ -155,8 +183,6 @@ enum enum_server_command
 #define FIELD_FLAGS_COLUMN_FORMAT 24    /* Field column format, bit 24-25 */
 #define FIELD_FLAGS_COLUMN_FORMAT_MASK (3 << FIELD_FLAGS_COLUMN_FORMAT)
 #define FIELD_IS_DROPPED (1<< 26)       /* Intern: Field is being dropped */
-#define HAS_EXPLICIT_VALUE (1 << 27)    /* An INSERT/UPDATE operation supplied
-                                          an explicit default value */
 
 #define REFRESH_GRANT           (1ULL << 0)  /* Refresh grant tables */
 #define REFRESH_LOG             (1ULL << 1)  /* Start on new log file */
@@ -189,35 +215,44 @@ enum enum_server_command
 #define REFRESH_GENERIC         (1ULL << 30)
 #define REFRESH_FAST            (1ULL << 31) /* Intern flag */
 
-#define CLIENT_LONG_PASSWORD	1	/* new more secure passwords */
-#define CLIENT_FOUND_ROWS	2	/* Found instead of affected rows */
-#define CLIENT_LONG_FLAG	4	/* Get all column flags */
-#define CLIENT_CONNECT_WITH_DB	8	/* One can specify db on connect */
-#define CLIENT_NO_SCHEMA	16	/* Don't allow database.table.column */
-#define CLIENT_COMPRESS		32	/* Can use compression protocol */
-#define CLIENT_ODBC		64	/* Odbc client */
-#define CLIENT_LOCAL_FILES	128	/* Can use LOAD DATA LOCAL */
-#define CLIENT_IGNORE_SPACE	256	/* Ignore spaces before '(' */
-#define CLIENT_PROTOCOL_41	512	/* New 4.1 protocol */
-#define CLIENT_INTERACTIVE	1024	/* This is an interactive client */
-#define CLIENT_SSL              2048	/* Switch to SSL after handshake */
-#define CLIENT_IGNORE_SIGPIPE   4096    /* IGNORE sigpipes */
-#define CLIENT_TRANSACTIONS	8192	/* Client knows about transactions */
-#define CLIENT_RESERVED         16384   /* Old flag for 4.1 protocol  */
-#define CLIENT_SECURE_CONNECTION 32768  /* New 4.1 authentication */
-#define CLIENT_MULTI_STATEMENTS (1UL << 16) /* Enable/disable multi-stmt support */
-#define CLIENT_MULTI_RESULTS    (1UL << 17) /* Enable/disable multi-results */
-#define CLIENT_PS_MULTI_RESULTS (1UL << 18) /* Multi-results in PS-protocol */
+#define CLIENT_LONG_PASSWORD	0	/* obsolete flag */
+#define CLIENT_MYSQL            1ULL       /* mysql/old mariadb server/client */
+#define CLIENT_FOUND_ROWS	2ULL	/* Found instead of affected rows */
+#define CLIENT_LONG_FLAG	4ULL	/* Get all column flags */
+#define CLIENT_CONNECT_WITH_DB	8ULL	/* One can specify db on connect */
+#define CLIENT_NO_SCHEMA	16ULL	/* Don't allow database.table.column */
+#define CLIENT_COMPRESS		32ULL	/* Can use compression protocol */
+#define CLIENT_ODBC		64ULL	/* Odbc client */
+#define CLIENT_LOCAL_FILES	128ULL	/* Can use LOAD DATA LOCAL */
+#define CLIENT_IGNORE_SPACE	256ULL	/* Ignore spaces before '(' */
+#define CLIENT_PROTOCOL_41	512ULL	/* New 4.1 protocol */
+#define CLIENT_INTERACTIVE	1024ULL	/* This is an interactive client */
+#define CLIENT_SSL              2048ULL	/* Switch to SSL after handshake */
+#define CLIENT_IGNORE_SIGPIPE   4096ULL    /* IGNORE sigpipes */
+#define CLIENT_TRANSACTIONS	8192ULL	/* Client knows about transactions */
+#define CLIENT_RESERVED         16384ULL   /* Old flag for 4.1 protocol  */
+#define CLIENT_SECURE_CONNECTION 32768ULL  /* New 4.1 authentication */
+#define CLIENT_MULTI_STATEMENTS (1ULL << 16) /* Enable/disable multi-stmt support */
+#define CLIENT_MULTI_RESULTS    (1ULL << 17) /* Enable/disable multi-results */
+#define CLIENT_PS_MULTI_RESULTS (1ULL << 18) /* Multi-results in PS-protocol */
 
-#define CLIENT_PLUGIN_AUTH  (1UL << 19) /* Client supports plugin authentication */
-#define CLIENT_CONNECT_ATTRS (1UL << 20) /* Client supports connection attributes */
+#define CLIENT_PLUGIN_AUTH  (1ULL << 19) /* Client supports plugin authentication */
+#define CLIENT_CONNECT_ATTRS (1ULL << 20) /* Client supports connection attributes */
 /* Enable authentication response packet to be larger than 255 bytes. */
-#define CLIENT_PLUGIN_AUTH_LENENC_CLIENT_DATA (1UL << 21)
+#define CLIENT_PLUGIN_AUTH_LENENC_CLIENT_DATA (1ULL << 21)
 /* Don't close the connection for a connection with expired password. */
-#define CLIENT_CAN_HANDLE_EXPIRED_PASSWORDS (1UL << 22)
+#define CLIENT_CAN_HANDLE_EXPIRED_PASSWORDS (1ULL << 22)
 
-#define CLIENT_PROGRESS  (1UL << 29)   /* Client support progress indicator */
-#define CLIENT_SSL_VERIFY_SERVER_CERT (1UL << 30)
+/**
+  Capable of handling server state change information. Its a hint to the
+  server to include the state change information in Ok packet.
+*/
+#define CLIENT_SESSION_TRACK (1ULL << 23)
+/* Client no longer needs EOF packet */
+#define CLIENT_DEPRECATE_EOF (1ULL << 24)
+
+#define CLIENT_PROGRESS_OBSOLETE  (1ULL << 29)
+#define CLIENT_SSL_VERIFY_SERVER_CERT (1ULL << 30)
 /*
   It used to be that if mysql_real_connect() failed, it would delete any
   options set by the client, unless the CLIENT_REMEMBER_OPTIONS flag was
@@ -227,7 +262,16 @@ enum enum_server_command
   always preserve any options set in case of failed connect, and this
   option is effectively always set.
 */
-#define CLIENT_REMEMBER_OPTIONS (1UL << 31)
+#define CLIENT_REMEMBER_OPTIONS (1ULL << 31)
+
+/* MariaDB extended capability flags */
+#define MARIADB_CLIENT_FLAGS_MASK 0xffffffff00000000ULL
+/* Client support progress indicator */
+#define MARIADB_CLIENT_PROGRESS (1ULL << 32)
+/* support COM_MULTI */
+#define MARIADB_CLIENT_COM_MULTI (1ULL << 33)
+/* support of array binding */
+#define MARIADB_CLIENT_STMT_BULK_OPERATIONS (1ULL << 34)
 
 #ifdef HAVE_COMPRESS
 #define CAN_CLIENT_COMPRESS CLIENT_COMPRESS
@@ -235,8 +279,12 @@ enum enum_server_command
 #define CAN_CLIENT_COMPRESS 0
 #endif
 
-/* Gather all possible capabilites (flags) supported by the server */
-#define CLIENT_ALL_FLAGS  (CLIENT_LONG_PASSWORD | \
+/*
+  Gather all possible capabilites (flags) supported by the server
+
+  MARIADB_* flags supported only by MariaDB connector(s).
+*/
+#define CLIENT_ALL_FLAGS  (\
                            CLIENT_FOUND_ROWS | \
                            CLIENT_LONG_FLAG | \
                            CLIENT_CONNECT_WITH_DB | \
@@ -257,10 +305,14 @@ enum enum_server_command
                            CLIENT_PS_MULTI_RESULTS | \
                            CLIENT_SSL_VERIFY_SERVER_CERT | \
                            CLIENT_REMEMBER_OPTIONS | \
-                           CLIENT_PROGRESS | \
+                           MARIADB_CLIENT_PROGRESS | \
                            CLIENT_PLUGIN_AUTH | \
                            CLIENT_PLUGIN_AUTH_LENENC_CLIENT_DATA | \
-                           CLIENT_CONNECT_ATTRS)
+                           CLIENT_SESSION_TRACK |\
+                           CLIENT_DEPRECATE_EOF |\
+                           CLIENT_CONNECT_ATTRS |\
+                           MARIADB_CLIENT_COM_MULTI |\
+                           MARIADB_CLIENT_STMT_BULK_OPERATIONS)
 
 /*
   To be added later:
@@ -323,6 +375,11 @@ enum enum_server_command
 */
 #define SERVER_STATUS_IN_TRANS_READONLY 8192
 
+/**
+  This status flag, when on, implies that one of the state information has
+  changed on the server because of the execution of the last statement.
+*/
+#define SERVER_SESSION_STATE_CHANGED (1UL << 14)
 
 /**
   Server status flags that must be cleared when starting
@@ -339,7 +396,8 @@ enum enum_server_command
                                  SERVER_QUERY_WAS_SLOW |\
                                  SERVER_STATUS_DB_DROPPED |\
                                  SERVER_STATUS_CURSOR_EXISTS|\
-                                 SERVER_STATUS_LAST_ROW_SENT)
+                                 SERVER_STATUS_LAST_ROW_SENT|\
+                                 SERVER_SESSION_STATE_CHANGED)
 
 #define MYSQL_ERRMSG_SIZE	512
 #define NET_READ_TIMEOUT	30		/* Timeout on read */
@@ -506,6 +564,26 @@ enum enum_mysql_set_option
   MYSQL_OPTION_MULTI_STATEMENTS_OFF
 };
 
+/*
+  Type of state change information that the server can include in the Ok
+  packet.
+*/
+enum enum_session_state_type
+{
+  SESSION_TRACK_SYSTEM_VARIABLES,             /* Session system variables */
+  SESSION_TRACK_SCHEMA,                       /* Current schema */
+  SESSION_TRACK_STATE_CHANGE,                 /* track session state changes */
+  SESSION_TRACK_GTIDS,
+  SESSION_TRACK_TRANSACTION_CHARACTERISTICS,  /* Transaction chistics */
+  SESSION_TRACK_TRANSACTION_STATE,            /* Transaction state */
+  SESSION_TRACK_always_at_the_end             /* must be last */
+};
+
+#define SESSION_TRACK_BEGIN SESSION_TRACK_SYSTEM_VARIABLES
+
+#define IS_SESSION_STATE_TYPE(T) \
+  (((int)(T) >= SESSION_TRACK_BEGIN) && ((T) < SESSION_TRACK_always_at_the_end))
+
 #define net_new_transaction(net) ((net)->pkt_nr=0)
 
 #ifdef __cplusplus
@@ -524,6 +602,8 @@ my_bool	net_write_command(NET *net,unsigned char command,
 			  const unsigned char *packet, size_t len);
 int	net_real_write(NET *net,const unsigned char *packet, size_t len);
 unsigned long my_net_read_packet(NET *net, my_bool read_from_server);
+unsigned long my_net_read_packet_reallen(NET *net, my_bool read_from_server,
+                                         unsigned long* reallen);
 #define my_net_read(A) my_net_read_packet((A), 0)
 
 #ifdef MY_GLOBAL_INCLUDED
@@ -619,11 +699,7 @@ my_bool my_thread_init(void);
 void my_thread_end(void);
 
 #ifdef MY_GLOBAL_INCLUDED
-ulong STDCALL net_field_length(uchar **packet);
-my_ulonglong net_field_length_ll(uchar **packet);
-my_ulonglong safe_net_field_length_ll(uchar **packet, size_t packet_len);
-uchar *net_store_length(uchar *pkg, ulonglong length);
-uchar *safe_net_store_length(uchar *pkg, size_t pkg_len, ulonglong length);
+#include "pack.h"
 #endif
 
 #ifdef __cplusplus
@@ -634,5 +710,11 @@ uchar *safe_net_store_length(uchar *pkg, size_t pkg_len, ulonglong length);
 #define MYSQL_STMT_HEADER       4
 #define MYSQL_LONG_DATA_HEADER  6
 
-#define NOT_FIXED_DEC           31
+/*
+  If a float or double field have more than this number of decimals,
+  it's regarded as floating point field without any specific number of
+  decimals
+*/
+
+
 #endif

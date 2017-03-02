@@ -364,7 +364,7 @@ want1result
 location
 DROP TABLE t1;
 create table t1 (a set('a') not null);
-insert into t1 values (),();
+insert ignore into t1 values (),();
 Warnings:
 Warning	1364	Field 'a' doesn't have a default value
 select cast(a as char(1)) from t1;
@@ -518,13 +518,28 @@ STR_TO_DATE(CAST(_utf8'2001√∑01√∑01' AS CHAR),CAST(_utf8'%Y√∑%m√∑%d' AS CHAR))
 CREATE TABLE t1 AS SELECT REPEAT(' ', 64) AS subject, REPEAT(' ',64) AS pattern LIMIT 0;
 SHOW COLUMNS FROM t1;
 Field	Type	Null	Key	Default	Extra
-subject	varchar(64)	NO		NULL	
-pattern	varchar(64)	NO		NULL	
+subject	varchar(64)	YES		NULL	
+pattern	varchar(64)	YES		NULL	
 INSERT INTO t1 VALUES (_utf8'2001√∑01√∑01',_utf8'%Y√∑%m√∑%d');
 SELECT HEX(subject),HEX(pattern),STR_TO_DATE(subject, pattern) FROM t1;
 HEX(subject)	HEX(pattern)	STR_TO_DATE(subject, pattern)
 32303031F73031F73031	2559F7256DF72564	2001-01-01 00:00:00.000000
 DROP TABLE t1;
+SELECT strcmp('a','a '),   strcmp('a ','a');
+strcmp('a','a ')	strcmp('a ','a')
+0	0
+SELECT strcmp('a\0','a' ), strcmp('a','a\0');
+strcmp('a\0','a' )	strcmp('a','a\0')
+-1	1
+SELECT strcmp('a\0','a '), strcmp('a ','a\0');
+strcmp('a\0','a ')	strcmp('a ','a\0')
+-1	1
+SELECT strcmp('a\t','a' ), strcmp('a', 'a\t');
+strcmp('a\t','a' )	strcmp('a', 'a\t')
+-1	1
+SELECT strcmp('a\t','a '), strcmp('a ', 'a\t');
+strcmp('a\t','a ')	strcmp('a ', 'a\t')
+-1	1
 SET collation_connection='latin1_bin';
 create table t1 select repeat('a',4000) a;
 delete from t1;
@@ -621,6 +636,21 @@ select c1 as c2h from t1 where c1 like 'ab#_def' escape '#';
 c2h
 ab_def
 drop table t1;
+SELECT strcmp('a','a '),   strcmp('a ','a');
+strcmp('a','a ')	strcmp('a ','a')
+0	0
+SELECT strcmp('a\0','a' ), strcmp('a','a\0');
+strcmp('a\0','a' )	strcmp('a','a\0')
+-1	1
+SELECT strcmp('a\0','a '), strcmp('a ','a\0');
+strcmp('a\0','a ')	strcmp('a ','a\0')
+-1	1
+SELECT strcmp('a\t','a' ), strcmp('a', 'a\t');
+strcmp('a\t','a' )	strcmp('a', 'a\t')
+-1	1
+SELECT strcmp('a\t','a '), strcmp('a ', 'a\t');
+strcmp('a\t','a ')	strcmp('a ', 'a\t')
+-1	1
 CREATE TABLE Ña (a int);
 ERROR 42000: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'Ña (a int)' at line 1
 SELECT 'Ña' as str;
@@ -689,7 +719,7 @@ create table t1 as select concat(1) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 select hex(c1) from t1;
 hex(c1)
@@ -702,7 +732,7 @@ create table t1 as select concat(18446744073709551615) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(20) NOT NULL
+  `c1` varchar(20) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 select hex(c1) from t1;
 hex(c1)
@@ -715,7 +745,7 @@ create table t1 as select concat(1.1) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(4) NOT NULL
+  `c1` varchar(4) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 select hex(c1) from t1;
 hex(c1)
@@ -728,7 +758,7 @@ create table t1 as select concat(1+2) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(3) NOT NULL
+  `c1` varchar(3) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(1-2));
@@ -738,7 +768,7 @@ create table t1 as select concat(1-2) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(3) NOT NULL
+  `c1` varchar(3) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(1*2));
@@ -748,7 +778,7 @@ create table t1 as select concat(1*2) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(3) NOT NULL
+  `c1` varchar(3) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(1/2));
@@ -788,7 +818,7 @@ create table t1 as select concat(-1) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(2) NOT NULL
+  `c1` varchar(2) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(-(1+2)));
@@ -798,7 +828,7 @@ create table t1 as select concat(-(1+2)) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(4) NOT NULL
+  `c1` varchar(4) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(1|2));
@@ -808,7 +838,7 @@ create table t1 as select concat(1|2) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(21) NOT NULL
+  `c1` varchar(21) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(1&2));
@@ -818,7 +848,7 @@ create table t1 as select concat(1&2) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(21) NOT NULL
+  `c1` varchar(21) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(bit_count(12)));
@@ -828,7 +858,7 @@ create table t1 as select concat(bit_count(12)) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(2) NOT NULL
+  `c1` varchar(2) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(2<<1));
@@ -838,7 +868,7 @@ create table t1 as select concat(2<<1) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(21) NOT NULL
+  `c1` varchar(21) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(2>>1));
@@ -848,7 +878,7 @@ create table t1 as select concat(2>>1) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(21) NOT NULL
+  `c1` varchar(21) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(~0));
@@ -858,7 +888,7 @@ create table t1 as select concat(~0) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(21) NOT NULL
+  `c1` varchar(21) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(3^2));
@@ -868,7 +898,7 @@ create table t1 as select concat(3^2) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(21) NOT NULL
+  `c1` varchar(21) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(abs(-2)));
@@ -878,7 +908,7 @@ create table t1 as select concat(abs(-2)) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(2) NOT NULL
+  `c1` varchar(2) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(left(concat(exp(2)),1));
@@ -1008,7 +1038,7 @@ create table t1 as select concat(degrees(0)) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(23) NOT NULL
+  `c1` varchar(23) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(radians(0)));
@@ -1018,7 +1048,7 @@ create table t1 as select concat(radians(0)) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(23) NOT NULL
+  `c1` varchar(23) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(ceiling(0.5)));
@@ -1028,7 +1058,7 @@ create table t1 as select concat(ceiling(0.5)) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(4) NOT NULL
+  `c1` varchar(4) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(floor(0.5)));
@@ -1038,7 +1068,7 @@ create table t1 as select concat(floor(0.5)) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(4) NOT NULL
+  `c1` varchar(4) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(round(0.5)));
@@ -1048,7 +1078,7 @@ create table t1 as select concat(round(0.5)) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(3) NOT NULL
+  `c1` varchar(3) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(sign(0.5)));
@@ -1058,14 +1088,14 @@ create table t1 as select concat(sign(0.5)) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(21) NOT NULL
+  `c1` varchar(21) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 create table t1 as select concat(rand()) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(23) NOT NULL
+  `c1` varchar(23) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(length('a')));
@@ -1075,7 +1105,7 @@ create table t1 as select concat(length('a')) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(10) NOT NULL
+  `c1` varchar(10) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(char_length('a')));
@@ -1085,7 +1115,7 @@ create table t1 as select concat(char_length('a')) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(10) NOT NULL
+  `c1` varchar(10) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(bit_length('a')));
@@ -1095,7 +1125,7 @@ create table t1 as select concat(bit_length('a')) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(10) NOT NULL
+  `c1` varchar(10) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(coercibility('a')));
@@ -1105,7 +1135,7 @@ create table t1 as select concat(coercibility('a')) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(10) NOT NULL
+  `c1` varchar(10) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(locate('a','a')));
@@ -1115,7 +1145,7 @@ create table t1 as select concat(locate('a','a')) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(11) NOT NULL
+  `c1` varchar(11) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(field('c','a','b','c')));
@@ -1125,7 +1155,7 @@ create table t1 as select concat(field('c','a','b','c')) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(3) NOT NULL
+  `c1` varchar(3) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(ascii(61)));
@@ -1135,7 +1165,7 @@ create table t1 as select concat(ascii(61)) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(3) NOT NULL
+  `c1` varchar(3) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(ord(61)));
@@ -1145,7 +1175,7 @@ create table t1 as select concat(ord(61)) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(21) NOT NULL
+  `c1` varchar(21) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(find_in_set('b','a,b,c,d')));
@@ -1155,7 +1185,7 @@ create table t1 as select concat(find_in_set('b','a,b,c,d')) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(3) NOT NULL
+  `c1` varchar(3) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select md5('a'), hex(md5('a'));
@@ -1165,7 +1195,7 @@ create table t1 as select md5('a') as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(32) NOT NULL
+  `c1` varchar(32) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select old_password('a'), hex(old_password('a'));
@@ -1175,7 +1205,7 @@ create table t1 as select old_password('a') as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(16) NOT NULL
+  `c1` varchar(16) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select password('a'), hex(password('a'));
@@ -1185,7 +1215,7 @@ create table t1 as select password('a') as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(41) NOT NULL
+  `c1` varchar(41) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select sha('a'), hex(sha('a'));
@@ -1195,7 +1225,7 @@ create table t1 as select sha('a') as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(40) NOT NULL
+  `c1` varchar(40) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select sha1('a'), hex(sha1('a'));
@@ -1205,7 +1235,7 @@ create table t1 as select sha1('a') as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(40) NOT NULL
+  `c1` varchar(40) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(cast('-1' as signed)));
@@ -1215,7 +1245,7 @@ create table t1 as select concat(cast('-1' as signed)) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(2) NOT NULL
+  `c1` varchar(2) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(cast('1' as unsigned)));
@@ -1225,7 +1255,7 @@ create table t1 as select concat(cast('1' as unsigned)) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(cast(1/2 as decimal(5,5))));
@@ -1284,7 +1314,7 @@ create table t1 as select concat(least(1,2)) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(2) NOT NULL
+  `c1` varchar(2) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(greatest(1,2)));
@@ -1294,7 +1324,7 @@ create table t1 as select concat(greatest(1,2)) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(2) NOT NULL
+  `c1` varchar(2) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(case when 11 then 22 else 33 end));
@@ -1304,7 +1334,7 @@ create table t1 as select concat(case when 11 then 22 else 33 end) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(2) NOT NULL
+  `c1` varchar(2) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(coalesce(1,2)));
@@ -1314,7 +1344,7 @@ create table t1 as select concat(coalesce(1,2)) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat_ws(1,2,3));
@@ -1324,7 +1354,7 @@ create table t1 as select concat_ws(1,2,3) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(3) NOT NULL
+  `c1` varchar(3) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(group_concat(1,2,3));
@@ -1334,7 +1364,7 @@ create table t1 as select group_concat(1,2,3) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` text
+  `c1` mediumtext DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 create table t1 as select 1 as c1 union select 'a';
@@ -1352,7 +1382,7 @@ create table t1 as select concat(last_insert_id()) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(21) NOT NULL
+  `c1` varchar(21) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(benchmark(0,0)));
@@ -1362,7 +1392,7 @@ create table t1 as select concat(benchmark(0,0)) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(sleep(0)));
@@ -1372,7 +1402,7 @@ create table t1 as select concat(sleep(0)) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(21) NOT NULL
+  `c1` varchar(21) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(is_free_lock('xxxx')));
@@ -1406,7 +1436,7 @@ create table t1 as select concat(crc32('')) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(10) NOT NULL
+  `c1` varchar(10) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(uncompressed_length('')));
@@ -1423,7 +1453,7 @@ create table t1 as select concat(connection_id()) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(10) NOT NULL
+  `c1` varchar(10) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(inet_aton('127.1.1.1')));
@@ -1459,7 +1489,7 @@ create table t1 as select concat(row_count()) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(21) NOT NULL
+  `c1` varchar(21) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(found_rows()));
@@ -1469,21 +1499,21 @@ create table t1 as select concat(found_rows()) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(21) NOT NULL
+  `c1` varchar(21) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 create table t1 as select concat(uuid_short()) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(21) NOT NULL
+  `c1` varchar(21) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 create table t1 as select concat(uuid()) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(36) CHARACTER SET utf8 NOT NULL
+  `c1` varchar(36) CHARACTER SET utf8 DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select coercibility(uuid()), coercibility(cast('a' as char character set latin1));
@@ -1496,7 +1526,7 @@ create table t1 as select concat(uuid(), cast('a' as char character set latin1))
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(37) NOT NULL
+  `c1` varchar(37) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 create table t1 as select concat(master_pos_wait('non-existent',0,2)) as c1;
@@ -1516,7 +1546,7 @@ hex(c1)
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL,
+  `c1` varchar(1) DEFAULT NULL,
   `c2` int(1) NOT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
@@ -1574,7 +1604,7 @@ hex(c1)
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(4) NOT NULL,
+  `c1` varchar(4) DEFAULT NULL,
   `c2` decimal(2,1) NOT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
@@ -1590,7 +1620,7 @@ show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
   `c1` varchar(83) DEFAULT NULL,
-  `c2` decimal(65,30) DEFAULT NULL
+  `c2` decimal(65,38) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(@@ft_max_word_len));
@@ -1613,7 +1643,7 @@ create table t1 as select concat('a'='a' IS TRUE) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat('a'='a' IS NOT TRUE));
@@ -1623,7 +1653,7 @@ create table t1 as select concat('a'='a' IS NOT TRUE) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(NOT 'a'='a'));
@@ -1633,7 +1663,7 @@ create table t1 as select concat(NOT 'a'='a') as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat('a' IS NULL));
@@ -1643,7 +1673,7 @@ create table t1 as select concat('a' IS NULL) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat('a' IS NOT NULL));
@@ -1653,7 +1683,7 @@ create table t1 as select concat('a' IS NOT NULL) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat('a' rlike 'a'));
@@ -1663,7 +1693,7 @@ create table t1 as select concat('a' IS NOT NULL) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(strcmp('a','b')));
@@ -1673,7 +1703,7 @@ create table t1 as select concat(strcmp('a','b')) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(2) NOT NULL
+  `c1` varchar(2) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat('a' like 'a'));
@@ -1683,7 +1713,7 @@ create table t1 as select concat('a' like 'b') as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat('a' between 'b' and 'c'));
@@ -1693,7 +1723,7 @@ create table t1 as select concat('a' between 'b' and 'c') as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat('a' in ('a','b')));
@@ -1703,7 +1733,7 @@ create table t1 as select concat('a' in ('a','b')) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(interval(23, 1, 15, 17, 30, 44, 200)));
@@ -1713,7 +1743,7 @@ create table t1 as select concat(interval(23, 1, 15, 17, 30, 44, 200)) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(2) NOT NULL
+  `c1` varchar(2) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 create table t1 (a varchar(10), fulltext key(a));
@@ -1745,7 +1775,7 @@ create table t1 as select concat(ifnull(1,1)) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(ifnull(1.1,1.1)));
@@ -1755,7 +1785,7 @@ create table t1 as select concat(ifnull(1.1,1.1)) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(4) NOT NULL
+  `c1` varchar(4) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(if(1,'b',1));
@@ -1785,7 +1815,7 @@ create table t1 as select concat(if(1,1,1)) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(nullif(1,2)));
@@ -1940,7 +1970,7 @@ create table t1 as select concat(AsText(GeomFromText('Point(1 2)'))) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` longtext
+  `c1` longtext DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(period_add(200902, 2)));
@@ -1950,12 +1980,13 @@ create table t1 as select concat(period_add(200902, 2)) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(6) NOT NULL
+  `c1` varchar(6) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(period_diff(200902, 200802)));
 hex(concat(period_diff(200902, 200802)))
 3132
+SET STATEMENT sql_mode = 'NO_ENGINE_SUBSTITUTION' FOR
 create table t1 as select concat(period_add(200902, 200802)) as c1;
 Warnings:
 Warning	1265	Data truncated for column 'c1' at row 1
@@ -2159,21 +2190,21 @@ create table t1 as select concat(curdate()) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(10) NOT NULL
+  `c1` varchar(10) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 create table t1 as select concat(utc_date()) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(10) NOT NULL
+  `c1` varchar(10) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 create table t1 as select concat(curtime()) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(10) NOT NULL
+  `c1` varchar(10) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 create table t1 as select repeat('a',20) as c1 limit 0;
@@ -2189,7 +2220,7 @@ create table t1 as select concat(utc_time()) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(10) NOT NULL
+  `c1` varchar(10) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(sec_to_time(2378)));
@@ -2282,21 +2313,21 @@ create table t1 as select concat(now()) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(19) NOT NULL
+  `c1` varchar(19) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 create table t1 as select concat(utc_timestamp()) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(19) NOT NULL
+  `c1` varchar(19) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 create table t1 as select concat(sysdate()) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(19) NOT NULL
+  `c1` varchar(19) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(concat(addtime('00:00:00','11:22:33')));
@@ -2336,7 +2367,7 @@ create table t1 as select export_set(1,2,3,4,2) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(127) NOT NULL
+  `c1` varchar(127) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(insert(1133,3,0,22));
@@ -2346,7 +2377,7 @@ create table t1 as select insert(1133,3,0,22) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(6) NOT NULL
+  `c1` varchar(6) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(lcase(123));
@@ -2356,7 +2387,7 @@ create table t1 as select lcase(123) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(3) NOT NULL
+  `c1` varchar(3) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(left(123,1));
@@ -2366,7 +2397,7 @@ create table t1 as select left(123,1) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(lower(123));
@@ -2376,7 +2407,7 @@ create table t1 as select lower(123) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(3) NOT NULL
+  `c1` varchar(3) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(lpad(1,2,0));
@@ -2386,7 +2417,7 @@ create table t1 as select lpad(1,2,0) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(2) NOT NULL
+  `c1` varchar(2) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(ltrim(1));
@@ -2396,7 +2427,7 @@ create table t1 as select ltrim(1) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(mid(1,1,1));
@@ -2406,7 +2437,7 @@ create table t1 as select mid(1,1,1) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(repeat(1,2));
@@ -2416,7 +2447,7 @@ create table t1 as select repeat(1,2) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(2) NOT NULL
+  `c1` varchar(2) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(replace(1,1,2));
@@ -2426,7 +2457,7 @@ create table t1 as select replace(1,1,2) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(reverse(12));
@@ -2436,7 +2467,7 @@ create table t1 as select reverse(12) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(2) NOT NULL
+  `c1` varchar(2) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(right(123,1));
@@ -2446,7 +2477,7 @@ create table t1 as select right(123,1) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(rpad(1,2,0));
@@ -2456,7 +2487,7 @@ create table t1 as select rpad(1,2,0) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(2) NOT NULL
+  `c1` varchar(2) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(rtrim(1));
@@ -2466,7 +2497,7 @@ create table t1 as select rtrim(1) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(soundex(1));
@@ -2476,7 +2507,7 @@ create table t1 as select soundex(1) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(4) NOT NULL
+  `c1` varchar(4) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(substring(1,1,1));
@@ -2486,7 +2517,7 @@ create table t1 as select substring(1,1,1) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(trim(1));
@@ -2496,7 +2527,7 @@ create table t1 as select trim(1) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(ucase(1));
@@ -2506,7 +2537,7 @@ create table t1 as select ucase(1) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 select hex(upper(1));
@@ -2516,14 +2547,14 @@ create table t1 as select upper(1) as c1;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(1) NOT NULL
+  `c1` varchar(1) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 create table t1 as select repeat(' ', 64) as a limit 0;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` varchar(64) NOT NULL
+  `a` varchar(64) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 insert into t1 values ("1.1"), ("2.1");
 select a, hex(a) from t1;
@@ -2773,7 +2804,7 @@ create table t2 as select concat(a) from t1;
 show create table t2;
 Table	Create Table
 t2	CREATE TABLE `t2` (
-  `concat(a)` varchar(19) NOT NULL
+  `concat(a)` varchar(19) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1, t2;
 create table t1 (a date);
@@ -3072,7 +3103,7 @@ insert into t1 values ('2001-02-03 04:05:06');
 create view v1(a) as select concat(a) from t1;
 show columns from v1;
 Field	Type	Null	Key	Default	Extra
-a	varchar(19)	NO			
+a	varchar(19)	YES		NULL	
 select hex(a) from v1;
 hex(a)
 303030302D30302D30302030303A30303A3030
@@ -3297,7 +3328,7 @@ GROUP_CONCAT(CASE WHEN a THEN a ELSE '' END)
 1234567
 SELECT COALESCE(a,'') FROM t1 GROUP BY 1;
 Catalog	Database	Table	Table_alias	Column	Column_alias	Type	Length	Max length	Is_null	Flags	Decimals	Charsetnr
-def					COALESCE(a,'')	253	9	7	Y	0	31	8
+def					COALESCE(a,'')	253	9	7	Y	0	39	8
 COALESCE(a,'')
 1234567
 # All columns must be VARCHAR(9) with the same length:
@@ -3323,14 +3354,14 @@ CREATE TABLE t2 AS SELECT CONCAT_WS(1,2,3) FROM t1;
 SHOW CREATE TABLE t2;
 Table	Create Table
 t2	CREATE TABLE `t2` (
-  `CONCAT_WS(1,2,3)` varchar(3) NOT NULL
+  `CONCAT_WS(1,2,3)` varchar(3) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 DROP TABLE t2;
 CREATE TABLE t2 AS SELECT INSERT(1133,3,0,22) FROM t1;
 SHOW CREATE TABLE t2;
 Table	Create Table
 t2	CREATE TABLE `t2` (
-  `INSERT(1133,3,0,22)` varchar(6) NOT NULL
+  `INSERT(1133,3,0,22)` varchar(6) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 DROP TABLE t2;
 CREATE TABLE t2 AS SELECT LCASE(a) FROM t1;
@@ -3351,35 +3382,35 @@ CREATE TABLE t2 AS SELECT REPEAT(1,2) FROM t1;
 SHOW CREATE TABLE t2;
 Table	Create Table
 t2	CREATE TABLE `t2` (
-  `REPEAT(1,2)` varchar(2) NOT NULL
+  `REPEAT(1,2)` varchar(2) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 DROP TABLE t2;
 CREATE TABLE t2 AS SELECT LEFT(123,2) FROM t1;
 SHOW CREATE TABLE t2;
 Table	Create Table
 t2	CREATE TABLE `t2` (
-  `LEFT(123,2)` varchar(2) NOT NULL
+  `LEFT(123,2)` varchar(2) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 DROP TABLE t2;
 CREATE TABLE t2 AS SELECT RIGHT(123,2) FROM t1;
 SHOW CREATE TABLE t2;
 Table	Create Table
 t2	CREATE TABLE `t2` (
-  `RIGHT(123,2)` varchar(2) NOT NULL
+  `RIGHT(123,2)` varchar(2) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 DROP TABLE t2;
 CREATE TABLE t2 AS SELECT LTRIM(123) FROM t1;
 SHOW CREATE TABLE t2;
 Table	Create Table
 t2	CREATE TABLE `t2` (
-  `LTRIM(123)` varchar(3) NOT NULL
+  `LTRIM(123)` varchar(3) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 DROP TABLE t2;
 CREATE TABLE t2 AS SELECT RTRIM(123) FROM t1;
 SHOW CREATE TABLE t2;
 Table	Create Table
 t2	CREATE TABLE `t2` (
-  `RTRIM(123)` varchar(3) NOT NULL
+  `RTRIM(123)` varchar(3) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 DROP TABLE t2;
 CREATE TABLE t2 AS SELECT ELT(1,111,222,333) FROM t1;
@@ -3393,35 +3424,35 @@ CREATE TABLE t2 AS SELECT REPLACE(111,2,3) FROM t1;
 SHOW CREATE TABLE t2;
 Table	Create Table
 t2	CREATE TABLE `t2` (
-  `REPLACE(111,2,3)` varchar(3) NOT NULL
+  `REPLACE(111,2,3)` varchar(3) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 DROP TABLE t2;
 CREATE TABLE t2 AS SELECT SUBSTRING_INDEX(111,111,1) FROM t1;
 SHOW CREATE TABLE t2;
 Table	Create Table
 t2	CREATE TABLE `t2` (
-  `SUBSTRING_INDEX(111,111,1)` varchar(3) NOT NULL
+  `SUBSTRING_INDEX(111,111,1)` varchar(3) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 DROP TABLE t2;
 CREATE TABLE t2 AS SELECT MAKE_SET(111,222,3) FROM t1;
 SHOW CREATE TABLE t2;
 Table	Create Table
 t2	CREATE TABLE `t2` (
-  `MAKE_SET(111,222,3)` varchar(5) NOT NULL
+  `MAKE_SET(111,222,3)` varchar(5) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 DROP TABLE t2;
 CREATE TABLE t2 AS SELECT SOUNDEX(1) FROM t1;
 SHOW CREATE TABLE t2;
 Table	Create Table
 t2	CREATE TABLE `t2` (
-  `SOUNDEX(1)` varchar(4) NOT NULL
+  `SOUNDEX(1)` varchar(4) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 DROP TABLE t2;
 CREATE TABLE t2 AS SELECT EXPORT_SET(1,'Y','N','',8);
 SHOW CREATE TABLE t2;
 Table	Create Table
 t2	CREATE TABLE `t2` (
-  `EXPORT_SET(1,'Y','N','',8)` varchar(64) NOT NULL
+  `EXPORT_SET(1,'Y','N','',8)` varchar(64) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 DROP TABLE t2;
 DROP TABLE t1;
@@ -3545,11 +3576,11 @@ NULL
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	No tables used
 Level	Code	Message
-Note	1003	select (v_LastPaymentDate@0 < now()) AS `v_LastPaymentDate < NOW()`
+Note	1003	select v_LastPaymentDate@0 < current_timestamp() AS `v_LastPaymentDate < NOW()`
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	No tables used
 Warnings:
-Note	1003	select concat(v_LastPaymentDate@0,now()) AS `CONCAT(v_LastPaymentDate, NOW())`
+Note	1003	select concat(v_LastPaymentDate@0,current_timestamp()) AS `CONCAT(v_LastPaymentDate, NOW())`
 DROP PROCEDURE p1;
 #
 # Bug#52159 returning time type from function and empty left join causes debug assertion
@@ -3649,7 +3680,7 @@ CREATE TABLE t1 AS SELECT REPEAT('a',5) AS a;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` varchar(5) NOT NULL
+  `a` varchar(5) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 CREATE TABLE t2 AS SELECT WEIGHT_STRING(a) AS ws FROM t1;
 SHOW CREATE TABLE t2;
@@ -3893,7 +3924,7 @@ CREATE TABLE t1 AS SELECT REPEAT('a',5) AS a;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` varchar(5) CHARACTER SET latin1 COLLATE latin1_bin NOT NULL
+  `a` varchar(5) CHARACTER SET latin1 COLLATE latin1_bin DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 CREATE TABLE t2 AS SELECT WEIGHT_STRING(a) AS ws FROM t1;
 SHOW CREATE TABLE t2;
@@ -4137,7 +4168,7 @@ CREATE TABLE t1 AS SELECT REPEAT('a',5) AS a;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` varchar(5) CHARACTER SET latin1 COLLATE latin1_general_cs NOT NULL
+  `a` varchar(5) CHARACTER SET latin1 COLLATE latin1_general_cs DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 CREATE TABLE t2 AS SELECT WEIGHT_STRING(a) AS ws FROM t1;
 SHOW CREATE TABLE t2;
@@ -4381,7 +4412,7 @@ CREATE TABLE t1 AS SELECT REPEAT('a',5) AS a;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` varbinary(5) NOT NULL
+  `a` varbinary(5) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 CREATE TABLE t2 AS SELECT WEIGHT_STRING(a) AS ws FROM t1;
 SHOW CREATE TABLE t2;
@@ -4605,6 +4636,7 @@ set names latin1;
 # Start of 10.0 tests
 #
 # Start of ctype_unescape.inc
+SET sql_mode = '';
 SET @query=_binary'SELECT CHARSET(\'test\'),@@character_set_client,@@character_set_connection';
 PREPARE stmt FROM @query;
 EXECUTE stmt;
@@ -7667,6 +7699,7 @@ DROP FUNCTION wellformedness;
 DROP FUNCTION mysql_real_escape_string_generated;
 DROP FUNCTION iswellformed;
 DROP TABLE allbytes;
+SET sql_mode = DEFAULT;
 # End of ctype_backslash.inc
 SET NAMES latin1;
 #
@@ -7676,7 +7709,7 @@ CREATE TABLE t1 AS SELECT REPEAT('a', 10) AS c1 LIMIT 0;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(10) NOT NULL
+  `c1` varchar(10) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 INSERT INTO t1 VALUES ('a'),('a ');
 SELECT * FROM t1 WHERE CONCAT(c1)='a';
@@ -7693,13 +7726,13 @@ EXPLAIN EXTENDED SELECT * FROM t1 WHERE CONCAT(c1)='a' AND CONCAT(c1) LIKE 'a ';
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`c1` AS `c1` from `test`.`t1` where ((concat(`test`.`t1`.`c1`) = 'a') and (concat(`test`.`t1`.`c1`) like 'a '))
+Note	1003	select `test`.`t1`.`c1` AS `c1` from `test`.`t1` where concat(`test`.`t1`.`c1`) = 'a' and concat(`test`.`t1`.`c1`) like 'a '
 DROP TABLE t1;
 CREATE TABLE t1 AS SELECT REPEAT('a', 10) AS c1 LIMIT 0;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(10) NOT NULL
+  `c1` varchar(10) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 INSERT INTO t1 VALUES ('a'),('a ');
 SELECT * FROM t1 WHERE 'a'=CONCAT(c1);
@@ -7716,13 +7749,13 @@ EXPLAIN EXTENDED SELECT * FROM t1 WHERE 'a'=CONCAT(c1) AND 'a ' LIKE CONCAT(c1);
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`c1` AS `c1` from `test`.`t1` where (('a' = concat(`test`.`t1`.`c1`)) and ('a ' like concat(`test`.`t1`.`c1`)))
+Note	1003	select `test`.`t1`.`c1` AS `c1` from `test`.`t1` where 'a' = concat(`test`.`t1`.`c1`) and 'a ' like concat(`test`.`t1`.`c1`)
 DROP TABLE t1;
 CREATE TABLE t1 AS SELECT REPEAT('a', 10) AS c1 LIMIT 0;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(10) NOT NULL
+  `c1` varchar(10) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 INSERT INTO t1 VALUES ('%'),('% ');
 SELECT * FROM t1 WHERE '% '=CONCAT(c1);
@@ -7739,13 +7772,13 @@ EXPLAIN EXTENDED SELECT * FROM t1 WHERE '% '=CONCAT(c1) AND 'a' LIKE CONCAT(c1);
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`c1` AS `c1` from `test`.`t1` where (('% ' = concat(`test`.`t1`.`c1`)) and ('a' like concat(`test`.`t1`.`c1`)))
+Note	1003	select `test`.`t1`.`c1` AS `c1` from `test`.`t1` where '% ' = concat(`test`.`t1`.`c1`) and 'a' like concat(`test`.`t1`.`c1`)
 DROP TABLE t1;
 CREATE TABLE t1 AS SELECT REPEAT('a', 10) AS c1 LIMIT 0;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(10) NOT NULL
+  `c1` varchar(10) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 INSERT INTO t1 VALUES ('%'),('% ');
 SELECT * FROM t1 WHERE '%'=CONCAT(c1);
@@ -7762,7 +7795,7 @@ EXPLAIN EXTENDED SELECT * FROM t1 WHERE '%'=CONCAT(c1) AND 'a' LIKE CONCAT(c1);
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`c1` AS `c1` from `test`.`t1` where (('%' = concat(`test`.`t1`.`c1`)) and ('a' like concat(`test`.`t1`.`c1`)))
+Note	1003	select `test`.`t1`.`c1` AS `c1` from `test`.`t1` where '%' = concat(`test`.`t1`.`c1`) and 'a' like concat(`test`.`t1`.`c1`)
 DROP TABLE t1;
 #
 # MDEV-8694 Wrong result for SELECT..WHERE a NOT LIKE 'a ' AND a='a'
@@ -7771,7 +7804,7 @@ CREATE TABLE t1 AS SELECT SPACE(10) AS a LIMIT 0;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` varchar(10) NOT NULL
+  `a` varchar(10) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 INSERT INTO t1 VALUES ('a'),('a ');
 SELECT a, LENGTH(a) FROM t1 WHERE a NOT LIKE 'a ';
@@ -7784,7 +7817,7 @@ EXPLAIN EXTENDED SELECT a, LENGTH(a) FROM t1 WHERE a NOT LIKE 'a ' AND a='a';
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a`,length(`test`.`t1`.`a`) AS `LENGTH(a)` from `test`.`t1` where ((`test`.`t1`.`a` = 'a') and (not((`test`.`t1`.`a` like 'a '))))
+Note	1003	select `test`.`t1`.`a` AS `a`,length(`test`.`t1`.`a`) AS `LENGTH(a)` from `test`.`t1` where `test`.`t1`.`a` = 'a' and `test`.`t1`.`a`  not like 'a '
 DROP TABLE t1;
 #
 # End of MDEV-8694
@@ -7797,7 +7830,7 @@ CREATE TABLE t1 AS SELECT REPEAT('a', 10) AS c1 LIMIT 0;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(10) CHARACTER SET latin1 COLLATE latin1_bin NOT NULL
+  `c1` varchar(10) CHARACTER SET latin1 COLLATE latin1_bin DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 INSERT INTO t1 VALUES ('a'),('a ');
 SELECT * FROM t1 WHERE CONCAT(c1)='a';
@@ -7814,13 +7847,13 @@ EXPLAIN EXTENDED SELECT * FROM t1 WHERE CONCAT(c1)='a' AND CONCAT(c1) LIKE 'a ';
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`c1` AS `c1` from `test`.`t1` where ((concat(`test`.`t1`.`c1`) = 'a') and (concat(`test`.`t1`.`c1`) like 'a '))
+Note	1003	select `test`.`t1`.`c1` AS `c1` from `test`.`t1` where concat(`test`.`t1`.`c1`) = 'a' and concat(`test`.`t1`.`c1`) like 'a '
 DROP TABLE t1;
 CREATE TABLE t1 AS SELECT REPEAT('a', 10) AS c1 LIMIT 0;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(10) CHARACTER SET latin1 COLLATE latin1_bin NOT NULL
+  `c1` varchar(10) CHARACTER SET latin1 COLLATE latin1_bin DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 INSERT INTO t1 VALUES ('a'),('a ');
 SELECT * FROM t1 WHERE 'a'=CONCAT(c1);
@@ -7837,13 +7870,13 @@ EXPLAIN EXTENDED SELECT * FROM t1 WHERE 'a'=CONCAT(c1) AND 'a ' LIKE CONCAT(c1);
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`c1` AS `c1` from `test`.`t1` where (('a' = concat(`test`.`t1`.`c1`)) and ('a ' like concat(`test`.`t1`.`c1`)))
+Note	1003	select `test`.`t1`.`c1` AS `c1` from `test`.`t1` where 'a' = concat(`test`.`t1`.`c1`) and 'a ' like concat(`test`.`t1`.`c1`)
 DROP TABLE t1;
 CREATE TABLE t1 AS SELECT REPEAT('a', 10) AS c1 LIMIT 0;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(10) CHARACTER SET latin1 COLLATE latin1_bin NOT NULL
+  `c1` varchar(10) CHARACTER SET latin1 COLLATE latin1_bin DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 INSERT INTO t1 VALUES ('%'),('% ');
 SELECT * FROM t1 WHERE '% '=CONCAT(c1);
@@ -7860,13 +7893,13 @@ EXPLAIN EXTENDED SELECT * FROM t1 WHERE '% '=CONCAT(c1) AND 'a' LIKE CONCAT(c1);
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`c1` AS `c1` from `test`.`t1` where (('% ' = concat(`test`.`t1`.`c1`)) and ('a' like concat(`test`.`t1`.`c1`)))
+Note	1003	select `test`.`t1`.`c1` AS `c1` from `test`.`t1` where '% ' = concat(`test`.`t1`.`c1`) and 'a' like concat(`test`.`t1`.`c1`)
 DROP TABLE t1;
 CREATE TABLE t1 AS SELECT REPEAT('a', 10) AS c1 LIMIT 0;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` varchar(10) CHARACTER SET latin1 COLLATE latin1_bin NOT NULL
+  `c1` varchar(10) CHARACTER SET latin1 COLLATE latin1_bin DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 INSERT INTO t1 VALUES ('%'),('% ');
 SELECT * FROM t1 WHERE '%'=CONCAT(c1);
@@ -7883,7 +7916,7 @@ EXPLAIN EXTENDED SELECT * FROM t1 WHERE '%'=CONCAT(c1) AND 'a' LIKE CONCAT(c1);
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`c1` AS `c1` from `test`.`t1` where (('%' = concat(`test`.`t1`.`c1`)) and ('a' like concat(`test`.`t1`.`c1`)))
+Note	1003	select `test`.`t1`.`c1` AS `c1` from `test`.`t1` where '%' = concat(`test`.`t1`.`c1`) and 'a' like concat(`test`.`t1`.`c1`)
 DROP TABLE t1;
 #
 # MDEV-8694 Wrong result for SELECT..WHERE a NOT LIKE 'a ' AND a='a'
@@ -7892,7 +7925,7 @@ CREATE TABLE t1 AS SELECT SPACE(10) AS a LIMIT 0;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` varchar(10) CHARACTER SET latin1 COLLATE latin1_bin NOT NULL
+  `a` varchar(10) CHARACTER SET latin1 COLLATE latin1_bin DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 INSERT INTO t1 VALUES ('a'),('a ');
 SELECT a, LENGTH(a) FROM t1 WHERE a NOT LIKE 'a ';
@@ -7905,7 +7938,7 @@ EXPLAIN EXTENDED SELECT a, LENGTH(a) FROM t1 WHERE a NOT LIKE 'a ' AND a='a';
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a`,length(`test`.`t1`.`a`) AS `LENGTH(a)` from `test`.`t1` where ((`test`.`t1`.`a` = 'a') and (not((`test`.`t1`.`a` like 'a '))))
+Note	1003	select `test`.`t1`.`a` AS `a`,length(`test`.`t1`.`a`) AS `LENGTH(a)` from `test`.`t1` where `test`.`t1`.`a` = 'a' and `test`.`t1`.`a`  not like 'a '
 DROP TABLE t1;
 #
 # End of MDEV-8694
@@ -7952,7 +7985,7 @@ HEX(CONVERT('¬x' USING latin1))
 3F78
 SET NAMES utf8;
 CREATE TABLE t1 (a VARCHAR(10) CHARACTER SET latin1);
-INSERT INTO t1 VALUES ('¬'),('¬#');
+INSERT IGNORE INTO t1 VALUES ('¬'),('¬#');
 Warnings:
 Warning	1366	Incorrect string value: '\xC2' for column 'a' at row 1
 Warning	1366	Incorrect string value: '\xC2#' for column 'a' at row 2
@@ -8002,12 +8035,12 @@ EXPLAIN EXTENDED SELECT * FROM t1 WHERE a='10' AND IF(a='10',1,0)=1;
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	3	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where (`test`.`t1`.`a` = '10')
+Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where `test`.`t1`.`a` = '10'
 EXPLAIN EXTENDED SELECT * FROM t1 WHERE a='10' AND CASE WHEN a='10' THEN 1 ELSE 0 END;
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	3	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where (`test`.`t1`.`a` = '10')
+Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where `test`.`t1`.`a` = '10'
 DROP TABLE t1;
 #
 # MDEV-8680 Wrong result for SELECT..WHERE a IN ('a' COLLATE latin1_bin,'b') AND a='a'
@@ -8025,7 +8058,7 @@ EXPLAIN EXTENDED SELECT * FROM t1 WHERE a IN ('a' COLLATE latin1_bin,'b') AND a=
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where ((`test`.`t1`.`a` = 'a') and (`test`.`t1`.`a` in (<cache>(('a' collate latin1_bin)),'b')))
+Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where `test`.`t1`.`a` = 'a' and `test`.`t1`.`a` in (<cache>('a' collate latin1_bin),'b')
 DROP TABLE t1;
 #
 # MDEV-8698 Wrong result for SELECT..WHERE a BETWEEN 'a' AND 'c' COLLATE latin1_bin;
@@ -8045,7 +8078,7 @@ EXPLAIN EXTENDED SELECT * FROM t1 WHERE a BETWEEN 'a' AND 'c' COLLATE latin1_bin
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	6	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where ((`test`.`t1`.`a` = 'a') and (`test`.`t1`.`a` between 'a' and <cache>(('c' collate latin1_bin))))
+Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where `test`.`t1`.`a` = 'a' and `test`.`t1`.`a` between 'a' and <cache>('c' collate latin1_bin)
 DROP TABLE t1;
 #
 # MDEV-8707 Wrong result for SELECT..WHERE varchar_column=DATE'2001-01-01' AND varchar_column='2001-01-01'
@@ -8127,7 +8160,7 @@ EXPLAIN EXTENDED SELECT a, LENGTH(a), CRC32(a) FROM t1 WHERE a='a' AND CRC32(a)=
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a`,length(`test`.`t1`.`a`) AS `LENGTH(a)`,crc32(`test`.`t1`.`a`) AS `CRC32(a)` from `test`.`t1` where ((`test`.`t1`.`a` = 'a') and (crc32(`test`.`t1`.`a`) = 3904355907))
+Note	1003	select `test`.`t1`.`a` AS `a`,length(`test`.`t1`.`a`) AS `LENGTH(a)`,crc32(`test`.`t1`.`a`) AS `CRC32(a)` from `test`.`t1` where `test`.`t1`.`a` = 'a' and crc32(`test`.`t1`.`a`) = 3904355907
 SELECT a, HEX(a) FROM t1 WHERE HEX(a)='61';
 a	HEX(a)
 a	61
@@ -8139,7 +8172,7 @@ EXPLAIN EXTENDED SELECT *,HEX(a) FROM t1 WHERE a='a' AND HEX(a)='61';
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a`,hex(`test`.`t1`.`a`) AS `HEX(a)` from `test`.`t1` where ((`test`.`t1`.`a` = 'a') and (hex(`test`.`t1`.`a`) = '61'))
+Note	1003	select `test`.`t1`.`a` AS `a`,hex(`test`.`t1`.`a`) AS `HEX(a)` from `test`.`t1` where `test`.`t1`.`a` = 'a' and hex(`test`.`t1`.`a`) = '61'
 SELECT * FROM t1 WHERE a='a';
 a
 a
@@ -8155,7 +8188,7 @@ EXPLAIN EXTENDED SELECT * FROM t1 WHERE a='a' AND LENGTH(a)=2;
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where ((`test`.`t1`.`a` = 'a') and (length(`test`.`t1`.`a`) = 2))
+Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where `test`.`t1`.`a` = 'a' and length(`test`.`t1`.`a`) = 2
 DROP TABLE t1;
 #
 # MDEV-8712 Wrong result for SELECT..WHERE latin1_bin_column=_latin1'a' AND latin1_bin_column='A'
@@ -8187,8 +8220,572 @@ SELECT * FROM t1 WHERE COALESCE(c,0)='3 ' AND COALESCE(d,0)=COALESCE(c,0);
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a`,`test`.`t1`.`b` AS `b`,`test`.`t1`.`c` AS `c`,`test`.`t1`.`d` AS `d` from `test`.`t1` where ((coalesce(`test`.`t1`.`c`,0) = '3 ') and (coalesce(`test`.`t1`.`d`,0) = '3 '))
+Note	1003	select `test`.`t1`.`a` AS `a`,`test`.`t1`.`b` AS `b`,`test`.`t1`.`c` AS `c`,`test`.`t1`.`d` AS `d` from `test`.`t1` where coalesce(`test`.`t1`.`c`,0) = '3 ' and coalesce(`test`.`t1`.`d`,0) = '3 '
 DROP TABLE t1;
 #
 # End of 10.1 tests
+#
+#
+# Start of 10.2 tests
+#
+#
+# MDEV-9711 NO PAD Collatons
+#
+SET character_set_connection=latin1;
+SET STORAGE_ENGINE=MyISAM;
+#
+# Start of ctype_pad.inc
+#
+#
+# Unique indexes
+#
+CREATE TABLE t1 (a VARCHAR(10) PRIMARY KEY) COLLATE 'latin1_swedish_nopad_ci';
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` varchar(10) COLLATE latin1_swedish_nopad_ci NOT NULL,
+  PRIMARY KEY (`a`)
+) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_nopad_ci
+INSERT INTO t1 VALUES ('abc'),('abc  '),(' a'),(' a '),('a   ');
+SELECT HEX(a), a FROM t1 ORDER BY a;
+HEX(a)	a
+2061	 a
+206120	 a 
+61202020	a   
+616263	abc
+6162632020	abc  
+SELECT HEX(a), a FROM t1 IGNORE INDEX(PRIMARY) ORDER BY a;
+HEX(a)	a
+2061	 a
+206120	 a 
+61202020	a   
+616263	abc
+6162632020	abc  
+SELECT HEX(a), a FROM t1 IGNORE INDEX(PRIMARY) ORDER BY a DESC;
+HEX(a)	a
+6162632020	abc  
+616263	abc
+61202020	a   
+206120	 a 
+2061	 a
+#
+# UNION
+#
+CREATE TABLE t2 (a VARCHAR(10)) COLLATE 'latin1_swedish_nopad_ci';
+INSERT INTO t2 VALUES ('abc '),('abc  '),(' a'),('a ');
+SELECT HEX(a),a FROM (SELECT * FROM t1 UNION SELECT * FROM t2 ORDER BY a) td;
+HEX(a)	a
+2061	 a
+206120	 a 
+6120	a 
+61202020	a   
+616263	abc
+61626320	abc 
+6162632020	abc  
+DROP TABLE t1;
+DROP TABLE t2;
+#
+# DISTINCT, COUNT, MAX
+#
+CREATE TABLE t1 (a VARCHAR(10)) COLLATE 'latin1_swedish_nopad_ci';
+INSERT INTO t1 VALUES ('a'),('a  '),(' a'),(' a '),('a   ');
+SELECT HEX(a), a FROM (SELECT DISTINCT a FROM t1 ORDER BY a) td;
+HEX(a)	a
+2061	 a
+206120	 a 
+61	a
+612020	a  
+61202020	a   
+SELECT COUNT(DISTINCT a) FROM t1 ORDER BY a;
+COUNT(DISTINCT a)
+5
+SELECT HEX(MAX(a)), MAX(a) FROM t1;
+HEX(MAX(a))	MAX(a)
+61202020	a   
+#
+# GROUP BY
+#
+CREATE TABLE t2 (a VARCHAR(10), b int, c varchar(10)) COLLATE 'latin1_swedish_nopad_ci';
+INSERT t2 values('ab', 12, 'cd'), ('ab', 2, 'ed'), ('aa', 20, 'er'), ('aa  ', 0, 'er ');
+SELECT HEX(a), cnt FROM (SELECT a, COUNT(a) AS cnt FROM t2 GROUP BY a ORDER BY a) AS td;
+HEX(a)	cnt
+6161	1
+61612020	1
+6162	2
+DROP TABLE t2;
+#
+# Weights
+#
+SELECT HEX(WEIGHT_STRING(a AS CHAR(10))) FROM t1;
+HEX(WEIGHT_STRING(a AS CHAR(10)))
+41000000000000000000
+41202000000000000000
+20410000000000000000
+20412000000000000000
+41202020000000000000
+DROP TABLE t1;
+#
+# IF, CASE, LEAST
+#
+SELECT IF('abc' COLLATE 'latin1_swedish_nopad_ci' = 'abc ', 'pad', 'nopad');
+IF('abc' COLLATE 'latin1_swedish_nopad_ci' = 'abc ', 'pad', 'nopad')
+nopad
+SELECT CASE 'abc' COLLATE 'latin1_swedish_nopad_ci' WHEN 'abc ' THEN 'pad' ELSE 'nopad' END;
+CASE 'abc' COLLATE 'latin1_swedish_nopad_ci' WHEN 'abc ' THEN 'pad' ELSE 'nopad' END
+nopad
+SELECT CASE WHEN 'abc' COLLATE 'latin1_swedish_nopad_ci' = 'abc ' THEN 'pad' ELSE 'nopad' END;
+CASE WHEN 'abc' COLLATE 'latin1_swedish_nopad_ci' = 'abc ' THEN 'pad' ELSE 'nopad' END
+nopad
+SELECT HEX(LEAST('abc ' COLLATE 'latin1_swedish_nopad_ci', 'abc  '));
+HEX(LEAST('abc ' COLLATE 'latin1_swedish_nopad_ci', 'abc  '))
+61626320
+SELECT HEX(GREATEST('abc ' COLLATE 'latin1_swedish_nopad_ci', 'abc  '));
+HEX(GREATEST('abc ' COLLATE 'latin1_swedish_nopad_ci', 'abc  '))
+6162632020
+#
+# Collation mix
+#
+CREATE TABLE t1 (a VARCHAR(10)) COLLATE 'latin1_swedish_ci';
+INSERT INTO t1 VALUES ('a'),('a ');
+SELECT COUNT(*) FROM t1 WHERE a='a';
+COUNT(*)
+2
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'latin1_swedish_ci';
+COUNT(*)
+2
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'latin1_swedish_nopad_ci';
+COUNT(*)
+1
+ALTER TABLE t1 MODIFY a VARCHAR(10) COLLATE 'latin1_swedish_nopad_ci';
+SELECT COUNT(*) FROM t1 WHERE a='a';
+COUNT(*)
+1
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'latin1_swedish_ci';
+COUNT(*)
+2
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'latin1_swedish_nopad_ci';
+COUNT(*)
+1
+DROP TABLE t1;
+#
+# End of ctype_pad.inc
+#
+SET STORAGE_ENGINE=HEAP;
+#
+# Start of ctype_pad.inc
+#
+#
+# Unique indexes
+#
+CREATE TABLE t1 (a VARCHAR(10) PRIMARY KEY) COLLATE 'latin1_swedish_nopad_ci';
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` varchar(10) COLLATE latin1_swedish_nopad_ci NOT NULL,
+  PRIMARY KEY (`a`)
+) ENGINE=MEMORY DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_nopad_ci
+INSERT INTO t1 VALUES ('abc'),('abc  '),(' a'),(' a '),('a   ');
+SELECT HEX(a), a FROM t1 ORDER BY a;
+HEX(a)	a
+2061	 a
+206120	 a 
+61202020	a   
+616263	abc
+6162632020	abc  
+SELECT HEX(a), a FROM t1 IGNORE INDEX(PRIMARY) ORDER BY a;
+HEX(a)	a
+2061	 a
+206120	 a 
+61202020	a   
+616263	abc
+6162632020	abc  
+SELECT HEX(a), a FROM t1 IGNORE INDEX(PRIMARY) ORDER BY a DESC;
+HEX(a)	a
+6162632020	abc  
+616263	abc
+61202020	a   
+206120	 a 
+2061	 a
+#
+# UNION
+#
+CREATE TABLE t2 (a VARCHAR(10)) COLLATE 'latin1_swedish_nopad_ci';
+INSERT INTO t2 VALUES ('abc '),('abc  '),(' a'),('a ');
+SELECT HEX(a),a FROM (SELECT * FROM t1 UNION SELECT * FROM t2 ORDER BY a) td;
+HEX(a)	a
+2061	 a
+206120	 a 
+6120	a 
+61202020	a   
+616263	abc
+61626320	abc 
+6162632020	abc  
+DROP TABLE t1;
+DROP TABLE t2;
+#
+# DISTINCT, COUNT, MAX
+#
+CREATE TABLE t1 (a VARCHAR(10)) COLLATE 'latin1_swedish_nopad_ci';
+INSERT INTO t1 VALUES ('a'),('a  '),(' a'),(' a '),('a   ');
+SELECT HEX(a), a FROM (SELECT DISTINCT a FROM t1 ORDER BY a) td;
+HEX(a)	a
+2061	 a
+206120	 a 
+61	a
+612020	a  
+61202020	a   
+SELECT COUNT(DISTINCT a) FROM t1 ORDER BY a;
+COUNT(DISTINCT a)
+5
+SELECT HEX(MAX(a)), MAX(a) FROM t1;
+HEX(MAX(a))	MAX(a)
+61202020	a   
+#
+# GROUP BY
+#
+CREATE TABLE t2 (a VARCHAR(10), b int, c varchar(10)) COLLATE 'latin1_swedish_nopad_ci';
+INSERT t2 values('ab', 12, 'cd'), ('ab', 2, 'ed'), ('aa', 20, 'er'), ('aa  ', 0, 'er ');
+SELECT HEX(a), cnt FROM (SELECT a, COUNT(a) AS cnt FROM t2 GROUP BY a ORDER BY a) AS td;
+HEX(a)	cnt
+6161	1
+61612020	1
+6162	2
+DROP TABLE t2;
+#
+# Weights
+#
+SELECT HEX(WEIGHT_STRING(a AS CHAR(10))) FROM t1;
+HEX(WEIGHT_STRING(a AS CHAR(10)))
+41000000000000000000
+41202000000000000000
+20410000000000000000
+20412000000000000000
+41202020000000000000
+DROP TABLE t1;
+#
+# IF, CASE, LEAST
+#
+SELECT IF('abc' COLLATE 'latin1_swedish_nopad_ci' = 'abc ', 'pad', 'nopad');
+IF('abc' COLLATE 'latin1_swedish_nopad_ci' = 'abc ', 'pad', 'nopad')
+nopad
+SELECT CASE 'abc' COLLATE 'latin1_swedish_nopad_ci' WHEN 'abc ' THEN 'pad' ELSE 'nopad' END;
+CASE 'abc' COLLATE 'latin1_swedish_nopad_ci' WHEN 'abc ' THEN 'pad' ELSE 'nopad' END
+nopad
+SELECT CASE WHEN 'abc' COLLATE 'latin1_swedish_nopad_ci' = 'abc ' THEN 'pad' ELSE 'nopad' END;
+CASE WHEN 'abc' COLLATE 'latin1_swedish_nopad_ci' = 'abc ' THEN 'pad' ELSE 'nopad' END
+nopad
+SELECT HEX(LEAST('abc ' COLLATE 'latin1_swedish_nopad_ci', 'abc  '));
+HEX(LEAST('abc ' COLLATE 'latin1_swedish_nopad_ci', 'abc  '))
+61626320
+SELECT HEX(GREATEST('abc ' COLLATE 'latin1_swedish_nopad_ci', 'abc  '));
+HEX(GREATEST('abc ' COLLATE 'latin1_swedish_nopad_ci', 'abc  '))
+6162632020
+#
+# Collation mix
+#
+CREATE TABLE t1 (a VARCHAR(10)) COLLATE 'latin1_swedish_ci';
+INSERT INTO t1 VALUES ('a'),('a ');
+SELECT COUNT(*) FROM t1 WHERE a='a';
+COUNT(*)
+2
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'latin1_swedish_ci';
+COUNT(*)
+2
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'latin1_swedish_nopad_ci';
+COUNT(*)
+1
+ALTER TABLE t1 MODIFY a VARCHAR(10) COLLATE 'latin1_swedish_nopad_ci';
+SELECT COUNT(*) FROM t1 WHERE a='a';
+COUNT(*)
+1
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'latin1_swedish_ci';
+COUNT(*)
+2
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'latin1_swedish_nopad_ci';
+COUNT(*)
+1
+DROP TABLE t1;
+#
+# End of ctype_pad.inc
+#
+SET STORAGE_ENGINE=Default;
+SET STORAGE_ENGINE=MyISAM;
+#
+# Start of ctype_pad.inc
+#
+#
+# Unique indexes
+#
+CREATE TABLE t1 (a VARCHAR(10) PRIMARY KEY) COLLATE 'latin1_nopad_bin';
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` varchar(10) COLLATE latin1_nopad_bin NOT NULL,
+  PRIMARY KEY (`a`)
+) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_nopad_bin
+INSERT INTO t1 VALUES ('abc'),('abc  '),(' a'),(' a '),('a   ');
+SELECT HEX(a), a FROM t1 ORDER BY a;
+HEX(a)	a
+2061	 a
+206120	 a 
+61202020	a   
+616263	abc
+6162632020	abc  
+SELECT HEX(a), a FROM t1 IGNORE INDEX(PRIMARY) ORDER BY a;
+HEX(a)	a
+2061	 a
+206120	 a 
+61202020	a   
+616263	abc
+6162632020	abc  
+SELECT HEX(a), a FROM t1 IGNORE INDEX(PRIMARY) ORDER BY a DESC;
+HEX(a)	a
+6162632020	abc  
+616263	abc
+61202020	a   
+206120	 a 
+2061	 a
+#
+# UNION
+#
+CREATE TABLE t2 (a VARCHAR(10)) COLLATE 'latin1_nopad_bin';
+INSERT INTO t2 VALUES ('abc '),('abc  '),(' a'),('a ');
+SELECT HEX(a),a FROM (SELECT * FROM t1 UNION SELECT * FROM t2 ORDER BY a) td;
+HEX(a)	a
+2061	 a
+206120	 a 
+6120	a 
+61202020	a   
+616263	abc
+61626320	abc 
+6162632020	abc  
+DROP TABLE t1;
+DROP TABLE t2;
+#
+# DISTINCT, COUNT, MAX
+#
+CREATE TABLE t1 (a VARCHAR(10)) COLLATE 'latin1_nopad_bin';
+INSERT INTO t1 VALUES ('a'),('a  '),(' a'),(' a '),('a   ');
+SELECT HEX(a), a FROM (SELECT DISTINCT a FROM t1 ORDER BY a) td;
+HEX(a)	a
+2061	 a
+206120	 a 
+61	a
+612020	a  
+61202020	a   
+SELECT COUNT(DISTINCT a) FROM t1 ORDER BY a;
+COUNT(DISTINCT a)
+5
+SELECT HEX(MAX(a)), MAX(a) FROM t1;
+HEX(MAX(a))	MAX(a)
+61202020	a   
+#
+# GROUP BY
+#
+CREATE TABLE t2 (a VARCHAR(10), b int, c varchar(10)) COLLATE 'latin1_nopad_bin';
+INSERT t2 values('ab', 12, 'cd'), ('ab', 2, 'ed'), ('aa', 20, 'er'), ('aa  ', 0, 'er ');
+SELECT HEX(a), cnt FROM (SELECT a, COUNT(a) AS cnt FROM t2 GROUP BY a ORDER BY a) AS td;
+HEX(a)	cnt
+6161	1
+61612020	1
+6162	2
+DROP TABLE t2;
+#
+# Weights
+#
+SELECT HEX(WEIGHT_STRING(a AS CHAR(10))) FROM t1;
+HEX(WEIGHT_STRING(a AS CHAR(10)))
+61000000000000000000
+61202000000000000000
+20610000000000000000
+20612000000000000000
+61202020000000000000
+DROP TABLE t1;
+#
+# IF, CASE, LEAST
+#
+SELECT IF('abc' COLLATE 'latin1_nopad_bin' = 'abc ', 'pad', 'nopad');
+IF('abc' COLLATE 'latin1_nopad_bin' = 'abc ', 'pad', 'nopad')
+nopad
+SELECT CASE 'abc' COLLATE 'latin1_nopad_bin' WHEN 'abc ' THEN 'pad' ELSE 'nopad' END;
+CASE 'abc' COLLATE 'latin1_nopad_bin' WHEN 'abc ' THEN 'pad' ELSE 'nopad' END
+nopad
+SELECT CASE WHEN 'abc' COLLATE 'latin1_nopad_bin' = 'abc ' THEN 'pad' ELSE 'nopad' END;
+CASE WHEN 'abc' COLLATE 'latin1_nopad_bin' = 'abc ' THEN 'pad' ELSE 'nopad' END
+nopad
+SELECT HEX(LEAST('abc ' COLLATE 'latin1_nopad_bin', 'abc  '));
+HEX(LEAST('abc ' COLLATE 'latin1_nopad_bin', 'abc  '))
+61626320
+SELECT HEX(GREATEST('abc ' COLLATE 'latin1_nopad_bin', 'abc  '));
+HEX(GREATEST('abc ' COLLATE 'latin1_nopad_bin', 'abc  '))
+6162632020
+#
+# Collation mix
+#
+CREATE TABLE t1 (a VARCHAR(10)) COLLATE 'latin1_bin';
+INSERT INTO t1 VALUES ('a'),('a ');
+SELECT COUNT(*) FROM t1 WHERE a='a';
+COUNT(*)
+2
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'latin1_bin';
+COUNT(*)
+2
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'latin1_nopad_bin';
+COUNT(*)
+1
+ALTER TABLE t1 MODIFY a VARCHAR(10) COLLATE 'latin1_nopad_bin';
+SELECT COUNT(*) FROM t1 WHERE a='a';
+COUNT(*)
+1
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'latin1_bin';
+COUNT(*)
+2
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'latin1_nopad_bin';
+COUNT(*)
+1
+DROP TABLE t1;
+#
+# End of ctype_pad.inc
+#
+SET STORAGE_ENGINE=HEAP;
+#
+# Start of ctype_pad.inc
+#
+#
+# Unique indexes
+#
+CREATE TABLE t1 (a VARCHAR(10) PRIMARY KEY) COLLATE 'latin1_nopad_bin';
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` varchar(10) COLLATE latin1_nopad_bin NOT NULL,
+  PRIMARY KEY (`a`)
+) ENGINE=MEMORY DEFAULT CHARSET=latin1 COLLATE=latin1_nopad_bin
+INSERT INTO t1 VALUES ('abc'),('abc  '),(' a'),(' a '),('a   ');
+SELECT HEX(a), a FROM t1 ORDER BY a;
+HEX(a)	a
+2061	 a
+206120	 a 
+61202020	a   
+616263	abc
+6162632020	abc  
+SELECT HEX(a), a FROM t1 IGNORE INDEX(PRIMARY) ORDER BY a;
+HEX(a)	a
+2061	 a
+206120	 a 
+61202020	a   
+616263	abc
+6162632020	abc  
+SELECT HEX(a), a FROM t1 IGNORE INDEX(PRIMARY) ORDER BY a DESC;
+HEX(a)	a
+6162632020	abc  
+616263	abc
+61202020	a   
+206120	 a 
+2061	 a
+#
+# UNION
+#
+CREATE TABLE t2 (a VARCHAR(10)) COLLATE 'latin1_nopad_bin';
+INSERT INTO t2 VALUES ('abc '),('abc  '),(' a'),('a ');
+SELECT HEX(a),a FROM (SELECT * FROM t1 UNION SELECT * FROM t2 ORDER BY a) td;
+HEX(a)	a
+2061	 a
+206120	 a 
+6120	a 
+61202020	a   
+616263	abc
+61626320	abc 
+6162632020	abc  
+DROP TABLE t1;
+DROP TABLE t2;
+#
+# DISTINCT, COUNT, MAX
+#
+CREATE TABLE t1 (a VARCHAR(10)) COLLATE 'latin1_nopad_bin';
+INSERT INTO t1 VALUES ('a'),('a  '),(' a'),(' a '),('a   ');
+SELECT HEX(a), a FROM (SELECT DISTINCT a FROM t1 ORDER BY a) td;
+HEX(a)	a
+2061	 a
+206120	 a 
+61	a
+612020	a  
+61202020	a   
+SELECT COUNT(DISTINCT a) FROM t1 ORDER BY a;
+COUNT(DISTINCT a)
+5
+SELECT HEX(MAX(a)), MAX(a) FROM t1;
+HEX(MAX(a))	MAX(a)
+61202020	a   
+#
+# GROUP BY
+#
+CREATE TABLE t2 (a VARCHAR(10), b int, c varchar(10)) COLLATE 'latin1_nopad_bin';
+INSERT t2 values('ab', 12, 'cd'), ('ab', 2, 'ed'), ('aa', 20, 'er'), ('aa  ', 0, 'er ');
+SELECT HEX(a), cnt FROM (SELECT a, COUNT(a) AS cnt FROM t2 GROUP BY a ORDER BY a) AS td;
+HEX(a)	cnt
+6161	1
+61612020	1
+6162	2
+DROP TABLE t2;
+#
+# Weights
+#
+SELECT HEX(WEIGHT_STRING(a AS CHAR(10))) FROM t1;
+HEX(WEIGHT_STRING(a AS CHAR(10)))
+61000000000000000000
+61202000000000000000
+20610000000000000000
+20612000000000000000
+61202020000000000000
+DROP TABLE t1;
+#
+# IF, CASE, LEAST
+#
+SELECT IF('abc' COLLATE 'latin1_nopad_bin' = 'abc ', 'pad', 'nopad');
+IF('abc' COLLATE 'latin1_nopad_bin' = 'abc ', 'pad', 'nopad')
+nopad
+SELECT CASE 'abc' COLLATE 'latin1_nopad_bin' WHEN 'abc ' THEN 'pad' ELSE 'nopad' END;
+CASE 'abc' COLLATE 'latin1_nopad_bin' WHEN 'abc ' THEN 'pad' ELSE 'nopad' END
+nopad
+SELECT CASE WHEN 'abc' COLLATE 'latin1_nopad_bin' = 'abc ' THEN 'pad' ELSE 'nopad' END;
+CASE WHEN 'abc' COLLATE 'latin1_nopad_bin' = 'abc ' THEN 'pad' ELSE 'nopad' END
+nopad
+SELECT HEX(LEAST('abc ' COLLATE 'latin1_nopad_bin', 'abc  '));
+HEX(LEAST('abc ' COLLATE 'latin1_nopad_bin', 'abc  '))
+61626320
+SELECT HEX(GREATEST('abc ' COLLATE 'latin1_nopad_bin', 'abc  '));
+HEX(GREATEST('abc ' COLLATE 'latin1_nopad_bin', 'abc  '))
+6162632020
+#
+# Collation mix
+#
+CREATE TABLE t1 (a VARCHAR(10)) COLLATE 'latin1_bin';
+INSERT INTO t1 VALUES ('a'),('a ');
+SELECT COUNT(*) FROM t1 WHERE a='a';
+COUNT(*)
+2
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'latin1_bin';
+COUNT(*)
+2
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'latin1_nopad_bin';
+COUNT(*)
+1
+ALTER TABLE t1 MODIFY a VARCHAR(10) COLLATE 'latin1_nopad_bin';
+SELECT COUNT(*) FROM t1 WHERE a='a';
+COUNT(*)
+1
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'latin1_bin';
+COUNT(*)
+2
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'latin1_nopad_bin';
+COUNT(*)
+1
+DROP TABLE t1;
+#
+# End of ctype_pad.inc
+#
+SET STORAGE_ENGINE=Default;
+#
+# End of 10.2 tests
 #

@@ -68,6 +68,7 @@ static void fix_min_length(MYSQL_THD thd __attribute__((unused)),
   }
 }
 
+
 static MYSQL_SYSVAR_UINT(minimal_length, min_length, PLUGIN_VAR_RQCMDARG,
   "Minimal required password length", NULL, fix_min_length, 8, 0, 1000, 1);
 

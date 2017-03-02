@@ -26,7 +26,7 @@ drop table t1;
 # Bug#604549: Expression for virtual column returns row
 #             
 
--- error ER_ROW_EXPR_FOR_VCOL 
+-- error ER_OPERAND_COLUMNS
 CREATE TABLE t1 (
   a int NOT NULL DEFAULT '0',
   v double AS ((1, a)) VIRTUAL
@@ -120,8 +120,8 @@ DROP TABLE t1,t2;
 #
 
 CREATE TABLE t1 (p int, a double NOT NULL, v double AS (ROUND(a,p)) VIRTUAL);
-INSERT INTO t1 VALUES (0,1,0);
-INSERT INTO t1 VALUES (NULL,0,0);
+INSERT IGNORE INTO t1 VALUES (0,1,0);
+INSERT IGNORE INTO t1 VALUES (NULL,0,0);
 SELECT a, p, v, ROUND(a,p), ROUND(a,p+NULL) FROM t1;
 DROP TABLE t1;
 
@@ -266,12 +266,12 @@ show columns from t1;
 --replace_column 8 #
 show full columns from t1;
 INSERT INTO `test`.`t1`(`a`,`b`,`c`,`d`) VALUES ( '1','a',NULL,NULL);
-UPDATE `test`.`t1` SET `d`='b' WHERE `a`='1' AND `b`='a' AND `c`='1' AND  `d`='a';
-INSERT INTO `test`.`t1`(`a`,`b`,`c`,`d`) VALUES ( '1','a',NULL,'a');
+UPDATE IGNORE `test`.`t1` SET `d`='b' WHERE `a`='1' AND `b`='a' AND `c`='1' AND  `d`='a';
+INSERT IGNORE INTO `test`.`t1`(`a`,`b`,`c`,`d`) VALUES ( '1','a',NULL,'a');
 set sql_mode='strict_all_tables';
---error ER_WARNING_NON_DEFAULT_VALUE_FOR_VIRTUAL_COLUMN
+--error ER_WARNING_NON_DEFAULT_VALUE_FOR_GENERATED_COLUMN
 UPDATE `test`.`t1` SET `d`='b' WHERE `a`='1' AND `b`='a' AND `c`='1' AND  `d`='a';
---error ER_WARNING_NON_DEFAULT_VALUE_FOR_VIRTUAL_COLUMN
+--error ER_WARNING_NON_DEFAULT_VALUE_FOR_GENERATED_COLUMN
 INSERT INTO `test`.`t1`(`a`,`b`,`c`,`d`) VALUES ( '1','a',NULL,'a');
 drop table t1;
 
@@ -279,8 +279,11 @@ drop table t1;
 --echo # MDEV-5611: self-referencing virtual column
 --echo #
 
---error ER_VCOL_BASED_ON_VCOL
+--error ER_EXPRESSION_REFERS_TO_UNINIT_FIELD
 create table t1 (a int, b int as (b is null) virtual);
+
+create table t1 (a int as (1+1), b int as (a is null) virtual);
+drop table t1;
 
 --echo # end of 5.3 tests
 

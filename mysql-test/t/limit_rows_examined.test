@@ -2,6 +2,8 @@
 # Tests for LIMIT ROWS EXAMINED, MDEV-28
 #
 
+call mtr.add_suppression("Sort aborted.*");
+
 set @save_join_cache_level = @@join_cache_level;
 
 create table t1 (c1 char(2));
@@ -125,6 +127,7 @@ UNION
 UNION
 (select * from t1, t2 where c1 < c2 LIMIT ROWS EXAMINED 6);
 
+--error ER_PARSE_ERROR
 select * from t1, t2 where c1 = c2 LIMIT ROWS EXAMINED 0
 UNION
 select * from t1, t2 where c1 < c2 LIMIT ROWS EXAMINED 6;
@@ -305,7 +308,6 @@ select c1, sum(c2) from t3 group by c1;
 explain
 select c1, sum(c2) from t3 group by c1 LIMIT ROWS EXAMINED 0;
 select c1, sum(c2) from t3 group by c1 LIMIT ROWS EXAMINED 0;
---error 1028
 select c1, sum(c2) from t3 group by c1 LIMIT ROWS EXAMINED 1;
 select c1, sum(c2) from t3 group by c1 LIMIT ROWS EXAMINED 20;
 select c1, sum(c2) from t3 group by c1 LIMIT ROWS EXAMINED 21;
@@ -321,7 +323,6 @@ insert into t3i values
 explain
 select c1, sum(c2) from t3i group by c1 LIMIT ROWS EXAMINED 0;
 select c1, sum(c2) from t3i group by c1 LIMIT ROWS EXAMINED 0;
---error 1028
 select c1, sum(c2) from t3i group by c1 LIMIT ROWS EXAMINED 1;
 select c1, sum(c2) from t3i group by c1 LIMIT ROWS EXAMINED 20;
 select c1, sum(c2) from t3i group by c1 LIMIT ROWS EXAMINED 21;
@@ -394,7 +395,7 @@ drop table t3,t3i;
 --echo INSERT ... SELECT
 CREATE TABLE t4 (a int);
 INSERT INTO t4 values (1), (2);
-INSERT INTO t4 SELECT a + 2 FROM t4 LIMIT ROWS EXAMINED 0;
+INSERT IGNORE INTO t4 SELECT a + 2 FROM t4 LIMIT ROWS EXAMINED 0;
 select * from t4;
 INSERT INTO t4 SELECT a + 2 FROM t4 LIMIT ROWS EXAMINED 6;
 select * from t4;
@@ -432,7 +433,7 @@ drop table t1,t2,t1i,t2i;
 SET @@optimizer_switch='in_to_exists=on,outer_join_with_cache=on';
 
 CREATE TABLE t1 ( a VARCHAR(3) ) ENGINE=MyISAM;
-INSERT INTO t1 VALUES ('USA');
+INSERT INTO t1 VALUES ('USA'),('CAN');
 
 CREATE TABLE t2 ( b INT );
 INSERT INTO t2 VALUES (3899),(3914),(3888);

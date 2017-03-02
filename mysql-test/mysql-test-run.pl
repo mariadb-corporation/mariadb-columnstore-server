@@ -104,7 +104,6 @@ use IO::Select;
 
 require "mtr_process.pl";
 require "mtr_io.pl";
-require "mtr_gcov.pl";
 require "mtr_gprof.pl";
 require "mtr_misc.pl";
 
@@ -176,11 +175,14 @@ my @DEFAULT_SUITES= qw(
     federated-
     funcs_1-
     funcs_2-
+    gcol-
     handler-
     heap-
     innodb-
     innodb_fts-
+    innodb_gis-
     innodb_zip-
+    json-
     maria-
     multi_source-
     optimizer_unfixed_bugs-
@@ -246,11 +248,6 @@ our $opt_mem= $ENV{'MTR_MEM'};
 our $opt_clean_vardir= $ENV{'MTR_CLEAN_VARDIR'};
 
 our $opt_gcov;
-our $opt_gcov_src_dir;
-our $opt_gcov_exe= "gcov";
-our $opt_gcov_err= "mysql-test-gcov.err";
-our $opt_gcov_msg= "mysql-test-gcov.msg";
-
 our $opt_gprof;
 our %gprof_dirs;
 
@@ -278,7 +275,7 @@ my $current_config_name; # The currently running config file template
 our @opt_experimentals;
 our $experimental_test_cases= [];
 
-my $baseport;
+our $baseport;
 # $opt_build_thread may later be set from $opt_port_base
 my $opt_build_thread= $ENV{'MTR_BUILD_THREAD'} || "auto";
 my $opt_port_base= $ENV{'MTR_PORT_BASE'} || "auto";
@@ -381,11 +378,6 @@ sub main {
   # --help will not reach here, so now it's safe to assume we have binaries
   My::SafeProcess::find_bin();
 
-  if ( $opt_gcov ) {
-    gcov_prepare($basedir . "/" . $opt_gcov_src_dir);
-  }
-
-  
   print "vardir: $opt_vardir\n";
   initialize_servers();
   init_timers();
@@ -429,6 +421,10 @@ sub main {
     exit 0;
   }
 
+  if ($opt_gcov) {
+    system './dgcov.pl --purge';
+  }
+  
   #######################################################################
   my $num_tests= @$tests;
   if ( $opt_parallel eq "auto" ) {
@@ -553,14 +549,14 @@ sub main {
 
   mtr_print_line();
 
-  if ( $opt_gcov ) {
-    gcov_collect($basedir . "/" . $opt_gcov_src_dir, $opt_gcov_exe,
-		 $opt_gcov_msg, $opt_gcov_err);
-  }
-
   print_total_times($opt_parallel) if $opt_report_times;
 
   mtr_report_stats($prefix, $fail, $completed, $extra_warnings);
+
+  if ($opt_gcov) {
+    mtr_report("Running dgcov");
+    system "./dgcov.pl --generate > $opt_vardir/last_changes.dgcov";
+  }
 
   if ( @$completed != $num_tests)
   {
@@ -1146,7 +1142,6 @@ sub command_line_setup {
 
              # Coverage, profiling etc
              'gcov'                     => \$opt_gcov,
-             'gcov-src-dir=s'           => \$opt_gcov_src_dir,
              'gprof'                    => \$opt_gprof,
              'valgrind|valgrind-all'    => \$opt_valgrind,
              'valgrind-mysqltest'       => \$opt_valgrind_mysqltest,
@@ -1370,7 +1365,7 @@ sub command_line_setup {
 
   if ( @opt_cases )
   {
-    # Run big tests if explicitely specified on command line
+    # Run big tests if explicitly specified on command line
     $opt_big_test= 1;
   }
 
@@ -1838,6 +1833,9 @@ sub collect_mysqld_features {
   mtr_add_arg($args, "--lc-messages-dir=%s", $path_language);
   mtr_add_arg($args, "--skip-grant-tables");
   mtr_add_arg($args, "--log-warnings=0");
+  mtr_add_arg($args, "--log-slow-admin-statements=0");
+  mtr_add_arg($args, "--log-queries-not-using-indexes=0");
+  mtr_add_arg($args, "--log-slow-slave-statements=0");
   mtr_add_arg($args, "--verbose");
   mtr_add_arg($args, "--help");
 
@@ -1852,11 +1850,17 @@ sub collect_mysqld_features {
   $list =~ s/\n {22}(\S)/ $1/g;
 
   my @list= split '\n', $list;
+
+  $mysql_version_id= 0;
+  while (defined(my $line = shift @list)){
+     if ($line =~ /^\Q$exe_mysqld\E\s+Ver\s(\d+)\.(\d+)\.(\d+)(\S*)/ ) {
+      $mysql_version_id= $1*10000 + $2*100 + $3;
+      mtr_report("MariaDB Version $1.$2.$3$4");
+      last;
+    }
+  }
   mtr_error("Could not find version of MariaDB")
-     unless shift(@list) =~ /^\Q$exe_mysqld\E\s+Ver\s(\d+)\.(\d+)\.(\d+)(\S*)/;
-  $mysql_version_id= $1*10000 + $2*100 + $3;
-  $mysql_version_extra= $4;
-  mtr_report("MariaDB Version $1.$2.$3$4");
+     unless $mysql_version_id > 0;
 
   for (@list)
   {
@@ -2129,39 +2133,10 @@ sub mysqld_client_arguments () {
 
 
 sub have_maria_support () {
-  my $maria_var= $mysqld_variables{'aria-recover'};
+  my $maria_var= $mysqld_variables{'aria-recover-options'};
   return defined $maria_var;
 }
 
-#
-# Set environment to be used by childs of this process for
-# things that are constant during the whole lifetime of mysql-test-run
-#
-
-sub find_plugin($$)
-{
-  my ($plugin, $location)  = @_;
-  my $plugin_filename;
-
-  if (IS_WINDOWS)
-  {
-     $plugin_filename = $plugin.".dll"; 
-  }
-  else 
-  {
-     $plugin_filename = $plugin.".so";
-  }
-
-  my $lib_plugin=
-    mtr_file_exists(vs_config_dirs($location,$plugin_filename),
-                    "$basedir/lib/plugin/".$plugin_filename,
-                    "$basedir/lib64/plugin/".$plugin_filename,
-                    "$basedir/$location/.libs/".$plugin_filename,
-                    "$basedir/lib/mysql/plugin/".$plugin_filename,
-                    "$basedir/lib64/mysql/plugin/".$plugin_filename,
-                    );
-  return $lib_plugin;
-}
 
 sub environment_setup {
 
@@ -2583,6 +2558,7 @@ sub setup_vardir() {
       {
         for (<$bindir/storage/*$opt_vs_config/*.dll>,
              <$bindir/plugin/*$opt_vs_config/*.dll>,
+             <$bindir/libmariadb/plugins/*$opt_vs_config/*.dll>,
              <$bindir/sql$opt_vs_config/*.dll>)
         {
           my $pname=basename($_);
@@ -2600,12 +2576,9 @@ sub setup_vardir() {
         unlink "$plugindir/symlink_test";
       }
 
-      for (<../storage/*/.libs/*.so>,
-           <../plugin/*/.libs/*.so>,
-           <../plugin/*/*/.libs/*.so>,
-           <../sql/.libs/*.so>,
-           <$bindir/storage/*/*.so>,
+      for (<$bindir/storage/*/*.so>,
            <$bindir/plugin/*/*.so>,
+           <$bindir/libmariadb/plugins/*/*.so>,
            <$bindir/sql/*.so>)
       {
         my $pname=basename($_);
@@ -2627,6 +2600,8 @@ sub setup_vardir() {
     # hm, what paths work for debs and for rpms ?
     for (<$bindir/lib64/mysql/plugin/*.so>,
          <$bindir/lib/mysql/plugin/*.so>,
+         <$bindir/lib64/mariadb/plugin/*.so>,
+         <$bindir/lib/mariadb/plugin/*.so>,
          <$bindir/lib/plugin/*.so>,             # bintar
          <$bindir/lib/plugin/*.dll>)
     {
@@ -4370,10 +4345,7 @@ sub extract_warning_lines ($$) {
      qr/error .*connecting to master/,
      qr/InnoDB: Error: in ALTER TABLE `test`.`t[12]`/,
      qr/InnoDB: Error: table `test`.`t[12]` .*does not exist in the InnoDB internal/,
-     qr/InnoDB: Warning: Setting innodb_use_sys_malloc/,
      qr/InnoDB: Warning: a long semaphore wait:/,
-     qr/InnoDB: Disabling redo log encryption/,
-     qr/InnoDB: Redo log crypto: Can't initialize to key version -1u/,
      qr/InnoDB: Dumping buffer pool.*/,
      qr/InnoDB: Buffer pool.*/,
      qr/InnoDB: Warning: Writer thread is waiting this semaphore/,
@@ -4390,7 +4362,6 @@ sub extract_warning_lines ($$) {
      qr/Slave SQL thread retried transaction/,
      qr/Slave \(additional info\)/,
      qr/Incorrect information in file/,
-     qr/Incorrect key file for table .*crashed.*/,
      qr/Slave I\/O: Get master SERVER_ID failed with error:.*/,
      qr/Slave I\/O: Get master clock failed with error:.*/,
      qr/Slave I\/O: Get master COLLATION_SERVER failed with error:.*/,
@@ -4411,6 +4382,7 @@ sub extract_warning_lines ($$) {
      qr|Checking table:   '\..mtr.test_suppressions'|,
      qr|Table \./test/bug53592 has a primary key in InnoDB data dictionary, but not in MySQL|,
      qr|Table '\..mtr.test_suppressions' is marked as crashed and should be repaired|,
+     qr|Table 'test_suppressions' is marked as crashed and should be repaired|,
      qr|Can't open shared library|,
      qr|Couldn't load plugin named .*EXAMPLE.*|,
      qr|InnoDB: Error: table 'test/bug39438'|,
@@ -4421,9 +4393,8 @@ sub extract_warning_lines ($$) {
      qr|Aborted connection|,
      qr|table.*is full|,
      qr|Linux Native AIO|, # warning that aio does not work on /dev/shm
-     qr|Error: io_setup\(\) failed|,
-     qr|Warning: io_setup\(\) failed|,
-     qr|Warning: io_setup\(\) attempt|,
+     qr|InnoDB: io_setup\(\) attempt|,
+     qr|InnoDB: io_setup\(\) failed with EAGAIN|,
      qr|setrlimit could not change the size of core files to 'infinity';|,
      qr|feedback plugin: failed to retrieve the MAC address|,
      qr|Plugin 'FEEDBACK' init function returned error|,
@@ -4446,7 +4417,11 @@ sub extract_warning_lines ($$) {
      qr|nnoDB: fix the corruption by dumping, dropping, and reimporting|,
      qr|InnoDB: the corrupt table. You can use CHECK|,
      qr|InnoDB: TABLE to scan your table for corruption|,
-     qr/InnoDB: See also */
+     qr/InnoDB: See also */,
+     qr/InnoDB: Cannot open .*ib_buffer_pool.* for reading: No such file or directory*/,
+     qr|InnoDB: Creating foreign key constraint system tables.|,
+     qr/InnoDB: Table .*mysql.*innodb_table_stats.* not found./,
+     qr/InnoDB: User stopword table .* does not exist./
 
     );
 
@@ -5829,7 +5804,7 @@ sub valgrind_arguments {
     mtr_add_arg($args, '--soname-synonyms=somalloc=%s', $syn) if $syn;
   }
 
-  # Add valgrind options, can be overriden by user
+  # Add valgrind options, can be overridden by user
   mtr_add_arg($args, '%s', $_) for (@valgrind_args);
 
   mtr_add_arg($args, $$exe);
@@ -5856,7 +5831,7 @@ sub strace_arguments {
   mtr_add_arg($args, "-f");
   mtr_add_arg($args, "-o%s/var/log/%s.strace", $glob_mysql_test_dir, $mysqld_name);
 
-  # Add strace options, can be overriden by user
+  # Add strace options, can be overridden by user
   mtr_add_arg($args, '%s', $_) for (@strace_args);
 
   mtr_add_arg($args, $$exe);
@@ -6196,9 +6171,6 @@ Misc options
                         actions. Disable facility with NUM=0.
   gcov                  Collect coverage information after the test.
                         The result is a gcov file per source and header file.
-  gcov-src-dir=subdir   Collect coverage only within the given subdirectory.
-                        For example, if you're only developing the SQL layer, 
-                        it makes sense to use --gcov-src-dir=sql
   gprof                 Collect profiling information using gprof.
   experimental=<file>   Refer to list of tests considered experimental;
                         failures will be marked exp-fail instead of fail.

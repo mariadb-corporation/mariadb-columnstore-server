@@ -167,8 +167,6 @@ a
 7
 connection slave;
 include/wait_for_slave_sql_error.inc [errno=1062]
-connection slave;
-connection slave;
 select * from t1 order by a;
 a	z1	z2	z4
 1	2	3	1
@@ -180,8 +178,6 @@ a	z1	z2	z4
 alter table t1 drop column z4;
 start slave;
 include/wait_for_slave_sql_to_start.inc
-connection slave;
-connection slave;
 connection master;
 connection slave;
 select * from t1 order by a;
@@ -205,16 +201,3 @@ a
 7
 drop table t1;
 include/rpl_end.inc
-connection server_2;
-connection server_2;
-connection server_2;
-connection server_2;
-connection server_1;
-connection server_1;
-connection server_1;
-connection server_2;
-connection server_1;
-connection server_2;
-connection server_2;
-connection server_1;
-connection server_1;

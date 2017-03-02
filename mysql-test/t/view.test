@@ -1,11 +1,3 @@
-
---disable_warnings
-drop table if exists t1,t2,t3,t4,t5,t6,t9,`t1a``b`,v1,v2,v3,v4,v5,v6;
-drop view if exists t1,t2,t3,t4,t5,t6,t9,`t1a``b`,v1,v2,v3,v4,v5,v6;
-drop database if exists mysqltest;
---enable_warnings
-use test;
-
 # Save the initial number of concurrent sessions.
 --source include/count_sessions.inc
 
@@ -840,15 +832,16 @@ drop view v4, v3, v2, v1;
 #
 # VIEW over SELECT with prohibited clauses
 #
--- error ER_VIEW_SELECT_CLAUSE
+-- error ER_PARSE_ERROR
 create view v1 as select 5 into @w;
--- error ER_VIEW_SELECT_CLAUSE
+-- error ER_PARSE_ERROR
 create view v1 as select 5 into outfile 'ttt';
 create table t1 (a int);
--- error ER_VIEW_SELECT_CLAUSE
+-- error ER_PARSE_ERROR
 create view v1 as select a from t1 procedure analyse();
--- error ER_VIEW_SELECT_DERIVED
+# now derived tables are allowed
 create view v1 as select 1 from (select 1) as d1;
+drop view v1;
 drop table t1;
 
 #
@@ -1221,6 +1214,7 @@ drop table t1;
 #
 # changing value by trigger and CHECK OPTION
 #
+SET sql_mode = 'NO_ENGINE_SUBSTITUTION';
 create table t1 (s1 tinyint);
 create trigger t1_bi before insert on t1 for each row set new.s1 = 500;
 create view v1 as select * from t1 where s1 <> 127 with check option;
@@ -1231,6 +1225,7 @@ select * from t1;
 drop trigger t1_bi;
 drop view v1;
 drop table t1;
+SET sql_mode = default;
 
 #
 # CASCADED should be used for all underlaying VIEWs
@@ -1412,6 +1407,7 @@ execute stmt1 using @a;
 set @a= 301;
 execute stmt1 using @a;
 deallocate prepare stmt1;
+--sorted_result
 select * from v3;
 
 drop view v3;
@@ -2677,7 +2673,7 @@ DROP TABLE t1,t2;
 CREATE TABLE t1 (a INT NOT NULL, b INT NULL DEFAULT NULL);
 CREATE VIEW v1 AS SELECT a, b FROM t1;
 
-INSERT INTO v1 (b) VALUES (2);
+INSERT IGNORE INTO v1 (b) VALUES (2);
 
 SET SQL_MODE = STRICT_ALL_TABLES;
 --error ER_NO_DEFAULT_FOR_VIEW_FIELD
@@ -3173,10 +3169,10 @@ DROP TABLE t1;
 DROP VIEW IF EXISTS v1;
 --enable_warnings
 
-let $query = SELECT * FROM (SELECT 1) AS t;
+let $query = SELECT * FROM (SELECT 1) AS t into @w;
 
 eval $query;
---error ER_VIEW_SELECT_DERIVED
+--error ER_PARSE_ERROR
 eval CREATE VIEW v1 AS $query;
 --echo # Previously the following would fail.
 eval $query;
@@ -3570,7 +3566,7 @@ DROP TABLE t1;
 --echo #
 create table t1(f1 int, f2 int not null);
 create view v1 as select f1 from t1;
-insert into v1 values(1);
+insert ignore into v1 values(1);
 set @old_mode=@@sql_mode;
 set @@sql_mode=traditional;
 --error ER_NO_DEFAULT_FOR_VIEW_FIELD
@@ -4635,7 +4631,6 @@ DROP TABLE t1, t2;
 --echo #
 
 --disable_warnings
-DROP TABLE IF EXISTS t1;
 DROP VIEW IF EXISTS v1;
 DROP PROCEDURE IF EXISTS p1;
 --enable_warnings
@@ -4643,60 +4638,56 @@ DROP PROCEDURE IF EXISTS p1;
 connect (con2, localhost, root);
 connect (con3, localhost, root);
 
---echo # Connection default
 connection default;
 
 CREATE VIEW v1 AS SELECT schema_name FROM information_schema.schemata;
-CREATE TABLE t1 (str VARCHAR(50));
-CREATE PROCEDURE p1() INSERT INTO t1 SELECT * FROM v1;
+CREATE PROCEDURE p1() SELECT COUNT(*), GET_LOCK('blocker', 100) FROM v1;
 
 --echo # CALL p1() so the view is merged.
+--disable_result_log
 CALL p1();
+--enable_result_log
+SELECT RELEASE_LOCK('blocker');
 
---echo # Connection 3
 connection con3;
-LOCK TABLE t1 READ;
+SELECT GET_LOCK('blocker', 100);
 
---echo # Connection default
 connection default;
---echo # Try to CALL p1() again, this time it should block for t1.
+--echo # Try to CALL p1() again, this time it should block on "blocker".
 --echo # Sending:
 --send CALL p1()
 
---echo # Connection 2
 connection con2;
 let $wait_condition=
   SELECT COUNT(*) = 1 from information_schema.processlist
-  WHERE state = "Waiting for table level lock" AND
-        info = "INSERT INTO t1 SELECT * FROM v1";
+  WHERE state = "User lock" AND
+        info = "SELECT COUNT(*), GET_LOCK('blocker', 100) FROM v1";
 --source include/wait_condition.inc
 --echo # ... then try to drop the view. This should block.
 --echo # Sending:
 --send DROP VIEW v1
 
---echo # Connection 3
 connection con3;
 let $wait_condition=
   SELECT COUNT(*) = 1 from information_schema.processlist
   WHERE state = "Waiting for table metadata lock" AND info = "DROP VIEW v1";
 --source include/wait_condition.inc
 --echo # Now allow CALL p1() to complete
-UNLOCK TABLES;
+SELECT RELEASE_LOCK('blocker');
 
---echo # Connection default
 connection default;
 --echo # Reaping: CALL p1()
+--disable_result_log
 --reap
+--enable_result_log
+SELECT RELEASE_LOCK('blocker');
 
---echo # Connection 2
 connection con2;
 --echo # Reaping: DROP VIEW v1
 --reap
 
---echo # Connection default
 connection default;
 DROP PROCEDURE p1;
-DROP TABLE t1;
 disconnect con2;
 disconnect con3;
 
@@ -5804,4 +5795,281 @@ drop table t1;
 
 --echo #
 --echo # End of 10.1 tests
+--echo #
+
+--echo #
+--echo # Start of 10.2 tests
+--echo #
+
+--echo # Checking that SHOW CREATE VIEW preserve parentheses
+
+CREATE TABLE t1 (a INT);
+INSERT INTO t1 VALUES (10),(20),(30);
+
+CREATE VIEW v1 AS SELECT 1 AS a UNION SELECT a FROM t1;
+SHOW CREATE VIEW v1;
+SELECT * FROM v1;
+DROP VIEW v1;
+
+CREATE VIEW v1 AS SELECT 1 AS a UNION SELECT a FROM t1 LIMIT 1;
+SHOW CREATE VIEW v1;
+SELECT * FROM v1;
+DROP VIEW v1;
+
+CREATE VIEW v1 AS SELECT 1 AS a UNION (SELECT a FROM t1);
+SHOW CREATE VIEW v1;
+SELECT * FROM v1;
+DROP VIEW v1;
+
+CREATE VIEW v1 AS SELECT 1 AS a UNION (SELECT a FROM t1 LIMIT 1);
+SHOW CREATE VIEW v1;
+SELECT * FROM v1;
+DROP VIEW v1;
+
+CREATE VIEW v1 AS SELECT 1 AS a UNION (SELECT a FROM t1) LIMIT 1;
+SHOW CREATE VIEW v1;
+SELECT * FROM v1;
+DROP VIEW v1;
+
+DROP TABLE t1;
+
+
+--echo #
+--echo # MDEV-9408 CREATE TABLE SELECT MAX(int_column) creates different columns for table vs view
+--echo #
+CREATE TABLE t1 (
+  id int(11) NOT NULL PRIMARY KEY,
+  country varchar(32),
+  code int(11) default NULL
+);
+INSERT INTO t1 VALUES (1,'ITALY',100),(2,'ITALY',200),(3,'FRANCE',100), (4,'ITALY',100);
+CREATE VIEW v1 AS SELECT * FROM t1;
+CREATE TABLE t2 AS
+SELECT code, COUNT(DISTINCT country), MAX(id) FROM t1 GROUP BY code ORDER BY MAX(id);
+SHOW CREATE TABLE t2;
+CREATE TABLE t3 AS
+SELECT code, COUNT(DISTINCT country), MAX(id) FROM v1 GROUP BY code ORDER BY MAX(id);
+SHOW CREATE TABLE t3;
+DROP VIEW v1;
+DROP TABLE t1,t2,t3;
+
+--echo #
+--echo # MDEV-3944: Allow derived tables in VIEWS
+--echo #
+create table t1 (s1 int);
+insert into t1 values (1),(2),(3);
+
+CREATE VIEW v1 AS SELECT * FROM (SELECT s1 FROM t1 WHERE s1>1) AS x;
+CREATE VIEW v2 AS SELECT * FROM (SELECT s1 FROM t1 WHERE s1<3) AS x;
+
+--sorted_result
+select * from v1;
+--sorted_result
+select * from v2;
+--sorted_result
+select * from v1 natural join v2;
+--sorted_result
+select * from v1 natural join t1;
+--sorted_result
+select * from v1 natural join (SELECT s1 FROM t1 WHERE s1<3) as x;
+--sorted_result
+select * from v1 left join v2 on (v1.s1=v2.s1);
+--sorted_result
+select * from v1 left join t1 on (v1.s1=t1.s1);
+--sorted_result
+select * from t1 left join v2 on (t1.s1=v2.s1);
+--sorted_result
+select * from v1 left join (SELECT s1 FROM t1 WHERE s1<3) as x on (v1.s1=x.s1);
+--sorted_result
+select * from (SELECT s1 FROM t1 WHERE s1>1) AS x left join v2 on (x.s1=v2.s1);
+
+drop view v1,v2;
+
+CREATE VIEW v1 AS SELECT * FROM (SELECT s1 FROM (SELECT s1 FROM t1 WHERE s1
+< 100) as xx WHERE s1>1) AS x;
+CREATE VIEW v2 AS SELECT * FROM (SELECT s1 FROM (SELECT s1 FROM t1 WHERE s1
+> -100) as xx WHERE s1<3) AS x;
+insert into t1 values (200),(-200);
+--sorted_result
+select * from t1;
+--sorted_result
+select * from v1;
+--sorted_result
+select * from v2;
+--sorted_result
+select * from v1 natural join v2;
+--sorted_result
+select * from v1 natural join t1;
+--sorted_result
+select * from v1 natural join (SELECT s1 FROM t1 WHERE s1<3) as x;
+--sorted_result
+select * from v1 left join v2 on (v1.s1=v2.s1);
+--sorted_result
+select * from v1 left join t1 on (v1.s1=t1.s1);
+--sorted_result
+select * from t1 left join v2 on (t1.s1=v2.s1);
+--sorted_result
+select * from v1 left join (SELECT s1 FROM t1 WHERE s1<3) as x on (v1.s1=x.s1);
+--sorted_result
+select * from (SELECT s1 FROM t1 WHERE s1>1) AS x left join v2 on (x.s1=v2.s1);
+
+drop view v1,v2;
+
+CREATE algorithm=temptable VIEW v1 AS SELECT * FROM (SELECT s1 FROM (SELECT s1 FROM t1 WHERE s1
+< 100) as xx WHERE s1>1) AS x;
+CREATE algorithm=temptable VIEW v2 AS SELECT * FROM (SELECT s1 FROM (SELECT s1 FROM t1 WHERE s1
+> -100) as xx WHERE s1<3) AS x;
+--sorted_result
+select * from t1;
+--sorted_result
+select * from v1;
+--sorted_result
+select * from v2;
+--sorted_result
+select * from v1 natural join v2;
+--sorted_result
+select * from v1 natural join t1;
+--sorted_result
+select * from v1 natural join (SELECT s1 FROM t1 WHERE s1<3) as x;
+--sorted_result
+select * from v1 left join v2 on (v1.s1=v2.s1);
+--sorted_result
+select * from v1 left join t1 on (v1.s1=t1.s1);
+--sorted_result
+select * from t1 left join v2 on (t1.s1=v2.s1);
+--sorted_result
+select * from v1 left join (SELECT s1 FROM t1 WHERE s1<3) as x on (v1.s1=x.s1);
+--sorted_result
+select * from (SELECT s1 FROM t1 WHERE s1>1) AS x left join v2 on (x.s1=v2.s1);
+
+drop view v1,v2;
+
+CREATE VIEW v1 AS SELECT * FROM (SELECT s1 FROM (SELECT s1 FROM t1 WHERE s1
+< 100) as xx WHERE s1>1) AS x;
+
+--error ER_NON_INSERTABLE_TABLE
+insert into v1 values (-300);
+--error ER_NON_UPDATABLE_TABLE
+update v1 set s1=s1+1;
+
+drop view v1;
+
+CREATE VIEW v1 AS SELECT s1,s2 FROM (SELECT s1 as s2 FROM t1 WHERE s1 <
+100) x, t1 WHERE t1.s1=x.s2;
+select * from v1;
+
+insert into v1 (s1) values (-300);
+update v1 set s1=s1+1;
+select * from v1;
+select * from t1;
+--error ER_NON_INSERTABLE_TABLE
+insert into v1(s2) values (-300);
+--error ER_NON_UPDATABLE_TABLE
+update v1 set s2=s2+1;
+
+drop view v1;
+
+CREATE VIEW v1 AS SELECT * FROM (SELECT s1 FROM t1 WHERE s1
+< 100) AS x;
+
+--error ER_NON_INSERTABLE_TABLE
+insert into v1 values (-300);
+--error ER_NON_UPDATABLE_TABLE
+update v1 set s1=s1+1;
+
+drop view v1;
+
+CREATE VIEW v1 AS SELECT * FROM (SELECT s1 FROM (SELECT s1 FROM t1 WHERE s1
+< 100) as xx WHERE s1>1) AS x;
+
+--error ER_NON_INSERTABLE_TABLE
+insert into v1 values (-300);
+--error ER_NON_UPDATABLE_TABLE
+update v1 set s1=s1+1;
+
+create view v2 as select * from v1;
+
+--error ER_NON_INSERTABLE_TABLE
+insert into v2 values (-300);
+--error ER_NON_UPDATABLE_TABLE
+update v2 set s1=s1+1;
+
+drop view v1, v2;
+drop table t1;
+
+--echo #
+--echo # MDEV-9671:Wrong result upon select from a view with a FROM subquery
+--echo #
+CREATE TABLE t1 (i INT);
+INSERT INTO t1 VALUES (3),(2);
+
+CREATE TABLE t2 (j INT);
+INSERT INTO t2 VALUES (8),(3),(3);
+
+CREATE TABLE t3 (k INT);
+INSERT INTO t3 VALUES (1),(8);
+
+CREATE VIEW v1 AS SELECT * FROM t1 LEFT JOIN ( SELECT t2.* FROM t2 INNER JOIN t3 ON ( k = j ) ) AS alias1 ON ( i = j );
+
+show create view v1;
+
+SELECT * FROM t1 LEFT JOIN ( SELECT t2.* FROM t2 INNER JOIN t3 ON ( k = j ) ) AS alias1 ON ( i = j );
+
+SELECT * FROM v1;
+
+DROP VIEW v1;
+DROP TABLE t1, t2, t3;
+
+--echo #
+--echo # MDEV-10035: DBUG_ASSERT on CREATE VIEW v1 AS SELECT * FROM t1
+--echo # FOR UPDATE
+--echo #
+
+CREATE TABLE t1 (a INT);
+insert into t1 values (1),(2);
+
+CREATE VIEW v1 AS SELECT * FROM t1 FOR UPDATE;
+SHOW CREATE VIEW v1;
+select * from v1;
+DROP VIEW v1;
+
+CREATE VIEW v1 AS SELECT * FROM t1 LOCK IN SHARE MODE;
+SHOW CREATE VIEW v1;
+select * from v1;
+DROP VIEW v1;
+
+DROP TABLE t1;
+
+--echo #
+--echo # MDEV-10724:Assertion `vcol_table == 0 || vcol_table == table'
+--echo # failed in fill_record(THD*, TABLE*, List<Item>&, List<Item>&,
+--echo # bool, bool)
+--echo #
+
+CREATE TABLE t1 (f1 INT);
+CREATE TABLE t2 (f2 INT);
+CREATE TABLE t3 (f3 INT);
+ 
+CREATE ALGORITHM = MERGE VIEW v AS SELECT f1, f3 FROM t1,
+( SELECT f3 FROM t2, t3 ) AS sq;
+ 
+--error ER_VIEW_MULTIUPDATE
+INSERT INTO v (f1, f3) VALUES (1,1), (2,2);
+
+drop view v;
+drop tables t1,t2,t3;
+
+#
+# MDEV-11784 View is created with invalid definition which causes ERROR 1241 (21000): Operand should contain 1 column(s)
+#
+create table t1 (i int, j int);
+insert t1 values (1,1),(2,2);
+create view v1 as select (2, 3) not in (select i, j from t1);
+select * from v1;
+show create view v1;
+drop view v1;
+drop table t1;
+
+--echo #
+--echo # End of 10.2 tests
 --echo #

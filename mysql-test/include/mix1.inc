@@ -236,6 +236,15 @@ create table t2i (a int);
 insert into t2m values (5);
 insert into t2i values (5);
 
+-- disable_query_log
+-- disable_result_log
+analyze table t1i;
+analyze table t1m;
+analyze table t2i;
+analyze table t2m;
+-- enable_result_log
+-- enable_query_log
+
 # test with $engine_type
 select min(a) from t1i;
 select min(7) from t1i;
@@ -411,6 +420,13 @@ if ($test_foreign_keys)
 INSERT INTO t1 VALUES (1,'A1'),(2,'A2'),(3,'B');
 INSERT INTO t2 VALUES (1,1),(2,2),(3,2),(4,3),(5,3);
 
+-- disable_query_log
+-- disable_result_log
+ANALYZE TABLE t1;
+ANALYZE TABLE t2;
+-- enable_result_log
+-- enable_query_log
+
 EXPLAIN
 SELECT COUNT(*) FROM t2 LEFT JOIN t1 ON t2.fkey = t1.id
   WHERE t1.name LIKE 'A%';
@@ -557,14 +573,14 @@ INSERT INTO t1(stat_id,acct_id) VALUES
 INSERT INTO t1(stat_id,acct_id) SELECT stat_id, mod(id+100000, acct_id) FROM t1;
 INSERT INTO t1(stat_id,acct_id) SELECT stat_id, mod(id+100000, acct_id) FROM t1;
 INSERT INTO t1(stat_id,acct_id) SELECT stat_id, mod(id+100000, acct_id) FROM t1;
-INSERT INTO t1(stat_id,acct_id) SELECT stat_id, mod(id+100000, acct_id) FROM t1;
-INSERT INTO t1(stat_id,acct_id) SELECT stat_id, mod(id+100000, acct_id) FROM t1;
-INSERT INTO t1(stat_id,acct_id) SELECT stat_id, mod(id+100000, acct_id) FROM t1;
-INSERT INTO t1(stat_id,acct_id) SELECT stat_id, mod(id+100000, acct_id) FROM t1;
-INSERT INTO t1(stat_id,acct_id) SELECT stat_id, mod(id+100000, acct_id) FROM t1;
-INSERT INTO t1(stat_id,acct_id) SELECT stat_id, mod(id+100000, acct_id) FROM t1;
-INSERT INTO t1(stat_id,acct_id) SELECT stat_id, mod(id+100000, acct_id) FROM t1;
-INSERT INTO t1(stat_id,acct_id) SELECT stat_id, mod(id+100000, acct_id) FROM t1;
+INSERT IGNORE INTO t1(stat_id,acct_id) SELECT stat_id, mod(id+100000, acct_id) FROM t1;
+INSERT IGNORE INTO t1(stat_id,acct_id) SELECT stat_id, mod(id+100000, acct_id) FROM t1;
+INSERT IGNORE INTO t1(stat_id,acct_id) SELECT stat_id, mod(id+100000, acct_id) FROM t1;
+INSERT IGNORE INTO t1(stat_id,acct_id) SELECT stat_id, mod(id+100000, acct_id) FROM t1;
+INSERT IGNORE INTO t1(stat_id,acct_id) SELECT stat_id, mod(id+100000, acct_id) FROM t1;
+INSERT IGNORE INTO t1(stat_id,acct_id) SELECT stat_id, mod(id+100000, acct_id) FROM t1;
+INSERT IGNORE INTO t1(stat_id,acct_id) SELECT stat_id, mod(id+100000, acct_id) FROM t1;
+INSERT IGNORE INTO t1(stat_id,acct_id) SELECT stat_id, mod(id+100000, acct_id) FROM t1;
 UPDATE t1 SET acct_id=785 
   WHERE MOD(stat_id,2)=0 AND MOD(id,stat_id)=MOD(acct_id,stat_id);
 OPTIMIZE TABLE t1;
@@ -572,12 +588,22 @@ OPTIMIZE TABLE t1;
 SELECT COUNT(*) FROM t1;
 SELECT COUNT(*) FROM t1 WHERE acct_id=785;
 
+-- disable_query_log
+-- disable_result_log
+ANALYZE TABLE t1;
+-- enable_result_log
+-- enable_query_log
+
 EXPLAIN SELECT COUNT(*) FROM t1 WHERE stat_id IN (1,3) AND acct_id=785; 
 
 INSERT INTO t2 SELECT * FROM t1;
 OPTIMIZE TABLE t2;
 
-EXPLAIN SELECT COUNT(*) FROM t2 WHERE stat_id IN (1,3) AND acct_id=785;
+-- disable_query_log
+-- disable_result_log
+ANALYZE TABLE t2;
+-- enable_result_log
+-- enable_query_log
 
 DROP TABLE t1,t2; 
 
@@ -624,6 +650,11 @@ DROP TABLE t1,t2,t3;
 # Test bug when trying to drop data file which no InnoDB directory entry
 #
 
+--disable_query_log
+call mtr.add_suppression("InnoDB: Table .*bug29807.*");
+call mtr.add_suppression("InnoDB: Cannot open table test/bug29807 from");
+--enable_query_log
+
 create table t1 (a int) engine=innodb;
 let $MYSQLD_DATADIR= `select @@datadir`;
 copy_file $MYSQLD_DATADIR/test/t1.frm $MYSQLD_DATADIR/test/bug29807.frm;
@@ -631,10 +662,6 @@ copy_file $MYSQLD_DATADIR/test/t1.frm $MYSQLD_DATADIR/test/bug29807.frm;
 select * from bug29807;
 drop table t1;
 drop table bug29807;
---disable_query_log
-call mtr.add_suppression("InnoDB: Error: table .test...bug29807. does not exist in the InnoDB internal");
-call mtr.add_suppression("InnoDB: Cannot open table test/bug29807 from");
---enable_query_log
 
 
 #
@@ -647,23 +674,21 @@ CREATE TABLE t2 (a INT) ENGINE=InnoDB;
 CONNECT (c1,localhost,root,,);
 CONNECT (c2,localhost,root,,);
 
---echo switch to connection c1
 CONNECTION c1;
 SET AUTOCOMMIT=0;
 INSERT INTO t2 VALUES (1);
 
---echo switch to connection c2
 CONNECTION c2;
 SET AUTOCOMMIT=0;
+SET @old_lock_wait_timeout= @@lock_wait_timeout;
+SET lock_wait_timeout= 1;
 --error ER_LOCK_WAIT_TIMEOUT
 LOCK TABLES t1 READ, t2 READ;
-
---echo switch to connection c1
+SET  @@lock_wait_timeout= @old_lock_wait_timeout;
 CONNECTION c1;
 COMMIT;
 INSERT INTO t1 VALUES (1);
 
---echo switch to connection default
 CONNECTION default;
 SET AUTOCOMMIT=default;
 DISCONNECT c1;
@@ -704,6 +729,13 @@ UPDATE t2 SET c='2007-01-02';
 INSERT INTO t1(b,c) SELECT b,c FROM t2;
 UPDATE t2 SET c='2007-01-03';
 INSERT INTO t1(b,c) SELECT b,c FROM t2;
+
+-- disable_query_log
+-- disable_result_log
+ANALYZE TABLE t1;
+ANALYZE TABLE t2;
+-- enable_result_log
+-- enable_query_log
 
 set @@sort_buffer_size=8192;
 
@@ -794,6 +826,12 @@ INSERT INTO t1 SELECT  a + 16, MOD(a + 16, 20), 1 FROM t1;
 INSERT INTO t1 SELECT  a + 32, MOD(a + 32, 20), 1 FROM t1;
 INSERT INTO t1 SELECT  a + 64, MOD(a + 64, 20), 1 FROM t1;
 
+-- disable_query_log
+-- disable_result_log
+ANALYZE TABLE t1;
+-- enable_result_log
+-- enable_query_log
+
 EXPLAIN SELECT b, SUM(c) FROM t1 GROUP BY b;
 EXPLAIN SELECT SQL_BIG_RESULT b, SUM(c) FROM t1 GROUP BY b;
 DROP TABLE t1;
@@ -856,6 +894,11 @@ CREATE TABLE t1 (a int, b int, PRIMARY KEY (a), KEY bkey (b)) ENGINE=InnoDB;
 INSERT INTO t1 VALUES (1,2),(3,2),(2,2),(4,2),(5,2),(6,2),(7,2),(8,2);
 INSERT INTO t1 SELECT a + 8, 2 FROM t1;
 INSERT INTO t1 SELECT a + 16, 1 FROM t1;
+-- disable_query_log
+-- disable_result_log
+ANALYZE TABLE t1;
+-- enable_result_log
+-- enable_query_log
 query_vertical EXPLAIN SELECT * FROM t1 WHERE b=2 ORDER BY a;
 SELECT * FROM t1 WHERE b=2 ORDER BY a;
 query_vertical EXPLAIN SELECT * FROM t1 WHERE b BETWEEN 1 AND 2 ORDER BY a;
@@ -868,6 +911,12 @@ CREATE TABLE t2 (a int, b int, c int, PRIMARY KEY (a), KEY bkey (b,c))
 INSERT INTO t2 VALUES (1,1,1),(3,1,1),(2,1,1),(4,1,1);
 INSERT INTO t2 SELECT a + 4, 1, 1 FROM t2;
 INSERT INTO t2 SELECT a + 8, 1, 1 FROM t2;
+
+-- disable_query_log
+-- disable_result_log
+ANALYZE TABLE t2;
+-- enable_result_log
+-- enable_query_log
 
 query_vertical EXPLAIN SELECT * FROM t2 WHERE b=1 ORDER BY a;
 SELECT * FROM t2 WHERE b=1 ORDER BY a;
@@ -938,6 +987,7 @@ DROP TABLE t1;
 #
 create table t1(a text) engine=innodb default charset=utf8; 
 insert into t1 values('aaa');
+set statement sql_mode = 'NO_ENGINE_SUBSTITUTION' for
 alter table t1 add index(a(1024));
 show create table t1;
 drop table t1;
@@ -960,7 +1010,7 @@ SELECT * FROM t1 WHERE b=20 FOR UPDATE;
 
 --connect (conn2, localhost, root,,test)
 
-# This statement gives a "failed: 1205: Lock wait timeout exceeded; try 
+# This statement gives a "failed: 1205: Lock wait timeout exceeded; try
 # restarting transaction" message when the bug is present.
 START TRANSACTION;
 SELECT * FROM t1 WHERE b=10 ORDER BY A FOR UPDATE;
@@ -985,6 +1035,12 @@ CREATE TABLE t1(
 
 INSERT INTO t1 VALUES (1,1,1,50), (1,2,3,40), (2,1,3,4);
 
+-- disable_query_log
+-- disable_result_log
+ANALYZE TABLE t1;
+-- enable_result_log
+-- enable_query_log
+
 EXPLAIN SELECT c,b,d FROM t1 GROUP BY c,b,d;
 SELECT c,b,d FROM t1 GROUP BY c,b,d;
 EXPLAIN SELECT c,b,d FROM t1 GROUP BY c,b,d ORDER BY NULL;
@@ -1004,6 +1060,12 @@ DROP TABLE t1;
 #
 CREATE TABLE t1 (a INT, b INT, PRIMARY KEY (a), INDEX b (b)) ENGINE=InnoDB;
 INSERT INTO t1(a,b) VALUES (1,1), (2,2), (3,2);
+
+-- disable_query_log
+-- disable_result_log
+ANALYZE TABLE t1;
+-- enable_result_log
+-- enable_query_log
 
 #The two queries below should produce different results, but they don't.
 query_vertical EXPLAIN SELECT * FROM t1 WHERE b=2 ORDER BY a ASC;
@@ -1088,6 +1150,12 @@ CREATE TABLE t1 (id int, type char(6), d int, INDEX idx(id,d)) ENGINE=InnoDB;
 INSERT INTO t1 VALUES 
   (191, 'member', 1), (NULL, 'member', 3), (NULL, 'member', 4), (201, 'member', 2); 
 
+-- disable_query_log
+-- disable_result_log
+ANALYZE TABLE t1;
+-- enable_result_log
+-- enable_query_log
+
 EXPLAIN SELECT * FROM t1 WHERE id=191 OR id IS NULL ORDER BY d;
 SELECT * FROM t1 WHERE id=191 OR id IS NULL ORDER BY d;
 
@@ -1116,12 +1184,13 @@ CREATE TABLE t1 (a int, b int, c int, PRIMARY KEY (a), KEY t1_b (b))
 INSERT INTO t1 (a,b,c) VALUES (1,1,1), (2,1,1), (3,1,1), (4,1,1);
 INSERT INTO t1 (a,b,c) SELECT a+4,b,c FROM t1;
 
-# should be range access
+-- disable_query_log
+-- disable_result_log
+ANALYZE TABLE t1;
+-- enable_result_log
+-- enable_query_log
 
-#
-# InnoDB uses "where", while xtradb "index condition"
-#
---replace_regex /where/index condition/
+# should be range access
 EXPLAIN SELECT a, b, c FROM t1 WHERE b = 1 ORDER BY a DESC LIMIT 5;
 
 # should produce '8 7 6 5 4' for a
@@ -1327,7 +1396,6 @@ connect (con2,localhost,root,,);
 SET SESSION AUTOCOMMIT = 0;
 SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
 set binlog_format=mixed;
---echo # Switch to connection con1
 connection con1;
 
 eval
@@ -1343,7 +1411,6 @@ UPDATE t1 SET b = 12 WHERE a = 1;
 --disable_info
 SELECT * FROM t1;
 
---echo # Switch to connection con2
 connection con2;
 
 --enable_info
@@ -1352,16 +1419,13 @@ connection con2;
 UPDATE t1 SET b = 21 WHERE a = 1;
 --disable_info
 
---echo # Switch to connection con1
 connection con1;
 SELECT * FROM t1;
 ROLLBACK;
 
---echo # Switch to connection con2
 connection con2;
 ROLLBACK;
 
---echo # Switch to connection con1
 connection con1;
 
 --echo # 2. test for serialized update:
@@ -1395,12 +1459,10 @@ UPDATE t1 SET b = CONCAT(b, '+con1') WHERE a = 1;
 --disable_info
 SELECT * FROM t1;
 
---echo # Switch to connection con2
 connection con2;
 
 --send CALL p1;
 
---echo # Switch to connection con1
 connection con1;
 SELECT * FROM t1;
 COMMIT;
@@ -1413,13 +1475,11 @@ while ($bug31310)
 
 SELECT * FROM t1;
 
---echo # Switch to connection con2
 connection con2;
 --reap
 SELECT * FROM t1;
 COMMIT;
 
---echo # Switch to connection con1
 connection con1;
 
 --echo # 3. test for updated key column:
@@ -1435,12 +1495,10 @@ UPDATE t1 SET a = 2, b = CONCAT(b, '+con1') WHERE a = 1;
 --disable_info
 SELECT * FROM t1;
 
---echo # Switch to connection con2
 connection con2;
 
 --send CALL p1;
 
---echo # Switch to connection con1
 connection con1;
 SELECT * FROM t1;
 COMMIT;
@@ -1453,7 +1511,6 @@ while ($bug31310)
 
 SELECT * FROM t1;
 
---echo # Switch to connection con2
 connection con2;
 --reap
 SELECT * FROM t1;
@@ -1502,6 +1559,7 @@ if ($test_foreign_keys)
 #             auto_increment keys
 #
 create table t1 (a int auto_increment primary key) engine=innodb;
+set statement sql_mode = 'NO_ENGINE_SUBSTITUTION' for
 alter table t1 order by a;
 drop table t1;
 
@@ -1527,6 +1585,12 @@ INSERT INTO t1 VALUES
   (4,1,3,'pk',NULL),(5,1,3,'c2',NULL),
   (2,1,4,'c_extra',NULL),(3,1,4,'c_extra',NULL);
 
+-- disable_query_log
+-- disable_result_log
+ANALYZE TABLE t1;
+-- enable_result_log
+-- enable_query_log
+
 EXPLAIN SELECT * FROM t1 FORCE INDEX (PRIMARY) WHERE tid = 1 AND vid = 3 ORDER BY idx DESC;
 
 SELECT * FROM t1 FORCE INDEX (PRIMARY) WHERE tid = 1 AND vid = 3 ORDER BY idx DESC;
@@ -1544,6 +1608,12 @@ CREATE TABLE t1 (c1 INT, c2 INT, c3 INT, KEY (c3), KEY (c2, c3))
   ENGINE=$engine_type;
 INSERT INTO t1 VALUES (1,1,1), (1,1,1), (1,1,2), (1,1,1), (1,1,2);
 
+-- disable_query_log
+-- disable_result_log
+ANALYZE TABLE t1;
+-- enable_result_log
+-- enable_query_log
+
 SELECT 1 FROM (SELECT COUNT(DISTINCT c1) 
                  FROM t1 WHERE c2 IN (1, 1) AND c3 = 2 GROUP BY c2) x;
 EXPLAIN 
@@ -1556,6 +1626,12 @@ eval
 CREATE TABLE t1 (c1 REAL, c2 REAL, c3 REAL, KEY (c3), KEY (c2, c3))
   ENGINE=$engine_type;
 INSERT INTO t1 VALUES (1,1,1), (1,1,1), (1,1,2), (1,1,1), (1,1,2);
+
+-- disable_query_log
+-- disable_result_log
+ANALYZE TABLE t1;
+-- enable_result_log
+-- enable_query_log
 
 SELECT 1 FROM (SELECT COUNT(DISTINCT c1) 
                  FROM t1 WHERE c2 IN (1, 1) AND c3 = 2 GROUP BY c2) x;
@@ -1570,6 +1646,12 @@ CREATE TABLE t1 (c1 DECIMAL(12,2), c2 DECIMAL(12,2), c3 DECIMAL(12,2),
   KEY (c3), KEY (c2, c3))
   ENGINE=$engine_type;
 INSERT INTO t1 VALUES (1,1,1), (1,1,1), (1,1,2), (1,1,1), (1,1,2);
+
+-- disable_query_log
+-- disable_result_log
+ANALYZE TABLE t1;
+-- enable_result_log
+-- enable_query_log
 
 SELECT 1 FROM (SELECT COUNT(DISTINCT c1) 
                  FROM t1 WHERE c2 IN (1, 1) AND c3 = 2 GROUP BY c2) x;
@@ -1598,6 +1680,13 @@ CREATE TABLE t2 (
 insert into t1 values (0),(1),(2),(3),(4);
 insert into t2 select A.a + 10 *B.a, 1, 'filler' from t1 A, t1 B;
 
+-- disable_query_log
+-- disable_result_log
+analyze table t1;
+analyze table t2;
+-- enable_result_log
+-- enable_query_log
+
 explain select * from t1, t2 where t2.a=t1.a and t2.b + 1;
 select * from t1, t2 where t2.a=t1.a and t2.b + 1;
 
@@ -1616,23 +1705,18 @@ eval CREATE TABLE t1 (a INT) ENGINE=$engine_type;
 INSERT INTO t1 VALUES (1),(2),(3);
 BEGIN;
 SELECT * FROM t1 ORDER BY a;
---echo # Connection con1
 connect (con1, localhost, root,,);
 --send TRUNCATE TABLE t1;
---echo # Connection default
 connection default;
 let $wait_condition= SELECT COUNT(*)=1 FROM information_schema.processlist
   WHERE state='Waiting for table metadata lock' AND info='TRUNCATE TABLE t1';
 --source include/wait_condition.inc
 SELECT * FROM t1 ORDER BY a;
 ROLLBACK;
---echo # Connection con1
 connection con1;
 --echo # Reaping TRUNCATE TABLE
 --reap
 SELECT * FROM t1;
---echo # Disconnect con1
 disconnect con1;
---echo # Connection default
 connection default;
 DROP TABLE t1;

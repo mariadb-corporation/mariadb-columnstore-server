@@ -2139,7 +2139,7 @@ int ha_tokudb::write_frm_data(DB* db, DB_TXN* txn, const char* frm_name) {
     size_t frm_len = 0;
     int error = 0;
 
-#if 100000 <= MYSQL_VERSION_ID && MYSQL_VERSION_ID <= 100199
+#if 100000 <= MYSQL_VERSION_ID
     error = table_share->read_frm_image((const uchar**)&frm_data,&frm_len);
     if (error) { goto cleanup; }
 #else    
@@ -2179,7 +2179,7 @@ int ha_tokudb::verify_frm_data(const char* frm_name, DB_TXN* txn) {
     HA_METADATA_KEY curr_key = hatoku_frm_data;
 
     // get the frm data from MySQL
-#if 100000 <= MYSQL_VERSION_ID && MYSQL_VERSION_ID <= 100199
+#if 100000 <= MYSQL_VERSION_ID
     error = table_share->read_frm_image((const uchar**)&mysql_frm_data,&mysql_frm_len);
     if (error) { 
         goto cleanup;
@@ -3990,7 +3990,6 @@ int ha_tokudb::write_row(uchar * record) {
     // some crap that needs to be done because MySQL does not properly abstract
     // this work away from us, namely filling in auto increment and setting auto timestamp
     //
-    ha_statistic_increment(&SSV::ha_write_count);
 #if MYSQL_VERSION_ID < 50600
     if (table->timestamp_field_type & TIMESTAMP_AUTO_SET_ON_INSERT) {
         table->timestamp_field->set_time();
@@ -4176,7 +4175,6 @@ int ha_tokudb::update_row(const uchar * old_row, uchar * new_row) {
     memset((void *) &prim_row, 0, sizeof(prim_row));
     memset((void *) &old_prim_row, 0, sizeof(old_prim_row));
 
-    ha_statistic_increment(&SSV::ha_update_count);
 #if MYSQL_VERSION_ID < 50600
     if (table->timestamp_field_type & TIMESTAMP_AUTO_SET_ON_UPDATE) {
         table->timestamp_field->set_time();
@@ -4343,8 +4341,6 @@ int ha_tokudb::delete_row(const uchar * record) {
     THD* thd = ha_thd();
     uint curr_num_DBs;
     tokudb_trx_data* trx = (tokudb_trx_data *) thd_get_ha_data(thd, tokudb_hton);
-
-    ha_statistic_increment(&SSV::ha_delete_count);
 
     //
     // grab reader lock on numDBs_lock
@@ -4885,7 +4881,6 @@ int ha_tokudb::read_full_row(uchar * buf) {
 // 
 int ha_tokudb::index_next_same(uchar* buf, const uchar* key, uint keylen) {
     TOKUDB_HANDLER_DBUG_ENTER("");
-    ha_statistic_increment(&SSV::ha_read_next_count);
 
     DBT curr_key;
     DBT found_key;
@@ -4974,7 +4969,6 @@ int ha_tokudb::index_read(
         cursor->c_remove_restriction(cursor);
     }
 
-    ha_statistic_increment(&SSV::ha_read_key_count);
     memset((void *) &row, 0, sizeof(row));
 
     info.ha = this;
@@ -5634,7 +5628,6 @@ cleanup:
 //
 int ha_tokudb::index_next(uchar * buf) {
     TOKUDB_HANDLER_DBUG_ENTER("");
-    ha_statistic_increment(&SSV::ha_read_next_count);
     int error = get_next(buf, 1, NULL, key_read);
     TOKUDB_HANDLER_DBUG_RETURN(error);
 }
@@ -5656,7 +5649,6 @@ int ha_tokudb::index_read_last(uchar * buf, const uchar * key, uint key_len) {
 //
 int ha_tokudb::index_prev(uchar * buf) {
     TOKUDB_HANDLER_DBUG_ENTER("");
-    ha_statistic_increment(&SSV::ha_read_prev_count);
     int error = get_next(buf, -1, NULL, key_read);
     TOKUDB_HANDLER_DBUG_RETURN(error);
 }
@@ -5679,8 +5671,6 @@ int ha_tokudb::index_first(uchar * buf) {
     THD* thd = ha_thd();
     tokudb_trx_data* trx = (tokudb_trx_data *) thd_get_ha_data(thd, tokudb_hton);;
     HANDLE_INVALID_CURSOR();
-
-    ha_statistic_increment(&SSV::ha_read_first_count);
 
     info.ha = this;
     info.buf = buf;
@@ -5723,8 +5713,6 @@ int ha_tokudb::index_last(uchar * buf) {
     THD* thd = ha_thd();
     tokudb_trx_data* trx = (tokudb_trx_data *) thd_get_ha_data(thd, tokudb_hton);;
     HANDLE_INVALID_CURSOR();
-
-    ha_statistic_increment(&SSV::ha_read_last_count);
 
     info.ha = this;
     info.buf = buf;
@@ -5805,7 +5793,6 @@ int ha_tokudb::rnd_end() {
 //
 int ha_tokudb::rnd_next(uchar * buf) {
     TOKUDB_HANDLER_DBUG_ENTER("");
-    ha_statistic_increment(&SSV::ha_read_rnd_next_count);
     int error = get_next(buf, 1, NULL, false);
     TOKUDB_HANDLER_DBUG_RETURN(error);
 }
@@ -5911,7 +5898,6 @@ int ha_tokudb::rnd_pos(uchar * buf, uchar * pos) {
     DBT* key = get_pos(&db_pos, pos); 
 
     unpack_entire_row = true;
-    ha_statistic_increment(&SSV::ha_read_rnd_count);
     tokudb_active_index = MAX_KEY;
 
     // test rpl slave by inducing a delay before the point query

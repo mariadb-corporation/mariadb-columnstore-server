@@ -77,7 +77,7 @@ explain extended select @t1:=(@t2:=1)+@t3:=4,@t1,@t2,@t3;
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	No tables used
 Warnings:
-Note	1003	select (@t1:=((@t2:=1) + (@t3:=4))) AS `@t1:=(@t2:=1)+@t3:=4`,(@`t1`) AS `@t1`,(@`t2`) AS `@t2`,(@`t3`) AS `@t3`
+Note	1003	select @t1:=(@t2:=1) + (@t3:=4) AS `@t1:=(@t2:=1)+@t3:=4`,@`t1` AS `@t1`,@`t2` AS `@t2`,@`t3` AS `@t3`
 select @t5;
 @t5
 1.23456
@@ -189,7 +189,7 @@ select @@concurrent_insert;
 AUTO
 set global timed_mutexes=ON;
 Warnings:
-Warning	1287	'@@timed_mutexes' is deprecated and will be removed in a future release.
+Warning	1287	'@@timed_mutexes' is deprecated and will be removed in a future release
 show variables like 'timed_mutexes';
 Variable_name	Value
 timed_mutexes	ON
@@ -198,7 +198,7 @@ VARIABLE_NAME	VARIABLE_VALUE
 TIMED_MUTEXES	ON
 set global timed_mutexes=0;
 Warnings:
-Warning	1287	'@@timed_mutexes' is deprecated and will be removed in a future release.
+Warning	1287	'@@timed_mutexes' is deprecated and will be removed in a future release
 show variables like 'timed_mutexes';
 Variable_name	Value
 timed_mutexes	OFF
@@ -731,8 +731,8 @@ show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
   `c1` bigint(20) DEFAULT NULL,
-  `c2` decimal(65,30) DEFAULT NULL,
-  `c3` longtext,
+  `c2` decimal(65,38) DEFAULT NULL,
+  `c3` longtext DEFAULT NULL,
   `c4` double DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
@@ -822,7 +822,8 @@ set @@global.lc_time_names=fr_FR;
 select @@global.lc_time_names, @@lc_time_names;
 @@global.lc_time_names	@@lc_time_names
 fr_FR	en_US
-New connection
+connect  con1,localhost,root,,;
+connection con1;
 select @@global.lc_time_names, @@lc_time_names;
 @@global.lc_time_names	@@lc_time_names
 fr_FR	fr_FR
@@ -830,7 +831,8 @@ set @@lc_time_names=ru_RU;
 select @@global.lc_time_names, @@lc_time_names;
 @@global.lc_time_names	@@lc_time_names
 fr_FR	ru_RU
-Returnung to default connection
+disconnect con1;
+connection default;
 select @@global.lc_time_names, @@lc_time_names;
 @@global.lc_time_names	@@lc_time_names
 fr_FR	en_US
@@ -1276,12 +1278,12 @@ ERROR HY000: Variable 'lower_case_table_names' is a read only variable
 #
 SHOW VARIABLES like 'myisam_recover_options';
 Variable_name	Value
-myisam_recover_options	DEFAULT
+myisam_recover_options	BACKUP,QUICK
 SELECT @@session.myisam_recover_options;
 ERROR HY000: Variable 'myisam_recover_options' is a GLOBAL variable
 SELECT @@global.myisam_recover_options;
 @@global.myisam_recover_options
-DEFAULT
+BACKUP,QUICK
 SET @@session.myisam_recover_options= 'x';
 ERROR HY000: Variable 'myisam_recover_options' is a read only variable
 SET @@global.myisam_recover_options= 'x';
@@ -1443,7 +1445,7 @@ Warnings:
 Warning	1292	Truncated incorrect auto_increment_offset value: '0'
 select @@default_storage_engine;
 Catalog	Database	Table	Table_alias	Column	Column_alias	Type	Length	Max length	Is_null	Flags	Decimals	Charsetnr
-def					@@default_storage_engine	253	6	6	Y	0	31	8
+def					@@default_storage_engine	253	6	6	Y	0	39	8
 @@default_storage_engine
 MyISAM
 SET @old_server_id = @@GLOBAL.server_id;
@@ -1464,15 +1466,17 @@ SELECT @@GLOBAL.server_id;
 @@GLOBAL.server_id
 4294967295
 SET GLOBAL server_id = 0;
+Warnings:
+Warning	1292	Truncated incorrect server_id value: '0'
 SELECT @@GLOBAL.server_id;
 @@GLOBAL.server_id
-0
+1
 SET GLOBAL server_id = -1;
 Warnings:
 Warning	1292	Truncated incorrect server_id value: '-1'
 SELECT @@GLOBAL.server_id;
 @@GLOBAL.server_id
-0
+1
 SET GLOBAL server_id = @old_server_id;
 #
 # BUG#10206 - InnoDB: Transaction requiring Max_BinLog_Cache_size > 4GB always rollsback
@@ -1528,7 +1532,7 @@ SET @@global.key_buffer_size=@kbs;
 SET @@global.key_cache_block_size=@kcbs;
 select @@max_long_data_size;
 @@max_long_data_size
-4194304
+16777216
 #
 # Bug#11766424  59527:
 # Assert in DECIMAL_BIN_SIZE: 
@@ -1797,3 +1801,23 @@ select * from information_schema.session_variables where variable_name='sql_mode
 VARIABLE_NAME	VARIABLE_VALUE
 SQL_MODE	ANSI_QUOTES
 End of 5.5 tests
+explain extended select @@VERsion from dual where rand() > @@verSION;
+id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
+1	SIMPLE	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	No tables used
+Warnings:
+Note	1003	select @@VERsion AS "@@VERsion" from DUAL  where rand() > @@version
+explain extended select @@SESsion.SQL_mode from dual where rand() > @@sesSION.sql_MODE;
+id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
+1	SIMPLE	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	No tables used
+Warnings:
+Note	1003	select @@SESsion.SQL_mode AS "@@SESsion.SQL_mode" from DUAL  where rand() > @@sql_mode
+explain extended select @@GLObal.COLLATION_connection from dual where rand() > @@gloBAL.collation_CONNECTION;
+id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
+1	SIMPLE	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	No tables used
+Warnings:
+Note	1003	select @@GLObal.COLLATION_connection AS "@@GLObal.COLLATION_connection" from DUAL  where rand() > @@global.collation_connection
+explain extended select @@FOObar.KEY_BUFfer_size from dual where rand() > @@fooBAR.key_bufFER_SIZE;
+id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
+1	SIMPLE	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	No tables used
+Warnings:
+Note	1003	select @@FOObar.KEY_BUFfer_size AS "@@FOObar.KEY_BUFfer_size" from DUAL  where rand() > @@fooBAR.key_buffer_size

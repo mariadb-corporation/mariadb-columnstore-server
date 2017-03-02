@@ -230,7 +230,7 @@ int my_strcasecmp_mb(CHARSET_INFO * cs,const char *s, const char *t)
         if (*s++ != *t++) 
           return 1;
     }
-    else if (my_mbcharlen(cs, *t) > 1)
+    else if (my_charlen(cs, t, t + cs->mbmaxlen) > 1)
       return 1;
     else if (map[(uchar) *s++] != map[(uchar) *t++])
       return 1;
@@ -401,28 +401,6 @@ size_t my_charpos_mb(CHARSET_INFO *cs __attribute__((unused)),
 }
 
 
-size_t my_well_formed_len_mb(CHARSET_INFO *cs, const char *b, const char *e,
-                             size_t pos, int *error)
-{
-  const char *b_start= b;
-  *error= 0;
-  while (pos)
-  {
-    my_wc_t wc;
-    int mb_len;
-
-    if ((mb_len= cs->cset->mb_wc(cs, &wc, (uchar*) b, (uchar*) e)) <= 0)
-    {
-      *error= b < e ? 1 : 0;
-      break;
-    }
-    b+= mb_len;
-    pos--;
-  }
-  return (size_t) (b - b_start);
-}
-
-
 /*
   Append a badly formed piece of string.
   Bad bytes are fixed to '?'.
@@ -571,93 +549,6 @@ uint my_instr_mb(CHARSET_INFO *cs,
 }
 
 
-/* BINARY collations handlers for MB charsets */
-
-int
-my_strnncoll_mb_bin(CHARSET_INFO * cs __attribute__((unused)),
-                    const uchar *s, size_t slen,
-                    const uchar *t, size_t tlen,
-                    my_bool t_is_prefix)
-{
-  size_t len=MY_MIN(slen,tlen);
-  int cmp= memcmp(s,t,len);
-  return cmp ? cmp : (int) ((t_is_prefix ? len : slen) - tlen);
-}
-
-
-/*
-  Compare two strings. 
-  
-  SYNOPSIS
-    my_strnncollsp_mb_bin()
-    cs			Chararacter set
-    s			String to compare
-    slen		Length of 's'
-    t			String to compare
-    tlen		Length of 't'
-    diff_if_only_endspace_difference
-		        Set to 1 if the strings should be regarded as different
-                        if they only difference in end space
-
-  NOTE
-   This function is used for character strings with binary collations.
-   The shorter string is extended with end space to be as long as the longer
-   one.
-
-  RETURN
-    A negative number if s < t
-    A positive number if s > t
-    0 if strings are equal
-*/
-
-int
-my_strnncollsp_mb_bin(CHARSET_INFO * cs __attribute__((unused)),
-                      const uchar *a, size_t a_length, 
-                      const uchar *b, size_t b_length,
-                      my_bool diff_if_only_endspace_difference)
-{
-  const uchar *end;
-  size_t length;
-  int res;
-
-#ifndef VARCHAR_WITH_DIFF_ENDSPACE_ARE_DIFFERENT_FOR_UNIQUE
-  diff_if_only_endspace_difference= 0;
-#endif
-  
-  end= a + (length= MY_MIN(a_length, b_length));
-  while (a < end)
-  {
-    if (*a++ != *b++)
-      return ((int) a[-1] - (int) b[-1]);
-  }
-  res= 0;
-  if (a_length != b_length)
-  {
-    int swap= 1;
-    if (diff_if_only_endspace_difference)
-      res= 1;                                   /* Assume 'a' is bigger */
-    /*
-      Check the next not space character of the longer key. If it's < ' ',
-      then it's smaller than the other key.
-    */
-    if (a_length < b_length)
-    {
-      /* put shorter key in s */
-      a_length= b_length;
-      a= b;
-      swap= -1;					/* swap sign of result */
-      res= -res;
-    }
-    for (end= a + a_length-length; a < end ; a++)
-    {
-      if (*a != ' ')
-	return (*a < ' ') ? -swap : swap;
-    }
-  }
-  return res;
-}
-
-
 /*
   Copy one non-ascii character.
   "dst" must have enough room for the character.
@@ -668,7 +559,7 @@ my_strnncollsp_mb_bin(CHARSET_INFO * cs __attribute__((unused)),
 */
 #define my_strnxfrm_mb_non_ascii_char(cs, dst, src, se)                  \
 {                                                                        \
-  switch (cs->cset->ismbchar(cs, (const char*) src, (const char*) se)) { \
+  switch (my_ismbchar(cs, (const char *) src, (const char *) se)) {      \
   case 4:                                                                \
     *dst++= *src++;                                                      \
     /* fall through */                                                   \
@@ -689,13 +580,10 @@ my_strnncollsp_mb_bin(CHARSET_INFO * cs __attribute__((unused)),
   characters having multibyte weights *equal* to their codes:
   cp932, euckr, gb2312, sjis, eucjpms, ujis.
 */
-size_t
-my_strnxfrm_mb(CHARSET_INFO *cs,
-               uchar *dst, size_t dstlen, uint nweights,
-               const uchar *src, size_t srclen, uint flags)
+size_t my_strnxfrm_mb_internal(CHARSET_INFO *cs, uchar *dst, uchar *de,
+                               uint *nweights, const uchar *src, size_t srclen)
 {
   uchar *d0= dst;
-  uchar *de= dst + dstlen;
   const uchar *se= src + srclen;
   const uchar *sort_order= cs->sort_order;
 
@@ -706,12 +594,12 @@ my_strnxfrm_mb(CHARSET_INFO *cs,
     then we can run a simplified loop -
     without checking "nweights" and "de".
   */
-  if (dstlen >= srclen && nweights >= srclen)
+  if (de >= d0 + srclen && *nweights >= srclen)
   {
     if (sort_order)
     {
       /* Optimized version for a case insensitive collation */
-      for (; src < se; nweights--)
+      for (; src < se; (*nweights)--)
       {
         if (*src < 128) /* quickly catch ASCII characters */
           *dst++= sort_order[*src++];
@@ -722,7 +610,7 @@ my_strnxfrm_mb(CHARSET_INFO *cs,
     else
     {
       /* Optimized version for a case sensitive collation (no sort_order) */
-      for (; src < se; nweights--)
+      for (; src < se; (*nweights)--)
       {
         if (*src < 128) /* quickly catch ASCII characters */
           *dst++= *src++;
@@ -730,18 +618,18 @@ my_strnxfrm_mb(CHARSET_INFO *cs,
           my_strnxfrm_mb_non_ascii_char(cs, dst, src, se);
       }
     }
-    goto pad;
+    goto end;
   }
 
   /*
     A thourough loop, checking all possible limits:
     "se", "nweights" and "de".
   */
-  for (; src < se && nweights && dst < de; nweights--)
+  for (; src < se && *nweights && dst < de; (*nweights)--)
   {
     int chlen;
-    if (*src < 128 ||
-        !(chlen= cs->cset->ismbchar(cs, (const char*) src, (const char*) se)))
+    if (*src < 128 || !(chlen= my_ismbchar(cs, (const char *) src,
+                                               (const char *) se)))
     {
       /* Single byte character */
       *dst++= sort_order ? sort_order[*src++] : *src++;
@@ -756,8 +644,33 @@ my_strnxfrm_mb(CHARSET_INFO *cs,
     }
   }
 
-pad:
+end:
+  return dst - d0;
+}
+
+
+size_t
+my_strnxfrm_mb(CHARSET_INFO *cs,
+               uchar *dst, size_t dstlen, uint nweights,
+               const uchar *src, size_t srclen, uint flags)
+{
+  uchar *de= dst + dstlen;
+  uchar *d0= dst;
+  dst= d0 + my_strnxfrm_mb_internal(cs, dst, de, &nweights, src, srclen);
   return my_strxfrm_pad_desc_and_reverse(cs, d0, dst, de, nweights, flags, 0);
+}
+
+
+size_t
+my_strnxfrm_mb_nopad(CHARSET_INFO *cs,
+                     uchar *dst, size_t dstlen, uint nweights,
+                     const uchar *src, size_t srclen, uint flags)
+{
+  uchar *de= dst + dstlen;
+  uchar *d0= dst;
+  dst= d0 + my_strnxfrm_mb_internal(cs, dst, de, &nweights, src, srclen);
+  return my_strxfrm_pad_desc_and_reverse_nopad(cs, d0, dst, de, nweights,
+                                               flags, 0);
 }
 
 
@@ -769,24 +682,32 @@ my_strcasecmp_mb_bin(CHARSET_INFO * cs __attribute__((unused)),
 }
 
 
+
 void
-my_hash_sort_mb_bin(CHARSET_INFO *cs __attribute__((unused)),
-                    const uchar *key, size_t len,ulong *nr1, ulong *nr2)
+my_hash_sort_mb_nopad_bin(CHARSET_INFO *cs __attribute__((unused)),
+                          const uchar *key, size_t len,ulong *nr1, ulong *nr2)
 {
   register ulong m1= *nr1, m2= *nr2;
-
-  /*
-     Remove trailing spaces. We have to do this to be able to compare
-    'A ' and 'A' as identical
-  */
-  const uchar *end = skip_trailing_space(key, len);
-  
+  const uchar *end= key + len;
   for (; key < end ; key++)
   {
     MY_HASH_ADD(m1, m2, (uint)*key);
   }
   *nr1= m1;
   *nr2= m2;
+}
+
+
+void
+my_hash_sort_mb_bin(CHARSET_INFO *cs __attribute__((unused)),
+                    const uchar *key, size_t len,ulong *nr1, ulong *nr2)
+{
+  /*
+     Remove trailing spaces. We have to do this to be able to compare
+    'A ' and 'A' as identical
+  */
+  const uchar *end= skip_trailing_space(key, len);
+  my_hash_sort_mb_nopad_bin(cs, key, end - key, nr1, nr2);
 }
 
 

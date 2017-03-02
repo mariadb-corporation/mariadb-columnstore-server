@@ -1637,13 +1637,13 @@ t1	CREATE TABLE `t1` (
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 create table t1 (a enum ('0','1'));
-insert into t1 set a='foobar';
+insert ignore into t1 set a='foobar';
 Warnings:
 Warning	1265	Data truncated for column 'a' at row 1
 select * from t1;
 a
 
-update t1 set a = replace(a,'x','y');
+update ignore t1 set a = replace(a,'x','y');
 Warnings:
 Warning	1265	Data truncated for column 'a' at row 1
 select * from t1;
@@ -1669,7 +1669,7 @@ b ENUM('value','๖ไü_value','สรี') character set latin1 NOT NULL
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` int(11) DEFAULT '1',
+  `a` int(11) DEFAULT 1,
   `b` enum('value','๖ไü_value','สรี') NOT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 show columns from t1;
@@ -1782,7 +1782,7 @@ CREATE TABLE t1 (
 id INT AUTO_INCREMENT PRIMARY KEY,
 c1 ENUM('a', '', 'b')
 );
-INSERT INTO t1 (c1) VALUES (0), ('a'), (''), ('b');
+INSERT IGNORE INTO t1 (c1) VALUES (0), ('a'), (''), ('b');
 Warnings:
 Warning	1265	Data truncated for column 'c1' at row 1
 SELECT id, c1 + 0, c1 FROM t1;
@@ -1791,6 +1791,7 @@ id	c1 + 0	c1
 2	1	a
 3	2	
 4	3	b
+SET STATEMENT sql_mode = 'NO_ENGINE_SUBSTITUTION' FOR
 ALTER TABLE t1 CHANGE c1 c1 ENUM('a', '') NOT NULL;
 Warnings:
 Warning	1265	Data truncated for column 'c1' at row 4
@@ -1812,7 +1813,7 @@ drop table t1;
 CREATE TABLE t1 (c1 ENUM('a', '', 'b'));
 INSERT INTO t1 (c1) VALUES ('b');
 INSERT INTO t1 (c1) VALUES ('');
-INSERT INTO t1 (c1) VALUES (0);
+INSERT IGNORE INTO t1 (c1) VALUES (0);
 Warnings:
 Warning	1265	Data truncated for column 'c1' at row 1
 INSERT INTO t1 (c1) VALUES ('');
@@ -2104,7 +2105,7 @@ EXPLAIN EXTENDED SELECT * FROM t1 WHERE HEX(a)='61' AND a='a ';
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where ((`test`.`t1`.`a` = 'a ') and (hex(`test`.`t1`.`a`) = '61'))
+Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where `test`.`t1`.`a` = 'a ' and hex(`test`.`t1`.`a`) = '61'
 DROP TABLE t1;
 CREATE TABLE t1 (a ENUM('a','a ') CHARACTER SET BINARY);
 INSERT INTO t1 VALUES ('a'),('a ');
@@ -2124,7 +2125,7 @@ EXPLAIN EXTENDED SELECT * FROM t1 WHERE HEX(a)='61' AND a='a';
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where (`test`.`t1`.`a` = 'a')
+Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where `test`.`t1`.`a` = 'a'
 EXPLAIN EXTENDED SELECT * FROM t1 WHERE HEX(a)='61' AND a='a ';
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	Impossible WHERE
@@ -2134,3 +2135,87 @@ DROP TABLE t1;
 #
 # End of 10.1 tests
 #
+#
+# MDEV-9340 Copying from INT/DOUBLE to ENUM is inconsistent
+#
+CREATE TABLE t1 (a ENUM('9e200','9e100'));
+CREATE TABLE t2 (a DOUBLE);
+INSERT INTO t2 VALUES ('9e100');
+INSERT IGNORE INTO t1 SELECT * FROM t2;
+Warnings:
+Warning	1265	Data truncated for column 'a' at row 1
+SELECT * FROM t1;
+a
+
+DROP TABLE t1,t2;
+CREATE TABLE t1 (a DOUBLE);
+INSERT INTO t1 VALUES (9e100);
+SET STATEMENT sql_mode = 'NO_ENGINE_SUBSTITUTION' FOR
+ALTER TABLE t1 MODIFY a ENUM('9e200','9e100');
+Warnings:
+Warning	1916	Got overflow when converting '9e100' to INT. Value truncated
+Warning	1265	Data truncated for column 'a' at row 1
+SELECT * FROM t1;
+a
+
+DROP TABLE t1;
+CREATE TABLE t1 (a ENUM('200','100'));
+CREATE TABLE t2 (a DOUBLE);
+INSERT INTO t2 VALUES ('100');
+INSERT IGNORE INTO t1 SELECT * FROM t2;
+Warnings:
+Warning	1265	Data truncated for column 'a' at row 1
+SELECT * FROM t1;
+a
+
+DROP TABLE t1,t2;
+CREATE TABLE t1 (a ENUM('200','100'));
+CREATE TABLE t2 (a INT);
+INSERT INTO t2 VALUES ('100');
+INSERT IGNORE INTO t1 SELECT * FROM t2;
+Warnings:
+Warning	1265	Data truncated for column 'a' at row 1
+SELECT * FROM t1;
+a
+
+DROP TABLE t1,t2;
+CREATE TABLE t1 (a INT);
+INSERT INTO t1 VALUES ('200');
+SET STATEMENT sql_mode = 'NO_ENGINE_SUBSTITUTION' FOR
+ALTER TABLE t1 MODIFY a ENUM('200','100');
+Warnings:
+Warning	1265	Data truncated for column 'a' at row 1
+SELECT *FROM t1;
+a
+
+DROP TABLE t1;
+CREATE TABLE t1 (a ENUM('200','100'));
+CREATE TABLE t2 (a INT);
+INSERT INTO t2 VALUES ('100');
+INSERT IGNORE INTO t1 SELECT * FROM t2;
+Warnings:
+Warning	1265	Data truncated for column 'a' at row 1
+SELECT * FROM t1;
+a
+
+DROP TABLE t1,t2;
+CREATE TABLE t1 (a ENUM('2001','2002'));
+CREATE TABLE t2 (a YEAR);
+INSERT INTO t2 VALUES ('2001');
+INSERT IGNORE INTO t1 SELECT * FROM t2;
+Warnings:
+Warning	1265	Data truncated for column 'a' at row 1
+SELECT * FROM t1;
+a
+
+DROP TABLE t1,t2;
+CREATE TABLE t1 (a YEAR);
+INSERT INTO t1 VALUES ('2001');
+SET STATEMENT sql_mode = 'NO_ENGINE_SUBSTITUTION' FOR
+ALTER TABLE t1 MODIFY a ENUM('2001','2002');
+Warnings:
+Warning	1265	Data truncated for column 'a' at row 1
+SELECT * FROM t1;
+a
+
+DROP TABLE t1;

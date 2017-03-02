@@ -206,6 +206,8 @@ x
 1
 create user mysqltest_1;
 create table t1 select 1 as a;
+connect  con1,localhost,mysqltest_1,,*NO-ONE*,$MASTER_MYPORT,$MASTER_MYSOCK;
+connection con1;
 set optimizer_switch='derived_merge=off,derived_with_keys=off';
 select 2 as a from (select * from t1) b;
 ERROR 3D000: No database selected
@@ -385,6 +387,9 @@ ID	DATA	FID
 select t2.* from (select * from t1) as A inner join t2 on A.ID = t2.FID;
 ID	DATA	FID
 drop table t1, t2;
+connection con1;
+disconnect con1;
+connection default;
 drop user mysqltest_1;
 # End of 4.1 tests
 SELECT 0 FROM
@@ -627,7 +632,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 2	DERIVED	t1	system	NULL	NULL	NULL	NULL	1	100.00	
 Warnings:
 Note	1276	Field or reference 'sq.f2' of SELECT #3 was resolved in SELECT #1
-Note	1003	select 6 AS `f1` from  <materialize> (select `test`.`t2`.`f3` from `test`.`t2` having (`test`.`t2`.`f3` >= 8)) semi join (`test`.`t2`) where ((`test`.`t2`.`f3` = 6) and (`<subquery4>`.`f3` = 9))
+Note	1003	select 6 AS `f1` from  <materialize> (select `test`.`t2`.`f3` from `test`.`t2` having `test`.`t2`.`f3` >= 8) semi join (`test`.`t2`) where `test`.`t2`.`f3` = 6 and `<subquery4>`.`f3` = 9
 DROP TABLE t2,t1;
 #
 # MDEV-9462: Out of memory using explain on 2 empty tables 
@@ -1058,4 +1063,22 @@ a
 DROP TABLE t1;
 #
 # End of 10.1 tests
+#
+#
+# MDEV-10554: Assertion `!derived->first_select()->
+# exclude_from_table_unique_test || derived->outer_select()->
+# exclude_from_table_unique_test'
+# failed in TABLE_LIST::set_check_merged()
+#
+CREATE TABLE t1 (f INT);
+CREATE ALGORITHM = TEMPTABLE VIEW v1 AS SELECT * FROM ( SELECT * FROM t1 ) AS sq;
+PREPARE stmt FROM 'SELECT * FROM v1';
+EXECUTE stmt;
+f
+EXECUTE stmt;
+f
+drop view v1;
+drop table t1;
+#
+# End of 10.2 tests
 #

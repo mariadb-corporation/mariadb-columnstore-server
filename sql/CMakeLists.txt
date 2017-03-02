@@ -1,6 +1,5 @@
 # Copyright (c) 2006, 2014, Oracle and/or its affiliates.
-# Copyright (c) 2010, 2015, MariaDB
-# Copyright (c) 2016, MariaDB Corporation
+# Copyright (c) 2010, 2016, MariaDB Corporation
 # 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -80,7 +79,7 @@ ENDIF()
 
 SET (SQL_SOURCE
               ../sql-common/client.c compat56.cc derror.cc des_key_file.cc
-               discover.cc ../libmysql/errmsg.c field.cc  field_conv.cc 
+               discover.cc ../sql-common/errmsg.c field.cc field_conv.cc
                filesort_utils.cc
                filesort.cc gstream.cc sha2.cc
                signal_handler.cc
@@ -91,12 +90,14 @@ SET (SQL_SOURCE
                key.cc log.cc lock.cc
                log_event.cc rpl_record.cc rpl_reporting.cc
                log_event_old.cc rpl_record_old.cc
-               message.h mf_iocache.cc my_decimal.cc ../sql-common/my_time.c
+               message.h mf_iocache.cc my_decimal.cc
                mysqld.cc net_serv.cc  keycaches.cc
                ../sql-common/client_plugin.c
                opt_range.cc opt_range.h opt_sum.cc 
                ../sql-common/pack.c parse_file.cc password.c procedure.cc 
-               protocol.cc records.cc repl_failsafe.cc rpl_filter.cc set_var.cc 
+               protocol.cc records.cc repl_failsafe.cc rpl_filter.cc
+               session_tracker.cc
+               set_var.cc 
                slave.cc sp.cc sp_cache.cc sp_head.cc sp_pcontext.cc 
                sp_rcontext.cc spatial.cc sql_acl.cc sql_analyse.cc sql_base.cc 
                sql_cache.cc sql_class.cc sql_client.cc sql_crypt.cc sql_crypt.h 
@@ -113,7 +114,8 @@ SET (SQL_SOURCE
                sql_statistics.cc sql_string.cc 
                sql_table.cc sql_test.cc sql_trigger.cc sql_udf.cc sql_union.cc
                sql_update.cc sql_view.cc strfunc.cc table.cc thr_malloc.cc 
-               sql_time.cc tztime.cc uniques.cc unireg.cc item_xmlfunc.cc 
+               sql_time.cc tztime.cc unireg.cc item_xmlfunc.cc 
+               uniques.cc uniques.h
                rpl_tblmap.cc sql_binlog.cc event_scheduler.cc event_data_objects.cc
                event_queue.cc event_db_repository.cc 
                sql_tablespace.cc events.cc ../sql-common/my_user.c 
@@ -123,7 +125,7 @@ SET (SQL_SOURCE
                sql_profile.cc event_parse_data.cc sql_alter.cc
                sql_signal.cc rpl_handler.cc mdl.cc sql_admin.cc
                transaction.cc sys_vars.cc sql_truncate.cc datadict.cc
-               sql_reload.cc sql_cmd.h item_inetfunc.cc
+               sql_reload.cc sql_cmd.h item_inetfunc.cc 
 
                # added in MariaDB:
                sql_explain.h sql_explain.cc
@@ -134,20 +136,18 @@ SET (SQL_SOURCE
                opt_table_elimination.cc sql_expression_cache.cc
                gcalc_slicescan.cc gcalc_tools.cc
                threadpool_common.cc ../sql-common/mysql_async.c
-               my_apc.cc my_apc.h mf_iocache_encr.cc
+               my_apc.cc my_apc.h mf_iocache_encr.cc item_jsonfunc.cc
                my_json_writer.cc my_json_writer.h
                rpl_gtid.cc rpl_parallel.cc
                sql_type.cc sql_type.h
+               item_windowfunc.cc sql_window.cc
+	       sql_cte.cc sql_cte.h
 	       ${WSREP_SOURCES}
-               table_cache.cc encryption.cc
+               table_cache.cc encryption.cc temporary_tables.cc
                ${CMAKE_CURRENT_BINARY_DIR}/sql_builtin.cc
                ${GEN_SOURCES}
                ${GEN_DIGEST_SOURCES}
                ${MYSYS_LIBWRAP_SOURCE}
-
-               # added for Columnstore
-               item_create_window_function.h item_create_window_function.cc
-               item_window_function.h item_window_function.cc
 			   )
   
 IF (CMAKE_SYSTEM_NAME MATCHES "Linux" OR
@@ -157,9 +157,9 @@ IF (CMAKE_SYSTEM_NAME MATCHES "Linux" OR
  ADD_DEFINITIONS(-DHAVE_POOL_OF_THREADS)
  IF(WIN32)
    SET(SQL_SOURCE ${SQL_SOURCE} threadpool_win.cc)
- ELSE()
-   SET(SQL_SOURCE ${SQL_SOURCE} threadpool_unix.cc)
  ENDIF()
+ SET(SQL_SOURCE ${SQL_SOURCE} threadpool_generic.cc)
+
 ENDIF()
 
 MYSQL_ADD_PLUGIN(partition ha_partition.cc STORAGE_ENGINE DEFAULT STATIC_ONLY
@@ -321,13 +321,6 @@ IF(WIN32 OR HAVE_DLOPEN AND NOT DISABLE_SHARED)
     TARGET_LINK_LIBRARIES(udf_example mysqld)
   ENDIF()
 ENDIF()
-
-FOREACH(tool glibtoolize libtoolize aclocal autoconf autoheader automake gtar 
- tar git)
- STRING(TOUPPER ${tool}  TOOL)
- FIND_PROGRAM(${TOOL}_EXECUTABLE ${tool} DOC "path to the executable")
- MARK_AS_ADVANCED(${TOOL}_EXECUTABLE)
-ENDFOREACH()
 
 CONFIGURE_FILE(
   ${CMAKE_SOURCE_DIR}/cmake/make_dist.cmake.in

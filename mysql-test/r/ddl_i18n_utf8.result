@@ -61,8 +61,7 @@ SELECT * FROM v3|
 
 
 ALTER DATABASE mysqltest1 COLLATE cp866_general_ci|
-
----> connection: con2
+connect  con2,localhost,root,,;
 SET @@character_set_client= cp1251|
 SET @@character_set_results= cp1251|
 SET @@collation_connection= cp1251_general_ci|
@@ -118,8 +117,7 @@ DROP DATABASE mysqltest1|
 
 
 ---> Restoring mysqltest1...
-
----> connection: con3
+connect  con3,localhost,root,,;
 SET @@character_set_client= cp1251|
 SET @@character_set_results= cp1251|
 SET @@collation_connection= cp1251_general_ci|
@@ -167,8 +165,9 @@ koi8r_general_ci
 SELECT * FROM v3|
 тест
 тест
-
----> connection: default
+connection default;
+disconnect con2;
+disconnect con3;
 use test|
 DROP DATABASE mysqltest1|
 
@@ -477,8 +476,7 @@ utf8_general_ci	utf8_general_ci
 
 ALTER DATABASE mysqltest1 COLLATE cp866_general_ci|
 ALTER DATABASE mysqltest2 COLLATE cp866_general_ci|
-
----> connection: con2
+connect  con2,localhost,root,,mysqltest1;
 SET @@character_set_client= cp1251|
 SET @@character_set_results= cp1251|
 SET @@collation_connection= cp1251_general_ci|
@@ -879,8 +877,7 @@ DROP DATABASE mysqltest2|
 
 ---> Restoring mysqltest1...
 ---> Restoring mysqltest2...
-
----> connection: con3
+connect  con3,localhost,root,,mysqltest1;
 SET @@character_set_client= cp1251|
 SET @@character_set_results= cp1251|
 SET @@collation_connection= cp1251_general_ci|
@@ -1121,8 +1118,9 @@ utf8_general_ci	utf8_general_ci	koi8r_general_ci	utf8_general_ci	utf8
 SELECT COLLATION(@a) AS ca, COLLATION(@b) cb|
 ca	cb
 utf8_general_ci	utf8_general_ci
-
----> connection: default
+connection default;
+disconnect con2;
+disconnect con3;
 use test|
 DROP DATABASE mysqltest1|
 DROP DATABASE mysqltest2|
@@ -1200,7 +1198,7 @@ END|
 
 
 SHOW CREATE TRIGGER trg1|
-Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation
+Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation	Created
 trg1		CREATE DEFINER=`root`@`localhost` TRIGGER trg1 BEFORE INSERT ON t1 FOR EACH ROW
 BEGIN
 DECLARE перем1 CHAR(10);
@@ -1213,10 +1211,10 @@ INSERT INTO log VALUES(@@character_set_client);
 SET @a1 = 'текст';
 SET @a2 = _utf8 'текст';
 SET @a3 = _koi8r    '�����';
-END	utf8	utf8_general_ci	utf8_unicode_ci
+END	utf8	utf8_general_ci	utf8_unicode_ci	#
 
 SHOW CREATE TRIGGER trg2|
-Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation
+Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation	Created
 trg2		CREATE DEFINER=`root`@`localhost` TRIGGER trg2 AFTER INSERT ON t1 FOR EACH ROW
 BEGIN
 DECLARE перем1 CHAR(10) CHARACTER SET utf8;
@@ -1229,10 +1227,10 @@ INSERT INTO log VALUES(@@character_set_client);
 SET @b1 = 'текст';
 SET @b2 = _utf8 'текст';
 SET @b3 = _koi8r    '�����';
-END	utf8	utf8_general_ci	utf8_unicode_ci
+END	utf8	utf8_general_ci	utf8_unicode_ci	#
 
 SHOW CREATE TRIGGER mysqltest2.trg3|
-Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation
+Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation	Created
 trg3		CREATE DEFINER=`root`@`localhost` TRIGGER mysqltest2.trg3 BEFORE INSERT ON mysqltest2.t1 FOR EACH ROW
 BEGIN
 DECLARE перем1 CHAR(10);
@@ -1245,10 +1243,10 @@ INSERT INTO log VALUES(@@character_set_client);
 SET @a1 = 'текст';
 SET @a2 = _utf8 'текст';
 SET @a3 = _koi8r    '�����';
-END	utf8	utf8_general_ci	utf8_unicode_ci
+END	utf8	utf8_general_ci	utf8_unicode_ci	#
 
 SHOW CREATE TRIGGER mysqltest2.trg4|
-Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation
+Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation	Created
 trg4		CREATE DEFINER=`root`@`localhost` TRIGGER mysqltest2.trg4 AFTER INSERT ON mysqltest2.t1 FOR EACH ROW
 BEGIN
 DECLARE перем1 CHAR(10) CHARACTER SET utf8;
@@ -1261,7 +1259,7 @@ INSERT INTO log VALUES(@@character_set_client);
 SET @b1 = 'текст';
 SET @b2 = _utf8 'текст';
 SET @b3 = _koi8r    '�����';
-END	utf8	utf8_general_ci	utf8_unicode_ci
+END	utf8	utf8_general_ci	utf8_unicode_ci	#
 
 
 SHOW TRIGGERS|
@@ -1277,7 +1275,7 @@ INSERT INTO log VALUES(@@character_set_client);
 SET @a1 = 'текст';
 SET @a2 =  'текст';
 SET @a3 =     'текст';
-END	BEFORE	NULL		root@localhost	utf8	utf8_general_ci	utf8_unicode_ci
+END	BEFORE	#		root@localhost	utf8	utf8_general_ci	utf8_unicode_ci
 trg2	INSERT	t1	BEGIN
 DECLARE перем1 CHAR(10) CHARACTER SET utf8;
 INSERT INTO log VALUES(COLLATION(перем1));
@@ -1289,7 +1287,7 @@ INSERT INTO log VALUES(@@character_set_client);
 SET @b1 = 'текст';
 SET @b2 =  'текст';
 SET @b3 =     'текст';
-END	AFTER	NULL		root@localhost	utf8	utf8_general_ci	utf8_unicode_ci
+END	AFTER	#		root@localhost	utf8	utf8_general_ci	utf8_unicode_ci
 
 use mysqltest2|
 
@@ -1306,7 +1304,7 @@ INSERT INTO log VALUES(@@character_set_client);
 SET @a1 = 'текст';
 SET @a2 =  'текст';
 SET @a3 =     'текст';
-END	BEFORE	NULL		root@localhost	utf8	utf8_general_ci	utf8_unicode_ci
+END	BEFORE	#		root@localhost	utf8	utf8_general_ci	utf8_unicode_ci
 trg4	INSERT	t1	BEGIN
 DECLARE перем1 CHAR(10) CHARACTER SET utf8;
 INSERT INTO log VALUES(COLLATION(перем1));
@@ -1318,13 +1316,13 @@ INSERT INTO log VALUES(@@character_set_client);
 SET @b1 = 'текст';
 SET @b2 =  'текст';
 SET @b3 =     'текст';
-END	AFTER	NULL		root@localhost	utf8	utf8_general_ci	utf8_unicode_ci
+END	AFTER	#		root@localhost	utf8	utf8_general_ci	utf8_unicode_ci
 use mysqltest1|
 
 
 SELECT * FROM INFORMATION_SCHEMA.TRIGGERS WHERE trigger_name = 'trg1'|
 TRIGGER_CATALOG	TRIGGER_SCHEMA	TRIGGER_NAME	EVENT_MANIPULATION	EVENT_OBJECT_CATALOG	EVENT_OBJECT_SCHEMA	EVENT_OBJECT_TABLE	ACTION_ORDER	ACTION_CONDITION	ACTION_STATEMENT	ACTION_ORIENTATION	ACTION_TIMING	ACTION_REFERENCE_OLD_TABLE	ACTION_REFERENCE_NEW_TABLE	ACTION_REFERENCE_OLD_ROW	ACTION_REFERENCE_NEW_ROW	CREATED	SQL_MODE	DEFINER	CHARACTER_SET_CLIENT	COLLATION_CONNECTION	DATABASE_COLLATION
-def	mysqltest1	trg1	INSERT	def	mysqltest1	t1	0	NULL	BEGIN
+def	mysqltest1	trg1	INSERT	def	mysqltest1	t1	1	NULL	BEGIN
 DECLARE перем1 CHAR(10);
 INSERT INTO log VALUES(COLLATION(перем1));
 INSERT INTO log VALUES(COLLATION('текст'));
@@ -1339,7 +1337,7 @@ END	ROW	BEFORE	NULL	NULL	OLD	NEW	CREATED		root@localhost	utf8	utf8_general_ci	ut
 
 SELECT * FROM INFORMATION_SCHEMA.TRIGGERS WHERE trigger_name = 'trg2'|
 TRIGGER_CATALOG	TRIGGER_SCHEMA	TRIGGER_NAME	EVENT_MANIPULATION	EVENT_OBJECT_CATALOG	EVENT_OBJECT_SCHEMA	EVENT_OBJECT_TABLE	ACTION_ORDER	ACTION_CONDITION	ACTION_STATEMENT	ACTION_ORIENTATION	ACTION_TIMING	ACTION_REFERENCE_OLD_TABLE	ACTION_REFERENCE_NEW_TABLE	ACTION_REFERENCE_OLD_ROW	ACTION_REFERENCE_NEW_ROW	CREATED	SQL_MODE	DEFINER	CHARACTER_SET_CLIENT	COLLATION_CONNECTION	DATABASE_COLLATION
-def	mysqltest1	trg2	INSERT	def	mysqltest1	t1	0	NULL	BEGIN
+def	mysqltest1	trg2	INSERT	def	mysqltest1	t1	1	NULL	BEGIN
 DECLARE перем1 CHAR(10) CHARACTER SET utf8;
 INSERT INTO log VALUES(COLLATION(перем1));
 INSERT INTO log VALUES(COLLATION('текст'));
@@ -1354,7 +1352,7 @@ END	ROW	AFTER	NULL	NULL	OLD	NEW	CREATED		root@localhost	utf8	utf8_general_ci	utf
 
 SELECT * FROM INFORMATION_SCHEMA.TRIGGERS WHERE trigger_name = 'trg3'|
 TRIGGER_CATALOG	TRIGGER_SCHEMA	TRIGGER_NAME	EVENT_MANIPULATION	EVENT_OBJECT_CATALOG	EVENT_OBJECT_SCHEMA	EVENT_OBJECT_TABLE	ACTION_ORDER	ACTION_CONDITION	ACTION_STATEMENT	ACTION_ORIENTATION	ACTION_TIMING	ACTION_REFERENCE_OLD_TABLE	ACTION_REFERENCE_NEW_TABLE	ACTION_REFERENCE_OLD_ROW	ACTION_REFERENCE_NEW_ROW	CREATED	SQL_MODE	DEFINER	CHARACTER_SET_CLIENT	COLLATION_CONNECTION	DATABASE_COLLATION
-def	mysqltest2	trg3	INSERT	def	mysqltest2	t1	0	NULL	BEGIN
+def	mysqltest2	trg3	INSERT	def	mysqltest2	t1	1	NULL	BEGIN
 DECLARE перем1 CHAR(10);
 INSERT INTO log VALUES(COLLATION(перем1));
 INSERT INTO log VALUES(COLLATION('текст'));
@@ -1369,7 +1367,7 @@ END	ROW	BEFORE	NULL	NULL	OLD	NEW	CREATED		root@localhost	utf8	utf8_general_ci	ut
 
 SELECT * FROM INFORMATION_SCHEMA.TRIGGERS WHERE trigger_name = 'trg4'|
 TRIGGER_CATALOG	TRIGGER_SCHEMA	TRIGGER_NAME	EVENT_MANIPULATION	EVENT_OBJECT_CATALOG	EVENT_OBJECT_SCHEMA	EVENT_OBJECT_TABLE	ACTION_ORDER	ACTION_CONDITION	ACTION_STATEMENT	ACTION_ORIENTATION	ACTION_TIMING	ACTION_REFERENCE_OLD_TABLE	ACTION_REFERENCE_NEW_TABLE	ACTION_REFERENCE_OLD_ROW	ACTION_REFERENCE_NEW_ROW	CREATED	SQL_MODE	DEFINER	CHARACTER_SET_CLIENT	COLLATION_CONNECTION	DATABASE_COLLATION
-def	mysqltest2	trg4	INSERT	def	mysqltest2	t1	0	NULL	BEGIN
+def	mysqltest2	trg4	INSERT	def	mysqltest2	t1	1	NULL	BEGIN
 DECLARE перем1 CHAR(10) CHARACTER SET utf8;
 INSERT INTO log VALUES(COLLATION(перем1));
 INSERT INTO log VALUES(COLLATION('текст'));
@@ -1459,8 +1457,7 @@ ALTER TABLE t1 ADD COLUMN fake INT|
 ALTER TABLE t1 DROP COLUMN fake|
 ALTER TABLE mysqltest2.t1 ADD COLUMN fake INT|
 ALTER TABLE mysqltest2.t1 DROP COLUMN fake|
-
----> connection: con2
+connect  con2,localhost,root,,;
 SET @@character_set_client= cp1251|
 SET @@character_set_results= cp1251|
 SET @@collation_connection= cp1251_general_ci|
@@ -1473,7 +1470,7 @@ use mysqltest1|
 
 
 SHOW CREATE TRIGGER trg1|
-Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation
+Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation	Created
 trg1		CREATE DEFINER=`root`@`localhost` TRIGGER trg1 BEFORE INSERT ON t1 FOR EACH ROW
 BEGIN
 DECLARE перем1 CHAR(10);
@@ -1486,10 +1483,10 @@ INSERT INTO log VALUES(@@character_set_client);
 SET @a1 = 'текст';
 SET @a2 = _utf8 'текст';
 SET @a3 = _koi8r    '�����';
-END	utf8	utf8_general_ci	utf8_unicode_ci
+END	utf8	utf8_general_ci	utf8_unicode_ci	#
 
 SHOW CREATE TRIGGER trg2|
-Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation
+Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation	Created
 trg2		CREATE DEFINER=`root`@`localhost` TRIGGER trg2 AFTER INSERT ON t1 FOR EACH ROW
 BEGIN
 DECLARE перем1 CHAR(10) CHARACTER SET utf8;
@@ -1502,10 +1499,10 @@ INSERT INTO log VALUES(@@character_set_client);
 SET @b1 = 'текст';
 SET @b2 = _utf8 'текст';
 SET @b3 = _koi8r    '�����';
-END	utf8	utf8_general_ci	utf8_unicode_ci
+END	utf8	utf8_general_ci	utf8_unicode_ci	#
 
 SHOW CREATE TRIGGER mysqltest2.trg3|
-Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation
+Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation	Created
 trg3		CREATE DEFINER=`root`@`localhost` TRIGGER mysqltest2.trg3 BEFORE INSERT ON mysqltest2.t1 FOR EACH ROW
 BEGIN
 DECLARE перем1 CHAR(10);
@@ -1518,10 +1515,10 @@ INSERT INTO log VALUES(@@character_set_client);
 SET @a1 = 'текст';
 SET @a2 = _utf8 'текст';
 SET @a3 = _koi8r    '�����';
-END	utf8	utf8_general_ci	utf8_unicode_ci
+END	utf8	utf8_general_ci	utf8_unicode_ci	#
 
 SHOW CREATE TRIGGER mysqltest2.trg4|
-Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation
+Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation	Created
 trg4		CREATE DEFINER=`root`@`localhost` TRIGGER mysqltest2.trg4 AFTER INSERT ON mysqltest2.t1 FOR EACH ROW
 BEGIN
 DECLARE перем1 CHAR(10) CHARACTER SET utf8;
@@ -1534,7 +1531,7 @@ INSERT INTO log VALUES(@@character_set_client);
 SET @b1 = 'текст';
 SET @b2 = _utf8 'текст';
 SET @b3 = _koi8r    '�����';
-END	utf8	utf8_general_ci	utf8_unicode_ci
+END	utf8	utf8_general_ci	utf8_unicode_ci	#
 
 
 SHOW TRIGGERS|
@@ -1550,7 +1547,7 @@ INSERT INTO log VALUES(@@character_set_client);
 SET @a1 = 'текст';
 SET @a2 =  'текст';
 SET @a3 =     'текст';
-END	BEFORE	NULL		root@localhost	utf8	utf8_general_ci	utf8_unicode_ci
+END	BEFORE	#		root@localhost	utf8	utf8_general_ci	utf8_unicode_ci
 trg2	INSERT	t1	BEGIN
 DECLARE перем1 CHAR(10) CHARACTER SET utf8;
 INSERT INTO log VALUES(COLLATION(перем1));
@@ -1562,7 +1559,7 @@ INSERT INTO log VALUES(@@character_set_client);
 SET @b1 = 'текст';
 SET @b2 =  'текст';
 SET @b3 =     'текст';
-END	AFTER	NULL		root@localhost	utf8	utf8_general_ci	utf8_unicode_ci
+END	AFTER	#		root@localhost	utf8	utf8_general_ci	utf8_unicode_ci
 
 use mysqltest2|
 
@@ -1579,7 +1576,7 @@ INSERT INTO log VALUES(@@character_set_client);
 SET @a1 = 'текст';
 SET @a2 =  'текст';
 SET @a3 =     'текст';
-END	BEFORE	NULL		root@localhost	utf8	utf8_general_ci	utf8_unicode_ci
+END	BEFORE	#		root@localhost	utf8	utf8_general_ci	utf8_unicode_ci
 trg4	INSERT	t1	BEGIN
 DECLARE перем1 CHAR(10) CHARACTER SET utf8;
 INSERT INTO log VALUES(COLLATION(перем1));
@@ -1591,13 +1588,13 @@ INSERT INTO log VALUES(@@character_set_client);
 SET @b1 = 'текст';
 SET @b2 =  'текст';
 SET @b3 =     'текст';
-END	AFTER	NULL		root@localhost	utf8	utf8_general_ci	utf8_unicode_ci
+END	AFTER	#		root@localhost	utf8	utf8_general_ci	utf8_unicode_ci
 use mysqltest1|
 
 
 SELECT * FROM INFORMATION_SCHEMA.TRIGGERS WHERE trigger_name = 'trg1'|
 TRIGGER_CATALOG	TRIGGER_SCHEMA	TRIGGER_NAME	EVENT_MANIPULATION	EVENT_OBJECT_CATALOG	EVENT_OBJECT_SCHEMA	EVENT_OBJECT_TABLE	ACTION_ORDER	ACTION_CONDITION	ACTION_STATEMENT	ACTION_ORIENTATION	ACTION_TIMING	ACTION_REFERENCE_OLD_TABLE	ACTION_REFERENCE_NEW_TABLE	ACTION_REFERENCE_OLD_ROW	ACTION_REFERENCE_NEW_ROW	CREATED	SQL_MODE	DEFINER	CHARACTER_SET_CLIENT	COLLATION_CONNECTION	DATABASE_COLLATION
-def	mysqltest1	trg1	INSERT	def	mysqltest1	t1	0	NULL	BEGIN
+def	mysqltest1	trg1	INSERT	def	mysqltest1	t1	1	NULL	BEGIN
 DECLARE перем1 CHAR(10);
 INSERT INTO log VALUES(COLLATION(перем1));
 INSERT INTO log VALUES(COLLATION('текст'));
@@ -1612,7 +1609,7 @@ END	ROW	BEFORE	NULL	NULL	OLD	NEW	CREATED		root@localhost	utf8	utf8_general_ci	ut
 
 SELECT * FROM INFORMATION_SCHEMA.TRIGGERS WHERE trigger_name = 'trg2'|
 TRIGGER_CATALOG	TRIGGER_SCHEMA	TRIGGER_NAME	EVENT_MANIPULATION	EVENT_OBJECT_CATALOG	EVENT_OBJECT_SCHEMA	EVENT_OBJECT_TABLE	ACTION_ORDER	ACTION_CONDITION	ACTION_STATEMENT	ACTION_ORIENTATION	ACTION_TIMING	ACTION_REFERENCE_OLD_TABLE	ACTION_REFERENCE_NEW_TABLE	ACTION_REFERENCE_OLD_ROW	ACTION_REFERENCE_NEW_ROW	CREATED	SQL_MODE	DEFINER	CHARACTER_SET_CLIENT	COLLATION_CONNECTION	DATABASE_COLLATION
-def	mysqltest1	trg2	INSERT	def	mysqltest1	t1	0	NULL	BEGIN
+def	mysqltest1	trg2	INSERT	def	mysqltest1	t1	1	NULL	BEGIN
 DECLARE перем1 CHAR(10) CHARACTER SET utf8;
 INSERT INTO log VALUES(COLLATION(перем1));
 INSERT INTO log VALUES(COLLATION('текст'));
@@ -1627,7 +1624,7 @@ END	ROW	AFTER	NULL	NULL	OLD	NEW	CREATED		root@localhost	utf8	utf8_general_ci	utf
 
 SELECT * FROM INFORMATION_SCHEMA.TRIGGERS WHERE trigger_name = 'trg3'|
 TRIGGER_CATALOG	TRIGGER_SCHEMA	TRIGGER_NAME	EVENT_MANIPULATION	EVENT_OBJECT_CATALOG	EVENT_OBJECT_SCHEMA	EVENT_OBJECT_TABLE	ACTION_ORDER	ACTION_CONDITION	ACTION_STATEMENT	ACTION_ORIENTATION	ACTION_TIMING	ACTION_REFERENCE_OLD_TABLE	ACTION_REFERENCE_NEW_TABLE	ACTION_REFERENCE_OLD_ROW	ACTION_REFERENCE_NEW_ROW	CREATED	SQL_MODE	DEFINER	CHARACTER_SET_CLIENT	COLLATION_CONNECTION	DATABASE_COLLATION
-def	mysqltest2	trg3	INSERT	def	mysqltest2	t1	0	NULL	BEGIN
+def	mysqltest2	trg3	INSERT	def	mysqltest2	t1	1	NULL	BEGIN
 DECLARE перем1 CHAR(10);
 INSERT INTO log VALUES(COLLATION(перем1));
 INSERT INTO log VALUES(COLLATION('текст'));
@@ -1642,7 +1639,7 @@ END	ROW	BEFORE	NULL	NULL	OLD	NEW	CREATED		root@localhost	utf8	utf8_general_ci	ut
 
 SELECT * FROM INFORMATION_SCHEMA.TRIGGERS WHERE trigger_name = 'trg4'|
 TRIGGER_CATALOG	TRIGGER_SCHEMA	TRIGGER_NAME	EVENT_MANIPULATION	EVENT_OBJECT_CATALOG	EVENT_OBJECT_SCHEMA	EVENT_OBJECT_TABLE	ACTION_ORDER	ACTION_CONDITION	ACTION_STATEMENT	ACTION_ORIENTATION	ACTION_TIMING	ACTION_REFERENCE_OLD_TABLE	ACTION_REFERENCE_NEW_TABLE	ACTION_REFERENCE_OLD_ROW	ACTION_REFERENCE_NEW_ROW	CREATED	SQL_MODE	DEFINER	CHARACTER_SET_CLIENT	COLLATION_CONNECTION	DATABASE_COLLATION
-def	mysqltest2	trg4	INSERT	def	mysqltest2	t1	0	NULL	BEGIN
+def	mysqltest2	trg4	INSERT	def	mysqltest2	t1	1	NULL	BEGIN
 DECLARE перем1 CHAR(10) CHARACTER SET utf8;
 INSERT INTO log VALUES(COLLATION(перем1));
 INSERT INTO log VALUES(COLLATION('текст'));
@@ -1894,8 +1891,7 @@ ALTER TABLE mysqltest1.t1 ADD COLUMN fake INT|
 ALTER TABLE mysqltest1.t1 DROP COLUMN fake|
 ALTER TABLE mysqltest2.t1 ADD COLUMN fake INT|
 ALTER TABLE mysqltest2.t1 DROP COLUMN fake|
-
----> connection: con3
+connect  con3,localhost,root,,;
 SET @@character_set_client= cp1251|
 SET @@character_set_results= cp1251|
 SET @@collation_connection= cp1251_general_ci|
@@ -1908,7 +1904,7 @@ use mysqltest1|
 
 
 SHOW CREATE TRIGGER trg1|
-Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation
+Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation	Created
 trg1		CREATE DEFINER=`root`@`localhost` TRIGGER trg1 BEFORE INSERT ON t1 FOR EACH ROW
 BEGIN
 DECLARE перем1 CHAR(10);
@@ -1921,10 +1917,10 @@ INSERT INTO log VALUES(@@character_set_client);
 SET @a1 = 'текст';
 SET @a2 = _utf8 'текст';
 SET @a3 = _koi8r    '�����';
-END	utf8	utf8_general_ci	utf8_unicode_ci
+END	utf8	utf8_general_ci	utf8_unicode_ci	#
 
 SHOW CREATE TRIGGER trg2|
-Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation
+Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation	Created
 trg2		CREATE DEFINER=`root`@`localhost` TRIGGER trg2 AFTER INSERT ON t1 FOR EACH ROW
 BEGIN
 DECLARE перем1 CHAR(10) CHARACTER SET utf8;
@@ -1937,10 +1933,10 @@ INSERT INTO log VALUES(@@character_set_client);
 SET @b1 = 'текст';
 SET @b2 = _utf8 'текст';
 SET @b3 = _koi8r    '�����';
-END	utf8	utf8_general_ci	utf8_unicode_ci
+END	utf8	utf8_general_ci	utf8_unicode_ci	#
 
 SHOW CREATE TRIGGER mysqltest2.trg3|
-Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation
+Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation	Created
 trg3		CREATE DEFINER=`root`@`localhost` TRIGGER mysqltest2.trg3 BEFORE INSERT ON mysqltest2.t1 FOR EACH ROW
 BEGIN
 DECLARE перем1 CHAR(10);
@@ -1953,10 +1949,10 @@ INSERT INTO log VALUES(@@character_set_client);
 SET @a1 = 'текст';
 SET @a2 = _utf8 'текст';
 SET @a3 = _koi8r    '�����';
-END	utf8	utf8_general_ci	utf8_unicode_ci
+END	utf8	utf8_general_ci	utf8_unicode_ci	#
 
 SHOW CREATE TRIGGER mysqltest2.trg4|
-Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation
+Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation	Created
 trg4		CREATE DEFINER=`root`@`localhost` TRIGGER mysqltest2.trg4 AFTER INSERT ON mysqltest2.t1 FOR EACH ROW
 BEGIN
 DECLARE перем1 CHAR(10) CHARACTER SET utf8;
@@ -1969,7 +1965,7 @@ INSERT INTO log VALUES(@@character_set_client);
 SET @b1 = 'текст';
 SET @b2 = _utf8 'текст';
 SET @b3 = _koi8r    '�����';
-END	utf8	utf8_general_ci	utf8_unicode_ci
+END	utf8	utf8_general_ci	utf8_unicode_ci	#
 
 
 SHOW TRIGGERS|
@@ -1985,7 +1981,7 @@ INSERT INTO log VALUES(@@character_set_client);
 SET @a1 = 'текст';
 SET @a2 =  'текст';
 SET @a3 =     'текст';
-END	BEFORE	NULL		root@localhost	utf8	utf8_general_ci	utf8_unicode_ci
+END	BEFORE	#		root@localhost	utf8	utf8_general_ci	utf8_unicode_ci
 trg2	INSERT	t1	BEGIN
 DECLARE перем1 CHAR(10) CHARACTER SET utf8;
 INSERT INTO log VALUES(COLLATION(перем1));
@@ -1997,7 +1993,7 @@ INSERT INTO log VALUES(@@character_set_client);
 SET @b1 = 'текст';
 SET @b2 =  'текст';
 SET @b3 =     'текст';
-END	AFTER	NULL		root@localhost	utf8	utf8_general_ci	utf8_unicode_ci
+END	AFTER	#		root@localhost	utf8	utf8_general_ci	utf8_unicode_ci
 
 use mysqltest2|
 
@@ -2014,7 +2010,7 @@ INSERT INTO log VALUES(@@character_set_client);
 SET @a1 = 'текст';
 SET @a2 =  'текст';
 SET @a3 =     'текст';
-END	BEFORE	NULL		root@localhost	utf8	utf8_general_ci	utf8_unicode_ci
+END	BEFORE	#		root@localhost	utf8	utf8_general_ci	utf8_unicode_ci
 trg4	INSERT	t1	BEGIN
 DECLARE перем1 CHAR(10) CHARACTER SET utf8;
 INSERT INTO log VALUES(COLLATION(перем1));
@@ -2026,13 +2022,13 @@ INSERT INTO log VALUES(@@character_set_client);
 SET @b1 = 'текст';
 SET @b2 =  'текст';
 SET @b3 =     'текст';
-END	AFTER	NULL		root@localhost	utf8	utf8_general_ci	utf8_unicode_ci
+END	AFTER	#		root@localhost	utf8	utf8_general_ci	utf8_unicode_ci
 use mysqltest1|
 
 
 SELECT * FROM INFORMATION_SCHEMA.TRIGGERS WHERE trigger_name = 'trg1'|
 TRIGGER_CATALOG	TRIGGER_SCHEMA	TRIGGER_NAME	EVENT_MANIPULATION	EVENT_OBJECT_CATALOG	EVENT_OBJECT_SCHEMA	EVENT_OBJECT_TABLE	ACTION_ORDER	ACTION_CONDITION	ACTION_STATEMENT	ACTION_ORIENTATION	ACTION_TIMING	ACTION_REFERENCE_OLD_TABLE	ACTION_REFERENCE_NEW_TABLE	ACTION_REFERENCE_OLD_ROW	ACTION_REFERENCE_NEW_ROW	CREATED	SQL_MODE	DEFINER	CHARACTER_SET_CLIENT	COLLATION_CONNECTION	DATABASE_COLLATION
-def	mysqltest1	trg1	INSERT	def	mysqltest1	t1	0	NULL	BEGIN
+def	mysqltest1	trg1	INSERT	def	mysqltest1	t1	1	NULL	BEGIN
 DECLARE перем1 CHAR(10);
 INSERT INTO log VALUES(COLLATION(перем1));
 INSERT INTO log VALUES(COLLATION('текст'));
@@ -2047,7 +2043,7 @@ END	ROW	BEFORE	NULL	NULL	OLD	NEW	CREATED		root@localhost	utf8	utf8_general_ci	ut
 
 SELECT * FROM INFORMATION_SCHEMA.TRIGGERS WHERE trigger_name = 'trg2'|
 TRIGGER_CATALOG	TRIGGER_SCHEMA	TRIGGER_NAME	EVENT_MANIPULATION	EVENT_OBJECT_CATALOG	EVENT_OBJECT_SCHEMA	EVENT_OBJECT_TABLE	ACTION_ORDER	ACTION_CONDITION	ACTION_STATEMENT	ACTION_ORIENTATION	ACTION_TIMING	ACTION_REFERENCE_OLD_TABLE	ACTION_REFERENCE_NEW_TABLE	ACTION_REFERENCE_OLD_ROW	ACTION_REFERENCE_NEW_ROW	CREATED	SQL_MODE	DEFINER	CHARACTER_SET_CLIENT	COLLATION_CONNECTION	DATABASE_COLLATION
-def	mysqltest1	trg2	INSERT	def	mysqltest1	t1	0	NULL	BEGIN
+def	mysqltest1	trg2	INSERT	def	mysqltest1	t1	1	NULL	BEGIN
 DECLARE перем1 CHAR(10) CHARACTER SET utf8;
 INSERT INTO log VALUES(COLLATION(перем1));
 INSERT INTO log VALUES(COLLATION('текст'));
@@ -2062,7 +2058,7 @@ END	ROW	AFTER	NULL	NULL	OLD	NEW	CREATED		root@localhost	utf8	utf8_general_ci	utf
 
 SELECT * FROM INFORMATION_SCHEMA.TRIGGERS WHERE trigger_name = 'trg3'|
 TRIGGER_CATALOG	TRIGGER_SCHEMA	TRIGGER_NAME	EVENT_MANIPULATION	EVENT_OBJECT_CATALOG	EVENT_OBJECT_SCHEMA	EVENT_OBJECT_TABLE	ACTION_ORDER	ACTION_CONDITION	ACTION_STATEMENT	ACTION_ORIENTATION	ACTION_TIMING	ACTION_REFERENCE_OLD_TABLE	ACTION_REFERENCE_NEW_TABLE	ACTION_REFERENCE_OLD_ROW	ACTION_REFERENCE_NEW_ROW	CREATED	SQL_MODE	DEFINER	CHARACTER_SET_CLIENT	COLLATION_CONNECTION	DATABASE_COLLATION
-def	mysqltest2	trg3	INSERT	def	mysqltest2	t1	0	NULL	BEGIN
+def	mysqltest2	trg3	INSERT	def	mysqltest2	t1	1	NULL	BEGIN
 DECLARE перем1 CHAR(10);
 INSERT INTO log VALUES(COLLATION(перем1));
 INSERT INTO log VALUES(COLLATION('текст'));
@@ -2077,7 +2073,7 @@ END	ROW	BEFORE	NULL	NULL	OLD	NEW	CREATED		root@localhost	utf8	utf8_general_ci	ut
 
 SELECT * FROM INFORMATION_SCHEMA.TRIGGERS WHERE trigger_name = 'trg4'|
 TRIGGER_CATALOG	TRIGGER_SCHEMA	TRIGGER_NAME	EVENT_MANIPULATION	EVENT_OBJECT_CATALOG	EVENT_OBJECT_SCHEMA	EVENT_OBJECT_TABLE	ACTION_ORDER	ACTION_CONDITION	ACTION_STATEMENT	ACTION_ORIENTATION	ACTION_TIMING	ACTION_REFERENCE_OLD_TABLE	ACTION_REFERENCE_NEW_TABLE	ACTION_REFERENCE_OLD_ROW	ACTION_REFERENCE_NEW_ROW	CREATED	SQL_MODE	DEFINER	CHARACTER_SET_CLIENT	COLLATION_CONNECTION	DATABASE_COLLATION
-def	mysqltest2	trg4	INSERT	def	mysqltest2	t1	0	NULL	BEGIN
+def	mysqltest2	trg4	INSERT	def	mysqltest2	t1	1	NULL	BEGIN
 DECLARE перем1 CHAR(10) CHARACTER SET utf8;
 INSERT INTO log VALUES(COLLATION(перем1));
 INSERT INTO log VALUES(COLLATION('текст'));
@@ -2159,8 +2155,9 @@ ca1	ca2	ca3	cb1	cb2	cb3
 utf8_general_ci	utf8_general_ci	koi8r_general_ci	utf8_general_ci	utf8_general_ci	koi8r_general_ci
 
 DELETE FROM mysqltest2.log|
-
----> connection: default
+connection default;
+disconnect con2;
+disconnect con3;
 use test|
 DROP DATABASE mysqltest1|
 DROP DATABASE mysqltest2|
@@ -2348,8 +2345,7 @@ END	ONE TIME	2030-01-01 00:00:00	NULL	NULL		NULL	NULL	ENABLED	NOT PRESERVE	CREAT
 
 ALTER DATABASE mysqltest1 COLLATE cp866_general_ci|
 ALTER DATABASE mysqltest2 COLLATE cp866_general_ci|
-
----> connection: con2
+connect  con2,localhost,root,,mysqltest1;
 SET @@character_set_client= cp1251|
 SET @@character_set_results= cp1251|
 SET @@collation_connection= cp1251_general_ci|
@@ -2621,8 +2617,7 @@ DROP DATABASE mysqltest2|
 
 ---> Restoring mysqltest1...
 ---> Restoring mysqltest2...
-
----> connection: con3
+connect  con3,localhost,root,,mysqltest1;
 SET @@character_set_client= cp1251|
 SET @@character_set_results= cp1251|
 SET @@collation_connection= cp1251_general_ci|
@@ -2829,12 +2824,11 @@ Table	Create Table
 t2	CREATE TABLE `t2` (
   `col1` varchar(10) COLLATE cp1251_general_cs DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=cp1251 COLLATE=cp1251_general_cs
-
----> connection: con2
-
----> connection: con3
-
----> connection: default
+connection con2;
+disconnect con2;
+connection con3;
+disconnect con3;
+connection default;
 USE test;
 DROP DATABASE mysqltest1;
 DROP DATABASE mysqltest2;

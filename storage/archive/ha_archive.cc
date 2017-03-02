@@ -383,8 +383,7 @@ unsigned int ha_archive::pack_row_v1(uchar *record)
     uint32 length= ((Field_blob *) table->field[*blob])->get_length();
     if (length)
     {
-      uchar *data_ptr;
-      ((Field_blob *) table->field[*blob])->get_ptr(&data_ptr);
+      uchar *data_ptr= ((Field_blob *) table->field[*blob])->get_ptr();
       memcpy(pos, data_ptr, length);
       pos+= length;
     }
@@ -1645,7 +1644,7 @@ void ha_archive::update_create_info(HA_CREATE_INFO *create_info)
   }
 
   if (!(my_readlink(tmp_real_path, share->data_file_name, MYF(0))))
-    create_info->data_file_name= sql_strdup(tmp_real_path);
+    create_info->data_file_name= thd_strdup(ha_thd(), tmp_real_path);
 
   DBUG_VOID_RETURN;
 }

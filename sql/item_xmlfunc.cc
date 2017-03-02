@@ -13,10 +13,6 @@
    along with this program; if not, write to the Free Software
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA */
 
-#ifdef __GNUC__
-#pragma implementation
-#endif
-
 #include <my_global.h>
 #include "sql_priv.h"
 /*
@@ -234,9 +230,9 @@ public:
     const_item_cache= false;
   }
   const char *func_name() const { return "nodeset"; }
-  bool check_vcol_func_processor(uchar *int_arg)
+  bool check_vcol_func_processor(void *arg)
   {
-    return trace_unsupported_by_check_vcol_func_processor(func_name());
+    return mark_unsupported_function(func_name(), arg, VCOL_IMPOSSIBLE);
   }
 
 };
@@ -250,6 +246,8 @@ public:
     Item_nodeset_func(thd, pxml) {}
   const char *func_name() const { return "xpath_rootelement"; }
   String *val_nodeset(String *nodeset);
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_nodeset_func_rootelement>(thd, mem_root, this); }
 };
 
 
@@ -261,6 +259,8 @@ public:
     Item_nodeset_func(thd, a, b, pxml) {}
   const char *func_name() const { return "xpath_union"; }
   String *val_nodeset(String *nodeset);
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_nodeset_func_union>(thd, mem_root, this); }
 };
 
 
@@ -293,6 +293,8 @@ public:
     Item_nodeset_func_axisbyname(thd, a, n_arg, l_arg, pxml) {}
   const char *func_name() const { return "xpath_selfbyname"; }
   String *val_nodeset(String *nodeset);
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_nodeset_func_selfbyname>(thd, mem_root, this); }
 };
 
 
@@ -305,6 +307,8 @@ public:
     Item_nodeset_func_axisbyname(thd, a, n_arg, l_arg, pxml) {}
   const char *func_name() const { return "xpath_childbyname"; }
   String *val_nodeset(String *nodeset);
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_nodeset_func_childbyname>(thd, mem_root, this); }
 };
 
 
@@ -319,6 +323,8 @@ public:
       need_self(need_self_arg) {}
   const char *func_name() const { return "xpath_descendantbyname"; }
   String *val_nodeset(String *nodeset);
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_nodeset_func_descendantbyname>(thd, mem_root, this); }
 };
 
 
@@ -333,6 +339,8 @@ public:
       need_self(need_self_arg) {}
   const char *func_name() const { return "xpath_ancestorbyname"; }
   String *val_nodeset(String *nodeset);
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_nodeset_func_ancestorbyname>(thd, mem_root, this); }
 };
 
 
@@ -345,6 +353,8 @@ public:
     Item_nodeset_func_axisbyname(thd, a, n_arg, l_arg, pxml) {}
   const char *func_name() const { return "xpath_parentbyname"; }
   String *val_nodeset(String *nodeset);
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_nodeset_func_parentbyname>(thd, mem_root, this); }
 };
 
 
@@ -357,6 +367,8 @@ public:
     Item_nodeset_func_axisbyname(thd, a, n_arg, l_arg, pxml) {}
   const char *func_name() const { return "xpath_attributebyname"; }
   String *val_nodeset(String *nodeset);
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_nodeset_func_attributebyname>(thd, mem_root, this); }
 };
 
 
@@ -372,6 +384,8 @@ public:
     Item_nodeset_func(thd, a, b, pxml) {}
   const char *func_name() const { return "xpath_predicate"; }
   String *val_nodeset(String *nodeset);
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_nodeset_func_predicate>(thd, mem_root, this); }
 };
 
 
@@ -383,19 +397,8 @@ public:
     Item_nodeset_func(thd, a, b, pxml) { }
   const char *func_name() const { return "xpath_elementbyindex"; }
   String *val_nodeset(String *nodeset);
-};
-
-
-/*
-  We need to distinguish a number from a boolean:
-  a[1] and a[true] are different things in XPath.
-*/
-class Item_bool :public Item_int
-{
-public:
-  Item_bool(THD *thd, int32 i): Item_int(thd, i) {}
-  const char *func_name() const { return "xpath_bool"; }
-  bool is_bool_type() { return true; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_nodeset_func_elementbyindex>(thd, mem_root, this); }
 };
 
 
@@ -422,6 +425,8 @@ public:
     }
     return args[0]->val_real() ? 1 : 0;
   }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_xpath_cast_bool>(thd, mem_root, this); }
 };
 
 
@@ -434,6 +439,8 @@ public:
   Item_xpath_cast_number(THD *thd, Item *a): Item_real_func(thd, a) {}
   const char *func_name() const { return "xpath_cast_number"; }
   virtual double val_real() { return args[0]->val_real(); }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_xpath_cast_number>(thd, mem_root, this); }
 };
 
 
@@ -449,6 +456,8 @@ public:
   String *val_nodeset(String *res)
   { return string_cache; }
   void fix_length_and_dec() { max_length= MAX_BLOB_WIDTH; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_nodeset_context_cache>(thd, mem_root, this); }
 };
 
 
@@ -468,6 +477,8 @@ public:
       return ((MY_XPATH_FLT*)flt->ptr())->pos + 1;
     return 0;
   }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_xpath_position>(thd, mem_root, this); }
 };
 
 
@@ -489,6 +500,8 @@ public:
       return predicate_supplied_context_size;
     return res->length() / sizeof(MY_XPATH_FLT);
   }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_xpath_count>(thd, mem_root, this); }
 };
 
 
@@ -532,6 +545,8 @@ public:
     }
     return sum;
   }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_xpath_sum>(thd, mem_root, this); }
 };
 
 
@@ -572,9 +587,9 @@ public:
     Item_bool_func(thd, nodeset, cmpfunc), pxml(p) {}
   enum Type type() const { return XPATH_NODESET_CMP; };
   const char *func_name() const { return "xpath_nodeset_to_const_comparator"; }
-  bool check_vcol_func_processor(uchar *int_arg) 
+  bool check_vcol_func_processor(void *arg)
   {
-    return trace_unsupported_by_check_vcol_func_processor(func_name());
+    return mark_unsupported_function(func_name(), arg, VCOL_IMPOSSIBLE);
   }
 
   longlong val_int()
@@ -608,6 +623,8 @@ public:
     }
     return 0;
   }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_nodeset_to_const_comparator>(thd, mem_root, this); }
 };
 
 
@@ -1180,13 +1197,13 @@ my_xpath_keyword(MY_XPATH *x,
 
 static Item *create_func_true(MY_XPATH *xpath, Item **args, uint nargs)
 {
-  return new (xpath->thd->mem_root) Item_bool(xpath->thd, 1);
+  return new (xpath->thd->mem_root) Item_bool(xpath->thd, "xpath_bool", 1);
 }
 
 
 static Item *create_func_false(MY_XPATH *xpath, Item **args, uint nargs)
 {
-  return new (xpath->thd->mem_root) Item_bool(xpath->thd, 0);
+  return new (xpath->thd->mem_root) Item_bool(xpath->thd, "xpath_bool", 0);
 }
 
 
@@ -2603,8 +2620,7 @@ my_xpath_parse_VariableReference(MY_XPATH *xpath)
         (spv= spc->find_variable(name, false)))
     {
       Item_splocal *splocal= new (thd->mem_root)
-        Item_splocal(thd, name, spv->offset,
-                     spv->type, 0);
+        Item_splocal(thd, name, spv->offset, spv->sql_type(), 0);
 #ifndef DBUG_OFF
       if (splocal)
         splocal->m_sp= lex->sphead;

@@ -268,7 +268,7 @@ drop table if exists t1, t2;
 # not null columns for primary keys)
 
 create table t1 (a int, b int, c int, d int, e int, f int, g int, h int,i int, primary key (a,b,c,d,e,f,g,i,h)) engine=MyISAM;
-insert into t1 (a) values(1);
+insert ignore into t1 (a) values(1);
 --replace_column 7 X 8 X 9 X 10 X 11 X 12 X 13 X 14 X
 show table status like 't1';
 alter table t1 modify a int;
@@ -276,7 +276,7 @@ alter table t1 modify a int;
 show table status like 't1';
 drop table t1;
 create table t1 (a int not null, b int not null, c int not null, d int not null, e int not null, f int not null, g int not null, h int not null,i int not null, primary key (a,b,c,d,e,f,g,i,h)) engine=MyISAM;
-insert into t1 (a) values(1);
+insert ignore into t1 (a) values(1);
 --replace_column 7 X 8 X 9 X 10 X 11 X 12 X 13 X 14 X
 show table status like 't1';
 drop table t1;
@@ -1455,6 +1455,8 @@ ALTER TABLE m1 ENABLE KEYS, ALGORITHM= INPLACE, LOCK= SHARED;
 ALTER TABLE m1 ENABLE KEYS, ALGORITHM= INPLACE, LOCK= EXCLUSIVE;
 --error ER_ALTER_OPERATION_NOT_SUPPORTED_REASON
 ALTER TABLE m1 ENABLE KEYS, ALGORITHM= COPY, LOCK= NONE;
+--error ER_ALTER_OPERATION_NOT_SUPPORTED
+ALTER ONLINE TABLE m1 ADD COLUMN c int;
 # This works because the lock will be SNW for the copy phase.
 # It will still require exclusive lock for actually enabling keys.
 ALTER TABLE m1 ENABLE KEYS, ALGORITHM= COPY, LOCK= SHARED;
@@ -1473,12 +1475,10 @@ INSERT INTO t1 VALUES (1,1), (2,2);
 START TRANSACTION;
 INSERT INTO t1 VALUES (3,3);
 
---echo # Connection con1
 connect (con1, localhost, root);
 --echo # Sending:
 --send ALTER TABLE t1 DISABLE KEYS
 
---echo # Connection default
 connection default;
 --echo # Waiting until ALTER TABLE is blocked.
 let $wait_condition=
@@ -1489,14 +1489,12 @@ let $wait_condition=
 UPDATE t1 SET b = 4;
 COMMIT;
 
---echo # Connection con1
 connection con1;
 --echo # Reaping: ALTER TABLE t1 DISABLE KEYS
 --reap
 disconnect con1;
 --source include/wait_until_disconnected.inc
 
---echo # Connection default
 connection default;
 DROP TABLE t1;
 
@@ -1777,3 +1775,18 @@ CREATE INDEX i1 ON t1(a) COMMENT 'comment1';
 ALTER TABLE t1 DROP INDEX i1, ADD INDEX i1(a) COMMENT 'comment2';
 SHOW CREATE TABLE t1;
 DROP TABLE t1;
+
+--echo #
+--echo # MDEV-10421 duplicate CHECK CONSTRAINTs
+--echo #
+CREATE TABLE t1 (a INT, b INT) engine=myisam;
+ALTER TABLE t1 ADD CONSTRAINT IF NOT EXISTS `min` CHECK (a+b > 100);
+--error ER_DUP_CONSTRAINT_NAME
+ALTER TABLE t1 ADD CONSTRAINT `min` CHECK (a+b > 100);
+ALTER TABLE t1 ADD CONSTRAINT IF NOT EXISTS `min` CHECK (a+b > 100);
+ALTER TABLE t1 ADD CONSTRAINT `mini` CHECK (a+b > 100);
+SHOW CREATE TABLE t1;
+DROP TABLE t1;
+--error ER_DUP_CONSTRAINT_NAME
+CREATE TABLE t1(a INT, b INT, CONSTRAINT min check (a>5),
+                              CONSTRAINT min check (b>5));

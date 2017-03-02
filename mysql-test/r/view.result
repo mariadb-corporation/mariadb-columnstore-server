@@ -1,7 +1,3 @@
-drop table if exists t1,t2,t3,t4,t5,t6,t9,`t1a``b`,v1,v2,v3,v4,v5,v6;
-drop view if exists t1,t2,t3,t4,t5,t6,t9,`t1a``b`,v1,v2,v3,v4,v5,v6;
-drop database if exists mysqltest;
-use test;
 SET @save_optimizer_switch=@@optimizer_switch;
 SET optimizer_switch='outer_join_with_cache=off';
 create view v1 (c,d) as select a,b from t1;
@@ -40,10 +36,10 @@ c
 11
 show create table v1;
 View	Create View	character_set_client	collation_connection
-v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select (`t1`.`b` + 1) AS `c` from `t1`	latin1	latin1_swedish_ci
+v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select `t1`.`b` + 1 AS `c` from `t1`	latin1	latin1_swedish_ci
 show create view v1;
 View	Create View	character_set_client	collation_connection
-v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select (`t1`.`b` + 1) AS `c` from `t1`	latin1	latin1_swedish_ci
+v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select `t1`.`b` + 1 AS `c` from `t1`	latin1	latin1_swedish_ci
 show create view t1;
 ERROR HY000: 'test.t1' is not VIEW
 drop table t1;
@@ -59,11 +55,11 @@ explain extended select c from v1;
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	5	100.00	
 Warnings:
-Note	1003	select (`test`.`t1`.`b` + 1) AS `c` from `test`.`t1`
+Note	1003	select `test`.`t1`.`b` + 1 AS `c` from `test`.`t1`
 create algorithm=temptable view v2 (c) as select b+1 from t1;
 show create view v2;
 View	Create View	character_set_client	collation_connection
-v2	CREATE ALGORITHM=TEMPTABLE DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v2` AS select (`t1`.`b` + 1) AS `c` from `t1`	latin1	latin1_swedish_ci
+v2	CREATE ALGORITHM=TEMPTABLE DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v2` AS select `t1`.`b` + 1 AS `c` from `t1`	latin1	latin1_swedish_ci
 select c from v2;
 c
 3
@@ -93,7 +89,7 @@ explain extended select c from v3;
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	5	100.00	
 Warnings:
-Note	1003	select ((`test`.`t1`.`b` + 1) + 1) AS `c` from `test`.`t1`
+Note	1003	select `test`.`t1`.`b` + 1 + 1 AS `c` from `test`.`t1`
 create algorithm=temptable view v4 (c) as select c+1 from v2;
 select c from v4;
 c
@@ -122,7 +118,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	PRIMARY	<derived3>	ALL	NULL	NULL	NULL	NULL	5	100.00	
 3	DERIVED	t1	ALL	NULL	NULL	NULL	NULL	5	100.00	
 Warnings:
-Note	1003	select (`v2`.`c` + 1) AS `c` from `test`.`v2`
+Note	1003	select `v2`.`c` + 1 AS `c` from `test`.`v2`
 create algorithm=temptable view v6 (c) as select c+1 from v1;
 select c from v6;
 c
@@ -253,7 +249,7 @@ drop view v1;
 drop table t1;
 create table t1 (a int);
 create view v1 as select distinct a from t1 WITH CHECK OPTION;
-ERROR HY000: CHECK OPTION on non-updatable view 'test.v1'
+ERROR HY000: CHECK OPTION on non-updatable view `test`.`v1`
 create view v1 as select a from t1 WITH CHECK OPTION;
 create view v2 as select a from t1 WITH CASCADED CHECK OPTION;
 create view v3 as select a from t1 WITH LOCAL CHECK OPTION;
@@ -392,7 +388,7 @@ explain extended select * from v1;
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	5	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`b` AS `c` from `test`.`t1` where (`test`.`t1`.`a` < 3)
+Note	1003	select `test`.`t1`.`b` AS `c` from `test`.`t1` where `test`.`t1`.`a` < 3
 update v1 set c=c+1;
 select * from t1;
 a	b
@@ -793,7 +789,7 @@ a	b
 1	1
 show create view v3;
 View	Create View	character_set_client	collation_connection
-v3	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v3` AS select `v1`.`col1` AS `a`,`v2`.`col1` AS `b` from (`v1` join `v2`) where (`v1`.`col1` = `v2`.`col1`)	latin1	latin1_swedish_ci
+v3	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v3` AS select `v1`.`col1` AS `a`,`v2`.`col1` AS `b` from (`v1` join `v2`) where `v1`.`col1` = `v2`.`col1`	latin1	latin1_swedish_ci
 drop view v3, v2, v1;
 drop table t2, t1;
 create function `f``1` () returns int return 5;
@@ -817,10 +813,10 @@ create table t2 (col1 char collate latin1_german2_ci);
 create view v2 as select col1 collate latin1_german1_ci from t2;
 show create view v2;
 View	Create View	character_set_client	collation_connection
-v2	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v2` AS select (`t2`.`col1` collate latin1_german1_ci) AS `col1 collate latin1_german1_ci` from `t2`	latin1	latin1_swedish_ci
+v2	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v2` AS select `t2`.`col1` collate latin1_german1_ci AS `col1 collate latin1_german1_ci` from `t2`	latin1	latin1_swedish_ci
 show create view v2;
 View	Create View	character_set_client	collation_connection
-v2	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v2` AS select (`t2`.`col1` collate latin1_german1_ci) AS `col1 collate latin1_german1_ci` from `t2`	latin1	latin1_swedish_ci
+v2	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v2` AS select `t2`.`col1` collate latin1_german1_ci AS `col1 collate latin1_german1_ci` from `t2`	latin1	latin1_swedish_ci
 drop view v2;
 drop table t2;
 create table t1 (a int);
@@ -908,7 +904,7 @@ create view v1 as select a from t1;
 create view v3 as select a from t1;
 create database mysqltest;
 rename table v1 to mysqltest.v1;
-ERROR HY000: Changing schema from 'test' to 'mysqltest' is not allowed.
+ERROR HY000: Changing schema from 'test' to 'mysqltest' is not allowed
 rename table v1 to v2;
 rename table v3 to v1, v2 to t1;
 ERROR 42S01: Table 't1' already exists
@@ -923,14 +919,14 @@ select * from v4;
 ERROR 21000: Subquery returns more than 1 row
 drop view v4, v3, v2, v1;
 create view v1 as select 5 into @w;
-ERROR HY000: View's SELECT contains a 'INTO' clause
+ERROR 42000: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'into @w' at line 1
 create view v1 as select 5 into outfile 'ttt';
-ERROR HY000: View's SELECT contains a 'INTO' clause
+ERROR 42000: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'into outfile 'ttt'' at line 1
 create table t1 (a int);
 create view v1 as select a from t1 procedure analyse();
-ERROR HY000: View's SELECT contains a 'PROCEDURE' clause
+ERROR 42000: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'procedure analyse()' at line 1
 create view v1 as select 1 from (select 1) as d1;
-ERROR HY000: View's SELECT contains a subquery in the FROM clause
+drop view v1;
 drop table t1;
 create table t1 (s1 int, primary key (s1));
 create view v1 as select * from t1;
@@ -948,29 +944,29 @@ create view v1 as select * from t1;
 create view v2 as select * from v1;
 create view v3 as select v2.col1 from v2,t2 where v2.col1 = t2.col1;
 update v2 set col1 = (select max(col1) from v1);
-ERROR HY000: The definition of table 'v1' prevents operation UPDATE on table 'v2'.
+ERROR HY000: The definition of table 'v1' prevents operation UPDATE on table 'v2'
 update v2 set col1 = (select max(col1) from t1);
-ERROR HY000: The definition of table 'v2' prevents operation UPDATE on table 'v2'.
+ERROR HY000: The definition of table 'v2' prevents operation UPDATE on table 'v2'
 update v2 set col1 = (select max(col1) from v2);
 ERROR HY000: Table 'v2' is specified twice, both as a target for 'UPDATE' and as a separate source for data
 update v2,t2 set v2.col1 = (select max(col1) from v1) where v2.col1 = t2.col1;
-ERROR HY000: The definition of table 'v1' prevents operation UPDATE on table 'v2'.
+ERROR HY000: The definition of table 'v1' prevents operation UPDATE on table 'v2'
 update t1,t2 set t1.col1 = (select max(col1) from v1) where t1.col1 = t2.col1;
-ERROR HY000: The definition of table 'v1' prevents operation UPDATE on table 't1'.
+ERROR HY000: The definition of table 'v1' prevents operation UPDATE on table 't1'
 update v1,t2 set v1.col1 = (select max(col1) from v1) where v1.col1 = t2.col1;
 ERROR HY000: Table 'v1' is specified twice, both as a target for 'UPDATE' and as a separate source for data
 update t2,v2 set v2.col1 = (select max(col1) from v1) where v2.col1 = t2.col1;
-ERROR HY000: The definition of table 'v1' prevents operation UPDATE on table 't2'.
+ERROR HY000: The definition of table 'v1' prevents operation UPDATE on table 't2'
 update t2,t1 set t1.col1 = (select max(col1) from v1) where t1.col1 = t2.col1;
-ERROR HY000: The definition of table 'v1' prevents operation UPDATE on table 't2'.
+ERROR HY000: The definition of table 'v1' prevents operation UPDATE on table 't2'
 update t2,v1 set v1.col1 = (select max(col1) from v1) where v1.col1 = t2.col1;
-ERROR HY000: The definition of table 'v1' prevents operation UPDATE on table 't2'.
+ERROR HY000: The definition of table 'v1' prevents operation UPDATE on table 't2'
 update v2,t2 set v2.col1 = (select max(col1) from t1) where v2.col1 = t2.col1;
-ERROR HY000: The definition of table 'v2' prevents operation UPDATE on table 'v2'.
+ERROR HY000: The definition of table 'v2' prevents operation UPDATE on table 'v2'
 update t1,t2 set t1.col1 = (select max(col1) from t1) where t1.col1 = t2.col1;
 ERROR HY000: Table 't1' is specified twice, both as a target for 'UPDATE' and as a separate source for data
 update v1,t2 set v1.col1 = (select max(col1) from t1) where v1.col1 = t2.col1;
-ERROR HY000: The definition of table 'v1' prevents operation UPDATE on table 'v1'.
+ERROR HY000: The definition of table 'v1' prevents operation UPDATE on table 'v1'
 update t2,v2 set v2.col1 = (select max(col1) from t1) where v2.col1 = t2.col1;
 ERROR HY000: Table 't2' is specified twice, both as a target for 'UPDATE' and as a separate source for data
 update t2,t1 set t1.col1 = (select max(col1) from t1) where t1.col1 = t2.col1;
@@ -980,73 +976,73 @@ ERROR HY000: Table 't2' is specified twice, both as a target for 'UPDATE' and as
 update v2,t2 set v2.col1 = (select max(col1) from v2) where v2.col1 = t2.col1;
 ERROR HY000: Table 'v2' is specified twice, both as a target for 'UPDATE' and as a separate source for data
 update t1,t2 set t1.col1 = (select max(col1) from v2) where t1.col1 = t2.col1;
-ERROR HY000: The definition of table 'v2' prevents operation UPDATE on table 't1'.
+ERROR HY000: The definition of table 'v2' prevents operation UPDATE on table 't1'
 update v1,t2 set v1.col1 = (select max(col1) from v2) where v1.col1 = t2.col1;
-ERROR HY000: The definition of table 'v2' prevents operation UPDATE on table 'v1'.
+ERROR HY000: The definition of table 'v2' prevents operation UPDATE on table 'v1'
 update t2,v2 set v2.col1 = (select max(col1) from v2) where v2.col1 = t2.col1;
-ERROR HY000: The definition of table 'v2' prevents operation UPDATE on table 't2'.
+ERROR HY000: The definition of table 'v2' prevents operation UPDATE on table 't2'
 update t2,t1 set t1.col1 = (select max(col1) from v2) where t1.col1 = t2.col1;
-ERROR HY000: The definition of table 'v2' prevents operation UPDATE on table 't2'.
+ERROR HY000: The definition of table 'v2' prevents operation UPDATE on table 't2'
 update t2,v1 set v1.col1 = (select max(col1) from v2) where v1.col1 = t2.col1;
-ERROR HY000: The definition of table 'v2' prevents operation UPDATE on table 't2'.
+ERROR HY000: The definition of table 'v2' prevents operation UPDATE on table 't2'
 update v3 set v3.col1 = (select max(col1) from v1);
-ERROR HY000: The definition of table 'v1' prevents operation UPDATE on table 'v3'.
+ERROR HY000: The definition of table 'v1' prevents operation UPDATE on table 'v3'
 update v3 set v3.col1 = (select max(col1) from t1);
-ERROR HY000: The definition of table 'v3' prevents operation UPDATE on table 'v3'.
+ERROR HY000: The definition of table 'v3' prevents operation UPDATE on table 'v3'
 update v3 set v3.col1 = (select max(col1) from v2);
-ERROR HY000: The definition of table 'v2' prevents operation UPDATE on table 'v3'.
+ERROR HY000: The definition of table 'v2' prevents operation UPDATE on table 'v3'
 update v3 set v3.col1 = (select max(col1) from v3);
 ERROR HY000: Table 'v3' is specified twice, both as a target for 'UPDATE' and as a separate source for data
 delete from v2 where col1 = (select max(col1) from v1);
-ERROR HY000: The definition of table 'v1' prevents operation DELETE on table 'v2'.
+ERROR HY000: The definition of table 'v1' prevents operation DELETE on table 'v2'
 delete from v2 where col1 = (select max(col1) from t1);
-ERROR HY000: The definition of table 'v2' prevents operation DELETE on table 'v2'.
+ERROR HY000: The definition of table 'v2' prevents operation DELETE on table 'v2'
 delete from v2 where col1 = (select max(col1) from v2);
 ERROR HY000: Table 'v2' is specified twice, both as a target for 'DELETE' and as a separate source for data
 delete v2 from v2,t2 where (select max(col1) from v1) > 0 and v2.col1 = t2.col1;
-ERROR HY000: The definition of table 'v1' prevents operation DELETE on table 'v2'.
+ERROR HY000: The definition of table 'v1' prevents operation DELETE on table 'v2'
 delete t1 from t1,t2 where (select max(col1) from v1) > 0 and t1.col1 = t2.col1;
-ERROR HY000: The definition of table 'v1' prevents operation DELETE on table 't1'.
+ERROR HY000: The definition of table 'v1' prevents operation DELETE on table 't1'
 delete v1 from v1,t2 where (select max(col1) from v1) > 0 and v1.col1 = t2.col1;
 ERROR HY000: Table 'v1' is specified twice, both as a target for 'DELETE' and as a separate source for data
 delete v2 from v2,t2 where (select max(col1) from t1) > 0 and v2.col1 = t2.col1;
-ERROR HY000: The definition of table 'v2' prevents operation DELETE on table 'v2'.
+ERROR HY000: The definition of table 'v2' prevents operation DELETE on table 'v2'
 delete t1 from t1,t2 where (select max(col1) from t1) > 0 and t1.col1 = t2.col1;
 ERROR HY000: Table 't1' is specified twice, both as a target for 'DELETE' and as a separate source for data
 delete v1 from v1,t2 where (select max(col1) from t1) > 0 and v1.col1 = t2.col1;
-ERROR HY000: The definition of table 'v1' prevents operation DELETE on table 'v1'.
+ERROR HY000: The definition of table 'v1' prevents operation DELETE on table 'v1'
 delete v2 from v2,t2 where (select max(col1) from v2) > 0 and v2.col1 = t2.col1;
 ERROR HY000: Table 'v2' is specified twice, both as a target for 'DELETE' and as a separate source for data
 delete t1 from t1,t2 where (select max(col1) from v2) > 0 and t1.col1 = t2.col1;
-ERROR HY000: The definition of table 'v2' prevents operation DELETE on table 't1'.
+ERROR HY000: The definition of table 'v2' prevents operation DELETE on table 't1'
 delete v1 from v1,t2 where (select max(col1) from v2) > 0 and v1.col1 = t2.col1;
-ERROR HY000: The definition of table 'v2' prevents operation DELETE on table 'v1'.
+ERROR HY000: The definition of table 'v2' prevents operation DELETE on table 'v1'
 insert into v2 values ((select max(col1) from v1));
-ERROR HY000: The definition of table 'v1' prevents operation INSERT on table 'v2'.
+ERROR HY000: The definition of table 'v1' prevents operation INSERT on table 'v2'
 insert into t1 values ((select max(col1) from v1));
-ERROR HY000: The definition of table 'v1' prevents operation INSERT on table 't1'.
+ERROR HY000: The definition of table 'v1' prevents operation INSERT on table 't1'
 insert into v2 values ((select max(col1) from v1));
-ERROR HY000: The definition of table 'v1' prevents operation INSERT on table 'v2'.
+ERROR HY000: The definition of table 'v1' prevents operation INSERT on table 'v2'
 insert into v2 values ((select max(col1) from t1));
-ERROR HY000: The definition of table 'v2' prevents operation INSERT on table 'v2'.
+ERROR HY000: The definition of table 'v2' prevents operation INSERT on table 'v2'
 insert into t1 values ((select max(col1) from t1));
 ERROR HY000: Table 't1' is specified twice, both as a target for 'INSERT' and as a separate source for data
 insert into v2 values ((select max(col1) from t1));
-ERROR HY000: The definition of table 'v2' prevents operation INSERT on table 'v2'.
+ERROR HY000: The definition of table 'v2' prevents operation INSERT on table 'v2'
 insert into v2 values ((select max(col1) from v2));
 ERROR HY000: Table 'v2' is specified twice, both as a target for 'INSERT' and as a separate source for data
 insert into t1 values ((select max(col1) from v2));
-ERROR HY000: The definition of table 'v2' prevents operation INSERT on table 't1'.
+ERROR HY000: The definition of table 'v2' prevents operation INSERT on table 't1'
 insert into v2 values ((select max(col1) from v2));
 ERROR HY000: Table 'v2' is specified twice, both as a target for 'INSERT' and as a separate source for data
 insert into v3 (col1) values ((select max(col1) from v1));
-ERROR HY000: The definition of table 'v1' prevents operation INSERT on table 'v3'.
+ERROR HY000: The definition of table 'v1' prevents operation INSERT on table 'v3'
 insert into v3 (col1) values ((select max(col1) from t1));
-ERROR HY000: The definition of table 'v3' prevents operation INSERT on table 'v3'.
+ERROR HY000: The definition of table 'v3' prevents operation INSERT on table 'v3'
 insert into v3 (col1) values ((select max(col1) from v2));
-ERROR HY000: The definition of table 'v2' prevents operation INSERT on table 'v3'.
+ERROR HY000: The definition of table 'v2' prevents operation INSERT on table 'v3'
 insert into v3 (col1) values ((select CONVERT_TZ('20050101000000','UTC','MET') from v2));
-ERROR HY000: The definition of table 'v2' prevents operation INSERT on table 'v3'.
+ERROR HY000: The definition of table 'v2' prevents operation INSERT on table 'v3'
 insert into v3 (col1) values ((select CONVERT_TZ('20050101000000','UTC','MET') from t2));
 insert into t3 values ((select CONVERT_TZ('20050101000000','UTC','MET') from t2));
 ERROR 23000: Column 'col1' cannot be null
@@ -1134,11 +1130,11 @@ create table t1 (a int);
 create view v1 as select * from t1 where a < 2 with check option;
 insert into v1 values(1);
 insert into v1 values(3);
-ERROR HY000: CHECK OPTION failed 'test.v1'
+ERROR 44000: CHECK OPTION failed `test`.`v1`
 insert ignore into v1 values (2),(3),(0);
 Warnings:
-Warning	1369	CHECK OPTION failed 'test.v1'
-Warning	1369	CHECK OPTION failed 'test.v1'
+Warning	1369	CHECK OPTION failed `test`.`v1`
+Warning	1369	CHECK OPTION failed `test`.`v1`
 select * from t1;
 a
 1
@@ -1146,20 +1142,20 @@ a
 delete from t1;
 insert into v1 SELECT 1;
 insert into v1 SELECT 3;
-ERROR HY000: CHECK OPTION failed 'test.v1'
+ERROR 44000: CHECK OPTION failed `test`.`v1`
 create table t2 (a int);
 insert into t2 values (2),(3),(0);
 insert ignore into v1 SELECT a from t2;
 Warnings:
-Warning	1369	CHECK OPTION failed 'test.v1'
-Warning	1369	CHECK OPTION failed 'test.v1'
+Warning	1369	CHECK OPTION failed `test`.`v1`
+Warning	1369	CHECK OPTION failed `test`.`v1`
 select * from t1 order by a desc;
 a
 1
 0
 update v1 set a=-1 where a=0;
 update v1 set a=2 where a=1;
-ERROR HY000: CHECK OPTION failed 'test.v1'
+ERROR 44000: CHECK OPTION failed `test`.`v1`
 select * from t1 order by a desc;
 a
 1
@@ -1174,7 +1170,7 @@ a
 update v1 set a=a+1;
 update ignore v1,t2 set v1.a=v1.a+1 where v1.a=t2.a;
 Warnings:
-Warning	1369	CHECK OPTION failed 'test.v1'
+Warning	1369	CHECK OPTION failed `test`.`v1`
 select * from t1;
 a
 1
@@ -1188,12 +1184,12 @@ create view v3 as select * from v1 where a > 0 with cascaded check option;
 insert into v2 values (1);
 insert into v3 values (1);
 insert into v2 values (0);
-ERROR HY000: CHECK OPTION failed 'test.v2'
+ERROR 44000: CHECK OPTION failed `test`.`v2`
 insert into v3 values (0);
-ERROR HY000: CHECK OPTION failed 'test.v3'
+ERROR 44000: CHECK OPTION failed `test`.`v3`
 insert into v2 values (2);
 insert into v3 values (2);
-ERROR HY000: CHECK OPTION failed 'test.v3'
+ERROR 44000: CHECK OPTION failed `test`.`v3`
 select * from t1;
 a
 1
@@ -1205,10 +1201,10 @@ create table t1 (a int, primary key (a));
 create view v1 as select * from t1 where a < 2 with check option;
 insert into v1 values (1) on duplicate key update a=2;
 insert into v1 values (1) on duplicate key update a=2;
-ERROR HY000: CHECK OPTION failed 'test.v1'
+ERROR 44000: CHECK OPTION failed `test`.`v1`
 insert ignore into v1 values (1) on duplicate key update a=2;
 Warnings:
-Warning	1369	CHECK OPTION failed 'test.v1'
+Warning	1369	CHECK OPTION failed `test`.`v1`
 select * from t1;
 a
 1
@@ -1263,7 +1259,7 @@ s1
 alter view v2 as select * from t2 where s1 in (select s1 from t1) with check option;
 insert into v2 values (5);
 update v2 set s1 = 1;
-ERROR HY000: CHECK OPTION failed 'test.v2'
+ERROR 44000: CHECK OPTION failed `test`.`v2`
 insert into t1 values (1);
 update v2 set s1 = 1;
 select * from v2;
@@ -1300,26 +1296,27 @@ create table t1 (s1 tinyint);
 create view v1 as select * from t1 where s1 <> 0 with local check option;
 create view v2 as select * from v1 with cascaded check option;
 insert into v2 values (0);
-ERROR HY000: CHECK OPTION failed 'test.v2'
+ERROR 44000: CHECK OPTION failed `test`.`v2`
 drop view v2, v1;
 drop table t1;
 create table t1 (s1 int);
 create view v1 as select * from t1 where s1 < 5 with check option;
 insert ignore into v1 values (6);
-ERROR HY000: CHECK OPTION failed 'test.v1'
+ERROR 44000: CHECK OPTION failed `test`.`v1`
 insert ignore into v1 values (6),(3);
 Warnings:
-Warning	1369	CHECK OPTION failed 'test.v1'
+Warning	1369	CHECK OPTION failed `test`.`v1`
 select * from t1;
 s1
 3
 drop view v1;
 drop table t1;
+SET sql_mode = 'NO_ENGINE_SUBSTITUTION';
 create table t1 (s1 tinyint);
 create trigger t1_bi before insert on t1 for each row set new.s1 = 500;
 create view v1 as select * from t1 where s1 <> 127 with check option;
 insert into v1 values (0);
-ERROR HY000: CHECK OPTION failed 'test.v1'
+ERROR 44000: CHECK OPTION failed `test`.`v1`
 select * from v1;
 s1
 select * from t1;
@@ -1327,11 +1324,12 @@ s1
 drop trigger t1_bi;
 drop view v1;
 drop table t1;
+SET sql_mode = default;
 create table t1 (s1 tinyint);
 create view v1 as select * from t1 where s1 <> 0;
 create view v2 as select * from v1 where s1 <> 1 with cascaded check option;
 insert into v2 values (0);
-ERROR HY000: CHECK OPTION failed 'test.v2'
+ERROR 44000: CHECK OPTION failed `test`.`v2`
 select * from v2;
 s1
 select * from t1;
@@ -1341,7 +1339,7 @@ drop table t1;
 create table t1 (a int, b char(10));
 create view v1 as select * from t1 where a != 0 with check option;
 load data infile '../../std_data/loaddata3.dat' into table v1 fields terminated by '' enclosed by '' ignore 1 lines;
-ERROR HY000: CHECK OPTION failed 'test.v1'
+ERROR 44000: CHECK OPTION failed `test`.`v1`
 select * from t1;
 a	b
 1	row 1
@@ -1356,10 +1354,10 @@ Warnings:
 Note	1265	Data truncated for column 'a' at row 1
 Note	1265	Data truncated for column 'a' at row 2
 Warning	1366	Incorrect integer value: 'error      ' for column 'a' at row 3
-Warning	1369	CHECK OPTION failed 'test.v1'
+Warning	1369	CHECK OPTION failed `test`.`v1`
 Note	1265	Data truncated for column 'a' at row 3
 Warning	1366	Incorrect integer value: 'wrong end  ' for column 'a' at row 4
-Warning	1369	CHECK OPTION failed 'test.v1'
+Warning	1369	CHECK OPTION failed `test`.`v1`
 select * from t1 order by a,b;
 a	b
 1	row 1
@@ -1375,7 +1373,7 @@ drop table t1;
 create table t1 (a text, b text);
 create view v1 as select * from t1 where a <> 'Field A' with check option;
 load data infile '../../std_data/loaddata2.dat' into table v1 fields terminated by ',' enclosed by '''';
-ERROR HY000: CHECK OPTION failed 'test.v1'
+ERROR 44000: CHECK OPTION failed `test`.`v1`
 select concat('|',a,'|'), concat('|',b,'|') from t1;
 concat('|',a,'|')	concat('|',b,'|')
 select concat('|',a,'|'), concat('|',b,'|') from v1;
@@ -1383,7 +1381,7 @@ concat('|',a,'|')	concat('|',b,'|')
 delete from t1;
 load data infile '../../std_data/loaddata2.dat' ignore into table v1 fields terminated by ',' enclosed by '''';
 Warnings:
-Warning	1369	CHECK OPTION failed 'test.v1'
+Warning	1369	CHECK OPTION failed `test`.`v1`
 Warning	1261	Row 2 doesn't contain data for all columns
 select concat('|',a,'|'), concat('|',b,'|') from t1;
 concat('|',a,'|')	concat('|',b,'|')
@@ -1447,7 +1445,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	3	100.00	Using where
 1	SIMPLE	t2	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t3`.`a` AS `a`,`test`.`t1`.`a` AS `a`,`test`.`t2`.`a` AS `b` from `test`.`t3` left join (`test`.`t1` left join `test`.`t2` on((`test`.`t2`.`a` = `test`.`t3`.`a`))) on((`test`.`t1`.`a` = `test`.`t3`.`a`)) where 1
+Note	1003	select `test`.`t3`.`a` AS `a`,`test`.`t1`.`a` AS `a`,`test`.`t2`.`a` AS `b` from `test`.`t3` left join (`test`.`t1` left join `test`.`t2` on(`test`.`t2`.`a` = `test`.`t3`.`a`)) on(`test`.`t1`.`a` = `test`.`t3`.`a`) where 1
 create view v1 (a) as select a from t1;
 create view v2 (a) as select a from t2;
 create view v4 (a,b) as select v1.a as a, v2.a as b from v1 left join v2 on (v1.a=v2.a);
@@ -1462,7 +1460,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	3	100.00	Using where
 1	SIMPLE	t2	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t3`.`a` AS `a`,`test`.`t1`.`a` AS `a`,`test`.`t2`.`a` AS `b` from `test`.`t3` left join (`test`.`t1` left join (`test`.`t2`) on((`test`.`t2`.`a` = `test`.`t3`.`a`))) on((`test`.`t1`.`a` = `test`.`t3`.`a`)) where 1
+Note	1003	select `test`.`t3`.`a` AS `a`,`test`.`t1`.`a` AS `a`,`test`.`t2`.`a` AS `b` from `test`.`t3` left join (`test`.`t1` left join (`test`.`t2`) on(`test`.`t2`.`a` = `test`.`t3`.`a`)) on(`test`.`t1`.`a` = `test`.`t3`.`a`) where 1
 prepare stmt1 from "select * from t3 left join v4 on (t3.a = v4.a);";
 execute stmt1;
 a	a	b
@@ -1494,7 +1492,7 @@ a
 create view v2 (a,b) as select t1.b as a, t2.a as b from t1, t2;
 set updatable_views_with_limit=NO;
 update v2 set a= 10 where a=200 limit 1;
-ERROR HY000: The target table t1 of the UPDATE is not updatable
+ERROR HY000: The target table v2 of the UPDATE is not updatable
 set updatable_views_with_limit=DEFAULT;
 select * from v3;
 a	b
@@ -1581,22 +1579,22 @@ execute stmt1 using @a;
 deallocate prepare stmt1;
 select * from v3;
 a	b
-100	1000
-101	1000
-300	1000
-301	1000
-100	10
-101	10
-300	10
-301	10
-100	2000
-101	2000
-300	2000
-301	2000
 100	0
+100	10
+100	1000
+100	2000
 101	0
+101	10
+101	1000
+101	2000
 300	0
+300	10
+300	1000
+300	2000
 301	0
+301	10
+301	1000
+301	2000
 drop view v3;
 drop tables t1,t2;
 create table t1(f1 int);
@@ -1920,24 +1918,24 @@ create table t2 (b timestamp default now());
 create view v1 as select a,b,t1.a < now() from t1,t2 where t1.a < now();
 SHOW CREATE VIEW v1;
 View	Create View	character_set_client	collation_connection
-v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select `t1`.`a` AS `a`,`t2`.`b` AS `b`,(`t1`.`a` < now()) AS `t1.a < now()` from (`t1` join `t2`) where (`t1`.`a` < now())	latin1	latin1_swedish_ci
+v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select `t1`.`a` AS `a`,`t2`.`b` AS `b`,`t1`.`a` < current_timestamp() AS `t1.a < now()` from (`t1` join `t2`) where `t1`.`a` < current_timestamp()	latin1	latin1_swedish_ci
 drop view v1;
 drop table t1, t2;
 CREATE TABLE t1 ( a varchar(50) );
 CREATE VIEW v1 AS SELECT * FROM t1 WHERE a = CURRENT_USER();
 SHOW CREATE VIEW v1;
 View	Create View	character_set_client	collation_connection
-v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select `t1`.`a` AS `a` from `t1` where (`t1`.`a` = current_user())	latin1	latin1_swedish_ci
+v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select `t1`.`a` AS `a` from `t1` where `t1`.`a` = current_user()	latin1	latin1_swedish_ci
 DROP VIEW v1;
 CREATE VIEW v1 AS SELECT * FROM t1 WHERE a = VERSION();
 SHOW CREATE VIEW v1;
 View	Create View	character_set_client	collation_connection
-v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select `t1`.`a` AS `a` from `t1` where (`t1`.`a` = version())	latin1	latin1_swedish_ci
+v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select `t1`.`a` AS `a` from `t1` where `t1`.`a` = version()	latin1	latin1_swedish_ci
 DROP VIEW v1;
 CREATE VIEW v1 AS SELECT * FROM t1 WHERE a = DATABASE();
 SHOW CREATE VIEW v1;
 View	Create View	character_set_client	collation_connection
-v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select `t1`.`a` AS `a` from `t1` where (`t1`.`a` = database())	latin1	latin1_swedish_ci
+v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select `t1`.`a` AS `a` from `t1` where `t1`.`a` = database()	latin1	latin1_swedish_ci
 DROP VIEW v1;
 DROP TABLE t1;
 CREATE TABLE t1 (col1 time);
@@ -2033,7 +2031,7 @@ create view v1 as select f59, f60 from t1 where f59 in
 update v1 set f60=2345;
 ERROR HY000: The target table v1 of the UPDATE is not updatable
 update t1 set f60=(select max(f60) from v1);
-ERROR HY000: The definition of table 'v1' prevents operation UPDATE on table 't1'.
+ERROR HY000: The definition of table 'v1' prevents operation UPDATE on table 't1'
 drop view v1;
 drop table t1;
 create table t1 (s1 int);
@@ -2677,7 +2675,7 @@ create view v2 as select * from v1;
 drop table t1;
 rename table v2 to t1;
 select * from v1;
-ERROR HY000: Recursive stored functions and triggers are not allowed.
+ERROR HY000: Recursive stored functions and triggers are not allowed
 drop function f1;
 drop view t1, v1;
 create table t1 (dt datetime);
@@ -2712,7 +2710,7 @@ SELECT id, date(d) + INTERVAL TIME_TO_SEC(d) SECOND AS t, COUNT(*)
 FROM t1 GROUP BY id, t;
 SHOW CREATE VIEW v1;
 View	Create View	character_set_client	collation_connection
-v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select `t1`.`id` AS `id`,(cast(`t1`.`d` as date) + interval time_to_sec(`t1`.`d`) second) AS `t`,count(0) AS `COUNT(*)` from `t1` group by `t1`.`id`,(cast(`t1`.`d` as date) + interval time_to_sec(`t1`.`d`) second)	latin1	latin1_swedish_ci
+v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select `t1`.`id` AS `id`,cast(`t1`.`d` as date) + interval time_to_sec(`t1`.`d`) second AS `t`,count(0) AS `COUNT(*)` from `t1` group by `t1`.`id`,cast(`t1`.`d` as date) + interval time_to_sec(`t1`.`d`) second	latin1	latin1_swedish_ci
 SELECT * FROM v1;
 id	t	COUNT(*)
 DROP VIEW v1;
@@ -2741,7 +2739,7 @@ SELECT (year(test_date)-year(DOB)) AS Age
 FROM t1 HAVING Age < 75;
 SHOW CREATE VIEW v1;
 View	Create View	character_set_client	collation_connection
-v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select (year(`t1`.`test_date`) - year(`t1`.`DOB`)) AS `Age` from `t1` having (`Age` < 75)	latin1	latin1_swedish_ci
+v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select year(`t1`.`test_date`) - year(`t1`.`DOB`) AS `Age` from `t1` having `Age` < 75	latin1	latin1_swedish_ci
 SELECT (year(test_date)-year(DOB)) AS Age FROM t1 HAVING Age < 75;
 Age
 43
@@ -2796,7 +2794,7 @@ DROP VIEW v1;
 DROP TABLE t1,t2;
 CREATE TABLE t1 (a INT NOT NULL, b INT NULL DEFAULT NULL);
 CREATE VIEW v1 AS SELECT a, b FROM t1;
-INSERT INTO v1 (b) VALUES (2);
+INSERT IGNORE INTO v1 (b) VALUES (2);
 Warnings:
 Warning	1423	Field of view 'test.v1' underlying table doesn't have a default value
 SET SQL_MODE = STRICT_ALL_TABLES;
@@ -2912,17 +2910,24 @@ set GLOBAL sql_mode="";
 set LOCAL sql_mode="";
 CREATE DATABASE bug21261DB;
 USE bug21261DB;
+connect  root,localhost,root,,bug21261DB;
+connection root;
 CREATE TABLE t1 (x INT);
 CREATE SQL SECURITY INVOKER VIEW v1 AS SELECT x FROM t1;
 GRANT INSERT, UPDATE ON v1 TO 'user21261'@'localhost';
 GRANT INSERT, UPDATE ON t1 TO 'user21261'@'localhost';
 CREATE TABLE t2 (y INT);
 GRANT SELECT ON t2 TO 'user21261'@'localhost';
+connect  user21261, localhost, user21261,, bug21261DB;
+connection user21261;
 INSERT INTO v1 (x) VALUES (5);
 UPDATE v1 SET x=1;
+connection root;
 GRANT SELECT ON v1 TO 'user21261'@'localhost';
 GRANT SELECT ON t1 TO 'user21261'@'localhost';
+connection user21261;
 UPDATE v1,t2 SET x=1 WHERE x=y;
+connection root;
 SELECT * FROM t1;
 x
 1
@@ -2931,14 +2936,17 @@ DROP USER 'user21261'@'localhost';
 DROP VIEW v1;
 DROP TABLE t1;
 DROP DATABASE bug21261DB;
+connection default;
 USE test;
+disconnect root;
+disconnect user21261;
 set GLOBAL sql_mode=default;
 set LOCAL sql_mode=default;
 create table t1 (f1 datetime);
 create view v1 as select * from t1 where f1 between now() and now() + interval 1 minute;
 show create view v1;
 View	Create View	character_set_client	collation_connection
-v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select `t1`.`f1` AS `f1` from `t1` where (`t1`.`f1` between now() and (now() + interval 1 minute))	latin1	latin1_swedish_ci
+v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select `t1`.`f1` AS `f1` from `t1` where `t1`.`f1` between current_timestamp() and current_timestamp() + interval 1 minute	latin1	latin1_swedish_ci
 drop view v1;
 drop table t1;
 DROP TABLE IF EXISTS t1;
@@ -3015,7 +3023,7 @@ SHOW WARNINGS;
 Level	Code	Message
 SHOW CREATE VIEW v1;
 View	Create View	character_set_client	collation_connection
-v1	CREATE ALGORITHM=MERGE DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select `t1`.`pk` AS `pk` from (`t1` join `t2` on(((`t2`.`fk` = `t1`.`pk`) and (`t2`.`ver` = (select max(`t`.`ver`) from `t2` `t` where (`t`.`org` = `t2`.`org`))))))	latin1	latin1_swedish_ci
+v1	CREATE ALGORITHM=MERGE DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select `t1`.`pk` AS `pk` from (`t1` join `t2` on(`t2`.`fk` = `t1`.`pk` and `t2`.`ver` = (select max(`t`.`ver`) from `t2` `t` where `t`.`org` = `t2`.`org`)))	latin1	latin1_swedish_ci
 DROP VIEW v1;
 DROP TABLE t1, t2;
 DROP FUNCTION IF EXISTS f1;
@@ -3037,9 +3045,9 @@ CREATE VIEW v1 AS SELECT id, val FROM t1 WHERE val >= 1 AND val <= 5 WITH CHECK 
 INSERT INTO v1 (val) VALUES (2);
 INSERT INTO v1 (val) VALUES (4);
 INSERT INTO v1 (val) VALUES (6);
-ERROR HY000: CHECK OPTION failed 'test.v1'
+ERROR 44000: CHECK OPTION failed `test`.`v1`
 UPDATE v1 SET val=6 WHERE id=2;
-ERROR HY000: CHECK OPTION failed 'test.v1'
+ERROR 44000: CHECK OPTION failed `test`.`v1`
 DROP VIEW v1;
 DROP TABLE t1;
 DROP VIEW IF EXISTS v1, v2;
@@ -3079,7 +3087,7 @@ DROP TABLE t1;
 CREATE VIEW v AS SELECT !0 * 5 AS x FROM DUAL;
 SHOW CREATE VIEW v;
 View	Create View	character_set_client	collation_connection
-v	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v` AS select ((not(0)) * 5) AS `x`	latin1	latin1_swedish_ci
+v	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v` AS select !0 * 5 AS `x`	latin1	latin1_swedish_ci
 SELECT !0 * 5 AS x FROM DUAL;
 x
 5
@@ -3125,7 +3133,7 @@ b
 1
 2
 UPDATE v1 SET b=3;
-ERROR HY000: CHECK OPTION failed 'test.v1'
+ERROR 44000: CHECK OPTION failed `test`.`v1`
 SELECT * FROM v1;
 b
 1
@@ -3176,7 +3184,7 @@ explain extended select * from v1 order by f1;
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	6	100.00	Using filesort
 Warnings:
-Note	1926	View 'test'.'v1' ORDER BY clause ignored because there is other ORDER BY clause already.
+Note	1926	View 'test'.'v1' ORDER BY clause ignored because there is other ORDER BY clause already
 Note	1003	select `test`.`t1`.`f1` AS `f1`,`test`.`t1`.`f2` AS `f2` from `test`.`t1` order by `test`.`t1`.`f1`
 drop view v1;
 drop table t1;
@@ -3199,15 +3207,11 @@ code	COUNT(DISTINCT country)
 DROP VIEW v1;
 DROP TABLE t1;
 DROP VIEW IF EXISTS v1;
-SELECT * FROM (SELECT 1) AS t;
-1
-1
-CREATE VIEW v1 AS SELECT * FROM (SELECT 1) AS t;
-ERROR HY000: View's SELECT contains a subquery in the FROM clause
+SELECT * FROM (SELECT 1) AS t into @w;
+CREATE VIEW v1 AS SELECT * FROM (SELECT 1) AS t into @w;
+ERROR 42000: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'into @w' at line 1
 # Previously the following would fail.
-SELECT * FROM (SELECT 1) AS t;
-1
-1
+SELECT * FROM (SELECT 1) AS t into @w;
 drop view if exists view_24532_a;
 drop view if exists view_24532_b;
 drop table if exists table_24532;
@@ -3317,7 +3321,7 @@ a IS NOT FALSE	int(1)	NO		0
 old_isnotfalse	int(1)	NO		0	
 show create view view_24532_b;
 View	Create View	character_set_client	collation_connection
-view_24532_b	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `view_24532_b` AS select (`table_24532`.`a` is true) AS `a IS TRUE`,if(ifnull(`table_24532`.`a`,0),1,0) AS `old_istrue`,(`table_24532`.`a` is not true) AS `a IS NOT TRUE`,if(ifnull(`table_24532`.`a`,0),0,1) AS `old_isnottrue`,(`table_24532`.`a` is false) AS `a IS FALSE`,if(ifnull(`table_24532`.`a`,1),0,1) AS `old_isfalse`,(`table_24532`.`a` is not false) AS `a IS NOT FALSE`,if(ifnull(`table_24532`.`a`,1),1,0) AS `old_isnotfalse` from `table_24532`	latin1	latin1_swedish_ci
+view_24532_b	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `view_24532_b` AS select `table_24532`.`a` is true AS `a IS TRUE`,if(ifnull(`table_24532`.`a`,0),1,0) AS `old_istrue`,`table_24532`.`a` is not true AS `a IS NOT TRUE`,if(ifnull(`table_24532`.`a`,0),0,1) AS `old_isnottrue`,`table_24532`.`a` is false AS `a IS FALSE`,if(ifnull(`table_24532`.`a`,1),0,1) AS `old_isfalse`,`table_24532`.`a` is not false AS `a IS NOT FALSE`,if(ifnull(`table_24532`.`a`,1),1,0) AS `old_isnotfalse` from `table_24532`	latin1	latin1_swedish_ci
 insert into table_24532 values (0, 0, 0, 0);
 select * from view_24532_b;
 a IS TRUE	old_istrue	a IS NOT TRUE	old_isnottrue	a IS FALSE	old_isfalse	a IS NOT FALSE	old_isnotfalse
@@ -3461,14 +3465,14 @@ a1	c
 1	0
 2	0
 UPDATE v1 SET c=3;
-ERROR HY000: CHECK OPTION failed 'test.v1'
+ERROR 44000: CHECK OPTION failed `test`.`v1`
 PREPARE t FROM 'UPDATE v1 SET c=3';
 EXECUTE t;
-ERROR HY000: CHECK OPTION failed 'test.v1'
+ERROR 44000: CHECK OPTION failed `test`.`v1`
 EXECUTE t;
-ERROR HY000: CHECK OPTION failed 'test.v1'
+ERROR 44000: CHECK OPTION failed `test`.`v1`
 INSERT INTO v1(a1, c) VALUES (3, 3);
-ERROR HY000: CHECK OPTION failed 'test.v1'
+ERROR 44000: CHECK OPTION failed `test`.`v1`
 UPDATE v1 SET c=1 WHERE a1=1;
 SELECT * FROM v1;
 a1	c
@@ -3487,14 +3491,14 @@ a1	c
 1	1
 2	0
 UPDATE v2 SET c=3;
-ERROR HY000: CHECK OPTION failed 'test.v2'
+ERROR 44000: CHECK OPTION failed `test`.`v2`
 PREPARE t FROM 'UPDATE v2 SET c=3';
 EXECUTE t;
-ERROR HY000: CHECK OPTION failed 'test.v2'
+ERROR 44000: CHECK OPTION failed `test`.`v2`
 EXECUTE t;
-ERROR HY000: CHECK OPTION failed 'test.v2'
+ERROR 44000: CHECK OPTION failed `test`.`v2`
 INSERT INTO v2(a1, c) VALUES (3, 3);
-ERROR HY000: CHECK OPTION failed 'test.v2'
+ERROR 44000: CHECK OPTION failed `test`.`v2`
 UPDATE v2 SET c=2 WHERE a1=1;
 SELECT * FROM v2;
 a1	c
@@ -3637,7 +3641,7 @@ DROP TABLE t1;
 #
 create table t1(f1 int, f2 int not null);
 create view v1 as select f1 from t1;
-insert into v1 values(1);
+insert ignore into v1 values(1);
 Warnings:
 Warning	1423	Field of view 'test.v1' underlying table doesn't have a default value
 set @old_mode=@@sql_mode;
@@ -3854,7 +3858,7 @@ CREATE TABLE t1 (c INT);
 CREATE VIEW v1 (view_column) AS SELECT c AS alias FROM t1 HAVING alias;
 SHOW CREATE VIEW v1;
 View	Create View	character_set_client	collation_connection
-v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select `t1`.`c` AS `view_column` from `t1` having (`view_column` <> 0)	latin1	latin1_swedish_ci
+v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select `t1`.`c` AS `view_column` from `t1` having `view_column` <> 0	latin1	latin1_swedish_ci
 SELECT * FROM v1;
 view_column
 
@@ -4090,7 +4094,7 @@ ERROR HY000: The target table v1 of the INSERT is not insertable-into
 DELETE from v1;
 ERROR HY000: The target table v1 of the DELETE is not updatable
 UPDATE v3 SET b= 10;
-ERROR HY000: The target table v2 of the UPDATE is not updatable
+ERROR HY000: The target table v3 of the UPDATE is not updatable
 REPLACE v3 SET b= 10;
 ERROR HY000: The target table v3 of the INSERT is not insertable-into
 INSERT into v3(b) values (20);
@@ -4252,7 +4256,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	16	100.00	Using where
 1	SIMPLE	t2	eq_ref	PRIMARY	PRIMARY	4	test.t1.a	1	100.00	
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a`,`test`.`t2`.`c` AS `c` from `test`.`t1` join `test`.`t2` where ((`test`.`t2`.`pk` = `test`.`t1`.`a`) and (`test`.`t1`.`a` > 8))
+Note	1003	select `test`.`t1`.`a` AS `a`,`test`.`t2`.`c` AS `c` from `test`.`t1` join `test`.`t2` where `test`.`t2`.`pk` = `test`.`t1`.`a` and `test`.`t1`.`a` > 8
 FLUSH STATUS;
 SELECT t1.a,t2.c  FROM t1,t2 WHERE t2.pk = t1.a AND t2.pk > 8;
 a	c
@@ -4276,7 +4280,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	16	100.00	Using where
 1	SIMPLE	t2	eq_ref	PRIMARY	PRIMARY	4	test.t1.a	1	100.00	
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a`,`test`.`t2`.`c` AS `c` from `test`.`t1` join `test`.`t2` where ((`test`.`t2`.`pk` = `test`.`t1`.`a`) and (`test`.`t1`.`a` > 8))
+Note	1003	select `test`.`t1`.`a` AS `a`,`test`.`t2`.`c` AS `c` from `test`.`t1` join `test`.`t2` where `test`.`t2`.`pk` = `test`.`t1`.`a` and `test`.`t1`.`a` > 8
 FLUSH STATUS;
 SELECT t1.a,v.c  FROM t1,v WHERE v.pk = t1.a AND v.pk > 8;
 a	c
@@ -4335,7 +4339,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 1	SIMPLE	t2	ALL	NULL	NULL	NULL	NULL	8	100.00	Using where; Using join buffer (flat, BNL join)
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a`,`test`.`t1`.`b` AS `b`,`test`.`t2`.`c` AS `c` from `test`.`t1` join `test`.`t2` where (((`test`.`t2`.`c` = `test`.`t1`.`a`) and (`test`.`t1`.`a` < 3)) or ((`test`.`t2`.`c` = `test`.`t1`.`b`) and (`test`.`t1`.`b` >= 4)))
+Note	1003	select `test`.`t1`.`a` AS `a`,`test`.`t1`.`b` AS `b`,`test`.`t2`.`c` AS `c` from `test`.`t1` join `test`.`t2` where `test`.`t2`.`c` = `test`.`t1`.`a` and `test`.`t1`.`a` < 3 or `test`.`t2`.`c` = `test`.`t1`.`b` and `test`.`t1`.`b` >= 4
 create view v1 as select * from t2;
 select * from t1,v1 where v1.c=t1.a and v1.c < 3 or v1.c=t1.b and v1.c >=4;
 a	b	c
@@ -4349,7 +4353,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 1	SIMPLE	t2	ALL	NULL	NULL	NULL	NULL	8	100.00	Using where; Using join buffer (flat, BNL join)
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a`,`test`.`t1`.`b` AS `b`,`test`.`t2`.`c` AS `c` from `test`.`t1` join `test`.`t2` where (((`test`.`t2`.`c` = `test`.`t1`.`a`) and (`test`.`t1`.`a` < 3)) or ((`test`.`t2`.`c` = `test`.`t1`.`b`) and (`test`.`t1`.`b` >= 4)))
+Note	1003	select `test`.`t1`.`a` AS `a`,`test`.`t1`.`b` AS `b`,`test`.`t2`.`c` AS `c` from `test`.`t1` join `test`.`t2` where `test`.`t2`.`c` = `test`.`t1`.`a` and `test`.`t1`.`a` < 3 or `test`.`t2`.`c` = `test`.`t1`.`b` and `test`.`t1`.`b` >= 4
 create view v2 as select * from v1;
 select * from t1,v2 where v2.c=t1.a and v2.c < 3 or v2.c=t1.b and v2.c >=4;
 a	b	c
@@ -4363,7 +4367,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 1	SIMPLE	t2	ALL	NULL	NULL	NULL	NULL	8	100.00	Using where; Using join buffer (flat, BNL join)
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a`,`test`.`t1`.`b` AS `b`,`test`.`t2`.`c` AS `c` from `test`.`t1` join `test`.`t2` where (((`test`.`t2`.`c` = `test`.`t1`.`a`) and (`test`.`t1`.`a` < 3)) or ((`test`.`t2`.`c` = `test`.`t1`.`b`) and (`test`.`t1`.`b` >= 4)))
+Note	1003	select `test`.`t1`.`a` AS `a`,`test`.`t1`.`b` AS `b`,`test`.`t2`.`c` AS `c` from `test`.`t1` join `test`.`t2` where `test`.`t2`.`c` = `test`.`t1`.`a` and `test`.`t1`.`a` < 3 or `test`.`t2`.`c` = `test`.`t1`.`b` and `test`.`t1`.`b` >= 4
 create view v3 as select * from t1;
 select * from v3,v2 where v2.c=v3.a and v2.c < 3 or v2.c=v3.b and v2.c >=4;
 a	b	c
@@ -4377,7 +4381,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 1	SIMPLE	t2	ALL	NULL	NULL	NULL	NULL	8	100.00	Using where; Using join buffer (flat, BNL join)
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a`,`test`.`t1`.`b` AS `b`,`test`.`t2`.`c` AS `c` from `test`.`t1` join `test`.`t2` where (((`test`.`t2`.`c` = `test`.`t1`.`a`) and (`test`.`t1`.`a` < 3)) or ((`test`.`t2`.`c` = `test`.`t1`.`b`) and (`test`.`t1`.`b` >= 4)))
+Note	1003	select `test`.`t1`.`a` AS `a`,`test`.`t1`.`b` AS `b`,`test`.`t2`.`c` AS `c` from `test`.`t1` join `test`.`t2` where `test`.`t2`.`c` = `test`.`t1`.`a` and `test`.`t1`.`a` < 3 or `test`.`t2`.`c` = `test`.`t1`.`b` and `test`.`t1`.`b` >= 4
 drop view v1,v2,v3;
 drop table t1,t2;
 #
@@ -4400,7 +4404,7 @@ SELECT * FROM v1 WHERE a > -1 OR a > 6 AND a = 3;
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	7	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where (`test`.`t1`.`a` > <cache>(-(1)))
+Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where `test`.`t1`.`a` > -1
 SELECT * FROM v1 WHERE a > -1 OR a AND a = 0;
 a
 2
@@ -4415,7 +4419,7 @@ SELECT * FROM v1 WHERE a > -1 OR a AND a = 0;
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	7	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where (`test`.`t1`.`a` > <cache>(-(1)))
+Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where `test`.`t1`.`a` > -1
 CREATE VIEW v2 AS SELECT * FROM v1;
 SELECT * FROM v2 WHERE a > -1 OR a AND a = 0;
 a
@@ -4431,7 +4435,7 @@ SELECT * FROM v2 WHERE a > -1 OR a AND a = 0;
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	7	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where (`test`.`t1`.`a` > <cache>(-(1)))
+Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where `test`.`t1`.`a` > -1
 DROP VIEW v1,v2;
 DROP TABLE t1;
 CREATE TABLE t1 (a varchar(10), KEY (a)) ;
@@ -4457,13 +4461,13 @@ SELECT * FROM v1 WHERE a > 'JJ' OR a <> 0 AND a = 'VV';
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	range	a	a	13	NULL	4	100.00	Using where; Using index
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where ((`test`.`t1`.`a` > 'JJ') or ((`test`.`t1`.`a` = 'VV') and (`test`.`t1`.`a` <> 0)))
+Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where `test`.`t1`.`a` > 'JJ' or `test`.`t1`.`a` = 'VV' and `test`.`t1`.`a` <> 0
 EXPLAIN EXTENDED
 SELECT * FROM t1 WHERE a > 'JJ' OR a <> 0 AND a = 'VV';
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	range	a	a	13	NULL	4	100.00	Using where; Using index
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where ((`test`.`t1`.`a` > 'JJ') or ((`test`.`t1`.`a` = 'VV') and (`test`.`t1`.`a` <> 0)))
+Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where `test`.`t1`.`a` > 'JJ' or `test`.`t1`.`a` = 'VV' and `test`.`t1`.`a` <> 0
 # t1 and v1 should return the same result set
 SELECT * FROM v1 WHERE a > 'JJ' OR a AND a = 'VV';
 a
@@ -4483,13 +4487,13 @@ SELECT * FROM v1 WHERE a > 'JJ' OR a AND a = 'VV';
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	range	a	a	13	NULL	4	100.00	Using where; Using index
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where ((`test`.`t1`.`a` > 'JJ') or ((`test`.`t1`.`a` = 'VV') and (`test`.`t1`.`a` <> 0)))
+Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where `test`.`t1`.`a` > 'JJ' or `test`.`t1`.`a` = 'VV' and `test`.`t1`.`a` <> 0
 EXPLAIN EXTENDED
 SELECT * FROM t1 WHERE a > 'JJ' OR a AND a = 'VV';
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	range	a	a	13	NULL	4	100.00	Using where; Using index
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where ((`test`.`t1`.`a` > 'JJ') or ((`test`.`t1`.`a` = 'VV') and (`test`.`t1`.`a` <> 0)))
+Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where `test`.`t1`.`a` > 'JJ' or `test`.`t1`.`a` = 'VV' and `test`.`t1`.`a` <> 0
 DROP VIEW v1;
 DROP TABLE t1;
 #
@@ -4558,7 +4562,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	3	100.00	Using where
 1	SIMPLE	t2	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a`,`test`.`t1`.`b` AS `b`,`test`.`t2`.`a` AS `a` from `test`.`t1` left join `test`.`t2` on((`test`.`t2`.`a` = `test`.`t1`.`a`)) where ((`test`.`t1`.`b` = 1) or ((`test`.`t1`.`a` = 'a') and (length(`test`.`t1`.`a`) >= `test`.`t1`.`b`)))
+Note	1003	select `test`.`t1`.`a` AS `a`,`test`.`t1`.`b` AS `b`,`test`.`t2`.`a` AS `a` from `test`.`t1` left join `test`.`t2` on(`test`.`t2`.`a` = `test`.`t1`.`a`) where `test`.`t1`.`b` = 1 or `test`.`t1`.`a` = 'a' and length(`test`.`t1`.`a`) >= `test`.`t1`.`b`
 DROP VIEW v1;
 DROP TABLE t1,t2;
 # Bug#798625: duplicate of the previous one, but without crash  
@@ -4638,7 +4642,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 5	DERIVED	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	
 3	DERIVED	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	
 Warnings:
-Note	1926	View 'test'.'v2' ORDER BY clause ignored because there is other ORDER BY clause already.
+Note	1926	View 'test'.'v2' ORDER BY clause ignored because there is other ORDER BY clause already
 Note	1003	select `v1`.`f1` AS `f1`,`v1`.`f1` AS `f1` from `test`.`v1` join `test`.`v1` order by `v1`.`f1`
 DROP VIEW v1, v2;
 DROP TABLE t1;
@@ -4665,7 +4669,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 2	DEPENDENT SUBQUERY	t4	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
 Note	1276	Field or reference 'test.t1.a' of SELECT #2 was resolved in SELECT #1
-Note	1003	select `test`.`t1`.`a` AS `a`,10 AS `a` from `test`.`t1` where (not(<expr_cache><10,`test`.`t1`.`a`>(<in_optimizer>(10,<exists>(select NULL from `test`.`t4` where ((`test`.`t4`.`a` >= `test`.`t1`.`a`) and trigcond(((<cache>(10) = NULL) or <cache>(isnull(NULL))))) having trigcond(<is_not_null_test>(NULL)))))))
+Note	1003	select `test`.`t1`.`a` AS `a`,10 AS `a` from `test`.`t1` where !<expr_cache><10,`test`.`t1`.`a`>(<in_optimizer>(10,<exists>(select NULL from `test`.`t4` where `test`.`t4`.`a` >= `test`.`t1`.`a` and trigcond(<cache>(10) = NULL or <cache>(NULL is null)) having trigcond(NULL is null))))
 SELECT * FROM t1, t2
 WHERE t2.a NOT IN (SELECT t3.b FROM t3 RIGHT JOIN t4 ON (t4.a = t3.a)
 WHERE t4.a >= t1.a);
@@ -4681,7 +4685,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 2	DEPENDENT SUBQUERY	t4	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
 Note	1276	Field or reference 'v1.a' of SELECT #2 was resolved in SELECT #1
-Note	1003	select `test`.`t1`.`a` AS `a`,10 AS `a` from `test`.`t1` where (not(<expr_cache><10,`test`.`t1`.`a`>(<in_optimizer>(10,<exists>(select NULL from `test`.`t4` where ((`test`.`t4`.`a` >= `test`.`t1`.`a`) and trigcond(((<cache>(10) = NULL) or <cache>(isnull(NULL))))) having trigcond(<is_not_null_test>(NULL)))))))
+Note	1003	select `test`.`t1`.`a` AS `a`,10 AS `a` from `test`.`t1` where !<expr_cache><10,`test`.`t1`.`a`>(<in_optimizer>(10,<exists>(select NULL from `test`.`t4` where `test`.`t4`.`a` >= `test`.`t1`.`a` and trigcond(<cache>(10) = NULL or <cache>(NULL is null)) having trigcond(NULL is null))))
 SELECT * FROM v1, t2
 WHERE t2.a NOT IN (SELECT t3.b FROM t3 RIGHT JOIN t4 ON (t4.a = t3.a)
 WHERE t4.a >= v1.a);
@@ -4712,7 +4716,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 2	DEPENDENT SUBQUERY	t1	system	NULL	NULL	NULL	NULL	0	0.00	const row not found
 Warnings:
 Note	1276	Field or reference 'test.t4.b' of SELECT #2 was resolved in SELECT #1
-Note	1003	select 0 AS `c`,`test`.`t4`.`a` AS `a`,`test`.`t4`.`b` AS `b`,`test`.`t4`.`c` AS `c` from `test`.`t4` where (`test`.`t4`.`c` <= <expr_cache><`test`.`t4`.`b`>((select 0 from dual where (7 > `test`.`t4`.`b`))))
+Note	1003	select 0 AS `c`,`test`.`t4`.`a` AS `a`,`test`.`t4`.`b` AS `b`,`test`.`t4`.`c` AS `c` from `test`.`t4` where `test`.`t4`.`c` <= <expr_cache><`test`.`t4`.`b`>((select 0 from dual where 7 > `test`.`t4`.`b`))
 SELECT * FROM t3 , t4 
 WHERE t4.c <= (SELECT t2.e FROM t2 LEFT JOIN t1 ON ( t1.a = t2.d )
 WHERE t2.b > t4.b);
@@ -4729,7 +4733,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 2	DEPENDENT SUBQUERY	t1	system	NULL	NULL	NULL	NULL	0	0.00	const row not found
 Warnings:
 Note	1276	Field or reference 'v4.b' of SELECT #2 was resolved in SELECT #1
-Note	1003	select 0 AS `c`,`test`.`t4`.`a` AS `a`,`test`.`t4`.`b` AS `b`,`test`.`t4`.`c` AS `c` from `test`.`t4` where (`test`.`t4`.`c` <= <expr_cache><`test`.`t4`.`b`>((select 0 from dual where (7 > `test`.`t4`.`b`))))
+Note	1003	select 0 AS `c`,`test`.`t4`.`a` AS `a`,`test`.`t4`.`b` AS `b`,`test`.`t4`.`c` AS `c` from `test`.`t4` where `test`.`t4`.`c` <= <expr_cache><`test`.`t4`.`b`>((select 0 from dual where 7 > `test`.`t4`.`b`))
 SELECT * FROM t3, v4 
 WHERE v4.c <= (SELECT t2.e FROM t2 LEFT JOIN t1 ON ( t1.a = t2.d )
 WHERE t2.b > v4.b);
@@ -4742,13 +4746,13 @@ drop view if exists v_9801;
 create table t_9801 (s1 int);
 create view v_9801 as
 select sum(s1) from t_9801 with check option;
-ERROR HY000: CHECK OPTION on non-updatable view 'test.v_9801'
+ERROR HY000: CHECK OPTION on non-updatable view `test`.`v_9801`
 create view v_9801 as
 select sum(s1) from t_9801 group by s1 with check option;
-ERROR HY000: CHECK OPTION on non-updatable view 'test.v_9801'
+ERROR HY000: CHECK OPTION on non-updatable view `test`.`v_9801`
 create view v_9801 as
 select sum(s1) from t_9801 group by s1 with rollup with check option;
-ERROR HY000: CHECK OPTION on non-updatable view 'test.v_9801'
+ERROR HY000: CHECK OPTION on non-updatable view `test`.`v_9801`
 drop table t_9801;
 #
 # Bug #47335 assert in get_table_share
@@ -4786,35 +4790,46 @@ DROP TABLE t1, t2;
 # Bug#48315 Metadata lock is not taken for merged views that
 #           use an INFORMATION_SCHEMA table
 #
-DROP TABLE IF EXISTS t1;
 DROP VIEW IF EXISTS v1;
 DROP PROCEDURE IF EXISTS p1;
-# Connection default
+connect  con2, localhost, root;
+connect  con3, localhost, root;
+connection default;
 CREATE VIEW v1 AS SELECT schema_name FROM information_schema.schemata;
-CREATE TABLE t1 (str VARCHAR(50));
-CREATE PROCEDURE p1() INSERT INTO t1 SELECT * FROM v1;
+CREATE PROCEDURE p1() SELECT COUNT(*), GET_LOCK('blocker', 100) FROM v1;
 # CALL p1() so the view is merged.
 CALL p1();
-# Connection 3
-LOCK TABLE t1 READ;
-# Connection default
-# Try to CALL p1() again, this time it should block for t1.
+SELECT RELEASE_LOCK('blocker');
+RELEASE_LOCK('blocker')
+1
+connection con3;
+SELECT GET_LOCK('blocker', 100);
+GET_LOCK('blocker', 100)
+1
+connection default;
+# Try to CALL p1() again, this time it should block on "blocker".
 # Sending:
 CALL p1();
-# Connection 2
+connection con2;
 # ... then try to drop the view. This should block.
 # Sending:
 DROP VIEW v1;
-# Connection 3
+connection con3;
 # Now allow CALL p1() to complete
-UNLOCK TABLES;
-# Connection default
+SELECT RELEASE_LOCK('blocker');
+RELEASE_LOCK('blocker')
+1
+connection default;
 # Reaping: CALL p1()
-# Connection 2
+SELECT RELEASE_LOCK('blocker');
+RELEASE_LOCK('blocker')
+1
+connection con2;
 # Reaping: DROP VIEW v1
-# Connection default
+connection default;
 DROP PROCEDURE p1;
-DROP TABLE t1;
+disconnect con2;
+disconnect con3;
 #
 # Bug#12626844: WRONG ERROR MESSAGE WHILE CREATING A VIEW ON A
 #               NON EXISTING DATABASE
@@ -5486,15 +5501,15 @@ create table t1 (a int, b int);
 create algorithm=temptable view v2 (c) as select b+1 from t1;
 show create view v2;
 View	Create View	character_set_client	collation_connection
-v2	CREATE ALGORITHM=TEMPTABLE DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v2` AS select (`t1`.`b` + 1) AS `c` from `t1`	latin1	latin1_swedish_ci
+v2	CREATE ALGORITHM=TEMPTABLE DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v2` AS select `t1`.`b` + 1 AS `c` from `t1`	latin1	latin1_swedish_ci
 alter algorithm=undefined view v2 (c) as select b+1 from t1;
 show create view v2;
 View	Create View	character_set_client	collation_connection
-v2	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v2` AS select (`t1`.`b` + 1) AS `c` from `t1`	latin1	latin1_swedish_ci
+v2	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v2` AS select `t1`.`b` + 1 AS `c` from `t1`	latin1	latin1_swedish_ci
 alter algorithm=merge view v2 (c) as select b+1 from t1;
 show create view v2;
 View	Create View	character_set_client	collation_connection
-v2	CREATE ALGORITHM=MERGE DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v2` AS select (`t1`.`b` + 1) AS `c` from `t1`	latin1	latin1_swedish_ci
+v2	CREATE ALGORITHM=MERGE DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v2` AS select `t1`.`b` + 1 AS `c` from `t1`	latin1	latin1_swedish_ci
 drop view v2;
 drop table t1;
 #
@@ -5584,7 +5599,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 3	DEPENDENT SUBQUERY	t2	ALL	NULL	NULL	NULL	NULL	6	100.00	Using where
 Warnings:
 Note	1276	Field or reference 'test.t1.a' of SELECT #3 was resolved in SELECT #2
-Note	1003	select `test`.`t1`.`a` AS `a`,(select max(`test`.`t2`.`b`) from `test`.`t2` where (`test`.`t1`.`a` = `test`.`t2`.`a`)) AS `c` from `test`.`t1`
+Note	1003	select `test`.`t1`.`a` AS `a`,(select max(`test`.`t2`.`b`) from `test`.`t2` where `test`.`t1`.`a` = `test`.`t2`.`a`) AS `c` from `test`.`t1`
 select * from v1;
 a	c
 1	2
@@ -5601,7 +5616,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 3	DEPENDENT SUBQUERY	t2	ALL	NULL	NULL	NULL	NULL	6	100.00	Using where
 Warnings:
 Note	1276	Field or reference 'test.t1.a' of SELECT #3 was resolved in SELECT #2
-Note	1003	select `test`.`t2`.`a` AS `a`,`test`.`t2`.`b` AS `b`,`test`.`t1`.`a` AS `a`,(select max(`test`.`t2`.`b`) from `test`.`t2` where (`test`.`t1`.`a` = `test`.`t2`.`a`)) AS `c` from `test`.`t2` join `test`.`t1` where (`test`.`t1`.`a` = `test`.`t2`.`a`)
+Note	1003	select `test`.`t2`.`a` AS `a`,`test`.`t2`.`b` AS `b`,`test`.`t1`.`a` AS `a`,(select max(`test`.`t2`.`b`) from `test`.`t2` where `test`.`t1`.`a` = `test`.`t2`.`a`) AS `c` from `test`.`t2` join `test`.`t1` where `test`.`t1`.`a` = `test`.`t2`.`a`
 select * from t2, v1 where t2.a=v1.a;
 a	b	a	c
 1	2	1	2
@@ -5620,7 +5635,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 3	DEPENDENT SUBQUERY	t2	ALL	NULL	NULL	NULL	NULL	6	100.00	Using where
 Warnings:
 Note	1276	Field or reference 'test.t1.a' of SELECT #3 was resolved in SELECT #2
-Note	1003	select `test`.`t1`.`a` AS `a`,`test`.`t1`.`b` AS `b`,`test`.`t1`.`a` AS `a`,(select max(`test`.`t2`.`b`) from `test`.`t2` where (`test`.`t1`.`a` = `test`.`t2`.`a`)) AS `c` from `test`.`t1` join `test`.`t1` where (`test`.`t1`.`a` = `test`.`t1`.`a`)
+Note	1003	select `test`.`t1`.`a` AS `a`,`test`.`t1`.`b` AS `b`,`test`.`t1`.`a` AS `a`,(select max(`test`.`t2`.`b`) from `test`.`t2` where `test`.`t1`.`a` = `test`.`t2`.`a`) AS `c` from `test`.`t1` join `test`.`t1` where `test`.`t1`.`a` = `test`.`t1`.`a`
 select * from t1, v1 where t1.a=v1.a;
 a	b	a	c
 1	2	1	2
@@ -5639,7 +5654,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 3	DEPENDENT SUBQUERY	t2	ALL	NULL	NULL	NULL	NULL	6	100.00	Using where
 Warnings:
 Note	1276	Field or reference 'test.t1.a' of SELECT #3 was resolved in SELECT #2
-Note	1003	select `test`.`t1`.`a` AS `a`,`test`.`t1`.`b` AS `b`,`test`.`t1`.`a` AS `a`,(select max(`test`.`t2`.`b`) from `test`.`t2` where (`test`.`t1`.`a` = `test`.`t2`.`a`)) AS `c` from `test`.`t1` join `test`.`t1` where (`test`.`t1`.`b` = (select max(`test`.`t2`.`b`) from `test`.`t2` where (`test`.`t1`.`a` = `test`.`t2`.`a`)))
+Note	1003	select `test`.`t1`.`a` AS `a`,`test`.`t1`.`b` AS `b`,`test`.`t1`.`a` AS `a`,(select max(`test`.`t2`.`b`) from `test`.`t2` where `test`.`t1`.`a` = `test`.`t2`.`a`) AS `c` from `test`.`t1` join `test`.`t1` where `test`.`t1`.`b` = (select max(`test`.`t2`.`b`) from `test`.`t2` where `test`.`t1`.`a` = `test`.`t2`.`a`)
 select * from t1, v1 where t1.b=v1.c;
 a	b	a	c
 1	2	1	2
@@ -5657,7 +5672,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 3	DEPENDENT SUBQUERY	t2	ALL	NULL	NULL	NULL	NULL	6	100.00	Using where
 Warnings:
 Note	1276	Field or reference 'test.t1.a' of SELECT #3 was resolved in SELECT #2
-Note	1003	select `test`.`t2`.`a` AS `a`,`test`.`t2`.`b` AS `b`,`test`.`t1`.`a` AS `a`,`test`.`t1`.`b` AS `b`,`test`.`t1`.`a` AS `a`,(select max(`test`.`t2`.`b`) from `test`.`t2` where (`test`.`t1`.`a` = `test`.`t2`.`a`)) AS `c` from `test`.`t2` join `test`.`t1` join `test`.`t1` where ((`test`.`t1`.`a` = `test`.`t2`.`a`) and (`test`.`t1`.`a` = `test`.`t2`.`a`))
+Note	1003	select `test`.`t2`.`a` AS `a`,`test`.`t2`.`b` AS `b`,`test`.`t1`.`a` AS `a`,`test`.`t1`.`b` AS `b`,`test`.`t1`.`a` AS `a`,(select max(`test`.`t2`.`b`) from `test`.`t2` where `test`.`t1`.`a` = `test`.`t2`.`a`) AS `c` from `test`.`t2` join `test`.`t1` join `test`.`t1` where `test`.`t1`.`a` = `test`.`t2`.`a` and `test`.`t1`.`a` = `test`.`t2`.`a`
 select * from t2, t1, v1 where t1.a=t2.a and t1.a=v1.a;
 a	b	a	b	a	c
 1	2	1	2	1	2
@@ -5946,4 +5961,377 @@ drop view v1;
 drop table t1;
 #
 # End of 10.1 tests
+#
+#
+# Start of 10.2 tests
+#
+# Checking that SHOW CREATE VIEW preserve parentheses
+CREATE TABLE t1 (a INT);
+INSERT INTO t1 VALUES (10),(20),(30);
+CREATE VIEW v1 AS SELECT 1 AS a UNION SELECT a FROM t1;
+SHOW CREATE VIEW v1;
+View	Create View	character_set_client	collation_connection
+v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select 1 AS `a` union select `t1`.`a` AS `a` from `t1`	latin1	latin1_swedish_ci
+SELECT * FROM v1;
+a
+1
+10
+20
+30
+DROP VIEW v1;
+CREATE VIEW v1 AS SELECT 1 AS a UNION SELECT a FROM t1 LIMIT 1;
+SHOW CREATE VIEW v1;
+View	Create View	character_set_client	collation_connection
+v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select 1 AS `a` union select `t1`.`a` AS `a` from `t1` limit 1	latin1	latin1_swedish_ci
+SELECT * FROM v1;
+a
+1
+DROP VIEW v1;
+CREATE VIEW v1 AS SELECT 1 AS a UNION (SELECT a FROM t1);
+SHOW CREATE VIEW v1;
+View	Create View	character_set_client	collation_connection
+v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select 1 AS `a` union (select `t1`.`a` AS `a` from `t1`)	latin1	latin1_swedish_ci
+SELECT * FROM v1;
+a
+1
+10
+20
+30
+DROP VIEW v1;
+CREATE VIEW v1 AS SELECT 1 AS a UNION (SELECT a FROM t1 LIMIT 1);
+SHOW CREATE VIEW v1;
+View	Create View	character_set_client	collation_connection
+v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select 1 AS `a` union (select `t1`.`a` AS `a` from `t1` limit 1)	latin1	latin1_swedish_ci
+SELECT * FROM v1;
+a
+1
+10
+DROP VIEW v1;
+CREATE VIEW v1 AS SELECT 1 AS a UNION (SELECT a FROM t1) LIMIT 1;
+SHOW CREATE VIEW v1;
+View	Create View	character_set_client	collation_connection
+v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select 1 AS `a` union (select `t1`.`a` AS `a` from `t1`) limit 1	latin1	latin1_swedish_ci
+SELECT * FROM v1;
+a
+1
+DROP VIEW v1;
+DROP TABLE t1;
+#
+# MDEV-9408 CREATE TABLE SELECT MAX(int_column) creates different columns for table vs view
+#
+CREATE TABLE t1 (
+id int(11) NOT NULL PRIMARY KEY,
+country varchar(32),
+code int(11) default NULL
+);
+INSERT INTO t1 VALUES (1,'ITALY',100),(2,'ITALY',200),(3,'FRANCE',100), (4,'ITALY',100);
+CREATE VIEW v1 AS SELECT * FROM t1;
+CREATE TABLE t2 AS
+SELECT code, COUNT(DISTINCT country), MAX(id) FROM t1 GROUP BY code ORDER BY MAX(id);
+SHOW CREATE TABLE t2;
+Table	Create Table
+t2	CREATE TABLE `t2` (
+  `code` int(11) DEFAULT NULL,
+  `COUNT(DISTINCT country)` bigint(21) NOT NULL,
+  `MAX(id)` int(11)
+) ENGINE=MyISAM DEFAULT CHARSET=latin1
+CREATE TABLE t3 AS
+SELECT code, COUNT(DISTINCT country), MAX(id) FROM v1 GROUP BY code ORDER BY MAX(id);
+SHOW CREATE TABLE t3;
+Table	Create Table
+t3	CREATE TABLE `t3` (
+  `code` int(11) DEFAULT NULL,
+  `COUNT(DISTINCT country)` bigint(21) NOT NULL,
+  `MAX(id)` int(11) DEFAULT NULL
+) ENGINE=MyISAM DEFAULT CHARSET=latin1
+DROP VIEW v1;
+DROP TABLE t1,t2,t3;
+#
+# MDEV-3944: Allow derived tables in VIEWS
+#
+create table t1 (s1 int);
+insert into t1 values (1),(2),(3);
+CREATE VIEW v1 AS SELECT * FROM (SELECT s1 FROM t1 WHERE s1>1) AS x;
+CREATE VIEW v2 AS SELECT * FROM (SELECT s1 FROM t1 WHERE s1<3) AS x;
+select * from v1;
+s1
+2
+3
+select * from v2;
+s1
+1
+2
+select * from v1 natural join v2;
+s1
+2
+select * from v1 natural join t1;
+s1
+2
+3
+select * from v1 natural join (SELECT s1 FROM t1 WHERE s1<3) as x;
+s1
+2
+select * from v1 left join v2 on (v1.s1=v2.s1);
+s1	s1
+2	2
+3	NULL
+select * from v1 left join t1 on (v1.s1=t1.s1);
+s1	s1
+2	2
+3	3
+select * from t1 left join v2 on (t1.s1=v2.s1);
+s1	s1
+1	1
+2	2
+3	NULL
+select * from v1 left join (SELECT s1 FROM t1 WHERE s1<3) as x on (v1.s1=x.s1);
+s1	s1
+2	2
+3	NULL
+select * from (SELECT s1 FROM t1 WHERE s1>1) AS x left join v2 on (x.s1=v2.s1);
+s1	s1
+2	2
+3	NULL
+drop view v1,v2;
+CREATE VIEW v1 AS SELECT * FROM (SELECT s1 FROM (SELECT s1 FROM t1 WHERE s1
+< 100) as xx WHERE s1>1) AS x;
+CREATE VIEW v2 AS SELECT * FROM (SELECT s1 FROM (SELECT s1 FROM t1 WHERE s1
+> -100) as xx WHERE s1<3) AS x;
+insert into t1 values (200),(-200);
+select * from t1;
+s1
+-200
+1
+2
+200
+3
+select * from v1;
+s1
+2
+3
+select * from v2;
+s1
+1
+2
+select * from v1 natural join v2;
+s1
+2
+select * from v1 natural join t1;
+s1
+2
+3
+select * from v1 natural join (SELECT s1 FROM t1 WHERE s1<3) as x;
+s1
+2
+select * from v1 left join v2 on (v1.s1=v2.s1);
+s1	s1
+2	2
+3	NULL
+select * from v1 left join t1 on (v1.s1=t1.s1);
+s1	s1
+2	2
+3	3
+select * from t1 left join v2 on (t1.s1=v2.s1);
+s1	s1
+-200	NULL
+1	1
+2	2
+200	NULL
+3	NULL
+select * from v1 left join (SELECT s1 FROM t1 WHERE s1<3) as x on (v1.s1=x.s1);
+s1	s1
+2	2
+3	NULL
+select * from (SELECT s1 FROM t1 WHERE s1>1) AS x left join v2 on (x.s1=v2.s1);
+s1	s1
+2	2
+200	NULL
+3	NULL
+drop view v1,v2;
+CREATE algorithm=temptable VIEW v1 AS SELECT * FROM (SELECT s1 FROM (SELECT s1 FROM t1 WHERE s1
+< 100) as xx WHERE s1>1) AS x;
+CREATE algorithm=temptable VIEW v2 AS SELECT * FROM (SELECT s1 FROM (SELECT s1 FROM t1 WHERE s1
+> -100) as xx WHERE s1<3) AS x;
+select * from t1;
+s1
+-200
+1
+2
+200
+3
+select * from v1;
+s1
+2
+3
+select * from v2;
+s1
+1
+2
+select * from v1 natural join v2;
+s1
+2
+select * from v1 natural join t1;
+s1
+2
+3
+select * from v1 natural join (SELECT s1 FROM t1 WHERE s1<3) as x;
+s1
+2
+select * from v1 left join v2 on (v1.s1=v2.s1);
+s1	s1
+2	2
+3	NULL
+select * from v1 left join t1 on (v1.s1=t1.s1);
+s1	s1
+2	2
+3	3
+select * from t1 left join v2 on (t1.s1=v2.s1);
+s1	s1
+-200	NULL
+1	1
+2	2
+200	NULL
+3	NULL
+select * from v1 left join (SELECT s1 FROM t1 WHERE s1<3) as x on (v1.s1=x.s1);
+s1	s1
+2	2
+3	NULL
+select * from (SELECT s1 FROM t1 WHERE s1>1) AS x left join v2 on (x.s1=v2.s1);
+s1	s1
+2	2
+200	NULL
+3	NULL
+drop view v1,v2;
+CREATE VIEW v1 AS SELECT * FROM (SELECT s1 FROM (SELECT s1 FROM t1 WHERE s1
+< 100) as xx WHERE s1>1) AS x;
+insert into v1 values (-300);
+ERROR HY000: The target table v1 of the INSERT is not insertable-into
+update v1 set s1=s1+1;
+ERROR HY000: The target table v1 of the UPDATE is not updatable
+drop view v1;
+CREATE VIEW v1 AS SELECT s1,s2 FROM (SELECT s1 as s2 FROM t1 WHERE s1 <
+100) x, t1 WHERE t1.s1=x.s2;
+select * from v1;
+s1	s2
+1	1
+2	2
+3	3
+-200	-200
+insert into v1 (s1) values (-300);
+update v1 set s1=s1+1;
+select * from v1;
+s1	s2
+2	2
+3	3
+4	4
+-199	-199
+-299	-299
+select * from t1;
+s1
+2
+3
+4
+200
+-199
+-299
+insert into v1(s2) values (-300);
+ERROR HY000: The target table v1 of the INSERT is not insertable-into
+update v1 set s2=s2+1;
+ERROR HY000: The target table v1 of the UPDATE is not updatable
+drop view v1;
+CREATE VIEW v1 AS SELECT * FROM (SELECT s1 FROM t1 WHERE s1
+< 100) AS x;
+insert into v1 values (-300);
+ERROR HY000: The target table v1 of the INSERT is not insertable-into
+update v1 set s1=s1+1;
+ERROR HY000: The target table v1 of the UPDATE is not updatable
+drop view v1;
+CREATE VIEW v1 AS SELECT * FROM (SELECT s1 FROM (SELECT s1 FROM t1 WHERE s1
+< 100) as xx WHERE s1>1) AS x;
+insert into v1 values (-300);
+ERROR HY000: The target table v1 of the INSERT is not insertable-into
+update v1 set s1=s1+1;
+ERROR HY000: The target table v1 of the UPDATE is not updatable
+create view v2 as select * from v1;
+insert into v2 values (-300);
+ERROR HY000: The target table v2 of the INSERT is not insertable-into
+update v2 set s1=s1+1;
+ERROR HY000: The target table v2 of the UPDATE is not updatable
+drop view v1, v2;
+drop table t1;
+#
+# MDEV-9671:Wrong result upon select from a view with a FROM subquery
+#
+CREATE TABLE t1 (i INT);
+INSERT INTO t1 VALUES (3),(2);
+CREATE TABLE t2 (j INT);
+INSERT INTO t2 VALUES (8),(3),(3);
+CREATE TABLE t3 (k INT);
+INSERT INTO t3 VALUES (1),(8);
+CREATE VIEW v1 AS SELECT * FROM t1 LEFT JOIN ( SELECT t2.* FROM t2 INNER JOIN t3 ON ( k = j ) ) AS alias1 ON ( i = j );
+show create view v1;
+View	Create View	character_set_client	collation_connection
+v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select `test`.`t1`.`i` AS `i`,`alias1`.`j` AS `j` from (`test`.`t1` left join (select `test`.`t2`.`j` AS `j` from (`test`.`t2` join `test`.`t3` on(`test`.`t3`.`k` = `test`.`t2`.`j`))) `alias1` on(`test`.`t1`.`i` = `alias1`.`j`))	latin1	latin1_swedish_ci
+SELECT * FROM t1 LEFT JOIN ( SELECT t2.* FROM t2 INNER JOIN t3 ON ( k = j ) ) AS alias1 ON ( i = j );
+i	j
+3	NULL
+2	NULL
+SELECT * FROM v1;
+i	j
+3	NULL
+2	NULL
+DROP VIEW v1;
+DROP TABLE t1, t2, t3;
+#
+# MDEV-10035: DBUG_ASSERT on CREATE VIEW v1 AS SELECT * FROM t1
+# FOR UPDATE
+#
+CREATE TABLE t1 (a INT);
+insert into t1 values (1),(2);
+CREATE VIEW v1 AS SELECT * FROM t1 FOR UPDATE;
+SHOW CREATE VIEW v1;
+View	Create View	character_set_client	collation_connection
+v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select `t1`.`a` AS `a` from `t1` for update	latin1	latin1_swedish_ci
+select * from v1;
+a
+1
+2
+DROP VIEW v1;
+CREATE VIEW v1 AS SELECT * FROM t1 LOCK IN SHARE MODE;
+SHOW CREATE VIEW v1;
+View	Create View	character_set_client	collation_connection
+v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select `t1`.`a` AS `a` from `t1` lock in share mode	latin1	latin1_swedish_ci
+select * from v1;
+a
+1
+2
+DROP VIEW v1;
+DROP TABLE t1;
+#
+# MDEV-10724:Assertion `vcol_table == 0 || vcol_table == table'
+# failed in fill_record(THD*, TABLE*, List<Item>&, List<Item>&,
+# bool, bool)
+#
+CREATE TABLE t1 (f1 INT);
+CREATE TABLE t2 (f2 INT);
+CREATE TABLE t3 (f3 INT);
+CREATE ALGORITHM = MERGE VIEW v AS SELECT f1, f3 FROM t1,
+( SELECT f3 FROM t2, t3 ) AS sq;
+INSERT INTO v (f1, f3) VALUES (1,1), (2,2);
+ERROR HY000: Can not modify more than one base table through a join view 'test.v'
+drop view v;
+drop tables t1,t2,t3;
+create table t1 (i int, j int);
+insert t1 values (1,1),(2,2);
+create view v1 as select (2, 3) not in (select i, j from t1);
+select * from v1;
+(2, 3) not in (select i, j from t1)
+1
+show create view v1;
+View	Create View	character_set_client	collation_connection
+v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select !((2,3) in (select `t1`.`i`,`t1`.`j` from `t1`)) AS `(2, 3) not in (select i, j from t1)`	latin1	latin1_swedish_ci
+drop view v1;
+drop table t1;
+#
+# End of 10.2 tests
 #

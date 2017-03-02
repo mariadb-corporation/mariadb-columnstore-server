@@ -53,28 +53,10 @@ Returns the atomic writes flag of the space, or false if the space
 is not using atomic writes. The tablespace must be cached in the memory cache.
 @return	atomic write table option value */
 UNIV_INLINE
-atomic_writes_t
+bool
 fil_space_get_atomic_writes(
 /*=========================*/
 	ulint	id);	/*!< in: space id */
-/*******************************************************************//**
-Find out wheather the page is index page or not
-@return	true if page type index page, false if not */
-UNIV_INLINE
-ibool
-fil_page_is_index_page(
-/*===================*/
-	byte	*buf);	/*!< in: page */
-
-/****************************************************************//**
-Get the name of the compression algorithm used for page
-compression.
-@return compression algorithm name or "UNKNOWN" if not known*/
-UNIV_INLINE
-const char*
-fil_get_compression_alg_name(
-/*=========================*/
-       ulint	comp_alg);	/*!<in: compression algorithm number */
 
 /****************************************************************//**
 For page compressed pages compress the page before actual write
@@ -130,32 +112,7 @@ Get block size from fil node
 UNIV_INLINE
 ulint
 fil_node_get_block_size(
+/*====================*/
 	fil_node_t*	node);	/*!< in: Node where to get block
 				size */
-/*******************************************************************//**
-Find out wheather the page is page compressed
-@return	true if page is page compressed*/
-UNIV_INLINE
-ibool
-fil_page_is_compressed(
-/*===================*/
-	byte*	buf);	/*!< in: page */
-
-/*******************************************************************//**
-Find out wheather the page is page compressed
-@return	true if page is page compressed*/
-UNIV_INLINE
-ibool
-fil_page_is_compressed_encrypted(
-/*=============================*/
-	byte*	buf);	/*!< in: page */
-
-/*******************************************************************//**
-Find out wheather the page is page compressed with lzo method
-@return	true if page is page compressed with lzo method*/
-UNIV_INLINE
-ibool
-fil_page_is_lzo_compressed(
-/*=======================*/
-	byte*	buf);	/*!< in: page */
 #endif

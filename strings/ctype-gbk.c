@@ -3451,49 +3451,6 @@ static uint16 gbksortorder(uint16 i)
 }
 
 
-static size_t
-my_strnxfrm_gbk(CHARSET_INFO *cs,
-                uchar *dst, size_t dstlen, uint nweights,
-                const uchar *src, size_t srclen, uint flags)
-{
-  uchar *d0= dst;
-  uchar *de= dst + dstlen;
-  const uchar *se= src + srclen;
-  const uchar *sort_order= cs->sort_order;
-
-  for (; dst < de && src < se && nweights; nweights--)
-  {
-    if (cs->cset->ismbchar(cs, (const char*) src, (const char*) se))
-    {
-      /*
-        Note, it is safe not to check (src < se)
-        in the code below, because ismbchar() would
-        not return TRUE if src was too short
-      */
-      uint16 e= gbksortorder((uint16) gbkcode(*src, *(src + 1)));
-      *dst++= gbkhead(e);
-      if (dst < de)
-        *dst++= gbktail(e);
-      src+= 2;
-    }
-    else
-      *dst++= sort_order ? sort_order[*src++] : *src++;
-  }
-  return my_strxfrm_pad_desc_and_reverse(cs, d0, dst, de, nweights, flags, 0);
-}
-
-
-static uint ismbchar_gbk(CHARSET_INFO *cs __attribute__((unused)),
-		 const char* p, const char *e)
-{
-  return (isgbkhead(*(p)) && (e)-(p)>1 && isgbktail(*((p)+1))? 2: 0);
-}
-
-static uint mbcharlen_gbk(CHARSET_INFO *cs __attribute__((unused)),uint c)
-{
-  return (isgbkhead(c)? 2 : 1);
-}
-
 /* page 0 0x8140-0xFE4F */
 static const uint16 tab_gbk_uni0[]={
 0x4E02,0x4E04,0x4E05,0x4E06,0x4E0F,0x4E12,0x4E17,0x4E1F,
@@ -10658,10 +10615,26 @@ my_mb_wc_gbk(CHARSET_INFO *cs __attribute__((unused)),
 #define MY_FUNCTION_NAME(x)   my_ ## x ## _gbk_chinese_ci
 #define WEIGHT_MB1(x)        (sort_order_gbk[(uchar) (x)])
 #define WEIGHT_MB2(x,y)      (gbksortorder(gbkcode(x,y)))
+#define DEFINE_STRNXFRM
 #include "strcoll.ic"
 
 
 #define MY_FUNCTION_NAME(x)   my_ ## x ## _gbk_bin
+#define WEIGHT_MB1(x)        ((uchar) (x))
+#define WEIGHT_MB2(x,y)      (gbkcode(x,y))
+#include "strcoll.ic"
+
+
+#define DEFINE_STRNNCOLLSP_NOPAD
+#define MY_FUNCTION_NAME(x)   my_ ## x ## _gbk_chinese_nopad_ci
+#define WEIGHT_MB1(x)        (sort_order_gbk[(uchar) (x)])
+#define WEIGHT_MB2(x,y)      (gbksortorder(gbkcode(x,y)))
+#define DEFINE_STRNXFRM
+#include "strcoll.ic"
+
+
+#define DEFINE_STRNNCOLLSP_NOPAD
+#define MY_FUNCTION_NAME(x)   my_ ## x ## _gbk_nopad_bin
 #define WEIGHT_MB1(x)        ((uchar) (x))
 #define WEIGHT_MB2(x,y)      (gbkcode(x,y))
 #include "strcoll.ic"
@@ -10672,7 +10645,7 @@ static MY_COLLATION_HANDLER my_collation_handler_gbk_chinese_ci=
   NULL,                 /* init */
   my_strnncoll_gbk_chinese_ci,
   my_strnncollsp_gbk_chinese_ci,
-  my_strnxfrm_gbk,
+  my_strnxfrm_gbk_chinese_ci,
   my_strnxfrmlen_simple,
   my_like_range_mb,
   my_wildcmp_mb,
@@ -10699,15 +10672,42 @@ static MY_COLLATION_HANDLER my_collation_handler_gbk_bin=
 };
 
 
+static MY_COLLATION_HANDLER my_collation_handler_gbk_chinese_nopad_ci=
+{
+  NULL,                 /* init */
+  my_strnncoll_gbk_chinese_ci,
+  my_strnncollsp_gbk_chinese_nopad_ci,
+  my_strnxfrm_gbk_chinese_nopad_ci,
+  my_strnxfrmlen_simple,
+  my_like_range_mb,
+  my_wildcmp_mb,
+  my_strcasecmp_mb,
+  my_instr_mb,
+  my_hash_sort_simple_nopad,
+  my_propagate_simple
+};
+
+
+static MY_COLLATION_HANDLER my_collation_handler_gbk_nopad_bin=
+{
+  NULL,                 /* init */
+  my_strnncoll_gbk_bin,
+  my_strnncollsp_gbk_nopad_bin,
+  my_strnxfrm_mb_nopad,
+  my_strnxfrmlen_simple,
+  my_like_range_mb,
+  my_wildcmp_mb_bin,
+  my_strcasecmp_mb_bin,
+  my_instr_mb,
+  my_hash_sort_mb_nopad_bin,
+  my_propagate_simple
+};
 
 static MY_CHARSET_HANDLER my_charset_handler=
 {
   NULL,			/* init */
-  ismbchar_gbk,
-  mbcharlen_gbk,
   my_numchars_mb,
   my_charpos_mb,
-  my_well_formed_len_gbk,
   my_lengthsp_8bit,
   my_numcells_8bit,
   my_mb_wc_gbk,
@@ -10800,5 +10800,69 @@ struct charset_info_st my_charset_gbk_bin=
     &my_collation_handler_gbk_bin
 };
 
+
+struct charset_info_st my_charset_gbk_chinese_nopad_ci=
+{
+    MY_NOPAD_ID(28),0,0,/* number           */
+    MY_CS_COMPILED|MY_CS_STRNXFRM|MY_CS_NOPAD, /* state */
+    "gbk",              /* cs name          */
+    "gbk_chinese_nopad_ci",/* name          */
+    "",                 /* comment          */
+    NULL,               /* tailoring        */
+    ctype_gbk,
+    to_lower_gbk,
+    to_upper_gbk,
+    sort_order_gbk,
+    NULL,               /* uca              */
+    NULL,               /* tab_to_uni       */
+    NULL,               /* tab_from_uni     */
+    &my_caseinfo_gbk,   /* caseinfo         */
+    NULL,               /* state_map        */
+    NULL,               /* ident_map        */
+    1,                  /* strxfrm_multiply */
+    1,                  /* caseup_multiply  */
+    1,                  /* casedn_multiply  */
+    1,                  /* mbminlen         */
+    2,                  /* mbmaxlen         */
+    0,                  /* min_sort_char    */
+    0xA967,             /* max_sort_char    */
+    ' ',                /* pad char         */
+    1,                  /* escape_with_backslash_is_dangerous */
+    1,                  /* levels_for_order */
+    &my_charset_handler,
+    &my_collation_handler_gbk_chinese_nopad_ci
+};
+
+struct charset_info_st my_charset_gbk_nopad_bin=
+{
+    MY_NOPAD_ID(87),0,0,/* number           */
+    MY_CS_COMPILED|MY_CS_BINSORT|MY_CS_NOPAD, /* state */
+    "gbk",              /* cs name          */
+    "gbk_nopad_bin",    /* name             */
+    "",                 /* comment          */
+    NULL,               /* tailoring        */
+    ctype_gbk,
+    to_lower_gbk,
+    to_upper_gbk,
+    NULL,               /* sort_order       */
+    NULL,               /* uca              */
+    NULL,               /* tab_to_uni       */
+    NULL,               /* tab_from_uni     */
+    &my_caseinfo_gbk,   /* caseinfo         */
+    NULL,               /* state_map        */
+    NULL,               /* ident_map        */
+    1,                  /* strxfrm_multiply */
+    1,                  /* caseup_multiply  */
+    1,                  /* casedn_multiply  */
+    1,                  /* mbminlen         */
+    2,                  /* mbmaxlen         */
+    0,                  /* min_sort_char    */
+    0xFEFE,             /* max_sort_char    */
+    ' ',                /* pad char         */
+    1,                  /* escape_with_backslash_is_dangerous */
+    1,                  /* levels_for_order */
+    &my_charset_handler,
+    &my_collation_handler_gbk_nopad_bin
+};
 
 #endif

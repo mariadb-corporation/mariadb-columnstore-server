@@ -54,6 +54,12 @@ get_collation_number_internal(const char *name)
 }
 
 
+static my_bool is_multi_byte_ident(CHARSET_INFO *cs, uchar ch)
+{
+  int chlen= my_charlen(cs, (const char *) &ch, (const char *) &ch + 1);
+  return MY_CS_IS_TOOSMALL(chlen) ? TRUE : FALSE;
+}
+
 static my_bool init_state_maps(struct charset_info_st *cs)
 {
   uint i;
@@ -73,10 +79,8 @@ static my_bool init_state_maps(struct charset_info_st *cs)
       state_map[i]=(uchar) MY_LEX_IDENT;
     else if (my_isdigit(cs,i))
       state_map[i]=(uchar) MY_LEX_NUMBER_IDENT;
-#if defined(USE_MB) && defined(USE_MB_IDENT)
-    else if (my_mbcharlen(cs, i)>1)
+    else if (is_multi_byte_ident(cs, i))
       state_map[i]=(uchar) MY_LEX_IDENT;
-#endif
     else if (my_isspace(cs,i))
       state_map[i]=(uchar) MY_LEX_SKIP;
     else
@@ -119,13 +123,21 @@ static my_bool init_state_maps(struct charset_info_st *cs)
 }
 
 
+static MY_COLLATION_HANDLER *get_simple_collation_handler_by_flags(uint flags)
+{
+  return flags & MY_CS_BINSORT ?
+           (flags & MY_CS_NOPAD ?
+            &my_collation_8bit_nopad_bin_handler :
+            &my_collation_8bit_bin_handler) :
+           (flags & MY_CS_NOPAD ?
+            &my_collation_8bit_simple_nopad_ci_handler :
+            &my_collation_8bit_simple_ci_handler);
+}
+
+
 static void simple_cs_init_functions(struct charset_info_st *cs)
 {
-  if (cs->state & MY_CS_BINSORT)
-    cs->coll= &my_collation_8bit_bin_handler;
-  else
-    cs->coll= &my_collation_8bit_simple_ci_handler;
-  
+  cs->coll= get_simple_collation_handler_by_flags(cs->state);
   cs->cset= &my_charset_8bit_handler;
 }
 
@@ -193,23 +205,91 @@ err:
 }
 
 
+static my_bool simple_8bit_charset_data_is_full(CHARSET_INFO *cs)
+{
+  return cs->ctype && cs->to_upper && cs->to_lower && cs->tab_to_uni;
+}
+
+
+/**
+  Inherit missing 8bit charset data from another collation.
+  Arrays pointed by refcs must be in the permanent memory already,
+  e.g. static memory, or allocated by my_once_xxx().
+*/
+static void
+inherit_charset_data(struct charset_info_st *cs, CHARSET_INFO *refcs)
+{
+  if (!cs->to_upper)
+    cs->to_upper= refcs->to_upper;
+  if (!cs->to_lower)
+    cs->to_lower= refcs->to_lower;
+  if (!cs->ctype)
+    cs->ctype= refcs->ctype;
+  if (!cs->tab_to_uni)
+    cs->tab_to_uni= refcs->tab_to_uni;
+}
+
+
+static my_bool simple_8bit_collation_data_is_full(CHARSET_INFO *cs)
+{
+  return cs->sort_order || (cs->state & MY_CS_BINSORT);
+}
+
+
+/**
+  Inherit 8bit simple collation data from another collation.
+  refcs->sort_order must be in the permanent memory already,
+  e.g. static memory, or allocated by my_once_xxx().
+*/
+static void
+inherit_collation_data(struct charset_info_st *cs, CHARSET_INFO *refcs)
+{
+  if (!simple_8bit_collation_data_is_full(cs))
+    cs->sort_order= refcs->sort_order;
+}
+
 
 static my_bool simple_cs_is_full(CHARSET_INFO *cs)
 {
-  return ((cs->csname && cs->tab_to_uni && cs->ctype && cs->to_upper &&
-	   cs->to_lower) &&
-	  (cs->number && cs->name &&
-	  (cs->sort_order || (cs->state & MY_CS_BINSORT) )));
+  return  cs->number && cs->csname && cs->name &&
+          simple_8bit_charset_data_is_full(cs) &&
+          (simple_8bit_collation_data_is_full(cs) || cs->tailoring);
 }
 
 
 #if defined(HAVE_UCA_COLLATIONS) && (defined(HAVE_CHARSET_ucs2) || defined(HAVE_CHARSET_utf8))
+/**
+  Initialize a loaded collation.
+  @param [OUT] to     - The new charset_info_st structure to initialize.
+  @param [IN]  from   - A template collation, to fill the missing data from.
+  @param [IN]  loaded - The collation data loaded from the LDML file.
+                        some data may be missing in "loaded".
+*/
 static void
-copy_uca_collation(struct charset_info_st *to, CHARSET_INFO *from)
+copy_uca_collation(struct charset_info_st *to, CHARSET_INFO *from,
+                   CHARSET_INFO *loaded)
 {
   to->cset= from->cset;
   to->coll= from->coll;
-  to->strxfrm_multiply= from->strxfrm_multiply;
+  /*
+    Single-level UCA collation have strnxfrm_multiple=8.
+    In case of a multi-level UCA collation we use strnxfrm_multiply=4.
+    That means MY_COLLATION_HANDLER::strnfrmlen() will request the caller
+    to allocate a buffer smaller size for each level, for performance purpose,
+    and to fit longer VARCHARs to @@max_sort_length.
+    This makes filesort produce non-precise order for some rare Unicode
+    characters that produce more than 4 weights (long expansions).
+    UCA requires 2 bytes per weight multiplied by the number of levels.
+    In case of a 2-level collation, each character requires 4*2=8 bytes.
+    Therefore, the longest VARCHAR that fits into the default @@max_sort_length
+    is 1024/8=VARCHAR(128). With strnxfrm_multiply==8, only VARCHAR(64)
+    would fit.
+    Note, the built-in collation utf8_thai_520_w2 also uses strnxfrm_multiply=4,
+    for the same purpose.
+    TODO: we could add a new LDML syntax to choose strxfrm_multiply value.
+  */
+  to->strxfrm_multiply= loaded->levels_for_order > 1 ?
+                        4 : from->strxfrm_multiply;
   to->min_sort_char= from->min_sort_char;
   to->max_sort_char= from->max_sort_char;
   to->mbminlen= from->mbminlen;
@@ -256,14 +336,20 @@ static int add_collation(struct charset_info_st *cs)
       if (!strcmp(cs->csname,"ucs2") )
       {
 #if defined(HAVE_CHARSET_ucs2) && defined(HAVE_UCA_COLLATIONS)
-        copy_uca_collation(newcs, &my_charset_ucs2_unicode_ci);
+        copy_uca_collation(newcs, newcs->state & MY_CS_NOPAD ?
+                                  &my_charset_ucs2_unicode_nopad_ci :
+                                  &my_charset_ucs2_unicode_ci,
+                                  cs);
         newcs->state|= MY_CS_AVAILABLE | MY_CS_LOADED | MY_CS_NONASCII;
 #endif        
       }
       else if (!strcmp(cs->csname, "utf8") || !strcmp(cs->csname, "utf8mb3"))
       {
 #if defined (HAVE_CHARSET_utf8) && defined(HAVE_UCA_COLLATIONS)
-        copy_uca_collation(newcs, &my_charset_utf8_unicode_ci);
+        copy_uca_collation(newcs, newcs->state & MY_CS_NOPAD ?
+                                  &my_charset_utf8_unicode_nopad_ci :
+                                  &my_charset_utf8_unicode_ci,
+                                  cs);
         newcs->ctype= my_charset_utf8_unicode_ci.ctype;
         if (init_state_maps(newcs))
           return MY_XML_ERROR;
@@ -272,7 +358,10 @@ static int add_collation(struct charset_info_st *cs)
       else if (!strcmp(cs->csname, "utf8mb4"))
       {
 #if defined (HAVE_CHARSET_utf8mb4) && defined(HAVE_UCA_COLLATIONS)
-        copy_uca_collation(newcs, &my_charset_utf8mb4_unicode_ci);
+        copy_uca_collation(newcs, newcs->state & MY_CS_NOPAD ?
+                                  &my_charset_utf8mb4_unicode_nopad_ci :
+                                  &my_charset_utf8mb4_unicode_ci,
+                                  cs);
         newcs->ctype= my_charset_utf8mb4_unicode_ci.ctype;
         newcs->state|= MY_CS_AVAILABLE | MY_CS_LOADED;
 #endif
@@ -280,20 +369,25 @@ static int add_collation(struct charset_info_st *cs)
       else if (!strcmp(cs->csname, "utf16"))
       {
 #if defined (HAVE_CHARSET_utf16) && defined(HAVE_UCA_COLLATIONS)
-        copy_uca_collation(newcs, &my_charset_utf16_unicode_ci);
+        copy_uca_collation(newcs, newcs->state & MY_CS_NOPAD ?
+                                  &my_charset_utf16_unicode_nopad_ci :
+                                  &my_charset_utf16_unicode_ci,
+                                  cs);
         newcs->state|= MY_CS_AVAILABLE | MY_CS_LOADED | MY_CS_NONASCII;
 #endif
       }
       else if (!strcmp(cs->csname, "utf32"))
       {
 #if defined (HAVE_CHARSET_utf32) && defined(HAVE_UCA_COLLATIONS)
-        copy_uca_collation(newcs, &my_charset_utf32_unicode_ci);
+        copy_uca_collation(newcs, newcs->state & MY_CS_NOPAD ?
+                                  &my_charset_utf32_unicode_nopad_ci :
+                                  &my_charset_utf32_unicode_ci,
+                                  cs);
         newcs->state|= MY_CS_AVAILABLE | MY_CS_LOADED | MY_CS_NONASCII;
 #endif
       }
       else
       {
-        const uchar *sort_order= newcs->sort_order;
         simple_cs_init_functions(newcs);
         newcs->mbminlen= 1;
         newcs->mbmaxlen= 1;
@@ -303,21 +397,6 @@ static int add_collation(struct charset_info_st *cs)
           newcs->state |= MY_CS_LOADED;
         }
         newcs->state|= MY_CS_AVAILABLE;
-        
-        /*
-          Check if case sensitive sort order: A < a < B.
-          We need MY_CS_FLAG for regex library, and for
-          case sensitivity flag for 5.0 client protocol,
-          to support isCaseSensitive() method in JDBC driver 
-        */
-        if (sort_order && sort_order['A'] < sort_order['a'] &&
-                          sort_order['a'] < sort_order['B'])
-          newcs->state|= MY_CS_CSSORT; 
-
-        if (my_charset_is_8bit_pure_ascii(newcs))
-          newcs->state|= MY_CS_PUREASCII;
-        if (!my_charset_is_ascii_compatible(cs))
-	  newcs->state|= MY_CS_NONASCII;
       }
     }
     else
@@ -348,7 +427,7 @@ static int add_collation(struct charset_info_st *cs)
     cs->name= NULL;
     cs->state= 0;
     cs->sort_order= NULL;
-    cs->state= 0;
+    cs->tailoring= NULL;
   }
   return MY_XML_OK;
 }
@@ -545,6 +624,7 @@ static void init_available_charsets(void)
   {
     if (*cs)
     {
+      DBUG_ASSERT(cs[0]->mbmaxlen <= MY_CS_MBMAXLEN);
       if (cs[0]->ctype)
         if (init_state_maps(*cs))
           *cs= NULL;
@@ -642,6 +722,39 @@ const char *get_charset_name(uint charset_number)
 }
 
 
+static CHARSET_INFO *inheritance_source_by_id(CHARSET_INFO *cs, uint refid)
+{
+  CHARSET_INFO *refcs;
+  return refid && refid != cs->number &&
+         (refcs= all_charsets[refid]) &&
+         (refcs->state & MY_CS_AVAILABLE) ? refcs : NULL;
+}
+
+
+static CHARSET_INFO *find_collation_data_inheritance_source(CHARSET_INFO *cs)
+{
+  const char *beg, *end;
+  if (cs->tailoring &&
+      !strncmp(cs->tailoring, "[import ", 8) &&
+      (end= strchr(cs->tailoring + 8, ']')) &&
+      (beg= cs->tailoring + 8) + MY_CS_NAME_SIZE > end)
+  {
+    char name[MY_CS_NAME_SIZE + 1];
+    memcpy(name, beg, end - beg);
+    name[end - beg]= '\0';
+    return inheritance_source_by_id(cs, get_collation_number(name));
+  }
+  return NULL;
+}
+
+
+static CHARSET_INFO *find_charset_data_inheritance_source(CHARSET_INFO *cs)
+{
+  uint refid= get_charset_number_internal(cs->csname, MY_CS_PRIMARY);
+  return inheritance_source_by_id(cs, refid);
+}
+
+
 static CHARSET_INFO *
 get_internal_charset(MY_CHARSET_LOADER *loader, uint cs_number, myf flags)
 {
@@ -676,6 +789,19 @@ get_internal_charset(MY_CHARSET_LOADER *loader, uint cs_number, myf flags)
     {
       if (!(cs->state & MY_CS_READY))
       {
+        if (!simple_8bit_charset_data_is_full(cs))
+        {
+          CHARSET_INFO *refcs= find_charset_data_inheritance_source(cs);
+          if (refcs)
+            inherit_charset_data(cs, refcs);
+        }
+        if (!simple_8bit_collation_data_is_full(cs))
+        {
+          CHARSET_INFO *refcl= find_collation_data_inheritance_source(cs);
+          if (refcl)
+            inherit_collation_data(cs, refcl);
+        }
+
         if ((cs->cset->init && cs->cset->init(cs, loader)) ||
             (cs->coll->init && cs->coll->init(cs, loader)))
         {
@@ -901,15 +1027,13 @@ size_t escape_string_for_mysql(CHARSET_INFO *charset_info,
   const char *to_start= to;
   const char *end, *to_end=to_start + (to_length ? to_length-1 : 2*length);
   my_bool overflow= FALSE;
-#ifdef USE_MB
-  my_bool use_mb_flag= use_mb(charset_info);
-#endif
   for (end= from + length; from < end; from++)
   {
     char escape= 0;
 #ifdef USE_MB
-    int tmp_length;
-    if (use_mb_flag && (tmp_length= my_ismbchar(charset_info, from, end)))
+    int tmp_length= use_mb(charset_info) ? my_charlen(charset_info, from, end) :
+                                           1;
+    if (tmp_length > 1)
     {
       if (to + tmp_length > to_end)
       {
@@ -932,7 +1056,7 @@ size_t escape_string_for_mysql(CHARSET_INFO *charset_info,
      multi-byte character into a valid one. For example, 0xbf27 is not
      a valid GBK character, but 0xbf5c is. (0x27 = ', 0x5c = \)
     */
-    if (use_mb_flag && (tmp_length= my_mbcharlen(charset_info, *from)) > 1)
+    if (tmp_length < 1) /* Bad byte sequence */
       escape= *from;
     else
 #endif

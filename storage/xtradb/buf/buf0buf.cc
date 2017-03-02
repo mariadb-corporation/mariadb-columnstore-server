@@ -2,7 +2,7 @@
 
 Copyright (c) 1995, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2008, Google Inc.
-Copyright (c) 2013, 2016, MariaDB Corporation. All Rights Reserved.
+Copyright (c) 2013, 2017, MariaDB Corporation. All Rights Reserved.
 
 Portions of this file contain modifications contributed and copyrighted by
 Google, Inc. Those modifications are gratefully acknowledged and are described
@@ -707,8 +707,12 @@ buf_page_is_corrupted(
 	ulint		checksum_field2;
 	ulint 		space_id = mach_read_from_4(
 		read_buf + FIL_PAGE_ARCH_LOG_NO_OR_SPACE_ID);
+	ulint page_type = mach_read_from_4(
+		read_buf + FIL_PAGE_TYPE);
+	bool no_checksum = (page_type == FIL_PAGE_PAGE_COMPRESSED ||
+		page_type == FIL_PAGE_PAGE_COMPRESSED_ENCRYPTED);
 	fil_space_crypt_t* crypt_data = fil_space_get_crypt_data(space_id);
-	bool page_encrypted = false;
+
 
 	/* Page is encrypted if encryption information is found from
 	tablespace and page contains used key_version. This is true
@@ -716,10 +720,15 @@ buf_page_is_corrupted(
 	if (crypt_data &&
 	    crypt_data->type != CRYPT_SCHEME_UNENCRYPTED &&
 	    fil_page_is_encrypted(read_buf)) {
-		page_encrypted = true;
+		no_checksum = true;
 	}
 
-	if (!page_encrypted && !zip_size
+	/* Return early if there is no checksum or END_LSN */
+	if (no_checksum) {
+		return (FALSE);
+	}
+
+	if (!no_checksum && !zip_size
 	    && memcmp(read_buf + FIL_PAGE_LSN + 4,
 		      read_buf + UNIV_PAGE_SIZE
 		      - FIL_PAGE_END_LSN_OLD_CHKSUM + 4, 4)) {
@@ -776,10 +785,6 @@ buf_page_is_corrupted(
 
 	if (zip_size) {
 		return(!page_zip_verify_checksum(read_buf, zip_size));
-	}
-
-	if (page_encrypted) {
-		return (FALSE);
 	}
 
 	checksum_field1 = mach_read_from_4(
@@ -1286,10 +1291,11 @@ buf_chunk_init(
 
 #ifdef HAVE_LIBNUMA
 	if (srv_numa_interleave) {
+		struct bitmask *numa_mems_allowed = numa_get_mems_allowed();
 		int	st = mbind(chunk->mem, chunk->mem_size,
 				   MPOL_INTERLEAVE,
-				   numa_all_nodes_ptr->maskp,
-				   numa_all_nodes_ptr->size,
+				   numa_mems_allowed->maskp,
+				   numa_mems_allowed->size,
 				   MPOL_MF_MOVE);
 		if (st != 0) {
 			ib_logf(IB_LOG_LEVEL_WARN,
@@ -1571,7 +1577,7 @@ buf_pool_init_instance(
 
 	/* Initialize the temporal memory array and slots */
 	buf_pool->tmp_arr = (buf_tmp_array_t *)mem_zalloc(sizeof(buf_tmp_array_t));
-	ulint n_slots = srv_n_read_io_threads * srv_n_write_io_threads * (8 * OS_AIO_N_PENDING_IOS_PER_THREAD);
+	ulint n_slots = (srv_n_read_io_threads + srv_n_write_io_threads) * (8 * OS_AIO_N_PENDING_IOS_PER_THREAD);
 	buf_pool->tmp_arr->n_slots = n_slots;
 	buf_pool->tmp_arr->slots = (buf_tmp_buffer_t*)mem_zalloc(sizeof(buf_tmp_buffer_t) * n_slots);
 
@@ -1696,11 +1702,13 @@ buf_pool_init(
 
 #ifdef HAVE_LIBNUMA
 	if (srv_numa_interleave) {
+		struct bitmask *numa_mems_allowed = numa_get_mems_allowed();
+
 		ib_logf(IB_LOG_LEVEL_INFO,
 			"Setting NUMA memory policy to MPOL_INTERLEAVE");
 		if (set_mempolicy(MPOL_INTERLEAVE,
-				  numa_all_nodes_ptr->maskp,
-				  numa_all_nodes_ptr->size) != 0) {
+				  numa_mems_allowed->maskp,
+				  numa_mems_allowed->size) != 0) {
 			ib_logf(IB_LOG_LEVEL_WARN,
 				"Failed to set NUMA memory policy to"
 				" MPOL_INTERLEAVE (error: %s).",
@@ -5082,7 +5090,7 @@ buf_all_freed_instance(
 					block->page.offset);
 				ib_logf(IB_LOG_LEVEL_ERROR,
 					"Page oldest_modification %lu fix_count %d io_fix %d.",
-					block->page.oldest_modification,
+					(ulong) block->page.oldest_modification,
 					block->page.buf_fix_count,
 					buf_page_get_io_fix(&block->page));
 				ib_logf(IB_LOG_LEVEL_ERROR,

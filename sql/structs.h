@@ -64,9 +64,11 @@ typedef struct st_keyfile_info {	/* used with ha_info() */
 
 
 typedef struct st_key_part_info {	/* Info about a key part */
-  Field *field;
-  uint	offset;				/* offset in record (from 0) */
-  uint	null_offset;			/* Offset to null_bit in record */
+  Field *field;                         /* the Field object for the indexed
+                                           prefix of the original table Field.
+                                           NOT necessarily the original Field */
+  uint  offset;                         /* Offset in record (from 0) */
+  uint  null_offset;                    /* Offset to null_bit in record */
   /* Length of key part in bytes, excluding NULL flag and length bytes */
   uint16 length;
   /* 
@@ -77,9 +79,8 @@ typedef struct st_key_part_info {	/* Info about a key part */
   */
   uint16 store_length;
   uint16 key_type;
-  /* Fieldnr begins counting from 1 */
-  uint16 fieldnr;			/* Fieldnum in UNIREG */
-  uint16 key_part_flag;			/* 0 or HA_REVERSE_SORT */
+  uint16 fieldnr;                       /* Fieldnr begins counting from 1 */
+  uint16 key_part_flag;                 /* 0 or HA_REVERSE_SORT */
   uint8 type;
   uint8 null_bit;			/* Position to null_bit */
 } KEY_PART_INFO ;
@@ -204,7 +205,7 @@ typedef int *(*update_var)(THD *, struct st_mysql_show_var *);
 typedef struct	st_lex_user {
   LEX_STRING user, host, plugin, auth;
   LEX_STRING pwtext, pwhash;
-  bool is_role() { return user.str[0] && !host.str[0]; }
+  bool is_role() const { return user.str[0] && !host.str[0]; }
   void set_lex_string(LEX_STRING *l, char *buf)
   {
     if (is_role())
@@ -554,6 +555,76 @@ public:
   DDL_options(Options options) { init(options); }
   DDL_options(const DDL_options_st &options)
   { DDL_options_st::operator=(options); }
+};
+
+
+struct Lex_length_and_dec_st
+{
+private:
+  const char *m_length;
+  const char *m_dec;
+public:
+  void set(const char *length, const char *dec)
+  {
+    m_length= length;
+    m_dec= dec;
+  }
+  const char *length() const { return m_length; }
+  const char *dec() const { return m_dec; }
+};
+
+
+struct Lex_field_type_st: public Lex_length_and_dec_st
+{
+private:
+  enum_field_types m_type;
+  void set(enum_field_types type, const char *length, const char *dec)
+  {
+    m_type= type;
+    Lex_length_and_dec_st::set(length, dec);
+  }
+public:
+  void set(enum_field_types type, Lex_length_and_dec_st length_and_dec)
+  {
+    m_type= type;
+    Lex_length_and_dec_st::operator=(length_and_dec);
+  }
+  void set(enum_field_types type, const char *length)
+  {
+    set(type, length, 0);
+  }
+  void set(enum_field_types type)
+  {
+    set(type, 0, 0);
+  }
+  enum_field_types field_type() const { return m_type; }
+};
+
+
+struct Lex_dyncol_type_st: public Lex_length_and_dec_st
+{
+private:
+  int m_type; // enum_dynamic_column_type is not visible here, so use int
+public:
+  void set(int type, const char *length, const char *dec)
+  {
+    m_type= type;
+    Lex_length_and_dec_st::set(length, dec);
+  }
+  void set(int type, Lex_length_and_dec_st length_and_dec)
+  {
+    m_type= type;
+    Lex_length_and_dec_st::operator=(length_and_dec);
+  }
+  void set(int type, const char *length)
+  {
+    set(type, length, 0);
+  }
+  void set(int type)
+  {
+    set(type, 0, 0);
+  }
+  int dyncol_type() const { return m_type; }
 };
 
 

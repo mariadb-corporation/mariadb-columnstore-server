@@ -21,11 +21,6 @@
 /* This file defines all XML functions */
 
 
-#ifdef USE_PRAGMA_INTERFACE
-#pragma interface			/* gcc class implementation */
-#endif
-
-
 typedef struct my_xml_node_st MY_XML_NODE;
 
 
@@ -91,10 +86,6 @@ public:
   {
     return const_item_cache && (!nodeset_func || nodeset_func->const_item());
   }
-  bool check_vcol_func_processor(uchar *int_arg) 
-  {
-    return trace_unsupported_by_check_vcol_func_processor(func_name());
-  }
 };
 
 
@@ -105,6 +96,8 @@ public:
     Item_xml_str_func(thd, a, b) {}
   const char *func_name() const { return "extractvalue"; }
   String *val_str(String *);
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_xml_extractvalue>(thd, mem_root, this); }
 };
 
 
@@ -119,6 +112,8 @@ public:
     Item_xml_str_func(thd, a, b, c) {}
   const char *func_name() const { return "updatexml"; }
   String *val_str(String *);
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_xml_update>(thd, mem_root, this); }
 };
 
 #endif /* ITEM_XMLFUNC_INCLUDED */

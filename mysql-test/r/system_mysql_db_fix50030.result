@@ -122,23 +122,23 @@ user	CREATE TABLE `user` (
   `ssl_cipher` blob NOT NULL,
   `x509_issuer` blob NOT NULL,
   `x509_subject` blob NOT NULL,
-  `max_questions` int(11) unsigned NOT NULL DEFAULT '0',
-  `max_updates` int(11) unsigned NOT NULL DEFAULT '0',
-  `max_connections` int(11) unsigned NOT NULL DEFAULT '0',
-  `max_user_connections` int(11) NOT NULL DEFAULT '0',
+  `max_questions` int(11) unsigned NOT NULL DEFAULT 0,
+  `max_updates` int(11) unsigned NOT NULL DEFAULT 0,
+  `max_connections` int(11) unsigned NOT NULL DEFAULT 0,
+  `max_user_connections` int(11) NOT NULL DEFAULT 0,
   `plugin` char(64) CHARACTER SET latin1 NOT NULL DEFAULT '',
   `authentication_string` text COLLATE utf8_bin NOT NULL,
   `password_expired` enum('N','Y') CHARACTER SET utf8 NOT NULL DEFAULT 'N',
   `is_role` enum('N','Y') CHARACTER SET utf8 NOT NULL DEFAULT 'N',
   `default_role` char(80) COLLATE utf8_bin NOT NULL DEFAULT '',
-  `max_statement_time` decimal(12,6) NOT NULL DEFAULT '0.000000',
+  `max_statement_time` decimal(12,6) NOT NULL DEFAULT 0.000000,
   PRIMARY KEY (`Host`,`User`)
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8 COLLATE=utf8_bin COMMENT='Users and global privileges'
 show create table func;
 Table	Create Table
 func	CREATE TABLE `func` (
   `name` char(64) COLLATE utf8_bin NOT NULL DEFAULT '',
-  `ret` tinyint(1) NOT NULL DEFAULT '0',
+  `ret` tinyint(1) NOT NULL DEFAULT 0,
   `dl` char(128) COLLATE utf8_bin NOT NULL DEFAULT '',
   `type` enum('function','aggregate') CHARACTER SET utf8 NOT NULL,
   PRIMARY KEY (`name`)
@@ -151,7 +151,7 @@ tables_priv	CREATE TABLE `tables_priv` (
   `User` char(80) COLLATE utf8_bin NOT NULL DEFAULT '',
   `Table_name` char(64) COLLATE utf8_bin NOT NULL DEFAULT '',
   `Grantor` char(141) COLLATE utf8_bin NOT NULL DEFAULT '',
-  `Timestamp` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `Timestamp` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `Table_priv` set('Select','Insert','Update','Delete','Create','Drop','Grant','References','Index','Alter','Create View','Show view','Trigger') CHARACTER SET utf8 NOT NULL DEFAULT '',
   `Column_priv` set('Select','Insert','Update','References') CHARACTER SET utf8 NOT NULL DEFAULT '',
   PRIMARY KEY (`Host`,`Db`,`User`,`Table_name`),
@@ -165,7 +165,7 @@ columns_priv	CREATE TABLE `columns_priv` (
   `User` char(80) COLLATE utf8_bin NOT NULL DEFAULT '',
   `Table_name` char(64) COLLATE utf8_bin NOT NULL DEFAULT '',
   `Column_name` char(64) COLLATE utf8_bin NOT NULL DEFAULT '',
-  `Timestamp` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `Timestamp` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `Column_priv` set('Select','Insert','Update','References') CHARACTER SET utf8 NOT NULL DEFAULT '',
   PRIMARY KEY (`Host`,`Db`,`User`,`Table_name`,`Column_name`)
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8 COLLATE=utf8_bin COMMENT='Column privileges'
@@ -179,7 +179,7 @@ procs_priv	CREATE TABLE `procs_priv` (
   `Routine_type` enum('FUNCTION','PROCEDURE') COLLATE utf8_bin NOT NULL,
   `Grantor` char(141) COLLATE utf8_bin NOT NULL DEFAULT '',
   `Proc_priv` set('Execute','Alter Routine','Grant') CHARACTER SET utf8 NOT NULL DEFAULT '',
-  `Timestamp` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `Timestamp` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`Host`,`Db`,`User`,`Routine_name`,`Routine_type`),
   KEY `Grantor` (`Grantor`)
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8 COLLATE=utf8_bin COMMENT='Procedure privileges'
@@ -191,7 +191,7 @@ servers	CREATE TABLE `servers` (
   `Db` char(64) NOT NULL DEFAULT '',
   `Username` char(80) NOT NULL DEFAULT '',
   `Password` char(64) NOT NULL DEFAULT '',
-  `Port` int(4) NOT NULL DEFAULT '0',
+  `Port` int(4) NOT NULL DEFAULT 0,
   `Socket` char(64) NOT NULL DEFAULT '',
   `Wrapper` char(64) NOT NULL DEFAULT '',
   `Owner` char(64) NOT NULL DEFAULT '',
@@ -208,18 +208,18 @@ proc	CREATE TABLE `proc` (
   `sql_data_access` enum('CONTAINS_SQL','NO_SQL','READS_SQL_DATA','MODIFIES_SQL_DATA') NOT NULL DEFAULT 'CONTAINS_SQL',
   `is_deterministic` enum('YES','NO') NOT NULL DEFAULT 'NO',
   `security_type` enum('INVOKER','DEFINER') NOT NULL DEFAULT 'DEFINER',
-  `param_list` blob NOT NULL,
+  `param_list` blob NOT NULL DEFAULT '',
   `returns` longblob NOT NULL,
   `body` longblob NOT NULL,
   `definer` char(141) CHARACTER SET utf8 COLLATE utf8_bin NOT NULL DEFAULT '',
-  `created` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `created` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `modified` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
   `sql_mode` set('REAL_AS_FLOAT','PIPES_AS_CONCAT','ANSI_QUOTES','IGNORE_SPACE','IGNORE_BAD_TABLE_OPTIONS','ONLY_FULL_GROUP_BY','NO_UNSIGNED_SUBTRACTION','NO_DIR_IN_CREATE','POSTGRESQL','ORACLE','MSSQL','DB2','MAXDB','NO_KEY_OPTIONS','NO_TABLE_OPTIONS','NO_FIELD_OPTIONS','MYSQL323','MYSQL40','ANSI','NO_AUTO_VALUE_ON_ZERO','NO_BACKSLASH_ESCAPES','STRICT_TRANS_TABLES','STRICT_ALL_TABLES','NO_ZERO_IN_DATE','NO_ZERO_DATE','INVALID_DATES','ERROR_FOR_DIVISION_BY_ZERO','TRADITIONAL','NO_AUTO_CREATE_USER','HIGH_NOT_PRECEDENCE','NO_ENGINE_SUBSTITUTION','PAD_CHAR_TO_FULL_LENGTH') NOT NULL DEFAULT '',
   `comment` text CHARACTER SET utf8 COLLATE utf8_bin NOT NULL,
   `character_set_client` char(32) CHARACTER SET utf8 COLLATE utf8_bin DEFAULT NULL,
   `collation_connection` char(32) CHARACTER SET utf8 COLLATE utf8_bin DEFAULT NULL,
   `db_collation` char(32) CHARACTER SET utf8 COLLATE utf8_bin DEFAULT NULL,
-  `body_utf8` longblob,
+  `body_utf8` longblob DEFAULT NULL,
   PRIMARY KEY (`db`,`name`,`type`)
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8 COMMENT='Stored Procedures'
 show create table event;
@@ -232,7 +232,7 @@ event	CREATE TABLE `event` (
   `execute_at` datetime DEFAULT NULL,
   `interval_value` int(11) DEFAULT NULL,
   `interval_field` enum('YEAR','QUARTER','MONTH','DAY','HOUR','MINUTE','WEEK','SECOND','MICROSECOND','YEAR_MONTH','DAY_HOUR','DAY_MINUTE','DAY_SECOND','HOUR_MINUTE','HOUR_SECOND','MINUTE_SECOND','DAY_MICROSECOND','HOUR_MICROSECOND','MINUTE_MICROSECOND','SECOND_MICROSECOND') DEFAULT NULL,
-  `created` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `created` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `modified` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
   `last_executed` datetime DEFAULT NULL,
   `starts` datetime DEFAULT NULL,
@@ -246,13 +246,13 @@ event	CREATE TABLE `event` (
   `character_set_client` char(32) CHARACTER SET utf8 COLLATE utf8_bin DEFAULT NULL,
   `collation_connection` char(32) CHARACTER SET utf8 COLLATE utf8_bin DEFAULT NULL,
   `db_collation` char(32) CHARACTER SET utf8 COLLATE utf8_bin DEFAULT NULL,
-  `body_utf8` longblob,
+  `body_utf8` longblob DEFAULT NULL,
   PRIMARY KEY (`db`,`name`)
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8 COMMENT='Events'
 show create table general_log;
 Table	Create Table
 general_log	CREATE TABLE `general_log` (
-  `event_time` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  `event_time` timestamp(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6),
   `user_host` mediumtext NOT NULL,
   `thread_id` bigint(21) unsigned NOT NULL,
   `server_id` int(10) unsigned NOT NULL,
@@ -262,7 +262,7 @@ general_log	CREATE TABLE `general_log` (
 show create table slow_log;
 Table	Create Table
 slow_log	CREATE TABLE `slow_log` (
-  `start_time` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  `start_time` timestamp(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6),
   `user_host` mediumtext NOT NULL,
   `query_time` time(6) NOT NULL,
   `lock_time` time(6) NOT NULL,

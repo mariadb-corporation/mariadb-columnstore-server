@@ -62,14 +62,14 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=TokuDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY HASH (f_int1)
-PARTITIONS 2 */
+ PARTITION BY HASH (f_int1)
+PARTITIONS 2
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -519,15 +519,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=TokuDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY HASH (f_int1)
+ PARTITION BY HASH (f_int1)
 (PARTITION part1 ENGINE = TokuDB,
- PARTITION part2 ENGINE = TokuDB) */
+ PARTITION part2 ENGINE = TokuDB)
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -978,20 +978,20 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=TokuDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY HASH (f_int1)
 (PARTITION part1 VALUES LESS THAN (10)
  (SUBPARTITION subpart11 ENGINE = TokuDB,
   SUBPARTITION subpart12 ENGINE = TokuDB),
  PARTITION part2 VALUES LESS THAN (2147483646)
  (SUBPARTITION subpart21 ENGINE = TokuDB,
-  SUBPARTITION subpart22 ENGINE = TokuDB)) */
+  SUBPARTITION subpart22 ENGINE = TokuDB))
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -1503,20 +1503,20 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=TokuDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY HASH (f_int1)
 (PARTITION part1 VALUES LESS THAN (10)
  (SUBPARTITION subpart11 ENGINE = TokuDB,
   SUBPARTITION subpart12 ENGINE = TokuDB),
  PARTITION part2 VALUES LESS THAN (2147483646)
  (SUBPARTITION subpart21 ENGINE = TokuDB,
-  SUBPARTITION subpart22 ENGINE = TokuDB)) */
+  SUBPARTITION subpart22 ENGINE = TokuDB))
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -2004,20 +2004,20 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=TokuDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY HASH (f_int1)
 (PARTITION part1 VALUES LESS THAN (10)
  (SUBPARTITION subpart11 ENGINE = TokuDB,
   SUBPARTITION subpart12 ENGINE = TokuDB),
  PARTITION part2 VALUES LESS THAN (2147483646)
  (SUBPARTITION subpart21 ENGINE = TokuDB,
-  SUBPARTITION subpart22 ENGINE = TokuDB)) */
+  SUBPARTITION subpart22 ENGINE = TokuDB))
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -2466,20 +2466,20 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=TokuDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY HASH (f_int1)
 (PARTITION part1 VALUES LESS THAN (10)
  (SUBPARTITION subpart11 ENGINE = TokuDB,
   SUBPARTITION subpart12 ENGINE = TokuDB),
  PARTITION part2 VALUES LESS THAN (2147483646)
  (SUBPARTITION subpart21 ENGINE = TokuDB,
-  SUBPARTITION subpart22 ENGINE = TokuDB)) */
+  SUBPARTITION subpart22 ENGINE = TokuDB))
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -2928,15 +2928,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=TokuDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY HASH (f_int1)
+ PARTITION BY HASH (f_int1)
 (PARTITION part1 ENGINE = TokuDB,
- PARTITION part2 ENGINE = TokuDB) */
+ PARTITION part2 ENGINE = TokuDB)
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -3387,20 +3387,20 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=TokuDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY HASH (f_int1)
 (PARTITION part1 VALUES LESS THAN (10)
  (SUBPARTITION subpart11 ENGINE = TokuDB,
   SUBPARTITION subpart12 ENGINE = TokuDB),
  PARTITION part2 VALUES LESS THAN (2147483646)
  (SUBPARTITION subpart21 ENGINE = TokuDB,
-  SUBPARTITION subpart22 ENGINE = TokuDB)) */
+  SUBPARTITION subpart22 ENGINE = TokuDB))
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -3852,20 +3852,20 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=TokuDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY HASH (f_int1)
 (PARTITION part1 VALUES LESS THAN (10)
  (SUBPARTITION subpart11 ENGINE = TokuDB,
   SUBPARTITION subpart12 ENGINE = TokuDB),
  PARTITION part2 VALUES LESS THAN (2147483646)
  (SUBPARTITION subpart21 ENGINE = TokuDB,
-  SUBPARTITION subpart22 ENGINE = TokuDB)) */
+  SUBPARTITION subpart22 ENGINE = TokuDB))
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -4310,14 +4310,14 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=TokuDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY HASH (f_int1)
-(PARTITION part1 ENGINE = TokuDB) */
+ PARTITION BY HASH (f_int1)
+(PARTITION part1 ENGINE = TokuDB)
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -4764,17 +4764,17 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=TokuDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY HASH (f_int1)
 (PARTITION part1 VALUES LESS THAN (1000)
  (SUBPARTITION subpart11 ENGINE = TokuDB,
-  SUBPARTITION subpart12 ENGINE = TokuDB)) */
+  SUBPARTITION subpart12 ENGINE = TokuDB))
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1

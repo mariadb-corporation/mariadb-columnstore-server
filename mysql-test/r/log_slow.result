@@ -9,10 +9,10 @@ select @@log_slow_verbosity;
 
 show variables like "log_slow%";
 Variable_name	Value
-log_slow_admin_statements	OFF
+log_slow_admin_statements	ON
 log_slow_filter	admin,filesort,filesort_on_disk,full_join,full_scan,query_cache,query_cache_miss,tmp_table,tmp_table_on_disk
 log_slow_rate_limit	1
-log_slow_slave_statements	OFF
+log_slow_slave_statements	ON
 log_slow_verbosity	
 set @org_slow_query_log= @@global.slow_query_log;
 set @@log_slow_filter= "filesort,filesort_on_disk,full_join,full_scan,query_cache,query_cache_miss,tmp_table,tmp_table_on_disk,admin";
@@ -46,7 +46,7 @@ select @@log_slow_verbosity;
 innodb
 show fields from mysql.slow_log;
 Field	Type	Null	Key	Default	Extra
-start_time	timestamp(6)	NO		CURRENT_TIMESTAMP(6)	on update CURRENT_TIMESTAMP
+start_time	timestamp(6)	NO		current_timestamp(6)	on update current_timestamp(6)
 user_host	mediumtext	NO		NULL	
 query_time	time(6)	NO		NULL	
 lock_time	time(6)	NO		NULL	

@@ -70,6 +70,7 @@ insert into t1 values();
 select * from t1;
 a
 abcde
+SET STATEMENT sql_mode = 'NO_ENGINE_SUBSTITUTION' FOR
 alter table t1 alter column a set default 'abcdef';
 ERROR 42000: Invalid default value for 'a'
 drop table t1;
@@ -181,36 +182,36 @@ Warnings:
 Note	1051	Unknown table 'test.t2'
 create table t1 (a int not null, b int, primary key(a), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b));
 Warnings:
-Note	1831	Duplicate index `b_2`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_3`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_4`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_5`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_6`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_7`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_8`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_9`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_10`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_11`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_12`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_13`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_14`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_15`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_16`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_17`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_18`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_19`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_20`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_21`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_22`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_23`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_24`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_25`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_26`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_27`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_28`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_29`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_30`. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index `b_31`. This is deprecated and will be disallowed in a future release.
+Note	1831	Duplicate index `b_2`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_3`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_4`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_5`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_6`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_7`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_8`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_9`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_10`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_11`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_12`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_13`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_14`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_15`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_16`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_17`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_18`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_19`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_20`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_21`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_22`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_23`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_24`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_25`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_26`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_27`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_28`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_29`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_30`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_31`. This is deprecated and will be disallowed in a future release
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
@@ -484,10 +485,10 @@ a	int(11)	YES		NULL
 b	bigint(11)	NO		NULL	
 c	bigint(10) unsigned	NO		NULL	
 d	date	YES		NULL	
-e	varchar(1)	NO		NULL	
+e	varchar(1)	YES		NULL	
 f	datetime	YES		NULL	
 g	time	YES		NULL	
-h	longblob	NO		NULL	
+h	longblob	YES		NULL	
 dd	time	YES		NULL	
 select * from t2;
 a	b	c	d	e	f	g	h	dd
@@ -544,10 +545,12 @@ name	varchar(10)	YES		NULL
 age	smallint(6)	YES		-1	
 drop table t1, t2;
 create table t1(cenum enum('a'), cset set('b'));
+SET STATEMENT sql_mode = 'NO_ENGINE_SUBSTITUTION' FOR
 create table t2(cenum enum('a','a'), cset set('b','b'));
 Warnings:
 Note	1291	Column 'cenum' has duplicated value 'a' in ENUM
 Note	1291	Column 'cset' has duplicated value 'b' in SET
+SET STATEMENT sql_mode = 'NO_ENGINE_SUBSTITUTION' FOR
 create table t3(cenum enum('a','A','a','c','c'), cset set('b','B','b','d','d'));
 Warnings:
 Note	1291	Column 'cenum' has duplicated value 'a' in ENUM
@@ -567,9 +570,13 @@ select database();
 database()
 NULL
 create user mysqltest_1;
+connect  user1,localhost,mysqltest_1,,*NO-ONE*;
+connection user1;
 select database(), user();
 database()	user()
 NULL	mysqltest_1@localhost
+connection default;
+disconnect user1;
 drop user mysqltest_1;
 use test;
 create table t1 (a int, index `primary` (a));
@@ -716,6 +723,7 @@ t1	CREATE TABLE `t1` (
   PRIMARY KEY (`a`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
+SET STATEMENT sql_mode = 'NO_ENGINE_SUBSTITUTION' FOR
 create table t1 ( 
 a varchar(12) charset utf8 collate utf8_bin not null, 
 b int not null, primary key (a)
@@ -799,8 +807,8 @@ select a1,a2 from t1;
 show create table t2;
 Table	Create Table
 t2	CREATE TABLE `t2` (
-  `a` int(11) DEFAULT '3',
-  `b` int(11) DEFAULT '3',
+  `a` int(11) DEFAULT 3,
+  `b` int(11) DEFAULT 3,
   `a1` int(11) DEFAULT NULL,
   `a2` int(11) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
@@ -1130,46 +1138,46 @@ create table t1 like information_schema.processlist;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `ID` bigint(4) NOT NULL DEFAULT '0',
+  `ID` bigint(4) NOT NULL DEFAULT 0,
   `USER` varchar(128) NOT NULL DEFAULT '',
   `HOST` varchar(64) NOT NULL DEFAULT '',
   `DB` varchar(64) DEFAULT NULL,
   `COMMAND` varchar(16) NOT NULL DEFAULT '',
-  `TIME` int(7) NOT NULL DEFAULT '0',
+  `TIME` int(7) NOT NULL DEFAULT 0,
   `STATE` varchar(64) DEFAULT NULL,
-  `INFO` longtext,
-  `TIME_MS` decimal(22,3) NOT NULL DEFAULT '0.000',
-  `STAGE` tinyint(2) NOT NULL DEFAULT '0',
-  `MAX_STAGE` tinyint(2) NOT NULL DEFAULT '0',
-  `PROGRESS` decimal(7,3) NOT NULL DEFAULT '0.000',
-  `MEMORY_USED` int(7) NOT NULL DEFAULT '0',
-  `EXAMINED_ROWS` int(7) NOT NULL DEFAULT '0',
-  `QUERY_ID` bigint(4) NOT NULL DEFAULT '0',
-  `INFO_BINARY` blob,
-  `TID` bigint(4) NOT NULL DEFAULT '0'
+  `INFO` longtext DEFAULT NULL,
+  `TIME_MS` decimal(22,3) NOT NULL DEFAULT 0.000,
+  `STAGE` tinyint(2) NOT NULL DEFAULT 0,
+  `MAX_STAGE` tinyint(2) NOT NULL DEFAULT 0,
+  `PROGRESS` decimal(7,3) NOT NULL DEFAULT 0.000,
+  `MEMORY_USED` bigint(7) NOT NULL DEFAULT 0,
+  `EXAMINED_ROWS` int(7) NOT NULL DEFAULT 0,
+  `QUERY_ID` bigint(4) NOT NULL DEFAULT 0,
+  `INFO_BINARY` blob DEFAULT NULL,
+  `TID` bigint(4) NOT NULL DEFAULT 0
 )  DEFAULT CHARSET=utf8
 drop table t1;
 create temporary table t1 like information_schema.processlist;
 show create table t1;
 Table	Create Table
 t1	CREATE TEMPORARY TABLE `t1` (
-  `ID` bigint(4) NOT NULL DEFAULT '0',
+  `ID` bigint(4) NOT NULL DEFAULT 0,
   `USER` varchar(128) NOT NULL DEFAULT '',
   `HOST` varchar(64) NOT NULL DEFAULT '',
   `DB` varchar(64) DEFAULT NULL,
   `COMMAND` varchar(16) NOT NULL DEFAULT '',
-  `TIME` int(7) NOT NULL DEFAULT '0',
+  `TIME` int(7) NOT NULL DEFAULT 0,
   `STATE` varchar(64) DEFAULT NULL,
-  `INFO` longtext,
-  `TIME_MS` decimal(22,3) NOT NULL DEFAULT '0.000',
-  `STAGE` tinyint(2) NOT NULL DEFAULT '0',
-  `MAX_STAGE` tinyint(2) NOT NULL DEFAULT '0',
-  `PROGRESS` decimal(7,3) NOT NULL DEFAULT '0.000',
-  `MEMORY_USED` int(7) NOT NULL DEFAULT '0',
-  `EXAMINED_ROWS` int(7) NOT NULL DEFAULT '0',
-  `QUERY_ID` bigint(4) NOT NULL DEFAULT '0',
-  `INFO_BINARY` blob,
-  `TID` bigint(4) NOT NULL DEFAULT '0'
+  `INFO` longtext DEFAULT NULL,
+  `TIME_MS` decimal(22,3) NOT NULL DEFAULT 0.000,
+  `STAGE` tinyint(2) NOT NULL DEFAULT 0,
+  `MAX_STAGE` tinyint(2) NOT NULL DEFAULT 0,
+  `PROGRESS` decimal(7,3) NOT NULL DEFAULT 0.000,
+  `MEMORY_USED` bigint(7) NOT NULL DEFAULT 0,
+  `EXAMINED_ROWS` int(7) NOT NULL DEFAULT 0,
+  `QUERY_ID` bigint(4) NOT NULL DEFAULT 0,
+  `INFO_BINARY` blob DEFAULT NULL,
+  `TID` bigint(4) NOT NULL DEFAULT 0
 )  DEFAULT CHARSET=utf8
 drop table t1;
 create table t1 like information_schema.character_sets;
@@ -1179,7 +1187,7 @@ t1	CREATE TABLE `t1` (
   `CHARACTER_SET_NAME` varchar(32) NOT NULL DEFAULT '',
   `DEFAULT_COLLATE_NAME` varchar(32) NOT NULL DEFAULT '',
   `DESCRIPTION` varchar(60) NOT NULL DEFAULT '',
-  `MAXLEN` bigint(3) NOT NULL DEFAULT '0'
+  `MAXLEN` bigint(3) NOT NULL DEFAULT 0
 ) ENGINE=MEMORY DEFAULT CHARSET=utf8
 drop table t1;
 
@@ -1238,8 +1246,8 @@ CREATE TABLE t1(c1 YEAR DEFAULT 2008, c2 YEAR DEFAULT 0);
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` year(4) DEFAULT '2008',
-  `c2` year(4) DEFAULT '0000'
+  `c1` year(4) DEFAULT 2008,
+  `c2` year(4) DEFAULT 0000
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 
 INSERT INTO t1 VALUES();
@@ -1253,8 +1261,8 @@ ALTER TABLE t1 MODIFY c1 YEAR DEFAULT 0;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` year(4) DEFAULT '0000',
-  `c2` year(4) DEFAULT '0000'
+  `c1` year(4) DEFAULT 0000,
+  `c2` year(4) DEFAULT 0000
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 
 INSERT INTO t1 VALUES();
@@ -1338,7 +1346,7 @@ BEGIN
 INSERT INTO t1 ( `int` ) VALUES (4 ),( 8 ),( 2 ) ; 
 END ; |
 INSERT INTO t1 (pk, int_key) SELECT `pk` , `int_key` FROM B ;
-ERROR HY000: Can't update table 't1' in stored function/trigger because it is already used by statement which invoked this stored function/trigger.
+ERROR HY000: Can't update table 't1' in stored function/trigger because it is already used by statement which invoked this stored function/trigger
 CREATE TRIGGER f BEFORE INSERT ON t1 FOR EACH ROW 
 BEGIN 
 UPDATE A SET `pk`=1 WHERE `pk`=0 ; 
@@ -1348,7 +1356,6 @@ CREATE TRIGGER f1 BEFORE INSERT ON t1 FOR EACH ROW
 BEGIN 
 UPDATE A SET `pk`=1 WHERE `pk`=0 ; 
 END ;|
-ERROR 42000: This version of MariaDB doesn't yet support 'multiple triggers with the same action time and event for one table'
 DROP TABLE t1;
 DROP TABLE B;
 #
@@ -1733,7 +1740,8 @@ drop view t1;
 create table t1 (a int) select 1 as a;
 create temporary table if not exists t1 (a int) select * from t1;
 create temporary table if not exists t1 (a int) select * from t1;
-ERROR HY000: Can't reopen table: 't1'
+Warnings:
+Note	1050	Table 't1' already exists
 select * from t1;
 a
 1
@@ -1814,6 +1822,7 @@ create table t1 (a int, b int) engine=myisam;
 create table t2 (a int, b int) engine=myisam;
 insert into t1 values (1,1);
 lock tables t1 read;
+connect  user1,localhost,root,,test;
 set @@lock_wait_timeout=5;
 create table if not exists t1 (a int, b int);
 Warnings:
@@ -1832,6 +1841,8 @@ create table t1 like t2;
 ERROR 42S01: Table 't1' already exists
 create or replace table t1 (a int, b int) select 2,2;
 ERROR HY000: Lock wait timeout exceeded; try restarting transaction
+disconnect user1;
+connection default;
 select * from t1;
 a	b
 1	1
@@ -1859,11 +1870,11 @@ Thinkpad Laptop	black	ttt
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `color` char(32) AS (COLUMN_GET(dynamic_cols, 1 as char)) PERSISTENT,
-  `cl` char(32) AS (COLUMN_GET(COLUMN_ADD(COLUMN_CREATE(1 , 'blue' as char), 2, 'ttt'), i as char)) PERSISTENT,
+  `color` char(32) GENERATED ALWAYS AS (column_get(`dynamic_cols`,1 as char charset latin1)) STORED,
+  `cl` char(32) GENERATED ALWAYS AS (column_get(column_add(column_create(1,'blue' AS char charset latin1 ),2,'ttt'),`i` as char charset latin1)) STORED,
   `item_name` varchar(32) NOT NULL,
   `i` int(11) DEFAULT NULL,
-  `dynamic_cols` blob,
+  `dynamic_cols` blob DEFAULT NULL,
   PRIMARY KEY (`item_name`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
@@ -1881,10 +1892,11 @@ show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
   `n` int(11) DEFAULT NULL,
-  `c` char(32) AS (convert(cast(n as char), char)) PERSISTENT
+  `c` char(32) GENERATED ALWAYS AS (cast(cast(`n` as char charset latin1) as char charset latin1)) STORED
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 set @@session.collation_server=filename;
+SET STATEMENT sql_mode = 'NO_ENGINE_SUBSTITUTION' FOR
 create table t1(a enum('',''));
 Warnings:
 Note	1291	Column 'a' has duplicated value '' in ENUM
@@ -1917,5 +1929,5 @@ create table t1;
 ERROR 42000: A table must have at least 1 column
 create table t1 (i int, j int, key(i), key(i)) as select 1 as i, 2 as j;
 Warnings:
-Note	1831	Duplicate index `i_2`. This is deprecated and will be disallowed in a future release.
+Note	1831	Duplicate index `i_2`. This is deprecated and will be disallowed in a future release
 drop table t1;

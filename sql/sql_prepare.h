@@ -17,8 +17,14 @@
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
 #include "sql_error.h"
+
+
+#define LAST_STMT_ID 0xFFFFFFFF
+#define STMT_ID_MASK 0x7FFFFFFF
+
 class THD;
 struct LEX;
+
 /**
   An interface that is used to take an action when
   the locking module notices that a table version has changed
@@ -66,15 +72,19 @@ private:
 
 void mysqld_stmt_prepare(THD *thd, const char *packet, uint packet_length);
 void mysqld_stmt_execute(THD *thd, char *packet, uint packet_length);
+void mysqld_stmt_bulk_execute(THD *thd, char *packet, uint packet_length);
 void mysqld_stmt_close(THD *thd, char *packet);
 void mysql_sql_stmt_prepare(THD *thd);
 void mysql_sql_stmt_execute(THD *thd);
+void mysql_sql_stmt_execute_immediate(THD *thd);
 void mysql_sql_stmt_close(THD *thd);
 void mysqld_stmt_fetch(THD *thd, char *packet, uint packet_length);
 void mysqld_stmt_reset(THD *thd, char *packet);
 void mysql_stmt_get_longdata(THD *thd, char *pos, ulong packet_length);
 void reinit_stmt_before_use(THD *thd, LEX *lex);
 
+ulong bulk_parameters_iterations(THD *thd);
+my_bool bulk_parameters_set(THD *thd);
 /**
   Execute a fragment of server code in an isolated context, so that
   it doesn't leave any effect on THD. THD must have no open tables.
@@ -354,6 +364,5 @@ private:
   Ed_column *m_column_array;
   size_t m_column_count; /* TODO: change to point to metadata */
 };
-
 
 #endif // SQL_PREPARE_H

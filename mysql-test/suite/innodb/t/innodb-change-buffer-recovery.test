@@ -10,6 +10,13 @@
 # DBUG_SUICIDE() hangs under valgrind
 --source include/not_valgrind.inc
 
+CREATE TABLE t1(
+	a INT AUTO_INCREMENT PRIMARY KEY,
+	b CHAR(1),
+	c INT,
+	INDEX(b))
+ENGINE=InnoDB STATS_PERSISTENT=0;
+
 --let $_server_id= `SELECT @@server_id`
 --let $_expect_file_name= $MYSQLTEST_VARDIR/tmp/mysqld.$_server_id.expect
 
@@ -20,18 +27,10 @@
 SET GLOBAL innodb_change_buffering_debug = 1;
 let SEARCH_FILE = $MYSQLTEST_VARDIR/tmp/my_restart.err;
 
-CREATE TABLE t1(
-	a INT AUTO_INCREMENT PRIMARY KEY,
-	b CHAR(1),
-	c INT,
-	INDEX(b))
-ENGINE=InnoDB STATS_PERSISTENT=0;
-
 # Create enough rows for the table, so that the change buffer will be
 # used for modifying the secondary index page. There must be multiple
 # index pages, because changes to the root page are never buffered.
 INSERT INTO t1 VALUES(0,'x',1);
-INSERT INTO t1 SELECT 0,b,c FROM t1;
 INSERT INTO t1 SELECT 0,b,c FROM t1;
 INSERT INTO t1 SELECT 0,b,c FROM t1;
 INSERT INTO t1 SELECT 0,b,c FROM t1;
@@ -56,7 +55,6 @@ DELETE FROM t1 WHERE a=1;
 INSERT INTO t1 VALUES(1,'X',1);
 
 SET DEBUG_DBUG='+d,crash_after_log_ibuf_upd_inplace';
-
 --exec echo "wait" > $_expect_file_name
 --error 2013
 # This should force a change buffer merge

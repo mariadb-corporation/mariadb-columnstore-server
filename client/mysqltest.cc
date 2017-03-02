@@ -127,7 +127,7 @@ static my_bool parsing_disabled= 0;
 static my_bool display_result_vertically= FALSE, display_result_lower= FALSE,
   display_metadata= FALSE, display_result_sorted= FALSE;
 static my_bool disable_query_log= 0, disable_result_log= 0;
-static my_bool disable_connect_log= 1;
+static my_bool disable_connect_log= 0;
 static my_bool disable_warnings= 0, disable_column_names= 0;
 static my_bool prepare_warnings_enabled= 0;
 static my_bool disable_info= 1;
@@ -191,6 +191,8 @@ static char global_subst_from[200];
 static char global_subst_to[200];
 static char *global_subst= NULL;
 static MEM_ROOT require_file_root;
+static const my_bool my_true= 1;
+static const my_bool my_false= 0;
 
 /* Block stack */
 enum block_cmd {
@@ -704,7 +706,7 @@ public:
     DBUG_ASSERT(ds->str);
 
 #ifdef EXTRA_DEBUG
-    DBUG_PRINT("QQ", ("str: %*s", (int) ds->length, ds->str));
+    DBUG_PRINT("extra", ("str: %*s", (int) ds->length, ds->str));
 #endif
 
     if (fwrite(ds->str, 1, ds->length, m_file) != ds->length)
@@ -1028,7 +1030,7 @@ static void init_connection_thd(struct st_connection *cn)
   cn->has_thread=TRUE;
 }
 
-#else /*EMBEDDED_LIBRARY*/
+#else /* ! EMBEDDED_LIBRARY*/
 
 #define init_connection_thd(X)    do { } while(0)
 #define do_send_query(cn,q,q_len) mysql_send_query(cn->mysql, q, q_len)
@@ -5154,6 +5156,7 @@ uint get_errcode_from_name(const char *error_name, const char *error_end)
                                      handler_error_names)))
     return tmp;
   die("Unknown SQL error name '%s'", error_name);
+  return 0;                                     // Keep compiler happy
 }
 
 const char *unknown_error= "<Unknown>";
@@ -5418,18 +5421,6 @@ static char *get_string(char **to_ptr, char **from_ptr,
 }
 
 
-void set_reconnect(MYSQL* mysql, my_bool val)
-{
-  my_bool reconnect= val;
-  DBUG_ENTER("set_reconnect");
-  DBUG_PRINT("info", ("val: %d", (int) val));
-#if MYSQL_VERSION_ID < 50000
-  mysql->reconnect= reconnect;
-#else
-  mysql_options(mysql, MYSQL_OPT_RECONNECT, (char *)&reconnect);
-#endif
-  DBUG_VOID_RETURN;
-}
 
 
 /**
@@ -5514,11 +5505,7 @@ void do_close_connection(struct st_command *command)
 #ifndef EMBEDDED_LIBRARY
   if (command->type == Q_DIRTY_CLOSE)
   {
-    if (con->mysql->net.vio)
-    {
-      vio_delete(con->mysql->net.vio);
-      con->mysql->net.vio = 0;
-    }
+    mariadb_cancel(con->mysql);
   }
 #endif /*!EMBEDDED_LIBRARY*/
   if (con->stmt)
@@ -6551,7 +6538,7 @@ int read_line(char *buf, int size)
                               start_lineno));
         }
 
-        /* Skip all space at begining of line */
+        /* Skip all space at beginning of line */
 	skip_char= 1;
       }
       else if (end_of_query(c))
@@ -6563,10 +6550,10 @@ int read_line(char *buf, int size)
       }
       else if (c == '}')
       {
-        /* A "}" need to be by itself in the begining of a line to terminate */
+        /* A "}" need to be by itself in the beginning of a line to terminate */
         *p++= c;
 	*p= 0;
-        DBUG_PRINT("exit", ("Found '}' in begining of a line at line: %d",
+        DBUG_PRINT("exit", ("Found '}' in beginning of a line at line: %d",
                             cur_file->lineno));
 	DBUG_RETURN(0);
       }
@@ -6596,37 +6583,35 @@ int read_line(char *buf, int size)
 
     if (!skip_char)
     {
-      /* Could be a multibyte character */
-      /* This code is based on the code in "sql_load.cc" */
-#ifdef USE_MB
-      int charlen = my_mbcharlen(charset_info, (unsigned char) c);
-      /* We give up if multibyte character is started but not */
-      /* completed before we pass buf_end */
-      if ((charlen > 1) && (p + charlen) <= buf_end)
+      *p++= c;
+      if (use_mb(charset_info))
       {
-	int i;
-	char* mb_start = p;
-
-	*p++ = c;
-
-	for (i= 1; i < charlen; i++)
-	{
-	  c= my_getc(cur_file->file);
-	  if (feof(cur_file->file))
-	    goto found_eof;
-	  *p++ = c;
-	}
-	if (! my_ismbchar(charset_info, mb_start, p))
-	{
-	  /* It was not a multiline char, push back the characters */
-	  /* We leave first 'c', i.e. pretend it was a normal char */
-	  while (p-1 > mb_start)
-	    my_ungetc(*--p);
-	}
+        const char *mb_start= p - 1;
+        /* Could be a multibyte character */
+        /* See a similar code in "sql_load.cc" */
+        for ( ; p < buf_end; )
+        {
+          int charlen= my_charlen(charset_info, mb_start, p);
+          if (charlen > 0)
+            break; /* Full character */
+          if (MY_CS_IS_TOOSMALL(charlen))
+          {
+            /* We give up if multibyte character is started but not */
+            /* completed before we pass buf_end */
+            c= my_getc(cur_file->file);
+            if (feof(cur_file->file))
+              goto found_eof;
+            *p++ = c;
+            continue;
+          }
+          DBUG_ASSERT(charlen == MY_CS_ILSEQ);
+          /* It was not a multiline char, push back the characters */
+          /* We leave first 'c', i.e. pretend it was a normal char */
+          while (p - 1 > mb_start)
+            my_ungetc(*--p);
+          break;
+        }
       }
-      else
-#endif
-	*p++= c;
     }
   }
   die("The input buffer is too small for this query.x\n"      \
@@ -8257,10 +8242,18 @@ end:
   revert_properties();
 
   /* Close the statement if reconnect, need new prepare */
-  if (mysql->reconnect)
   {
-    mysql_stmt_close(stmt);
-    cn->stmt= NULL;
+#ifndef EMBEDDED_LIBRARY
+    my_bool reconnect;
+    mysql_get_option(mysql, MYSQL_OPT_RECONNECT, &reconnect);
+    if (reconnect)
+#else
+    if (mysql->reconnect)
+#endif
+    {
+      mysql_stmt_close(stmt);
+      cn->stmt= NULL;
+    }
   }
 
   DBUG_VOID_RETURN;
@@ -8792,7 +8785,7 @@ static void dump_backtrace(void)
 #endif
   }
   fputs("Attempting backtrace...\n", stderr);
-  my_print_stacktrace(NULL, my_thread_stack_size);
+  my_print_stacktrace(NULL, (ulong)my_thread_stack_size);
 }
 
 #else
@@ -9435,10 +9428,10 @@ int main(int argc, char **argv)
         non_blocking_api_enabled= 1;
         break;
       case Q_DISABLE_RECONNECT:
-        set_reconnect(cur_con->mysql, 0);
+        mysql_options(cur_con->mysql, MYSQL_OPT_RECONNECT, &my_false);
         break;
       case Q_ENABLE_RECONNECT:
-        set_reconnect(cur_con->mysql, 1);
+        mysql_options(cur_con->mysql, MYSQL_OPT_RECONNECT, &my_true);
         /* Close any open statements - no reconnect, need new prepare */
         close_statements();
         break;

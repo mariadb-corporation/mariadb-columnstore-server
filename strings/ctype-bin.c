@@ -119,9 +119,7 @@ size_t my_lengthsp_binary(CHARSET_INFO *cs __attribute__((unused)),
 
 static int my_strnncollsp_binary(CHARSET_INFO * cs __attribute__((unused)),
                                  const uchar *s, size_t slen,
-                                 const uchar *t, size_t tlen,
-                                 my_bool diff_if_only_endspace_difference
-                                 __attribute__((unused)))
+                                 const uchar *t, size_t tlen)
 {
   return my_strnncoll_binary(cs,s,slen,t,tlen,0);
 }
@@ -139,6 +137,27 @@ static int my_strnncoll_8bit_bin(CHARSET_INFO * cs __attribute__((unused)),
 
 
 /*
+  Compare a string to an array of spaces, for PAD SPACE behaviour.
+  @param str    - the string
+  @param length - the length of the string
+  @return  <0   - if a byte less than SPACE was found
+  @return  >0   - if a byte greater than SPACE was found
+  @return  0    - if the string entirely consists of SPACE characters
+*/
+int my_strnncollsp_padspace_bin(const uchar *str, size_t length)
+{
+  for ( ; length ; str++, length--)
+  {
+    if (*str < ' ')
+      return -1;
+    else if (*str > ' ')
+      return 1;
+  }
+  return 0;
+}
+
+
+/*
   Compare two strings. Result is sign(first_argument - second_argument)
 
   SYNOPSIS
@@ -148,9 +167,6 @@ static int my_strnncoll_8bit_bin(CHARSET_INFO * cs __attribute__((unused)),
     slen		Length of 's'
     t			String to compare
     tlen		Length of 't'
-    diff_if_only_endspace_difference
-		        Set to 1 if the strings should be regarded as different
-                        if they only difference in end space
 
   NOTE
    This function is used for character strings with binary collations.
@@ -165,16 +181,10 @@ static int my_strnncoll_8bit_bin(CHARSET_INFO * cs __attribute__((unused)),
 
 static int my_strnncollsp_8bit_bin(CHARSET_INFO * cs __attribute__((unused)),
                                    const uchar *a, size_t a_length, 
-                                   const uchar *b, size_t b_length,
-                                   my_bool diff_if_only_endspace_difference)
+                                   const uchar *b, size_t b_length)
 {
   const uchar *end;
   size_t length;
-  int res;
-
-#ifndef VARCHAR_WITH_DIFF_ENDSPACE_ARE_DIFFERENT_FOR_UNIQUE
-  diff_if_only_endspace_difference= 0;
-#endif
 
   end= a + (length= MY_MIN(a_length, b_length));
   while (a < end)
@@ -182,31 +192,19 @@ static int my_strnncollsp_8bit_bin(CHARSET_INFO * cs __attribute__((unused)),
     if (*a++ != *b++)
       return ((int) a[-1] - (int) b[-1]);
   }
-  res= 0;
-  if (a_length != b_length)
-  {
-    int swap= 1;
-    /*
-      Check the next not space character of the longer key. If it's < ' ',
-      then it's smaller than the other key.
-    */
-    if (diff_if_only_endspace_difference)
-      res= 1;                                   /* Assume 'a' is bigger */
-    if (a_length < b_length)
-    {
-      /* put shorter key in s */
-      a_length= b_length;
-      a= b;
-      swap= -1;					/* swap sign of result */
-      res= -res;
-    }
-    for (end= a + a_length-length; a < end ; a++)
-    {
-      if (*a != ' ')
-	return (*a < ' ') ? -swap : swap;
-    }
-  }
-  return res;
+  return a_length == b_length ? 0 :
+         a_length < b_length  ?
+           -my_strnncollsp_padspace_bin(b, b_length - length) :
+           my_strnncollsp_padspace_bin(a, a_length - length);
+}
+
+
+static int my_strnncollsp_8bit_nopad_bin(CHARSET_INFO * cs
+                                         __attribute__((unused)),
+                                         const uchar *a, size_t a_length,
+                                         const uchar *b, size_t b_length)
+{
+  return my_strnncoll_8bit_bin(cs, a, a_length, b, b_length, FALSE);
 }
 
 
@@ -233,13 +231,6 @@ static int my_strcasecmp_bin(CHARSET_INFO * cs __attribute__((unused)),
 			     const char *s, const char *t)
 {
   return strcmp(s,t);
-}
-
-
-uint my_mbcharlen_8bit(CHARSET_INFO *cs __attribute__((unused)),
-                      uint c __attribute__((unused)))
-{
-  return 1;
 }
 
 
@@ -271,31 +262,8 @@ int my_wc_mb_bin(CHARSET_INFO *cs __attribute__((unused)),
 }
 
 
-void my_hash_sort_8bit_bin(CHARSET_INFO *cs __attribute__((unused)),
-                           const uchar *key, size_t len,
-                           ulong *nr1, ulong *nr2)
-{
-  ulong tmp1= *nr1;
-  ulong tmp2= *nr2;
-
-  /*
-     Remove trailing spaces. We have to do this to be able to compare
-    'A ' and 'A' as identical
-  */
-  const uchar *end = skip_trailing_space(key, len);
-
-  for (; key < end ; key++)
-  {
-    MY_HASH_ADD(tmp1, tmp2, (uint) *key);
-  }
-
-  *nr1= tmp1;
-  *nr2= tmp2;
-}
-
-
 void my_hash_sort_bin(CHARSET_INFO *cs __attribute__((unused)),
-		      const uchar *key, size_t len,ulong *nr1, ulong *nr2)
+                      const uchar *key, size_t len,ulong *nr1, ulong *nr2)
 {
   const uchar *end = key + len;
   ulong tmp1= *nr1;
@@ -308,6 +276,19 @@ void my_hash_sort_bin(CHARSET_INFO *cs __attribute__((unused)),
 
   *nr1= tmp1;
   *nr2= tmp2;
+}
+
+
+void my_hash_sort_8bit_bin(CHARSET_INFO *cs __attribute__((unused)),
+                           const uchar *key, size_t len,
+                           ulong *nr1, ulong *nr2)
+{
+  /*
+     Remove trailing spaces. We have to do this to be able to compare
+    'A ' and 'A' as identical
+  */
+  const uchar *end= skip_trailing_space(key, len);
+  my_hash_sort_bin(cs, key, end - key, nr1, nr2);
 }
 
 
@@ -425,6 +406,21 @@ my_strnxfrm_8bit_bin(CHARSET_INFO *cs,
 }
 
 
+static size_t
+my_strnxfrm_8bit_nopad_bin(CHARSET_INFO *cs,
+                           uchar * dst, size_t dstlen, uint nweights,
+                           const uchar *src, size_t srclen, uint flags)
+{
+  set_if_smaller(srclen, dstlen);
+  set_if_smaller(srclen, nweights);
+  if (dst != src)
+    memcpy(dst, src, srclen);
+  return my_strxfrm_pad_desc_and_reverse_nopad(cs, dst, dst + srclen,
+                                               dst + dstlen, nweights - srclen,
+                                               flags, 0);
+}
+
+
 static
 uint my_instr_bin(CHARSET_INFO *cs __attribute__((unused)),
 		  const char *b, size_t b_length,
@@ -502,6 +498,22 @@ MY_COLLATION_HANDLER my_collation_8bit_bin_handler =
 };
 
 
+MY_COLLATION_HANDLER my_collation_8bit_nopad_bin_handler =
+{
+  my_coll_init_8bit_bin,
+  my_strnncoll_8bit_bin,
+  my_strnncollsp_8bit_nopad_bin,
+  my_strnxfrm_8bit_nopad_bin,
+  my_strnxfrmlen_simple,
+  my_like_range_simple,
+  my_wildcmp_bin,
+  my_strcasecmp_bin,
+  my_instr_bin,
+  my_hash_sort_bin,
+  my_propagate_simple
+};
+
+
 static MY_COLLATION_HANDLER my_collation_binary_handler =
 {
   NULL,			/* init */
@@ -521,11 +533,8 @@ static MY_COLLATION_HANDLER my_collation_binary_handler =
 static MY_CHARSET_HANDLER my_charset_handler=
 {
   NULL,			/* init */
-  NULL,			/* ismbchar      */
-  my_mbcharlen_8bit,	/* mbcharlen     */
   my_numchars_8bit,
   my_charpos_8bit,
-  my_well_formed_len_8bit,
   my_lengthsp_binary,
   my_numcells_8bit,
   my_mb_wc_bin,

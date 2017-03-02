@@ -140,10 +140,10 @@ ORDER BY head, tail;
 #
 # Populate Half Width Kana: [A1..DF]
 # 
-INSERT t1 (code) SELECT head FROM head WHERE (head BETWEEN 'A1' AND 'DF');
+INSERT IGNORE t1 (code) SELECT head FROM head WHERE (head BETWEEN 'A1' AND 'DF');
 DROP TEMPORARY TABLE head, tail;
 SHOW CREATE TABLE t1;
-UPDATE t1 SET a=unhex(code) ORDER BY code;
+UPDATE IGNORE t1 SET a=unhex(code) ORDER BY code;
 SELECT COUNT(*) FROM t1;
 SELECT COUNT(*) FROM t1 WHERE a<>'?' AND OCTET_LENGTH(a)=1;
 SELECT COUNT(*) FROM t1 WHERE a<>'' AND OCTET_LENGTH(a)=2;
@@ -230,4 +230,33 @@ SET NAMES sjis;
 
 --echo #
 --echo # End of 10.0 tests
+--echo #
+
+--echo #
+--echo # Start of 10.2 tests
+--echo #
+
+--echo #
+--echo # MDEV-9842 LOAD DATA INFILE does not work well with a TEXT column when using sjis
+--echo #
+CREATE TABLE t1 (a TEXT CHARACTER SET sjis);
+LOAD DATA INFILE '../../std_data/loaddata/mdev9842.txt' INTO TABLE t1 CHARACTER SET sjis;
+SELECT HEX(a) FROM t1;
+SELECT a=CONCAT('x', REPEAT(_sjis 0x835C, 200)) FROM t1;
+DROP TABLE t1;
+
+--echo #
+--echo # MDEV-9711 NO PAD Collatons
+--echo #
+SET character_set_connection=sjis;
+let $coll='sjis_japanese_nopad_ci';
+let $coll_pad='sjis_japanese_ci';
+--source include/ctype_pad_all_engines.inc
+
+let $coll='sjis_nopad_bin';
+let $coll_pad='sjis_bin';
+--source include/ctype_pad_all_engines.inc
+
+--echo #
+--echo # End of 10.2 tests
 --echo #

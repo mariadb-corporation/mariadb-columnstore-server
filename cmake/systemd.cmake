@@ -56,17 +56,11 @@ MACRO(CHECK_SYSTEMD)
          AND HAVE_SYSTEMD_SD_NOTIFY AND HAVE_SYSTEMD_SD_NOTIFYF)
         ADD_DEFINITIONS(-DHAVE_SYSTEMD)
         SET(SYSTEMD_SCRIPTS mariadb-service-convert galera_new_cluster galera_recovery)
-        SET(SYSTEMD_DEB_FILES "usr/bin/mariadb-service-convert
-                               usr/bin/galera_new_cluster
-                               usr/bin/galera_recovery
-                               ${INSTALL_SYSTEMD_UNITDIR}/mariadb.service
-                               ${INSTALL_SYSTEMD_UNITDIR}/mariadb@.service
-                               ${INSTALL_SYSTEMD_UNITDIR}/mariadb@bootstrap.service.d/use_galera_new_cluster.conf")
         IF(DEB)
           SET(SYSTEMD_EXECSTARTPRE "ExecStartPre=/usr/bin/install -m 755 -o mysql -g root -d /var/run/mysqld")
           SET(SYSTEMD_EXECSTARTPOST "ExecStartPost=/etc/mysql/debian-start")
         ENDIF()
-        MESSAGE(STATUS "Systemd features enabled")
+        MESSAGE_ONCE(systemd "Systemd features enabled")
       ELSE()
         UNSET(LIBSYSTEMD)
         UNSET(HAVE_SYSTEMD)
@@ -74,7 +68,7 @@ MACRO(CHECK_SYSTEMD)
         UNSET(HAVE_SYSTEMD_SD_LISTEN_FDS)
         UNSET(HAVE_SYSTEMD_SD_NOTIFY)
         UNSET(HAVE_SYSTEMD_SD_NOTIFYF)
-        MESSAGE(STATUS "Systemd features not enabled")
+        MESSAGE_ONCE(systemd "Systemd features not enabled")
         IF(WITH_SYSTEMD STREQUAL "yes")
           MESSAGE(FATAL_ERROR "Requested WITH_SYSTEMD=YES however no dependencies installed/found")
         ENDIF()

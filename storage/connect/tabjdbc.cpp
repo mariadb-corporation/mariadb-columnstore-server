@@ -770,7 +770,7 @@ bool TDBJDBC::MakeCommand(PGLOBAL g)
 	} else {
 		sprintf(g->Message, "Cannot use this %s command",
 			(Mode == MODE_UPDATE) ? "UPDATE" : "DELETE");
-		return NULL;
+		return 1;
 	} // endif p
 
 	if (trace)

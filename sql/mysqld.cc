@@ -1,5 +1,5 @@
 /* Copyright (c) 2000, 2015, Oracle and/or its affiliates.
-   Copyright (c) 2008, 2016, MariaDB
+   Copyright (c) 2008, 2017, MariaDB Corporation.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -360,10 +360,11 @@ static bool volatile select_thread_in_use, signal_thread_in_use;
 static volatile bool ready_to_exit;
 static my_bool opt_debugging= 0, opt_external_locking= 0, opt_console= 0;
 static my_bool opt_short_log_format= 0, opt_silent_startup= 0;
+
 uint kill_cached_threads;
 static uint wake_thread;
 ulong max_used_connections;
-static volatile ulong cached_thread_count= 0;
+volatile ulong cached_thread_count= 0;
 static char *mysqld_user, *mysqld_chroot;
 static char *default_character_set_name;
 static char *character_set_filesystem_name;
@@ -374,7 +375,7 @@ static char *default_collation_name;
 char *default_storage_engine, *default_tmp_storage_engine;
 char *enforced_storage_engine=NULL;
 static char compiled_default_collation_name[]= MYSQL_DEFAULT_COLLATION_NAME;
-static I_List<THD> thread_cache;
+static I_List<CONNECT> thread_cache;
 static bool binlog_format_used= false;
 LEX_STRING opt_init_connect, opt_init_slave;
 mysql_cond_t COND_thread_cache;
@@ -385,8 +386,11 @@ static DYNAMIC_ARRAY all_options;
 /* Global variables */
 
 bool opt_bin_log, opt_bin_log_used=0, opt_ignore_builtin_innodb= 0;
+bool opt_bin_log_compress;
+uint opt_bin_log_compress_min_len;
 my_bool opt_log, debug_assert_if_crashed_table= 0, opt_help= 0;
-my_bool disable_log_notes;
+my_bool debug_assert_on_not_freed_memory= 0;
+my_bool disable_log_notes, opt_support_flashback= 0;
 static my_bool opt_abort;
 ulonglong log_output_options;
 my_bool opt_userstat_running;
@@ -395,7 +399,6 @@ bool opt_error_log= IF_WIN(1,0);
 bool opt_disable_networking=0, opt_skip_show_db=0;
 bool opt_skip_name_resolve=0;
 my_bool opt_character_set_client_handshake= 1;
-bool server_id_supplied = 0;
 bool opt_endinfo, using_udf_functions;
 my_bool locked_in_memory;
 bool opt_using_transactions;
@@ -406,8 +409,7 @@ uint volatile global_disable_checkpoint;
 ulong slow_start_timeout;
 #endif
 /*
-  True if the bootstrap thread is running. Protected by LOCK_thread_count,
-  just like thread_count.
+  True if the bootstrap thread is running. Protected by LOCK_start_thread.
   Used in bootstrap() function to determine if the bootstrap thread
   has completed. Note, that we can't use 'thread_count' instead,
   since in 5.1, in presence of the Event Scheduler, there may be
@@ -419,7 +421,7 @@ ulong slow_start_timeout;
   bootstrap either, since we want to be able to process event-related
   SQL commands in the init file and in --bootstrap mode.
 */
-bool in_bootstrap= FALSE;
+bool volatile in_bootstrap= FALSE;
 /**
    @brief 'grant_option' is used to indicate if privileges needs
    to be checked, in which case the lock, LOCK_grant, is used
@@ -524,7 +526,7 @@ ulong extra_max_connections;
 uint max_digest_length= 0;
 ulong slave_retried_transactions;
 ulonglong slave_skipped_errors;
-ulong feature_files_opened_with_delayed_keys;
+ulong feature_files_opened_with_delayed_keys= 0, feature_check_constraint= 0;
 ulonglong denied_connections;
 my_decimal decimal_zero;
 
@@ -551,7 +553,8 @@ ulong max_prepared_stmt_count;
   statements.
 */
 ulong prepared_stmt_count=0;
-ulong thread_id=1L,current_pid;
+my_thread_id global_thread_id= 1;
+ulong current_pid;
 ulong slow_launch_threads = 0;
 uint sync_binlog_period= 0, sync_relaylog_period= 0,
      sync_relayloginfo_period= 0, sync_masterinfo_period= 0;
@@ -626,7 +629,7 @@ DATE_TIME_FORMAT global_date_format, global_datetime_format, global_time_format;
 Time_zone *default_tz;
 
 const char *mysql_real_data_home_ptr= mysql_real_data_home;
-char server_version[SERVER_VERSION_LENGTH];
+char server_version[SERVER_VERSION_LENGTH], *server_version_ptr;
 char *mysqld_unix_port, *opt_mysql_tmpdir;
 ulong thread_handling;
 
@@ -684,6 +687,14 @@ THD *next_global_thread(THD *thd)
 }
 
 struct system_variables global_system_variables;
+/**
+  Following is just for options parsing, used with a difference against
+  global_system_variables.
+
+  TODO: something should be done to get rid of following variables
+*/
+const char *current_dbug_option="";
+
 struct system_variables max_system_variables;
 struct system_status_var global_status_var;
 
@@ -706,9 +717,34 @@ SHOW_COMP_OPTION have_openssl;
 
 /* Thread specific variables */
 
-pthread_key(MEM_ROOT**,THR_MALLOC);
 pthread_key(THD*, THR_THD);
-mysql_mutex_t LOCK_thread_count, LOCK_thread_cache;
+
+/*
+  LOCK_thread_count protects the following variables:
+  thread_count		Number of threads with THD that servers queries.
+  threads		Linked list of active THD's.
+		        The effect of this is that one can't unlink and
+                        delete a THD as long as one has locked
+                        LOCK_thread_count.
+   ready_to_exit
+   delayed_insert_threads
+*/
+mysql_mutex_t LOCK_thread_count;
+
+/*
+  LOCK_start_thread is used to syncronize thread start and stop with
+  other threads.
+
+  It also protects these variables:
+  handler_count
+  in_bootstrap
+  select_thread_in_use
+  slave_init_thread_running
+  check_temp_dir() call
+*/
+mysql_mutex_t  LOCK_start_thread;
+
+mysql_mutex_t LOCK_thread_cache;
 mysql_mutex_t
   LOCK_status, LOCK_show_status, LOCK_error_log, LOCK_short_uuid_generator,
   LOCK_delayed_insert, LOCK_delayed_status, LOCK_delayed_create,
@@ -733,7 +769,7 @@ mysql_mutex_t LOCK_des_key_file;
 #endif
 mysql_rwlock_t LOCK_grant, LOCK_sys_init_connect, LOCK_sys_init_slave;
 mysql_rwlock_t LOCK_system_variables_hash;
-mysql_cond_t COND_thread_count;
+mysql_cond_t COND_thread_count, COND_start_thread;
 pthread_t signal_thread;
 pthread_attr_t connection_attrib;
 mysql_mutex_t LOCK_server_started;
@@ -883,6 +919,7 @@ PSI_mutex_key key_BINLOG_LOCK_index, key_BINLOG_LOCK_xid_list,
   key_relay_log_info_log_space_lock, key_relay_log_info_run_lock,
   key_structure_guard_mutex, key_TABLE_SHARE_LOCK_ha_data,
   key_LOCK_error_messages, key_LOG_INFO_lock,
+  key_LOCK_start_thread,
   key_LOCK_thread_count, key_LOCK_thread_cache,
   key_PARTITION_LOCK_auto_inc;
 PSI_mutex_key key_RELAYLOG_LOCK_index;
@@ -969,6 +1006,7 @@ static PSI_mutex_info all_server_mutexes[]=
   { &key_LOCK_thread_cache, "LOCK_thread_cache", PSI_FLAG_GLOBAL},
   { &key_PARTITION_LOCK_auto_inc, "HA_DATA_PARTITION::LOCK_auto_inc", 0},
   { &key_LOCK_slave_state, "LOCK_slave_state", 0},
+  { &key_LOCK_start_thread, "LOCK_start_thread", PSI_FLAG_GLOBAL},
   { &key_LOCK_binlog_state, "LOCK_binlog_state", 0},
   { &key_LOCK_rpl_thread, "LOCK_rpl_thread", 0},
   { &key_LOCK_rpl_thread_pool, "LOCK_rpl_thread_pool", 0},
@@ -1010,6 +1048,7 @@ PSI_cond_key key_BINLOG_COND_xid_list, key_BINLOG_update_cond,
   key_rpl_group_info_sleep_cond,
   key_TABLE_SHARE_cond, key_user_level_lock_cond,
   key_COND_thread_count, key_COND_thread_cache, key_COND_flush_thread_cache,
+  key_COND_start_thread,
   key_BINLOG_COND_queue_busy;
 PSI_cond_key key_RELAYLOG_update_cond, key_COND_wakeup_ready,
   key_COND_wait_commit;
@@ -1069,6 +1108,7 @@ static PSI_cond_info all_server_conds[]=
   { &key_COND_group_commit_orderer, "COND_group_commit_orderer", 0},
   { &key_COND_prepare_ordered, "COND_prepare_ordered", 0},
   { &key_COND_slave_background, "COND_slave_background", 0},
+  { &key_COND_start_thread, "COND_start_thread", PSI_FLAG_GLOBAL},
   { &key_COND_wait_gtid, "COND_wait_gtid", 0},
   { &key_COND_gtid_ignore_duplicates, "COND_gtid_ignore_duplicates", 0}
 };
@@ -1195,7 +1235,12 @@ void init_net_server_extension(THD *thd)
   /* Activate this private extension for the mysqld server. */
   thd->net.extension= & thd->m_net_server_extension;
 }
+#else
+void init_net_server_extension(THD *thd)
+{
+}
 #endif /* EMBEDDED_LIBRARY */
+
 
 /**
   A log message for the error log, buffered in memory.
@@ -1423,7 +1468,6 @@ my_bool plugins_are_initialized= FALSE;
 #ifndef DBUG_OFF
 static const char* default_dbug_option;
 #endif
-const char *current_dbug_option="";
 #ifdef HAVE_LIBWRAP
 const char *libwrapName= NULL;
 int allow_severity = LOG_INFO;
@@ -1540,8 +1584,8 @@ static void close_connections(void)
 #if !defined(__WIN__)
   DBUG_PRINT("quit", ("waiting for select thread: 0x%lx",
                       (ulong) select_thread));
-  mysql_mutex_lock(&LOCK_thread_count);
 
+  mysql_mutex_lock(&LOCK_start_thread);
   while (select_thread_in_use)
   {
     struct timespec abstime;
@@ -1555,7 +1599,7 @@ static void close_connections(void)
     set_timespec(abstime, 2);
     for (uint tmp=0 ; tmp < 10 && select_thread_in_use; tmp++)
     {
-      error= mysql_cond_timedwait(&COND_thread_count, &LOCK_thread_count,
+      error= mysql_cond_timedwait(&COND_start_thread, &LOCK_start_thread,
                                   &abstime);
       if (error != EINTR)
 	break;
@@ -1566,7 +1610,7 @@ static void close_connections(void)
 #endif
     close_server_sock();
   }
-  mysql_mutex_unlock(&LOCK_thread_count);
+  mysql_mutex_unlock(&LOCK_start_thread);
 #endif /* __WIN__ */
 
 
@@ -1635,7 +1679,7 @@ static void close_connections(void)
   while ((tmp=it++))
   {
     DBUG_PRINT("quit",("Informing thread %ld that it's time to die",
-		       tmp->thread_id));
+		       (ulong) tmp->thread_id));
     /* We skip slave threads & scheduler on this first loop through. */
     if (tmp->slave_thread)
       continue;
@@ -1676,6 +1720,7 @@ static void close_connections(void)
 
   Events::deinit();
   end_slave();
+  mysql_bin_log.stop_background_thread();
 
   /*
     Give threads time to die.
@@ -1691,6 +1736,8 @@ static void close_connections(void)
     much smaller than even 2 seconds, this is only a safety fallback against
     stuck threads so server shutdown is not held up forever.
   */
+  DBUG_PRINT("info", ("thread_count: %d", thread_count));
+
   for (int i= 0; *(volatile int32*) &thread_count && i < 1000; i++)
     my_sleep(20000);
 
@@ -1702,11 +1749,9 @@ static void close_connections(void)
 
   for (;;)
   {
-    DBUG_PRINT("quit",("Locking LOCK_thread_count"));
     mysql_mutex_lock(&LOCK_thread_count); // For unlink from list
     if (!(tmp=threads.get()))
     {
-      DBUG_PRINT("quit",("Unlocking LOCK_thread_count"));
       mysql_mutex_unlock(&LOCK_thread_count);
       break;
     }
@@ -1715,12 +1760,13 @@ static void close_connections(void)
     {
       if (global_system_variables.log_warnings)
         sql_print_warning(ER_DEFAULT(ER_FORCING_CLOSE),my_progname,
-                          tmp->thread_id,
+                          (ulong) tmp->thread_id,
                           (tmp->main_security_ctx.user ?
                            tmp->main_security_ctx.user : ""));
       close_connection(tmp,ER_SERVER_SHUTDOWN);
     }
 #endif
+
 #ifdef WITH_WSREP
     /*
      * WSREP_TODO:
@@ -1802,9 +1848,34 @@ static void close_server_sock()
 #endif /*EMBEDDED_LIBRARY*/
 
 
-void kill_mysql(void)
+/**
+  Set shutdown user
+
+  @note this function may be called by multiple threads concurrently, thus
+  it performs safe update of shutdown_user (first thread wins).
+*/
+
+static volatile char *shutdown_user;
+static void set_shutdown_user(THD *thd)
+{
+  char user_host_buff[MAX_USER_HOST_SIZE + 1];
+  char *user, *expected_shutdown_user= 0;
+
+  make_user_name(thd, user_host_buff);
+
+  if ((user= my_strdup(user_host_buff, MYF(0))) &&
+      !my_atomic_casptr((void **) &shutdown_user,
+                        (void **) &expected_shutdown_user, user))
+    my_free(user);
+}
+
+
+void kill_mysql(THD *thd)
 {
   DBUG_ENTER("kill_mysql");
+
+  if (thd)
+    set_shutdown_user(thd);
 
 #if defined(SIGNALS_DONT_BREAK_READ) && !defined(EMBEDDED_LIBRARY)
   abort_loop=1;					// Break connection loops
@@ -1884,7 +1955,13 @@ static void __cdecl kill_server(int sig_ptr)
   if (sig != 0) // 0 is not a valid signal number
     my_sigset(sig, SIG_IGN);                    /* purify inspected */
   if (sig == MYSQL_KILL_SIGNAL || sig == 0)
-    sql_print_information(ER_DEFAULT(ER_NORMAL_SHUTDOWN),my_progname);
+  {
+    char *user= (char *) my_atomic_loadptr((void**) &shutdown_user);
+    sql_print_information(ER_DEFAULT(ER_NORMAL_SHUTDOWN), my_progname,
+                          user ? user : "unknown");
+    if (user)
+      my_free(user);
+  }
   else
     sql_print_error(ER_DEFAULT(ER_GOT_SIGNAL),my_progname,sig); /* purecov: inspected */
 
@@ -1913,8 +1990,6 @@ static void __cdecl kill_server(int sig_ptr)
 
   if (wsrep_inited == 1)
     wsrep_deinit(true);
-
-  wsrep_thr_deinit();
 
   if (sig != MYSQL_KILL_SIGNAL &&
       sig != 0)
@@ -1956,7 +2031,8 @@ pthread_handler_t kill_server_thread(void *arg __attribute__((unused)))
 extern "C" sig_handler print_signal_warning(int sig)
 {
   if (global_system_variables.log_warnings)
-    sql_print_warning("Got signal %d from thread %ld", sig,my_thread_id());
+    sql_print_warning("Got signal %d from thread %ld", sig,
+                      (ulong) my_thread_id());
 #ifdef SIGNAL_HANDLER_RESET_ON_DELIVERY
   my_sigset(sig,print_signal_warning);		/* int. thread system calls */
 #endif
@@ -2046,8 +2122,6 @@ static void cleanup_tls()
 {
   if (THR_THD)
     (void)pthread_key_delete(THR_THD);
-  if (THR_MALLOC)
-    (void)pthread_key_delete(THR_MALLOC);
 }
 
 
@@ -2069,8 +2143,16 @@ static void mysqld_exit(int exit_code)
 #ifdef WITH_PERFSCHEMA_STORAGE_ENGINE
   shutdown_performance_schema();        // we do it as late as possible
 #endif
+  set_malloc_size_cb(NULL);
+  if (!opt_debugging)
+  {
+    DBUG_ASSERT(global_status_var.global_memory_used == 0);
+  }
   cleanup_tls();
   DBUG_LEAVE;
+  if (opt_endinfo && global_status_var.global_memory_used)
+    fprintf(stderr, "Warning: Memory not freed: %ld\n",
+            (long) global_status_var.global_memory_used);
   sd_notify(0, "STATUS=MariaDB server is down");
   exit(exit_code); /* purecov: inspected */
 }
@@ -2110,7 +2192,6 @@ void clean_up(bool print_message)
   item_func_sleep_free();
   lex_free();				/* Free some memory */
   item_create_cleanup();
-  item_window_function_create_cleanup();  // @InfiniDB
   tdc_start_shutdown();
   plugin_shutdown();
   udf_free();
@@ -2141,11 +2222,12 @@ void clean_up(bool print_message)
   free_global_client_stats();
   free_global_table_stats();
   free_global_index_stats();
-  delete_dynamic(&all_options);
+  delete_dynamic(&all_options);                 // This should be empty
   free_all_rpl_filters();
 #ifdef HAVE_REPLICATION
   end_slave_list();
 #endif
+  wsrep_thr_deinit();
   my_uuid_end();
   delete binlog_filter;
   delete global_rpl_filter;
@@ -2162,21 +2244,24 @@ void clean_up(bool print_message)
 
   if (print_message && my_default_lc_messages && server_start_time)
     sql_print_information(ER_DEFAULT(ER_SHUTDOWN_COMPLETE),my_progname);
-  cleanup_errmsgs();
   MYSQL_CALLBACK(thread_scheduler, end, ());
   thread_scheduler= 0;
   mysql_library_end();
   finish_client_errs();
-  (void) my_error_unregister(ER_ERROR_FIRST, ER_ERROR_LAST); // finish server errs
-  DBUG_PRINT("quit", ("Error messages freed"));
+  cleanup_errmsgs();
+  free_error_messages();
   /* Tell main we are ready */
   logger.cleanup_end();
   sys_var_end();
   free_charsets();
+
+  /*
+    Signal mysqld_main() that it can exit
+    do the broadcast inside the lock to ensure that my_end() is not called
+    during broadcast()
+  */
   mysql_mutex_lock(&LOCK_thread_count);
-  DBUG_PRINT("quit", ("got thread count lock"));
   ready_to_exit=1;
-  /* do the broadcast inside the lock to ensure that my_end() is not called */
   mysql_cond_broadcast(&COND_thread_count);
   mysql_mutex_unlock(&LOCK_thread_count);
 
@@ -2224,6 +2309,7 @@ static void clean_up_mutexes()
   mysql_rwlock_destroy(&LOCK_grant);
   mysql_mutex_destroy(&LOCK_thread_count);
   mysql_mutex_destroy(&LOCK_thread_cache);
+  mysql_mutex_destroy(&LOCK_start_thread);
   mysql_mutex_destroy(&LOCK_status);
   mysql_mutex_destroy(&LOCK_show_status);
   mysql_mutex_destroy(&LOCK_delayed_insert);
@@ -2257,6 +2343,7 @@ static void clean_up_mutexes()
   mysql_mutex_destroy(&LOCK_error_messages);
   mysql_cond_destroy(&COND_thread_count);
   mysql_cond_destroy(&COND_thread_cache);
+  mysql_cond_destroy(&COND_start_thread);
   mysql_cond_destroy(&COND_flush_thread_cache);
   mysql_mutex_destroy(&LOCK_server_started);
   mysql_cond_destroy(&COND_server_started);
@@ -2278,7 +2365,9 @@ static void clean_up_mutexes()
 static void set_ports()
 {
 }
-
+void close_connection(THD *thd, uint sql_errno)
+{
+}
 #else
 static void set_ports()
 {
@@ -2695,6 +2784,7 @@ static void network_init(void)
   @note
     For the connection that is doing shutdown, this is called twice
 */
+
 void close_connection(THD *thd, uint sql_errno)
 {
   DBUG_ENTER("close_connection");
@@ -2730,20 +2820,6 @@ extern "C" sig_handler end_mysqld_signal(int sig __attribute__((unused)))
   DBUG_VOID_RETURN;				/* purecov: deadcode */
 }
 
-
-/*
-  Cleanup THD object
-
-  SYNOPSIS
-    thd_cleanup()
-    thd		 Thread handler
-*/
-
-void thd_cleanup(THD *thd)
-{
-  thd->cleanup();
-}
-
 /*
   Decrease number of connections
 
@@ -2751,43 +2827,40 @@ void thd_cleanup(THD *thd)
     dec_connection_count()
 */
 
-void dec_connection_count(THD *thd)
+void dec_connection_count(scheduler_functions *scheduler)
 {
-#ifdef WITH_WSREP
-  /*
-    Do not decrement when its wsrep system thread. wsrep_applier is set for
-    applier as well as rollbacker threads.
-  */
-  if (thd->wsrep_applier)
-    return;
-#endif /* WITH_WSREP */
-
-  DBUG_ASSERT(*thd->scheduler->connection_count > 0);
   mysql_mutex_lock(&LOCK_connection_count);
-  (*thd->scheduler->connection_count)--;
+  (*scheduler->connection_count)--;
   mysql_mutex_unlock(&LOCK_connection_count);
 }
 
 
 /*
   Delete THD and decrement thread counters, including thread_running
+
+  This is mainly used to delete event threads which are not increasing
+  global counters.
 */
 
 void delete_running_thd(THD *thd)
 {
-  mysql_mutex_lock(&LOCK_thread_count);
-  thd->unlink();
-  mysql_mutex_unlock(&LOCK_thread_count);
+  thd->add_status_to_global();
+  unlink_not_visible_thd(thd);
 
   delete thd;
   dec_thread_running();
-  thread_safe_decrement32(&thread_count);
-  signal_thd_deleted();
 }
 
 /*
-  Send a signal to unblock close_conneciton() if there is no more
-  threads running with a THD attached
+  Decrease number of threads. Signal when it reaches 0
+
+  SYNOPSIS
+    dec_thread_count()
+*/
+
+/*
+  Send a signal to unblock close_conneciton() / rpl_slave_init_thread()
+  if there is no more threads running with a THD attached
 
   It's safe to check for thread_count and service_thread_count outside
   of a mutex as we are only interested to see if they where decremented
@@ -2799,7 +2872,7 @@ void delete_running_thd(THD *thd)
 
 void signal_thd_deleted()
 {
-  if (!thread_count && ! service_thread_count)
+  if (!thread_count && !service_thread_count)
   {
     /* Signal close_connections() that all THD's are freed */
     mysql_mutex_lock(&LOCK_thread_count);
@@ -2810,14 +2883,11 @@ void signal_thd_deleted()
 
 
 /*
-  Unlink thd from global list of available connections and free thd
+  Unlink thd from global list of available connections
 
   SYNOPSIS
     unlink_thd()
     thd		 Thread handler
-
-  NOTES
-    LOCK_thread_count is locked and left locked
 */
 
 void unlink_thd(THD *thd)
@@ -2825,23 +2895,17 @@ void unlink_thd(THD *thd)
   DBUG_ENTER("unlink_thd");
   DBUG_PRINT("enter", ("thd: 0x%lx", (long) thd));
 
-  thd_cleanup(thd);
-  dec_connection_count(thd);
-
+  /*
+    Do not decrement when its wsrep system thread. wsrep_applier is set for
+    applier as well as rollbacker threads.
+  */
+  if (IF_WSREP(!thd->wsrep_applier, 1))
+    dec_connection_count(thd->scheduler);
+  thd->cleanup();
   thd->add_status_to_global();
 
-  mysql_mutex_lock(&LOCK_thread_count);
-  thd->unlink();
-  /*
-    Used by binlog_reset_master.  It would be cleaner to use
-    DEBUG_SYNC here, but that's not possible because the THD's debug
-    sync feature has been shut down at this point.
-  */
-  DBUG_EXECUTE_IF("sleep_after_lock_thread_count_before_delete_thd", sleep(5););
-  mysql_mutex_unlock(&LOCK_thread_count);
-
-  delete thd;
-  thread_safe_decrement32(&thread_count);
+  unlink_not_visible_thd(thd);
+  thd->free_connection();
 
   DBUG_VOID_RETURN;
 }
@@ -2852,6 +2916,7 @@ void unlink_thd(THD *thd)
 
   SYNOPSIS
     cache_thread()
+    thd		 Thread handler
 
   NOTES
     LOCK_thread_cache is used to protect the cache variables
@@ -2863,9 +2928,11 @@ void unlink_thd(THD *thd)
 */
 
 
-static bool cache_thread()
+static bool cache_thread(THD *thd)
 {
+  struct timespec abstime;
   DBUG_ENTER("cache_thread");
+  DBUG_ASSERT(thd);
 
   mysql_mutex_lock(&LOCK_thread_cache);
   if (cached_thread_count < thread_cache_size &&
@@ -2883,20 +2950,50 @@ static bool cache_thread()
     PSI_THREAD_CALL(delete_current_thread)();
 #endif
 
+#ifndef DBUG_OFF
+    while (_db_is_pushed_())
+      _db_pop_();
+#endif
+
+    set_timespec(abstime, THREAD_CACHE_TIMEOUT);
     while (!abort_loop && ! wake_thread && ! kill_cached_threads)
-      mysql_cond_wait(&COND_thread_cache, &LOCK_thread_cache);
+    {
+      int error= mysql_cond_timedwait(&COND_thread_cache, &LOCK_thread_cache,
+                                       &abstime);
+      if (error == ETIMEDOUT || error == ETIME)
+      {
+        /*
+          If timeout, end thread.
+          If a new thread is requested (wake_thread is set), we will handle
+          the call, even if we got a timeout (as we are already awake and free)
+        */
+        break;
+      }
+    }
     cached_thread_count--;
     if (kill_cached_threads)
       mysql_cond_signal(&COND_flush_thread_cache);
     if (wake_thread)
     {
-      THD *thd;
+      CONNECT *connect;
+
       wake_thread--;
-      thd= thread_cache.get();
+      connect= thread_cache.get();
       mysql_mutex_unlock(&LOCK_thread_cache);
 
-      thd->thread_stack= (char*) &thd;          // For store_globals
-      (void) thd->store_globals();
+      if (!(connect->create_thd(thd)))
+      {
+        /* Out of resources. Free thread to get more resources */
+        connect->close_and_delete();
+        DBUG_RETURN(0);
+      }
+      delete connect;
+
+      /*
+        We have to call store_globals to update mysys_var->id and lock_info
+        with the new thread_id
+      */
+      thd->store_globals();
 
 #ifdef HAVE_PSI_THREAD_INTERFACE
       /*
@@ -2908,19 +3005,12 @@ static bool cache_thread()
       PSI_THREAD_CALL(set_thread)(psi);
 #endif
 
-      /*
-        THD::mysys_var::abort is associated with physical thread rather
-        than with THD object. So we need to reset this flag before using
-        this thread for handling of new THD object/connection.
-      */
+      /* reset abort flag for the thread */
       thd->mysys_var->abort= 0;
       thd->thr_create_utime= microsecond_interval_timer();
       thd->start_utime= thd->thr_create_utime;
 
-      /* Link thd into list of all active threads (THD's) */
-      mysql_mutex_lock(&LOCK_thread_count);
-      threads.append(thd);
-      mysql_mutex_unlock(&LOCK_thread_count);
+      add_to_active_threads(thd);
       DBUG_RETURN(1);
     }
   }
@@ -2934,7 +3024,7 @@ static bool cache_thread()
 
   SYNOPSIS
     one_thread_per_connection_end()
-    thd		  Thread handler
+    thd		  Thread handler. This may be null if we run out of resources.
     put_in_cache  Store thread in cache, if there is room in it
                   Normally this is true in all cases except when we got
                   out of resources initializing the current thread
@@ -2951,14 +3041,18 @@ static bool cache_thread()
 bool one_thread_per_connection_end(THD *thd, bool put_in_cache)
 {
   DBUG_ENTER("one_thread_per_connection_end");
-  const bool wsrep_applier= IF_WSREP(thd->wsrep_applier, false);
 
-  unlink_thd(thd);
+  if (thd)
+  {
+    const bool wsrep_applier= IF_WSREP(thd->wsrep_applier, false);
 
-  if (!wsrep_applier && put_in_cache && cache_thread())
-    DBUG_RETURN(0);                             // Thread is reused
+    unlink_thd(thd);
+    if (!wsrep_applier && put_in_cache && cache_thread(thd))
+      DBUG_RETURN(0);                             // Thread is reused
+    delete thd;
+  }
 
-  signal_thd_deleted();
+  DBUG_PRINT("info", ("killing thread"));
   DBUG_LEAVE;                                   // Must match DBUG_ENTER()
 #if defined(HAVE_OPENSSL) && !defined(EMBEDDED_LIBRARY)
   ERR_remove_state(0);
@@ -3326,7 +3420,7 @@ static void start_signal_handler(void)
   (void) pthread_attr_setdetachstate(&thr_attr,PTHREAD_CREATE_DETACHED);
   (void) my_setstacksize(&thr_attr,my_thread_stack_size);
 
-  mysql_mutex_lock(&LOCK_thread_count);
+  mysql_mutex_lock(&LOCK_start_thread);
   if ((error= mysql_thread_create(key_thread_signal_hand,
                                   &signal_thread, &thr_attr, signal_hand, 0)))
   {
@@ -3334,8 +3428,8 @@ static void start_signal_handler(void)
 		    error,errno);
     exit(1);
   }
-  mysql_cond_wait(&COND_thread_count, &LOCK_thread_count);
-  mysql_mutex_unlock(&LOCK_thread_count);
+  mysql_cond_wait(&COND_start_thread, &LOCK_start_thread);
+  mysql_mutex_unlock(&LOCK_start_thread);
 
   (void) pthread_attr_destroy(&thr_attr);
   DBUG_VOID_RETURN;
@@ -3385,12 +3479,12 @@ pthread_handler_t signal_hand(void *arg __attribute__((unused)))
     signal to start_signal_handler that we are ready
     This works by waiting for start_signal_handler to free mutex,
     after which we signal it that we are ready.
-    At this pointer there is no other threads running, so there
+    At this point there is no other threads running, so there
     should not be any other mysql_cond_signal() calls.
   */
-  mysql_mutex_lock(&LOCK_thread_count);
-  mysql_mutex_unlock(&LOCK_thread_count);
-  mysql_cond_broadcast(&COND_thread_count);
+  mysql_mutex_lock(&LOCK_start_thread);
+  mysql_cond_broadcast(&COND_start_thread);
+  mysql_mutex_unlock(&LOCK_start_thread);
 
   (void) pthread_sigmask(SIG_BLOCK,&set,NULL);
   for (;;)
@@ -3691,6 +3785,7 @@ SHOW_VAR com_status_vars[]= {
   {"alter_server",         STMT_STATUS(SQLCOM_ALTER_SERVER)},
   {"alter_table",          STMT_STATUS(SQLCOM_ALTER_TABLE)},
   {"alter_tablespace",     STMT_STATUS(SQLCOM_ALTER_TABLESPACE)},
+  {"alter_user",           STMT_STATUS(SQLCOM_ALTER_USER)},
   {"analyze",              STMT_STATUS(SQLCOM_ANALYZE)},
   {"assign_to_keycache",   STMT_STATUS(SQLCOM_ASSIGN_TO_KEYCACHE)},
   {"begin",                STMT_STATUS(SQLCOM_BEGIN)},
@@ -3732,6 +3827,7 @@ SHOW_VAR com_status_vars[]= {
   {"drop_user",            STMT_STATUS(SQLCOM_DROP_USER)},
   {"drop_view",            STMT_STATUS(SQLCOM_DROP_VIEW)},
   {"empty_query",          STMT_STATUS(SQLCOM_EMPTY_QUERY)},
+  {"execute_immediate",    STMT_STATUS(SQLCOM_EXECUTE_IMMEDIATE)},
   {"execute_sql",          STMT_STATUS(SQLCOM_EXECUTE)},
   {"flush",                STMT_STATUS(SQLCOM_FLUSH)},
   {"get_diagnostics",      STMT_STATUS(SQLCOM_GET_DIAGNOSTICS)},
@@ -3747,6 +3843,7 @@ SHOW_VAR com_status_vars[]= {
   {"kill",                 STMT_STATUS(SQLCOM_KILL)},
   {"load",                 STMT_STATUS(SQLCOM_LOAD)},
   {"lock_tables",          STMT_STATUS(SQLCOM_LOCK_TABLES)},
+  {"multi",                COM_STATUS(com_multi)},
   {"optimize",             STMT_STATUS(SQLCOM_OPTIMIZE)},
   {"preload_keys",         STMT_STATUS(SQLCOM_PRELOAD_KEYS)},
   {"prepare_sql",          STMT_STATUS(SQLCOM_PREPARE)},
@@ -3780,6 +3877,7 @@ SHOW_VAR com_status_vars[]= {
   {"show_create_proc",     STMT_STATUS(SQLCOM_SHOW_CREATE_PROC)},
   {"show_create_table",    STMT_STATUS(SQLCOM_SHOW_CREATE)},
   {"show_create_trigger",  STMT_STATUS(SQLCOM_SHOW_CREATE_TRIGGER)},
+  {"show_create_user",     STMT_STATUS(SQLCOM_SHOW_CREATE_USER)},
   {"show_databases",       STMT_STATUS(SQLCOM_SHOW_DATABASES)},
   {"show_engine_logs",     STMT_STATUS(SQLCOM_SHOW_ENGINE_LOGS)},
   {"show_engine_mutex",    STMT_STATUS(SQLCOM_SHOW_ENGINE_MUTEX)},
@@ -3915,9 +4013,9 @@ void init_com_statement_info()
 extern "C" my_thread_id mariadb_dbug_id()
 {
   THD *thd;
-  if ((thd= current_thd))
+  if ((thd= current_thd) && thd->thread_dbug_id)
   {
-    return thd->thread_id;
+    return thd->thread_dbug_id;
   }
   return my_thread_dbug_id();
 }
@@ -3950,7 +4048,8 @@ static void my_malloc_size_cb_func(long long size, my_bool is_thread_specific)
                   thd->variables.max_mem_used);
       my_error(ER_OPTION_PREVENTS_STATEMENT, MYF(0), buf);
     }
-    DBUG_ASSERT((longlong) thd->status_var.local_memory_used >= 0);
+    DBUG_ASSERT((longlong) thd->status_var.local_memory_used >= 0 ||
+                !debug_assert_on_not_freed_memory);
   }
   else if (likely(thd))
   {
@@ -3959,11 +4058,10 @@ static void my_malloc_size_cb_func(long long size, my_bool is_thread_specific)
     thd->status_var.global_memory_used+= size;
   }
   else
-  {
     update_global_memory_status(size);
-  }
 }
 }
+
 
 /**
   Create a replication file name or base for file names.
@@ -4028,12 +4126,6 @@ static int init_common_variables()
   connection_errors_peer_addr= 0;
   my_decimal_set_zero(&decimal_zero); // set decimal_zero constant;
 
-  if (pthread_key_create(&THR_MALLOC,NULL))
-  {
-    sql_print_error("Can't create thread-keys");
-    return 1;
-  }
-
   init_libstrings();
   tzset();			// Set tzname
 
@@ -4042,7 +4134,7 @@ static int init_common_variables()
   sf_malloc_dbug_id= mariadb_dbug_id;
 #endif
 
-  max_system_variables.pseudo_thread_id= (ulong)~0;
+  max_system_variables.pseudo_thread_id= ~(my_thread_id) 0;
   server_start_time= flush_status_time= my_time(0);
   my_disable_copystat_in_redel= 1;
 
@@ -4189,16 +4281,28 @@ static int init_common_variables()
     of SQLCOM_ constants.
   */
   compile_time_assert(sizeof(com_status_vars)/sizeof(com_status_vars[0]) - 1 ==
-                     SQLCOM_END + 10);
+                     SQLCOM_END + 11);
 #endif
 
   if (get_options(&remaining_argc, &remaining_argv))
     return 1;
-  set_server_version();
+  if (IS_SYSVAR_AUTOSIZE(&server_version_ptr))
+    set_server_version(server_version, sizeof(server_version));
 
   if (!opt_abort)
-    sql_print_information("%s (mysqld %s) starting as process %lu ...",
-                          my_progname, server_version, (ulong) getpid());
+  {
+    if (IS_SYSVAR_AUTOSIZE(&server_version_ptr))
+      sql_print_information("%s (mysqld %s) starting as process %lu ...",
+                            my_progname, server_version, (ulong) getpid());
+    else
+    {
+      char real_server_version[SERVER_VERSION_LENGTH];
+      set_server_version(real_server_version, sizeof(real_server_version));
+      sql_print_information("%s (mysqld %s as %s) starting as process %lu ...",
+                            my_progname, real_server_version, server_version,
+                            (ulong) getpid());
+    }
+  }
 
 #ifndef EMBEDDED_LIBRARY
   if (opt_abort && !opt_verbose)
@@ -4276,7 +4380,7 @@ static int init_common_variables()
 #endif /* HAVE_SOLARIS_LARGE_PAGES */
 
 
-#if defined(HAVE_POOL_OF_THREADS) && !defined(_WIN32)
+#if defined(HAVE_POOL_OF_THREADS)
   if (IS_SYSVAR_AUTOSIZE(&threadpool_size))
     SYSVAR_AUTOSIZE(threadpool_size, my_getncpus());
 #endif
@@ -4370,8 +4474,6 @@ static int init_common_variables()
   mysql_library_init(unused,unused,unused); /* for replication */
   lex_init();
   if (item_create_init())
-    return 1;
-  if (item_window_function_create_init()) //@InfiniDB
     return 1;
   item_init();
   init_pcre();
@@ -4556,6 +4658,7 @@ static int init_thread_environment()
   DBUG_ENTER("init_thread_environment");
   mysql_mutex_init(key_LOCK_thread_count, &LOCK_thread_count, MY_MUTEX_INIT_FAST);
   mysql_mutex_init(key_LOCK_thread_cache, &LOCK_thread_cache, MY_MUTEX_INIT_FAST);
+  mysql_mutex_init(key_LOCK_start_thread, &LOCK_start_thread, MY_MUTEX_INIT_FAST);
   mysql_mutex_init(key_LOCK_status, &LOCK_status, MY_MUTEX_INIT_FAST);
   mysql_mutex_init(key_LOCK_show_status, &LOCK_show_status, MY_MUTEX_INIT_SLOW);
   mysql_mutex_init(key_LOCK_delayed_insert,
@@ -4618,6 +4721,7 @@ static int init_thread_environment()
   mysql_rwlock_init(key_rwlock_LOCK_grant, &LOCK_grant);
   mysql_cond_init(key_COND_thread_count, &COND_thread_count, NULL);
   mysql_cond_init(key_COND_thread_cache, &COND_thread_cache, NULL);
+  mysql_cond_init(key_COND_start_thread, &COND_start_thread, NULL);
   mysql_cond_init(key_COND_flush_thread_cache, &COND_flush_thread_cache, NULL);
 #ifdef HAVE_REPLICATION
   mysql_mutex_init(key_LOCK_rpl_status, &LOCK_rpl_status, MY_MUTEX_INIT_FAST);
@@ -4764,25 +4868,14 @@ static void end_ssl()
 /**
   Registers a file to be collected when Windows Error Reporting creates a crash 
   report.
-
-  @note only works on Vista and later, since WerRegisterFile() is not available
-  on earlier Windows.
 */
 #include <werapi.h>
 static void add_file_to_crash_report(char *file)
 {
-  /* Load WerRegisterFile function dynamically.*/
-  HRESULT (WINAPI *pWerRegisterFile)(PCWSTR, WER_REGISTER_FILE_TYPE, DWORD)
-    =(HRESULT (WINAPI *) (PCWSTR, WER_REGISTER_FILE_TYPE, DWORD))
-    GetProcAddress(GetModuleHandle("kernel32"),"WerRegisterFile");
-
-  if (pWerRegisterFile)
+  wchar_t wfile[MAX_PATH+1]= {0};
+  if (mbstowcs(wfile, file, MAX_PATH) != (size_t)-1)
   {
-    wchar_t wfile[MAX_PATH+1]= {0};
-    if (mbstowcs(wfile, file, MAX_PATH) != (size_t)-1)
-    {
-      pWerRegisterFile(wfile, WerRegFileTypeOther, WER_FILE_ANONYMOUS_DATA);
-    }
+    WerRegisterFile(wfile, WerRegFileTypeOther, WER_FILE_ANONYMOUS_DATA);
   }
 }
 #endif
@@ -4841,8 +4934,7 @@ static int init_server_components()
     all things are initialized so that unireg_abort() doesn't fail
   */
   mdl_init();
-  tdc_init();
-  if (hostname_cache_init())
+  if (tdc_init() || hostname_cache_init())
     unireg_abort(1);
 
   query_cache_set_min_res_unit(query_cache_min_res_unit);
@@ -4875,6 +4967,8 @@ static int init_server_components()
   wt_init();
 
   /* Setup logs */
+
+  setup_log_handling();
 
   /*
     Enable old-fashioned error log, except when the user has requested
@@ -5052,7 +5146,9 @@ static int init_server_components()
   /* It's now safe to use thread specific memory */
   mysqld_server_initialized= 1;
 
+#ifndef EMBEDDED_LIBRARY
   wsrep_thr_init();
+#endif
 
   if (WSREP_ON && !wsrep_recovery && !opt_abort) /* WSREP BEFORE SE */
   {
@@ -5156,6 +5252,17 @@ static int init_server_components()
     unireg_abort(1);
   }
   plugins_are_initialized= TRUE;  /* Don't separate from init function */
+
+#ifndef EMBEDDED_LIBRARY
+  {
+    if (Session_tracker::server_boot_verify(system_charset_info))
+    {
+      sql_print_error("The variable session_track_system_variables has "
+		      "invalid values.");
+      unireg_abort(1);
+    }
+  }
+#endif //EMBEDDED_LIBRARY
 
   /* we do want to exit if there are any other unknown options */
   if (remaining_argc > 1)
@@ -5398,7 +5505,7 @@ static void handle_connections_methods()
     unireg_abort(1);				// Will not return
   }
 
-  mysql_mutex_lock(&LOCK_thread_count);
+  mysql_mutex_lock(&LOCK_start_thread);
   mysql_cond_init(key_COND_handler_count, &COND_handler_count, NULL);
   handler_count=0;
   if (hPipe != INVALID_HANDLE_VALUE)
@@ -5441,17 +5548,17 @@ static void handle_connections_methods()
 #endif
 
   while (handler_count > 0)
-    mysql_cond_wait(&COND_handler_count, &LOCK_thread_count);
-  mysql_mutex_unlock(&LOCK_thread_count);
+    mysql_cond_wait(&COND_handler_count, &LOCK_start_thread);
+  mysql_mutex_unlock(&LOCK_start_thread);
   DBUG_VOID_RETURN;
 }
 
 void decrement_handler_count()
 {
-  mysql_mutex_lock(&LOCK_thread_count);
-  handler_count--;
-  mysql_cond_signal(&COND_handler_count);
-  mysql_mutex_unlock(&LOCK_thread_count);
+  mysql_mutex_lock(&LOCK_start_thread);
+  if (--handler_count == 0)
+    mysql_cond_signal(&COND_handler_count);
+  mysql_mutex_unlock(&LOCK_start_thread);
   my_thread_end();
 }
 #else
@@ -5707,6 +5814,9 @@ int mysqld_main(int argc, char **argv)
   if (my_setwd(mysql_real_data_home, opt_abort ? 0 : MYF(MY_WME)) && !opt_abort)
     unireg_abort(1);				/* purecov: inspected */
 
+  /* Atomic write initialization must be done as root */
+  my_init_atomic_write();
+
   if ((user_info= check_user(mysqld_user)))
   {
 #if defined(HAVE_MLOCKALL) && defined(MCL_CURRENT)
@@ -5719,17 +5829,6 @@ int mysqld_main(int argc, char **argv)
 
   if (WSREP_ON && wsrep_check_opts())
     global_system_variables.wsrep_on= 0;
-
-  if (opt_bin_log && !global_system_variables.server_id)
-  {
-    SYSVAR_AUTOSIZE(global_system_variables.server_id, ::server_id= 1);
-#ifdef EXTRA_DEBUG
-    sql_print_warning("You have enabled the binary log, but you haven't set "
-                      "server-id to a non-zero value: we force server id to 1; "
-                      "updates will be logged to the binary log, but "
-                      "connections from slaves will not be accepted.");
-#endif
-  }
 
   /* 
    The subsequent calls may take a long time : e.g. innodb log read.
@@ -5840,7 +5939,10 @@ int mysqld_main(int argc, char **argv)
         wsrep_SE_init_grab();
         wsrep_SE_init_done();
         /*! in case of SST wsrep waits for wsrep->sst_received */
-        wsrep_sst_continue();
+        if (wsrep_sst_continue())
+        {
+          WSREP_ERROR("Failed to signal the wsrep provider to continue.");
+        }
       }
       else
       {
@@ -5888,11 +5990,26 @@ int mysqld_main(int argc, char **argv)
   }
 
   disable_log_notes= 0; /* Startup done, now we can give notes again */
-  sql_print_information(ER_DEFAULT(ER_STARTUP),my_progname,server_version,
-                        ((mysql_socket_getfd(unix_sock) == INVALID_SOCKET) ?
-                         (char*) "" : mysqld_unix_port),
-                         mysqld_port,
-                         MYSQL_COMPILATION_COMMENT);
+
+  if (IS_SYSVAR_AUTOSIZE(&server_version_ptr))
+    sql_print_information(ER_DEFAULT(ER_STARTUP), my_progname, server_version,
+                          ((mysql_socket_getfd(unix_sock) == INVALID_SOCKET) ?
+                           (char*) "" : mysqld_unix_port),
+                          mysqld_port, MYSQL_COMPILATION_COMMENT);
+  else
+  {
+    char real_server_version[2 * SERVER_VERSION_LENGTH + 10];
+
+    set_server_version(real_server_version, sizeof(real_server_version));
+    strcat(real_server_version, "' as '");
+    strcat(real_server_version, server_version);
+
+    sql_print_information(ER_DEFAULT(ER_STARTUP), my_progname,
+                          real_server_version,
+                          ((mysql_socket_getfd(unix_sock) == INVALID_SOCKET) ?
+                           (char*) "" : mysqld_unix_port),
+                          mysqld_port, MYSQL_COMPILATION_COMMENT);
+  }
 
   // try to keep fd=0 busy
   if (!freopen(IF_WIN("NUL","/dev/null"), "r", stdin))
@@ -5924,18 +6041,10 @@ int mysqld_main(int argc, char **argv)
   DBUG_PRINT("quit",("Exiting main thread"));
 
 #ifndef __WIN__
-#ifdef EXTRA_DEBUG2
-  sql_print_error("Before Lock_thread_count");
-#endif
-  WSREP_DEBUG("Before Lock_thread_count");
-  mysql_mutex_lock(&LOCK_thread_count);
-  DBUG_PRINT("quit", ("Got thread_count mutex"));
+  mysql_mutex_lock(&LOCK_start_thread);
   select_thread_in_use=0;			// For close_connections
-  mysql_mutex_unlock(&LOCK_thread_count);
-  mysql_cond_broadcast(&COND_thread_count);
-#ifdef EXTRA_DEBUG2
-  sql_print_error("After lock_thread_count");
-#endif
+  mysql_cond_broadcast(&COND_start_thread);
+  mysql_mutex_unlock(&LOCK_start_thread);
 #endif /* __WIN__ */
 
 #ifdef HAVE_PSI_THREAD_INTERFACE
@@ -5961,6 +6070,9 @@ int mysqld_main(int argc, char **argv)
     if (hEventShutdown)
       CloseHandle(hEventShutdown);
   }
+#endif
+#if (defined(HAVE_OPENSSL) && !defined(HAVE_YASSL)) && !defined(EMBEDDED_LIBRARY)
+  ERR_remove_state(0);
 #endif
   mysqld_exit(0);
   return 0;
@@ -6185,14 +6297,15 @@ int mysqld_main(int argc, char **argv)
 
 /**
   Execute all commands from a file. Used by the mysql_install_db script to
-  create MySQL privilege tables without having to start a full MySQL server.
+  create MySQL privilege tables without having to start a full MySQL server
+  and by read_init_file() if mysqld was started with the option --init-file.
 */
 
 static void bootstrap(MYSQL_FILE *file)
 {
   DBUG_ENTER("bootstrap");
 
-  THD *thd= new THD;
+  THD *thd= new THD(next_thread_id());
 #ifdef WITH_WSREP
   thd->variables.wsrep_on= 0;
 #endif
@@ -6200,8 +6313,6 @@ static void bootstrap(MYSQL_FILE *file)
   my_net_init(&thd->net,(st_vio*) 0, (void*) 0, MYF(0));
   thd->max_client_packet_length= thd->net.max_packet;
   thd->security_ctx->master_access= ~(ulong)0;
-  thd->thread_id= thd->variables.pseudo_thread_id= thread_id++;
-  thread_count++;                        // Safe as only one thread running
   in_bootstrap= TRUE;
 
   bootstrap_file=file;
@@ -6220,10 +6331,7 @@ static void bootstrap(MYSQL_FILE *file)
   /* Wait for thread to die */
   mysql_mutex_lock(&LOCK_thread_count);
   while (in_bootstrap)
-  {
     mysql_cond_wait(&COND_thread_count, &LOCK_thread_count);
-    DBUG_PRINT("quit",("One thread died (count=%u)",thread_count));
-  }
   mysql_mutex_unlock(&LOCK_thread_count);
 #else
   thd->mysql= 0;
@@ -6253,7 +6361,7 @@ static bool read_init_file(char *file_name)
 */
 void inc_thread_created(void)
 {
-  thread_created++;
+  statistic_increment(thread_created, &LOCK_status);
 }
 
 #ifndef EMBEDDED_LIBRARY
@@ -6264,18 +6372,12 @@ void inc_thread_created(void)
    NOTES
      This is only used for debugging, when starting mysqld with
      --thread-handling=no-threads or --one-thread
-
-     When we enter this function, LOCK_thread_count is hold!
 */
 
-void handle_connection_in_main_thread(THD *thd)
+void handle_connection_in_main_thread(CONNECT *connect)
 {
-  mysql_mutex_assert_owner(&LOCK_thread_count);
-  thread_cache_size=0;			// Safety
-  threads.append(thd);
-  mysql_mutex_unlock(&LOCK_thread_count);
-  thd->start_utime= microsecond_interval_timer();
-  do_handle_one_connection(thd);
+  thread_cache_size= 0;			// Safety
+  do_handle_one_connection(connect);
 }
 
 
@@ -6283,10 +6385,11 @@ void handle_connection_in_main_thread(THD *thd)
   Scheduler that uses one thread per connection
 */
 
-void create_thread_to_handle_connection(THD *thd)
+void create_thread_to_handle_connection(CONNECT *connect)
 {
+  char error_message_buff[MYSQL_ERRMSG_SIZE];
+  int error;
   DBUG_ENTER("create_thread_to_handle_connection");
-  mysql_mutex_assert_owner(&LOCK_thread_count);
 
   /* Check if we can get thread from the cache */
   if (cached_thread_count > wake_thread)
@@ -6295,9 +6398,8 @@ void create_thread_to_handle_connection(THD *thd)
     /* Recheck condition when we have the lock */
     if (cached_thread_count > wake_thread)
     {
-      mysql_mutex_unlock(&LOCK_thread_count);
       /* Get thread from cache */
-      thread_cache.push_back(thd);
+      thread_cache.push_back(connect);
       wake_thread++;
       mysql_cond_signal(&COND_thread_cache);
       mysql_mutex_unlock(&LOCK_thread_cache);
@@ -6307,46 +6409,25 @@ void create_thread_to_handle_connection(THD *thd)
     mysql_mutex_unlock(&LOCK_thread_cache);
   }
 
-  char error_message_buff[MYSQL_ERRMSG_SIZE];
   /* Create new thread to handle connection */
-  int error;
-  thread_created++;
-  threads.append(thd);
-  DBUG_PRINT("info",(("creating thread %lu"), thd->thread_id));
-  thd->prior_thr_create_utime= microsecond_interval_timer();
+  inc_thread_created();
+  DBUG_PRINT("info",(("creating thread %lu"), (ulong) connect->thread_id));
+  connect->prior_thr_create_utime= microsecond_interval_timer();
+
   if ((error= mysql_thread_create(key_thread_one_connection,
-                                  &thd->real_id, &connection_attrib,
-                                  handle_one_connection,
-                                  (void*) thd)))
+                                  &connect->real_id, &connection_attrib,
+                                  handle_one_connection, (void*) connect)))
   {
     /* purecov: begin inspected */
-    DBUG_PRINT("error",
-               ("Can't create thread to handle request (error %d)",
+    DBUG_PRINT("error", ("Can't create thread to handle request (error %d)",
                 error));
-    thd->killed= KILL_CONNECTION;             // Safety
-    mysql_mutex_unlock(&LOCK_thread_count);
-
-    mysql_mutex_lock(&LOCK_connection_count);
-    (*thd->scheduler->connection_count)--;
-    mysql_mutex_unlock(&LOCK_connection_count);
-
-    statistic_increment(aborted_connects,&LOCK_status);
-    statistic_increment(connection_errors_internal, &LOCK_status);
-    /* Can't use my_error() since store_globals has not been called. */
     my_snprintf(error_message_buff, sizeof(error_message_buff),
-                ER_THD(thd, ER_CANT_CREATE_THREAD), error);
-    net_send_error(thd, ER_CANT_CREATE_THREAD, error_message_buff, NULL);
-    close_connection(thd, ER_OUT_OF_RESOURCES);
-
-    mysql_mutex_lock(&LOCK_thread_count);
-    thd->unlink();
-    mysql_mutex_unlock(&LOCK_thread_count);
-    delete thd;
-    thread_safe_decrement32(&thread_count);
-    return;
+                ER_DEFAULT(ER_CANT_CREATE_THREAD), error);
+    connect->close_with_error(ER_CANT_CREATE_THREAD, error_message_buff,
+                              ER_OUT_OF_RESOURCES);
+    DBUG_VOID_RETURN;
     /* purecov: end */
   }
-  mysql_mutex_unlock(&LOCK_thread_count);
   DBUG_PRINT("info",("Thread created"));
   DBUG_VOID_RETURN;
 }
@@ -6365,7 +6446,7 @@ void create_thread_to_handle_connection(THD *thd)
   @param[in,out] thd    Thread handle of future thread.
 */
 
-static void create_new_thread(THD *thd)
+static void create_new_thread(CONNECT *connect)
 {
   DBUG_ENTER("create_new_thread");
 
@@ -6376,38 +6457,34 @@ static void create_new_thread(THD *thd)
 
   mysql_mutex_lock(&LOCK_connection_count);
 
-  if (*thd->scheduler->connection_count >=
-      *thd->scheduler->max_connections + 1|| abort_loop)
+  if (*connect->scheduler->connection_count >=
+      *connect->scheduler->max_connections + 1|| abort_loop)
   {
-    mysql_mutex_unlock(&LOCK_connection_count);
-
     DBUG_PRINT("error",("Too many connections"));
-    close_connection(thd, ER_CON_COUNT_ERROR);
+
+    mysql_mutex_unlock(&LOCK_connection_count);
     statistic_increment(denied_connections, &LOCK_status);
-    delete thd;
     statistic_increment(connection_errors_max_connection, &LOCK_status);
+    connect->close_with_error(0, NullS, abort_loop ? ER_SERVER_SHUTDOWN : ER_CON_COUNT_ERROR);
     DBUG_VOID_RETURN;
   }
 
-  ++*thd->scheduler->connection_count;
+  ++*connect->scheduler->connection_count;
 
   if (connection_count + extra_connection_count > max_used_connections)
     max_used_connections= connection_count + extra_connection_count;
 
   mysql_mutex_unlock(&LOCK_connection_count);
 
-  thread_safe_increment32(&thread_count);
+  connect->thread_count_incremented= 1;
 
-  /* Start a new thread to handle connection. */
-  mysql_mutex_lock(&LOCK_thread_count);
   /*
     The initialization of thread_id is done in create_embedded_thd() for
     the embedded library.
     TODO: refactor this to avoid code duplication there
   */
-  thd->thread_id= thd->variables.pseudo_thread_id= thread_id++;
-
-  MYSQL_CALLBACK(thd->scheduler, add_connection, (thd));
+  connect->thread_id= next_thread_id();
+  connect->scheduler->add_connection(connect);
 
   DBUG_VOID_RETURN;
 }
@@ -6442,13 +6519,12 @@ void handle_connections_sockets()
   MYSQL_SOCKET sock= mysql_socket_invalid();
   MYSQL_SOCKET new_sock= mysql_socket_invalid();
   uint error_count=0;
-  THD *thd;
+  CONNECT *connect;
   struct sockaddr_storage cAddr;
   int ip_flags __attribute__((unused))=0;
   int socket_flags __attribute__((unused))= 0;
   int extra_ip_flags __attribute__((unused))=0;
   int flags=0,retval;
-  st_vio *vio_tmp;
   bool is_unix_sock;
 #ifdef HAVE_POLL
   int socket_count= 0;
@@ -6647,58 +6723,43 @@ void handle_connections_sockets()
     }
 #endif /* HAVE_LIBWRAP */
 
-    /*
-    ** Don't allow too many connections
-    */
+    DBUG_PRINT("info", ("Creating CONNECT for new connection"));
 
-    DBUG_PRINT("info", ("Creating THD for new connection"));
-    if (!(thd= new THD))
+    if ((connect= new CONNECT()))
     {
+      is_unix_sock= (mysql_socket_getfd(sock) ==
+                     mysql_socket_getfd(unix_sock));
+
+      if (!(connect->vio=
+            mysql_socket_vio_new(new_sock,
+                                 is_unix_sock ? VIO_TYPE_SOCKET :
+                                 VIO_TYPE_TCPIP,
+                                 is_unix_sock ? VIO_LOCALHOST: 0)))
+      {
+        delete connect;
+        connect= 0;                             // Error handling below
+      }
+    }
+
+    if (!connect)
+    {
+      /* Connect failure */
       (void) mysql_socket_shutdown(new_sock, SHUT_RDWR);
       (void) mysql_socket_close(new_sock);
-      statistic_increment(connection_errors_internal, &LOCK_status);
-      continue;
-    }
-    /* Set to get io buffers to be part of THD */
-    set_current_thd(thd);
-
-    is_unix_sock= (mysql_socket_getfd(sock) ==
-                   mysql_socket_getfd(unix_sock));
-
-    if (!(vio_tmp=
-          mysql_socket_vio_new(new_sock,
-                               is_unix_sock ? VIO_TYPE_SOCKET : VIO_TYPE_TCPIP,
-                               is_unix_sock ? VIO_LOCALHOST: 0)) ||
-	my_net_init(&thd->net, vio_tmp, thd, MYF(MY_THREAD_SPECIFIC)))
-    {
-      /*
-        Only delete the temporary vio if we didn't already attach it to the
-        NET object. The destructor in THD will delete any initialized net
-        structure.
-      */
-      if (vio_tmp && thd->net.vio != vio_tmp)
-        vio_delete(vio_tmp);
-      else
-      {
-	(void) mysql_socket_shutdown(new_sock, SHUT_RDWR);
-	(void) mysql_socket_close(new_sock);
-      }
-      delete thd;
+      statistic_increment(aborted_connects,&LOCK_status);
       statistic_increment(connection_errors_internal, &LOCK_status);
       continue;
     }
 
-    init_net_server_extension(thd);
     if (is_unix_sock)
-      thd->security_ctx->host=(char*) my_localhost;
+      connect->host= my_localhost;
 
     if (mysql_socket_getfd(sock) == mysql_socket_getfd(extra_ip_sock))
     {
-      thd->extra_port= 1;
-      thd->scheduler= extra_thread_scheduler;
+      connect->extra_port= 1;
+      connect->scheduler= extra_thread_scheduler;
     }
-    create_new_thread(thd);
-    set_current_thd(0);
+    create_new_thread(connect);
   }
   sd_notify(0, "STOPPING=1\n"
             "STATUS=Shutdown in progress");
@@ -6719,7 +6780,6 @@ pthread_handler_t handle_connections_namedpipes(void *arg)
 {
   HANDLE hConnectedPipe;
   OVERLAPPED connectOverlapped= {0};
-  THD *thd;
   my_thread_init();
   DBUG_ENTER("handle_connections_namedpipes");
   connectOverlapped.hEvent= CreateEvent(NULL, TRUE, FALSE, NULL);
@@ -6787,25 +6847,19 @@ pthread_handler_t handle_connections_namedpipes(void *arg)
       hPipe=hConnectedPipe;
       continue;					// We have to try again
     }
-
-    if (!(thd = new THD))
+    CONNECT *connect;
+    if (!(connect= new CONNECT) ||
+        !(connect->vio= vio_new_win32pipe(hConnectedPipe)))
     {
       DisconnectNamedPipe(hConnectedPipe);
       CloseHandle(hConnectedPipe);
+      delete connect;
+      statistic_increment(aborted_connects,&LOCK_status);
+      statistic_increment(connection_errors_internal, &LOCK_status);
       continue;
     }
-    set_current_thd(thd);
-    if (!(thd->net.vio= vio_new_win32pipe(hConnectedPipe)) ||
-	my_net_init(&thd->net, thd->net.vio, thd, MYF(MY_THREAD_SPECIFIC)))
-    {
-      close_connection(thd, ER_OUT_OF_RESOURCES);
-      delete thd;
-      continue;
-    }
-    /* Host is unknown */
-    thd->security_ctx->host= my_strdup(my_localhost, MYF(0));
-    create_new_thread(thd);
-    set_current_thd(0);
+    connect->host= my_localhost;
+    create_new_thread(connect);
   }
   CloseHandle(connectOverlapped.hEvent);
   DBUG_LEAVE;
@@ -6842,7 +6896,8 @@ pthread_handler_t handle_connections_shared_memory(void *arg)
   /*
      get enough space base-name + '_' + longest suffix we might ever send
    */
-  if (!(tmp= (char *)my_malloc(strlen(shared_memory_base_name) + 32L, MYF(MY_FAE))))
+  if (!(tmp= (char *)my_malloc(strlen(shared_memory_base_name) + 32L,
+                               MYF(MY_FAE))))
     goto error;
 
   if (my_security_attr_create(&sa_event, &errmsg,
@@ -6908,7 +6963,7 @@ pthread_handler_t handle_connections_shared_memory(void *arg)
     HANDLE event_server_wrote= 0;
     HANDLE event_server_read= 0;
     HANDLE event_conn_closed= 0;
-    THD *thd= 0;
+    CONNECT *connect= 0;
 
     p= int10_to_str(connect_number, connect_number_char, 10);
     /*
@@ -6970,8 +7025,13 @@ pthread_handler_t handle_connections_shared_memory(void *arg)
     }
     if (abort_loop)
       goto errorconn;
-    if (!(thd= new THD))
+
+    if (!(connect= new CONNECT))
+    {
+      errmsg= "Could not create CONNECT object";
       goto errorconn;
+    }
+
     /* Send number of connection to client */
     int4store(handle_connect_map, connect_number);
     if (!SetEvent(event_connect_answer))
@@ -6985,24 +7045,20 @@ pthread_handler_t handle_connections_shared_memory(void *arg)
       errmsg= "Could not set client to read mode";
       goto errorconn;
     }
-    set_current_thd(thd);
-    if (!(thd->net.vio= vio_new_win32shared_memory(handle_client_file_map,
+    if (!(connect->vio= vio_new_win32shared_memory(handle_client_file_map,
                                                    handle_client_map,
                                                    event_client_wrote,
                                                    event_client_read,
                                                    event_server_wrote,
                                                    event_server_read,
-                                                   event_conn_closed)) ||
-        my_net_init(&thd->net, thd->net.vio, thd, MYF(MY_THREAD_SPECIFIC)))
+                                                   event_conn_closed)))
     {
-      close_connection(thd, ER_OUT_OF_RESOURCES);
-      errmsg= 0;
+      errmsg= "Could not create VIO object";
       goto errorconn;
     }
-    thd->security_ctx->host= my_strdup(my_localhost, MYF(0)); /* Host is unknown */
-    create_new_thread(thd);
+    connect->host= my_localhost;                /* Host is unknown */
+    create_new_thread(connect);
     connect_number++;
-    set_current_thd(0);
     continue;
 
 errorconn:
@@ -7028,9 +7084,11 @@ errorconn:
       CloseHandle(event_client_read);
     if (event_conn_closed)
       CloseHandle(event_conn_closed);
-    delete thd;
+
+    delete connect;
+    statistic_increment(aborted_connects,&LOCK_status);
+    statistic_increment(connection_errors_internal, &LOCK_status);
   }
-  set_current_thd(0);
 
   /* End shared memory handling */
 error:
@@ -7142,7 +7200,7 @@ struct my_option my_long_options[]=
    GET_NO_ARG, NO_ARG, 0, 0, 0, 0, 0, 0},
   /*
     Because Sys_var_bit does not support command-line options, we need to
-    explicitely add one for --autocommit
+    explicitly add one for --autocommit
   */
   {"autocommit", 0, "Set default value for autocommit (0 or 1)",
    &opt_autocommit, &opt_autocommit, 0,
@@ -7163,8 +7221,8 @@ struct my_option my_long_options[]=
    "The value has to be a multiple of 256.",
    &opt_binlog_rows_event_max_size, &opt_binlog_rows_event_max_size,
    0, GET_ULONG, REQUIRED_ARG,
-   /* def_value */ 1024, /* min_value */  256, /* max_value */ ULONG_MAX, 
-   /* sub_size */     0, /* block_size */ 256, 
+   /* def_value */ 8192, /* min_value */  256, /* max_value */ ULONG_MAX,
+   /* sub_size */     0, /* block_size */ 256,
    /* app_type */ 0
   },
 #ifndef DISABLE_GRANT_OPTIONS
@@ -7251,6 +7309,13 @@ struct my_option my_long_options[]=
    &opt_sporadic_binlog_dump_fail, 0, GET_BOOL, NO_ARG, 0, 0, 0, 0, 0,
    0},
 #endif /* HAVE_REPLICATION */
+#ifndef DBUG_OFF
+  {"debug-assert-on-not-freed-memory", 0,
+   "Assert if we found problems with memory allocation",
+   &debug_assert_on_not_freed_memory,
+   &debug_assert_on_not_freed_memory, 0, GET_BOOL, NO_ARG, 1, 0, 0, 0, 0,
+   0},
+#endif /* DBUG_OFF */
   /* default-storage-engine should have "MyISAM" as def_value. Instead
      of initializing it here it is done in init_common_variables() due
      to a compiler bug in Sun Studio compiler. */
@@ -7292,6 +7357,10 @@ struct my_option my_long_options[]=
    0, GET_BOOL, NO_ARG, 0, 0, 0, 0, 0, 0},
   /* We must always support the next option to make scripts like mysqltest
      easier to do */
+  {"flashback", 0,
+   "Setup the server to use flashback. This enables binary log in row mode and will enable extra logging for DDL's needed by flashback feature",
+   &opt_support_flashback, &opt_support_flashback,
+   0, GET_BOOL, NO_ARG, 0, 0, 0, 0, 0, 0},
   {"gdb", 0,
    "Set up signals usable for debugging. Deprecated, use --debug-gdb instead.",
    &opt_debugging, &opt_debugging,
@@ -7534,8 +7603,8 @@ struct my_option my_long_options[]=
    0, 0, 0, 0, 0, 0},
   {"verbose", 'v', "Used with --help option for detailed help.",
    &opt_verbose, &opt_verbose, 0, GET_BOOL, NO_ARG, 0, 0, 0, 0, 0, 0},
-  {"version", 'V', "Output version information and exit.", 0, 0, 0, GET_NO_ARG,
-   NO_ARG, 0, 0, 0, 0, 0, 0},
+  {"version", 'V', "Output version information and exit.", 0, 0, 0, GET_STR,
+   OPT_ARG, 0, 0, 0, 0, 0, 0},
   {"plugin-load", OPT_PLUGIN_LOAD,
    "Semicolon-separated list of plugins to load, where each plugin is "
    "specified as ether a plugin_name=library_file pair or only a library_file. "
@@ -7578,11 +7647,9 @@ struct my_option my_long_options[]=
   MYSQL_TO_BE_IMPLEMENTED_OPTION("eq-range-index-dive-limit"),
   MYSQL_COMPATIBILITY_OPTION("server-id-bits"),
   MYSQL_TO_BE_IMPLEMENTED_OPTION("slave-rows-search-algorithms"), // HAVE_REPLICATION
-  MYSQL_COMPATIBILITY_OPTION("table-open-cache-instances"),
   MYSQL_TO_BE_IMPLEMENTED_OPTION("slave-allow-batching"),         // HAVE_REPLICATION
   MYSQL_COMPATIBILITY_OPTION("slave-checkpoint-period"),      // HAVE_REPLICATION
   MYSQL_COMPATIBILITY_OPTION("slave-checkpoint-group"),       // HAVE_REPLICATION
-  MYSQL_SUGGEST_ANALOG_OPTION("slave-parallel-workers", "--slave-parallel-threads"),       // HAVE_REPLICATION
   MYSQL_SUGGEST_ANALOG_OPTION("slave-pending-jobs-size-max", "--slave-parallel-max-queued"),  // HAVE_REPLICATION
   MYSQL_TO_BE_IMPLEMENTED_OPTION("disconnect-on-expired-password"),
   MYSQL_TO_BE_IMPLEMENTED_OPTION("sha256-password-private-key-path"), // HAVE_OPENSSL && !HAVE_YASSL
@@ -7599,7 +7666,6 @@ struct my_option my_long_options[]=
   /* The following options were added after 5.6.10 */
   MYSQL_TO_BE_IMPLEMENTED_OPTION("rpl-stop-slave-timeout"),
   MYSQL_TO_BE_IMPLEMENTED_OPTION("validate-user-plugins") // NO_EMBEDDED_ACCESS_CHECKS
-
 };
 
 static int show_queries(THD *thd, SHOW_VAR *var, char *buff,
@@ -8320,7 +8386,7 @@ SHOW_VAR status_vars[]= {
   {"Bytes_sent",               (char*) offsetof(STATUS_VAR, bytes_sent), SHOW_LONGLONG_STATUS},
   {"Com",                      (char*) com_status_vars, SHOW_ARRAY},
   {"Compression",              (char*) &show_net_compression, SHOW_SIMPLE_FUNC},
-  {"Connections",              (char*) &thread_id,              SHOW_LONG_NOFLUSH},
+  {"Connections",              (char*) &global_thread_id,         SHOW_LONG_NOFLUSH},
   {"Connection_errors_accept", (char*) &connection_errors_accept, SHOW_LONG},
   {"Connection_errors_internal", (char*) &connection_errors_internal, SHOW_LONG},
   {"Connection_errors_max_connections", (char*) &connection_errors_max_connection, SHOW_LONG},
@@ -8341,6 +8407,7 @@ SHOW_VAR status_vars[]= {
   {"Empty_queries",            (char*) offsetof(STATUS_VAR, empty_queries), SHOW_LONG_STATUS},
   {"Executed_events",          (char*) &executed_events, SHOW_LONG_NOFLUSH },
   {"Executed_triggers",        (char*) offsetof(STATUS_VAR, executed_triggers), SHOW_LONG_STATUS},
+  {"Feature_check_constraint", (char*) &feature_check_constraint, SHOW_LONG },
   {"Feature_delay_key_write",  (char*) &feature_files_opened_with_delayed_keys, SHOW_LONG },
   {"Feature_dynamic_columns",  (char*) offsetof(STATUS_VAR, feature_dynamic_columns), SHOW_LONG_STATUS},
   {"Feature_fulltext",         (char*) offsetof(STATUS_VAR, feature_fulltext), SHOW_LONG_STATUS},
@@ -8349,6 +8416,7 @@ SHOW_VAR status_vars[]= {
   {"Feature_subquery",         (char*) offsetof(STATUS_VAR, feature_subquery), SHOW_LONG_STATUS},
   {"Feature_timezone",         (char*) offsetof(STATUS_VAR, feature_timezone), SHOW_LONG_STATUS},
   {"Feature_trigger",          (char*) offsetof(STATUS_VAR, feature_trigger), SHOW_LONG_STATUS},
+  {"Feature_window_functions", (char*) offsetof(STATUS_VAR, feature_window_functions), SHOW_LONG_STATUS},
   {"Feature_xml",              (char*) offsetof(STATUS_VAR, feature_xml), SHOW_LONG_STATUS},
   {"Flush_commands",           (char*) &show_flush_commands, SHOW_SIMPLE_FUNC},
   {"Handler_commit",           (char*) offsetof(STATUS_VAR, ha_commit_count), SHOW_LONG_STATUS},
@@ -8517,7 +8585,8 @@ static bool add_many_options(DYNAMIC_ARRAY *options, my_option *list,
 #ifndef EMBEDDED_LIBRARY
 static void print_version(void)
 {
-  set_server_version();
+  if (IS_SYSVAR_AUTOSIZE(&server_version_ptr))
+    set_server_version(server_version, sizeof(server_version));
 
   printf("%s  Ver %s for %s on %s (%s)\n",my_progname,
 	 server_version,SYSTEM_TYPE,MACHINE_TYPE, MYSQL_COMPILATION_COMMENT);
@@ -8659,7 +8728,6 @@ static int mysql_init_variables(void)
   mqh_used= 0;
   kill_in_progress= 0;
   cleanup_done= 0;
-  server_id_supplied= 0;
   test_flags= select_errors= dropping_tables= ha_open_options=0;
   thread_count= thread_running= kill_cached_threads= wake_thread= 0;
   service_thread_count= 0;
@@ -8705,7 +8773,8 @@ static int mysql_init_variables(void)
   what_to_log= ~ (1L << (uint) COM_TIME);
   denied_connections= 0;
   executed_events= 0;
-  global_query_id= thread_id= 1L;
+  global_query_id= 1;
+  global_thread_id= 1;
   strnmov(server_version, MYSQL_SERVER_VERSION, sizeof(server_version)-1);
   threads.empty();
   thread_cache.empty();
@@ -8920,12 +8989,20 @@ mysqld_get_one_option(int optid, const struct my_option *opt, char *argument)
     binlog_format_used= true;
     break;
 #include <sslopt-case.h>
-#ifndef EMBEDDED_LIBRARY
   case 'V':
-    print_version();
-    opt_abort= 1;                    // Abort after parsing all options
-    break;
+    if (argument)
+    {
+      strmake(server_version, argument, sizeof(server_version) - 1);
+      set_sys_var_value_origin(&server_version_ptr, sys_var::CONFIG);
+    }
+#ifndef EMBEDDED_LIBRARY
+    else
+    {
+      print_version();
+      opt_abort= 1;                    // Abort after parsing all options
+    }
 #endif /*EMBEDDED_LIBRARY*/
+    break;
   case 'W':
     if (!argument)
       global_system_variables.log_warnings++;
@@ -9120,7 +9197,6 @@ mysqld_get_one_option(int optid, const struct my_option *opt, char *argument)
     opt_noacl=opt_bootstrap=1;
     break;
   case OPT_SERVER_ID:
-    server_id_supplied = 1;
     ::server_id= global_system_variables.server_id;
     break;
   case OPT_LOWER_CASE_TABLE_NAMES:
@@ -9366,7 +9442,8 @@ static int get_options(int *argc_ptr, char ***argv_ptr)
 
   /* prepare all_options array */
   my_init_dynamic_array(&all_options, sizeof(my_option),
-                        array_elements(my_long_options),
+                        array_elements(my_long_options) +
+                        sys_var_elements(),
                         array_elements(my_long_options)/4, MYF(0));
   add_many_options(&all_options, my_long_options, array_elements(my_long_options));
   sys_var_add_options(&all_options, 0);
@@ -9400,7 +9477,10 @@ static int get_options(int *argc_ptr, char ***argv_ptr)
   if ((opt_log_slow_admin_statements || opt_log_queries_not_using_indexes ||
        opt_log_slow_slave_statements) &&
       !global_system_variables.sql_log_slow)
-    sql_print_warning("options --log-slow-admin-statements, --log-queries-not-using-indexes and --log-slow-slave-statements have no effect if --log_slow_queries is not set");
+    sql_print_information("options --log-slow-admin-statements, "
+                          "--log-queries-not-using-indexes and "
+                          "--log-slow-slave-statements have no "
+                          "effect if --log-slow-queries is not set");
   if (global_system_variables.net_buffer_length > 
       global_system_variables.max_allowed_packet)
   {
@@ -9457,6 +9537,18 @@ static int get_options(int *argc_ptr, char ***argv_ptr)
     global_system_variables.option_bits|= OPTION_BIG_SELECTS;
   else
     global_system_variables.option_bits&= ~OPTION_BIG_SELECTS;
+
+  if (opt_support_flashback)
+  {
+    /* Force binary logging */
+    if (!opt_bin_logname)
+      opt_bin_logname= (char*) "";                  // Use default name
+    opt_bin_log= opt_bin_log_used= 1;
+
+    /* Force format to row */
+    binlog_format_used= 1;
+    global_system_variables.binlog_format= BINLOG_FORMAT_ROW;
+  }
 
   if (!opt_bootstrap && WSREP_PROVIDER_EXISTS &&
       global_system_variables.binlog_format != BINLOG_FORMAT_ROW)
@@ -9550,13 +9642,6 @@ static int get_options(int *argc_ptr, char ***argv_ptr)
   one_thread_scheduler(extra_thread_scheduler);
 #else
 
-#ifdef _WIN32
-  /* workaround: disable thread pool on XP */
-  if (GetProcAddress(GetModuleHandle("kernel32"),"CreateThreadpool") == 0 &&
-      thread_handling > SCHEDULER_NO_THREADS)
-    SYSVAR_AUTOSIZE(thread_handling, SCHEDULER_ONE_THREAD_PER_CONNECTION);
-#endif
-
   if (thread_handling <= SCHEDULER_ONE_THREAD_PER_CONNECTION)
     one_thread_per_connection_scheduler(thread_scheduler, &max_connections,
                                         &connection_count);
@@ -9626,22 +9711,17 @@ static int get_options(int *argc_ptr, char ***argv_ptr)
   (MYSQL_SERVER_SUFFIX is set by the compilation environment)
 */
 
-void set_server_version(void)
+void set_server_version(char *buf, size_t size)
 {
-  char *version_end= server_version+sizeof(server_version)-1;
-  char *end= strxnmov(server_version, sizeof(server_version)-1,
-                      MYSQL_SERVER_VERSION,
-                      MYSQL_SERVER_SUFFIX_STR, NullS);
-#ifdef EMBEDDED_LIBRARY
-  end= strnmov(end, "-embedded", (version_end-end));
-#endif
-#ifndef DBUG_OFF
-  if (!strstr(MYSQL_SERVER_SUFFIX_STR, "-debug"))
-    end= strnmov(end, "-debug", (version_end-end));
-#endif
-  if (opt_log || global_system_variables.sql_log_slow || opt_bin_log)
-    strnmov(end, "-log", (version_end-end)); // This may slow down system
-  *end= 0;
+  bool is_log= opt_log || global_system_variables.sql_log_slow || opt_bin_log;
+  bool is_debug= IF_DBUG(!strstr(MYSQL_SERVER_SUFFIX_STR, "-debug"), 0);
+  strxnmov(buf, size - 1,
+           MYSQL_SERVER_VERSION,
+           MYSQL_SERVER_SUFFIX_STR,
+           IF_EMBEDDED("-embedded", ""),
+           is_debug ? "-debug" : "",
+           is_log ? "-log" : "",
+           NullS);
 }
 
 
@@ -10242,7 +10322,8 @@ PSI_stage_info *all_server_stages[]=
   & stage_master_gtid_wait,
   & stage_gtid_wait_other_connection,
   & stage_slave_background_process_request,
-  & stage_slave_background_wait_request
+  & stage_slave_background_wait_request,
+  & stage_waiting_for_deadlock_kill
 };
 
 PSI_socket_key key_socket_tcpip, key_socket_unix, key_socket_client_connection;

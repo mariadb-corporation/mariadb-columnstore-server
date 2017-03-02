@@ -126,7 +126,7 @@ SELECT f1,f2,f3,f4,f5,f6,f7,f8,f9,
 
 --disable_query_log
 call mtr.add_suppression("Slave SQL.*Table definition on master and slave does not match: Column 2 type mismatch.* 1535");
-call mtr.add_suppression("Slave.*Can.t DROP .c7.; check that column.key exists.* error.* 1091");
+call mtr.add_suppression("Slave.*Can.t DROP COLUMN .c7.; check that .* exists.* error.* 1091");
 call mtr.add_suppression("Slave.*Unknown column .c7. in .t15.* error.* 1054");
 call mtr.add_suppression("Slave.*Key column .c6. doesn.t exist in table.* error.* 1072");
 call mtr.add_suppression("Slave SQL.*Column 2 of table .test.t1.. cannot be converted from type.* error.* 1677");
@@ -253,9 +253,9 @@ some var char';
    INSERT into t4 set f1=1, f2=1, f3=1, f4='first', f7='f7: medium size blob', f10='f10:
 binary data';
    INSERT into t31 set f1=1, f2=1, f3=1, f4='first';
-   INSERT into t31 set f1=1, f2=1, f3=2, f4='second',
+   insert ignore into t31 set f1=1, f2=1, f3=2, f4='second',
      f9=2.2,  f10='seven samurai', f28=222.222, f35='222';
-   INSERT into t31 values (1, 1, 3, 'third',
+   insert ignore into t31 values (1, 1, 3, 'third',
       /* f5  BIGINT,  */            333333333333333333333333,
       /* f6  BLOB,  */              '3333333333333333333333',
       /* f7  DATE,  */              '2007-07-18',
@@ -289,7 +289,7 @@ binary data';
       /*f35 VARCHAR(257),*/         'three times three'
       );
    
-   INSERT into t31 values (1, 1, 4, 'fourth',
+   insert ignore into t31 values (1, 1, 4, 'fourth',
        /* f5  BIGINT,  */            333333333333333333333333,
        /* f6  BLOB,  */              '3333333333333333333333',
        /* f7  DATE,  */              '2007-07-18',
@@ -408,7 +408,7 @@ connection master;
    update t31 set f5=555555555555555 where f3=6;
    update t31 set f2=2 where f3=2;
    update t31 set f1=NULL where f3=1;
-   update t31 set f3=NULL, f27=NULL, f35='f35 new value' where f3=3;
+   update ignore t31 set f3=NULL, f27=NULL, f35='f35 new value' where f3=3;
 
 --echo
 --echo ** Delete from Master **

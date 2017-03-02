@@ -422,7 +422,7 @@ ha_innobase::check_if_supported_inplace_alter(
 		const Field*		field = table->field[i];
 		const dict_col_t*	col = dict_table_get_nth_col(prebuilt->table, icol);
 		ulint		unsigned_flag;
-		if (!field->stored_in_db)
+		if (!field->stored_in_db())
 			continue;
 		icol++;
 
@@ -455,7 +455,7 @@ ha_innobase::check_if_supported_inplace_alter(
 			we must use "Copy" method. */
 			if (is_timestamp_type(def->sql_type)) {
 				if ((def->flags & NOT_NULL_FLAG) != 0 && // NOT NULL
-					(def->def != NULL || // constant default ?
+					(def->default_value != NULL || // constant default ?
 					 def->unireg_check != Field::NONE)) { // function default
 					ha_alter_info->unsupported_reason = innobase_get_err_msg(
 						ER_ALTER_OPERATION_NOT_SUPPORTED_REASON_NOT_NULL);
@@ -1131,9 +1131,9 @@ innobase_get_foreign_key_info(
 			    referenced_column_names, referenced_num_col)) {
 			mutex_exit(&dict_sys->mutex);
 			my_error(
-				ER_FK_DUP_NAME,
+				ER_DUP_CONSTRAINT_NAME,
 				MYF(0),
-				add_fk[num_fk]->id);
+                                "FOREIGN KEY", add_fk[num_fk]->id);
 			goto err_exit;
 		}
 
@@ -1283,7 +1283,7 @@ innobase_rec_to_mysql(
 		ulint		ilen;
 		const uchar*	ifield;
 
-                while (!((field= table->field[sql_idx])->stored_in_db))
+                while (!((field= table->field[sql_idx])->stored_in_db()))
                           sql_idx++;
 
 		field->reset();
@@ -1336,7 +1336,7 @@ innobase_fields_to_mysql(
 		Field*		field;
 		ulint		ipos;
 
-                while (!((field= table->field[sql_idx])->stored_in_db))
+                while (!((field= table->field[sql_idx])->stored_in_db()))
                           sql_idx++;
 
 		field->reset();
@@ -1385,7 +1385,7 @@ innobase_row_to_mysql(
 		Field*          field;
 		const dfield_t*	df	= dtuple_get_nth_field(row, i);
 
-                while (!((field= table->field[sql_idx])->stored_in_db))
+                while (!((field= table->field[sql_idx])->stored_in_db()))
                           sql_idx++;
 
 		field->reset();
@@ -1693,7 +1693,7 @@ innobase_fts_check_doc_id_col(
 	for (i = 0; i < n_cols; i++, sql_idx++) {
 		const Field*	field;
                 while (!((field= altered_table->field[sql_idx])->
-                                 stored_in_db))
+                                 stored_in_db()))
                           sql_idx++;
 		if (my_strcasecmp(system_charset_info,
 				  field->field_name, FTS_DOC_ID_COL_NAME)) {
@@ -2564,7 +2564,7 @@ innobase_build_col_map(
 	}
 
 	while (const Create_field* new_field = cf_it++) {
-                if (!new_field->stored_in_db)
+                if (!new_field->stored_in_db())
                 {
                   sql_idx++;
                   continue;
@@ -2573,7 +2573,7 @@ innobase_build_col_map(
                      table->field[old_i];
                      old_i++) {
 			const Field* field = table->field[old_i];
-                        if (!table->field[old_i]->stored_in_db)
+                        if (!table->field[old_i]->stored_in_db())
                           continue;
 			if (new_field->field == field) {
 				col_map[old_innobase_i] = i;
@@ -2953,7 +2953,7 @@ prepare_inplace_alter_table_dict(
 		for (uint i = 0; i < altered_table->s->stored_fields; i++, sql_idx++) {
 			const Field*	field;
                         while (!((field= altered_table->field[sql_idx])->
-                                 stored_in_db))
+                                 stored_in_db()))
                           sql_idx++;
 			ulint		is_unsigned;
 			ulint		field_type
@@ -3809,7 +3809,7 @@ check_if_ok_to_rename:
 			}
 
 			my_error(ER_CANT_DROP_FIELD_OR_KEY, MYF(0),
-				 drop->name);
+				 drop->type_name(), drop->name);
 			goto err_exit;
 found_fk:
 			continue;
@@ -4076,7 +4076,7 @@ func_exit:
 		ha_alter_info->alter_info->create_list);
 	while (const Create_field* new_field = cf_it++) {
 		const Field*	field;
-                if (!new_field->stored_in_db) {
+                if (!new_field->stored_in_db()) {
                   i++;
                   continue;
                 }
@@ -4085,7 +4085,7 @@ func_exit:
 		DBUG_ASSERT(innodb_idx < altered_table->s->stored_fields);
 
 		for (uint old_i = 0; table->field[old_i]; old_i++) {
-                        if (!table->field[old_i]->stored_in_db)
+                        if (!table->field[old_i]->stored_in_db())
                           continue;
 			if (new_field->field == table->field[old_i]) {
 				goto found_col;
@@ -4785,7 +4785,7 @@ innobase_rename_columns_try(
 		    & Alter_inplace_info::ALTER_COLUMN_NAME);
 
 	for (Field** fp = table->field; *fp; fp++, i++) {
-		if (!((*fp)->flags & FIELD_IS_RENAMED) || !((*fp)->stored_in_db)) {
+		if (!((*fp)->flags & FIELD_IS_RENAMED) || !((*fp)->stored_in_db())) {
 			continue;
 		}
 
