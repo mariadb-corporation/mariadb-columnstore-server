@@ -17,6 +17,7 @@
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
 #include "sql_error.h"
+#include "sql_class.h"   // @InfiniDB move here for Prepared_statement
 
 
 #define LAST_STMT_ID 0xFFFFFFFF
@@ -364,5 +365,119 @@ private:
   Ed_column *m_column_array;
   size_t m_column_count; /* TODO: change to point to metadata */
 };
+
+// InfiniDB: Move class Select_fetch_protocol_binary and Prepared_statement's definition from sql_parse.cc here
+class Select_fetch_protocol_binary: public select_send
+{
+  Protocol_binary protocol;
+public:
+  Select_fetch_protocol_binary(THD *thd);
+  virtual bool send_result_set_metadata(List<Item> &list, uint flags);
+  virtual int send_data(List<Item> &items);
+  virtual bool send_eof();
+#ifdef EMBEDDED_LIBRARY
+  void begin_dataset()
+  {
+    protocol.begin_dataset();
+  }
+#endif
+};
+
+/****************************************************************************/
+
+/**
+  Prepared_statement: a statement that can contain placeholders.
+*/
+
+class Prepared_statement: public Statement
+{
+public:
+  enum flag_values
+  {
+    IS_IN_USE= 1,
+    IS_SQL_PREPARE= 2
+  };
+
+  THD *thd;
+  Select_fetch_protocol_binary result;
+  Item_param **param_array;
+  Server_side_cursor *cursor;
+  uchar *packet;
+  uchar *packet_end;
+  ulong iterations;
+  uint param_count;
+  uint last_errno;
+  uint flags;
+  /*
+    The value of thd->select_number at the end of the PREPARE phase.
+
+    The issue is: each statement execution opens VIEWs, which may cause 
+    select_lex objects to be created, and select_number values to be assigned.
+
+    On the other hand, PREPARE assigns select_number values for triggers and
+    subqueries.
+
+    In order for select_number values from EXECUTE not to conflict with
+    select_number values from PREPARE, we keep the number and set it at each
+    execution.
+  */
+  uint select_number_after_prepare;
+  char last_error[MYSQL_ERRMSG_SIZE];
+  my_bool start_param;
+#ifndef EMBEDDED_LIBRARY
+  bool (*set_params)(Prepared_statement *st, uchar *data, uchar *data_end,
+                     uchar *read_pos, String *expanded_query);
+  bool (*set_bulk_params)(Prepared_statement *st,
+                          uchar **read_pos, uchar *data_end, bool reset);
+#else
+  bool (*set_params_data)(Prepared_statement *st, String *expanded_query);
+  /*TODO: add bulk support for builtin server */
+#endif
+  bool (*set_params_from_actual_params)(Prepared_statement *stmt,
+                                        List<Item> &list,
+                                        String *expanded_query);
+public:
+  Prepared_statement(THD *thd_arg);
+  virtual ~Prepared_statement();
+  void setup_set_params();
+  virtual Query_arena::Type type() const;
+  virtual void cleanup_stmt();
+  bool set_name(LEX_STRING *name);
+  inline void close_cursor();
+  inline bool is_in_use() { return flags & (uint) IS_IN_USE; }
+  inline bool is_sql_prepare() const { return flags & (uint) IS_SQL_PREPARE; }
+  void set_sql_prepare() { flags|= (uint) IS_SQL_PREPARE; }
+  bool prepare(const char *packet, uint packet_length);
+  bool execute_loop(String *expanded_query,
+                    bool open_cursor,
+                    uchar *packet_arg, uchar *packet_end_arg);
+  bool execute_bulk_loop(String *expanded_query,
+                         bool open_cursor,
+                         uchar *packet_arg, uchar *packet_end_arg,
+                         ulong iterations);
+  bool execute_server_runnable(Server_runnable *server_runnable);
+  my_bool set_bulk_parameters(bool reset);
+  ulong bulk_iterations();
+  /* Destroy this statement */
+  void deallocate();
+  bool execute_immediate(const char *query, uint query_length);
+  bool set_parameters(String *expanded_query,
+                      uchar *packet, uchar *packet_end);
+private:
+  /**
+    The memory root to allocate parsed tree elements (instances of Item,
+    SELECT_LEX and other classes).
+  */
+  MEM_ROOT main_mem_root;
+  sql_mode_t m_sql_mode;
+
+  bool set_db(const char *db, uint db_length);
+  bool execute(String *expanded_query, bool open_cursor);
+  void deallocate_immediate();
+  bool reprepare();
+  bool validate_metadata(Prepared_statement  *copy);
+  void swap_prepared_statement(Prepared_statement *copy);
+};
+
 
 #endif // SQL_PREPARE_H

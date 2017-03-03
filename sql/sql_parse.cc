@@ -126,6 +126,22 @@ static void wsrep_mysql_parse(THD *thd, char *rawbuf, uint length,
   @{
 */
 
+/**
+ * InfiniDB Functions
+ */
+// InfiniDB: vtable processing
+int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* statement = NULL);
+
+// InfiniDB: Execute a sql statement about a vtable
+int idb_parse_vtable(THD* thd, String& vquery, THD::infinidb_state vtable_state);
+
+// InfiniDB: for vtable parsing use. String in quotes is converted to upper case, all other chars are
+// converted to lower case.
+static void idb_to_lower(char* str);
+
+// InfiniDB replace \t, \n to space.
+static std::string idb_cleanQuery(char* str);
+
 /* Used in error handling only */
 #define SP_COM_STRING(LP) \
   ((LP)->sql_command == SQLCOM_CREATE_SPFUNCTION || \
@@ -7991,7 +8007,6 @@ bool add_to_list(THD *thd, SQL_I_List<ORDER> &list, Item *item,bool asc)
   order->used=0;
   order->counter_used= 0;
   order->fast_field_copier_setup= 0; 
-  order->fast_field_copier_setup= 0;
   list.link_in_list(order, &order->next);
   DBUG_RETURN(0);
 }
@@ -10134,7 +10149,7 @@ int idb_parse_vtable(THD* thd, String& vquery, THD::infinidb_state vtable_state)
 	#ifdef INFINIDB_DEBUG
 	printf("<<< Parse vtable: %s\n", vquery.c_ptr());
 	#endif
-	mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
+	mysql_parse(thd, thd->query(), thd->query_length(), &parser_state, false, false);
 	delete_explain_query(thd->lex);
 	close_thread_tables(thd);
 
@@ -10446,7 +10461,7 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 					}
 					delete_explain_query(thd->lex);
 					parser_state.reset(thd->query(), thd->query_length());
-					mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
+					mysql_parse(thd, thd->query(), thd->query_length(), &parser_state, false, false);
 					thd->infinidb_vtable.call_sp = false;
 					if (thd->infinidb_vtable.vtable_state == THD::INFINIDB_ERROR)
 					{
@@ -10461,7 +10476,7 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 		#endif
 							delete_explain_query(thd->lex);
 							parser_state.reset(thd->query(), thd->query_length());
-							mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
+							mysql_parse(thd, thd->query(), thd->query_length(), &parser_state, false, false);
 							thd->infinidb_vtable.vtable_state = THD::INFINIDB_INIT;
 						}
 						else
@@ -10722,7 +10737,6 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 						thd->infinidb_vtable.isInfiniDBDML = false;
 						thd->infinidb_vtable.hasInfiniDBTable = false;
 						DBUG_RETURN(-1);
-//						mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
 					}
 
 					// error out Calpont non-supported error
@@ -10742,7 +10756,7 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 	#endif
 							delete_explain_query(thd->lex);
 							parser_state.reset(thd->query(), thd->query_length());
-							mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
+							mysql_parse(thd, thd->query(), thd->query_length(), &parser_state, false, false);
 							thd->infinidb_vtable.vtable_state = THD::INFINIDB_INIT;
 						}
 						else
@@ -10772,7 +10786,7 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 							Parser_state parser_state;
 							parser_state.init(thd, thd->query(), thd->query_length());
 							delete_explain_query(thd->lex);
-							mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
+							mysql_parse(thd, thd->query(), thd->query_length(), &parser_state, false, false);
 						}
 						else
 						{
@@ -10784,7 +10798,7 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 							Parser_state parser_state;
 							parser_state.init(thd, thd->query(), thd->query_length());
 							delete_explain_query(thd->lex);
-							mysql_parse(thd, thd->query(), thd->query_length(), &parser_state);
+							mysql_parse(thd, thd->query(), thd->query_length(), &parser_state, false, false);
 						}
 					}
 				}

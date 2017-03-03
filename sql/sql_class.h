@@ -5403,7 +5403,7 @@ public:
   virtual void abort_result_set();
   void prepare_to_read_rows();
   // @InfiniDB add accessor
-  const uint get_num_of_tables() const {return num_of_tables;}
+  uint get_num_of_tables() const {return num_of_tables;}
 };
 
 
@@ -5811,110 +5811,6 @@ class Sql_mode_save
  private:
   THD *thd;
   sql_mode_t old_mode; // SQL mode saved at construction time.
-};
-
-// InfiniDB: Move class Select_fetch_protocol_binary and Prepared_statement's definition from sql_parse.cc here
-// These classes should be in sql_prepare.h, but because of dependencies, won't compile there.
-
-/**
-  A result class used to send cursor rows using the binary protocol.
-*/
-
-class Select_fetch_protocol_binary : public select_send
-{
-  Protocol_binary protocol;
-public:
-  Select_fetch_protocol_binary(THD *thd);
-  virtual bool send_result_set_metadata(List<Item> &list, uint flags);
-  virtual int send_data(List<Item> &items);
-  virtual bool send_eof();
-#ifdef EMBEDDED_LIBRARY
-  void begin_dataset()
-  {
-    protocol.begin_dataset();
-  }
-#endif
-};
-/****************************************************************************/
-
-/**
-  Prepared_statement: a statement that can contain placeholders.
-*/
-class Server_runnable;
-
-class Prepared_statement: public Statement
-{
-public:
-  enum flag_values
-  {
-    IS_IN_USE= 1,
-    IS_SQL_PREPARE= 2
-  };
-
-  THD *thd;
-  Select_fetch_protocol_binary result;
-  Item_param **param_array;
-  Server_side_cursor *cursor;
-  uint param_count;
-  uint last_errno;
-  uint flags;
-  /*
-    The value of thd->select_number at the end of the PREPARE phase.
-
-    The issue is: each statement execution opens VIEWs, which may cause 
-    select_lex objects to be created, and select_number values to be assigned.
-
-    On the other hand, PREPARE assigns select_number values for triggers and
-    subqueries.
-
-    In order for select_number values from EXECUTE not to conflict with
-    select_number values from PREPARE, we keep the number and set it at each
-    execution.
-  */
-  uint select_number_after_prepare;
-  char last_error[MYSQL_ERRMSG_SIZE];
-#ifndef EMBEDDED_LIBRARY
-  bool (*set_params)(Prepared_statement *st, uchar *data, uchar *data_end,
-                     uchar *read_pos, String *expanded_query);
-#else
-  bool (*set_params_data)(Prepared_statement *st, String *expanded_query);
-#endif
-  bool (*set_params_from_vars)(Prepared_statement *stmt,
-                               List<LEX_STRING>& varnames,
-                               String *expanded_query);
-public:
-  Prepared_statement(THD *thd_arg);
-  virtual ~Prepared_statement();
-  void setup_set_params();
-  virtual Query_arena::Type type() const;
-  virtual void cleanup_stmt();
-  bool set_name(LEX_STRING *name);
-  void close_cursor();
-  inline bool is_in_use() { return flags & (uint) IS_IN_USE; }
-  inline bool is_sql_prepare() const { return flags & (uint) IS_SQL_PREPARE; }
-  void set_sql_prepare() { flags|= (uint) IS_SQL_PREPARE; }
-  bool prepare(const char *packet, uint packet_length);
-  bool execute_loop(String *expanded_query,
-                    bool open_cursor,
-                    uchar *packet_arg, uchar *packet_end_arg);
-  bool execute_server_runnable(Server_runnable *server_runnable);
-  // InfiniDB: make set_parameters public
-  bool set_parameters(String *expanded_query,
-					  uchar *packet, uchar *packet_end);
-  /* Destroy this statement */
-  void deallocate();
-private:
-  /**
-    The memory root to allocate parsed tree elements (instances of Item,
-    SELECT_LEX and other classes).
-  */
-  MEM_ROOT main_mem_root;
-private:
-  bool set_db(const char *db, uint db_length);
-  bool execute(String *expanded_query, bool open_cursor);
-  bool reprepare();
-  bool validate_metadata(Prepared_statement  *copy);
-  void swap_prepared_statement(Prepared_statement *copy);
 };
 
 #endif /* MYSQL_SERVER */

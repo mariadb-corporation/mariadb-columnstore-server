@@ -2812,6 +2812,7 @@ class Item_param :public Item_basic_value,
       - Item_param::state changes to NO_VALUE
       - Item_param::fixed changes to false
   */
+public:
   enum enum_item_param_state
   {
     NO_VALUE, NULL_VALUE, INT_VALUE, REAL_VALUE,
@@ -2820,7 +2821,7 @@ class Item_param :public Item_basic_value,
   } state;
 
   enum Type item_type;
-
+private:
   void fix_type(Type type)
   {
     item_type= type;
