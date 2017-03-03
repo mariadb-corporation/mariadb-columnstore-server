@@ -1,5 +1,7 @@
 IF(RPM)
 
+SET(CMAKE_INSTALL_PREFIX "/usr/local/mariadb/columnstore/mysql")
+
 SET(CPACK_GENERATOR "RPM")
 SET(CPACK_RPM_PACKAGE_DEBUG 1)
 SET(CPACK_PACKAGING_INSTALL_PREFIX ${CMAKE_INSTALL_PREFIX})
@@ -27,6 +29,17 @@ SET(CPACK_COMPONENTS_ALL Server ManPagesServer IniFiles Server_Scripts
                          SupportFiles Development ManPagesDevelopment
                          ManPagesTest Readme ManPagesClient Test 
                          Common Client SharedLibraries ClientPlugins)
+
+## dhill
+SET(INFINIDB_RPM_PACKAGE_NAME "mariadb-columnstore")
+SET(INFINIDB_BIT "x86_64")
+
+IF (NOT CPACK_RPM_PACKAGE_VERSION)
+SET (CPACK_RPM_PACKAGE_VERSION ${PACKAGE_VERSION})
+ENDIF()
+IF (NOT CPACK_RPM_PACKAGE_RELEASE)
+SET (CPACK_RPM_PACKAGE_RELEASE ${PACKAGE_RELEASE})
+ENDIF()
 
 SET(CPACK_RPM_PACKAGE_NAME ${CPACK_PACKAGE_NAME})
 SET(CPACK_PACKAGE_FILE_NAME "${CPACK_RPM_PACKAGE_NAME}-${VERSION}-${RPM}-${CMAKE_SYSTEM_PROCESSOR}")
@@ -64,7 +77,7 @@ This product includes PHP software, freely available from
 
 SET(CPACK_RPM_SPEC_MORE_DEFINE "
 %define mysql_vendor ${CPACK_PACKAGE_VENDOR}
-%define mysqlversion ${MYSQL_NO_DASH_VERSION}
+%define mysqlversion ${COLUMNSTORE_NO_DASH_VERSION}
 %define mysqlbasedir ${CMAKE_INSTALL_PREFIX}
 %define mysqldatadir ${INSTALL_MYSQLDATADIR}
 %define mysqld_user  mysql
@@ -82,7 +95,7 @@ SET(CPACK_RPM_SPEC_MORE_DEFINE "${CPACK_RPM_SPEC_MORE_DEFINE}
 %define ignore \#
 ")
 
-SET(CPACK_RPM_PACKAGE_REQUIRES "MariaDB-common")
+SET(CPACK_RPM_PACKAGE_REQUIRES "mariadb-columnstore-common")
 
 SET(ignored
   "%ignore /etc"
@@ -103,15 +116,19 @@ SET(ignored
   "%ignore ${CMAKE_INSTALL_PREFIX}/share/man/man1*"
   "%ignore ${CMAKE_INSTALL_PREFIX}/share/man/man8*"
   "%ignore ${CMAKE_INSTALL_PREFIX}/share/pkgconfig"
+  "%ignore /usr"
+  "%ignore /usr/local"
+  "%ignore /usr/lib"
   )
 
 SET(CPACK_RPM_server_USER_FILELIST ${ignored} "%config(noreplace) ${INSTALL_SYSCONF2DIR}/*")
-SET(CPACK_RPM_common_USER_FILELIST ${ignored} "%config(noreplace) ${INSTALL_SYSCONFDIR}/my.cnf")
 SET(CPACK_RPM_shared_USER_FILELIST ${ignored} "%config(noreplace) ${INSTALL_SYSCONF2DIR}/*")
 SET(CPACK_RPM_client_USER_FILELIST ${ignored} "%config(noreplace) ${INSTALL_SYSCONF2DIR}/*")
 SET(CPACK_RPM_compat_USER_FILELIST ${ignored})
 SET(CPACK_RPM_devel_USER_FILELIST ${ignored})
 SET(CPACK_RPM_test_USER_FILELIST ${ignored})
+SET(CPACK_RPM_common_USER_FILELIST ${ignored})
+
 
 # "set/append array" - append a set of strings, separated by a space
 MACRO(SETA var)
@@ -152,7 +169,7 @@ SETA(CPACK_RPM_test_PACKAGE_PROVIDES
 
 SETA(CPACK_RPM_server_PACKAGE_REQUIRES
   "${CPACK_RPM_PACKAGE_REQUIRES}"
-  "MariaDB-client")
+  "mariadb-columnstore-client")
 
 IF(WITH_WSREP)
 SETA(CPACK_RPM_server_PACKAGE_REQUIRES
