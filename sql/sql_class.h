@@ -5404,6 +5404,7 @@ public:
   void prepare_to_read_rows();
   // @InfiniDB add accessor
   uint get_num_of_tables() const {return num_of_tables;}
+  TABLE_LIST* get_tables() {return delete_tables;} // InfiniDB to get the tables to be deleted from
 };
 
 
