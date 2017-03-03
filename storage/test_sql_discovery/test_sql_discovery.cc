@@ -22,7 +22,6 @@
   uses discovery via frm shipping.
 */
 
-#include <my_global.h>
 #include <mysql_version.h>
 #include <handler.h>
 #include <table.h>
