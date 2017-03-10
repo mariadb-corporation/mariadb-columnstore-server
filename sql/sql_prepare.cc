@@ -4095,6 +4095,7 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
 
   // InfiniDB
   TABLE_LIST* global_list = NULL;
+  TABLE_LIST* view_list = NULL;
   bool bHasInfiniDB = false;
   ulonglong old_optimizer_switch = thd->variables.optimizer_switch;
 
@@ -4180,6 +4181,29 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
 
   for (; global_list; global_list = global_list->next_global)
   {
+    // MCOL-618: derived and schema_table can have bad pointers to
+    // global_list->table and we don't want to worry about these types
+    // anyway.
+    if (global_list->derived || global_list->schema_table)
+      continue;
+    // MCOL-618: views also don't have a valid global_list->table pointer
+    // but the view's tables may be ColumnStore
+    if (global_list->view)
+    {
+      view_list = global_list->view->query_tables;
+      for (; view_list; view_list = view_list->next_global)
+      {
+        if (!(view_list->table && view_list->table->s && view_list->table->s->db_plugin))
+          continue;
+        if (view_list->table && view_list->table->isInfiniDB())
+        {
+          bHasInfiniDB = true;
+          break;
+        }
+      }
+      if (bHasInfiniDB)
+        break;
+    }
     //if (!global_list->table || !global_list->table->s->db_plugin)
     if (!(global_list->table && global_list->table->s && global_list->table->s->db_plugin))
       continue;
@@ -4188,23 +4212,7 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
     if (global_list->table && global_list->table->isInfiniDB())
     {
       bHasInfiniDB = true;
-      continue;
-    }
-#if (defined(_MSC_VER) && defined(_DEBUG)) || defined(SAFE_MUTEX)
-    else if (global_list->table &&
-             global_list->table->s &&
-             ((global_list->table->s->table_category == TABLE_CATEGORY_TEMPORARY) ||
-             (global_list->table->s->db_plugin &&
-             (strcmp((*global_list->table->s->db_plugin)->name.str, "MEMORY") == 0))))
-#else
-    else if (global_list->table &&
-             global_list->table->s &&
-             ((global_list->table->s->table_category == TABLE_CATEGORY_TEMPORARY) ||
-             (global_list->table->s->db_plugin &&
-             (strcmp(global_list->table->s->db_plugin->name.str, "MEMORY") == 0))))
-#endif
-    {
-      continue;
+      break;
     }
   }
 
@@ -4224,6 +4232,7 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
     }
     else
     {
+      delete_explain_query(thd->lex);
       thd->set_statement(&stmt_backup);
       return false;
     }
