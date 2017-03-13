@@ -3337,12 +3337,24 @@ bool JOIN::exec_infinidb()
       // @bug 1818. Make MySQL redo this query and return empty result set without going
       // to Calpont engine.
       thd->infinidb_vtable.vtable_state = THD::INFINIDB_REDO_QUERY;
+      // Merge with MariaDB 10.2 
+      if (result)
+      {
+        result->send_eof();
+      }
       DBUG_RETURN(TRUE);
     }
 
     // by pass MySQL union trips
     if (thd->infinidb_vtable.isUnion)
+    {
+      // Merge with MariaDB 10.2 
+      if (result)
+      {
+        result->send_eof();
+      }
       DBUG_RETURN(TRUE);
+    }
 
     //@todo special api to send plan
     TABLE_LIST* tl = tables_list;
@@ -3410,6 +3422,11 @@ bool JOIN::exec_infinidb()
         thd->get_stmt_da()->set_overwrite_status(true);
         push_warning(thd, Sql_condition::WARN_LEVEL_WARN, 9999, emsg);
       }
+      // Merge with MariaDB 10.2 
+      if (result)
+      {
+        result->send_eof();
+      }
       DBUG_RETURN(TRUE);
     }
 
@@ -3440,7 +3457,7 @@ bool JOIN::exec_infinidb()
       if (global_list->table && global_list->table->file)
         global_list->table->file->inited = handler::NONE;
     }
-
+    
     // @bug 2547
     if (zero_result_cause)
     {
@@ -3453,6 +3470,12 @@ bool JOIN::exec_infinidb()
           tl->table->file->inited = handler::NONE;
       }
     }
+    // Merge with MariaDB 10.2 
+    if (result)
+    {
+        result->send_eof();
+    }
+
     DBUG_RETURN(TRUE);
   }
 

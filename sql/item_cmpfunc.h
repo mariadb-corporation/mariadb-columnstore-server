@@ -1887,8 +1887,9 @@ class Item_func_like :public Item_bool_func2
 
   bool escape_used_in_parsing;
   bool use_sampling;
+public:
   bool negated;
-
+private:
   DTCollation cmp_collation;
   String cmp_value1, cmp_value2;
   bool with_sargable_pattern() const;
