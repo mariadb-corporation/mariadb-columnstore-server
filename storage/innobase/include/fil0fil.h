@@ -1,7 +1,7 @@
 /*****************************************************************************
 
-Copyright (c) 1995, 2016, Oracle and/or its affiliates.
-Copyright (c) 2013, 2017, MariaDB Corporation.
+Copyright (c) 1995, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2013, 2017, MariaDB Corporation. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -226,7 +226,9 @@ struct fil_node_t {
 	ibool		open;	/*!< TRUE if file open */
 	os_file_t	handle;	/*!< OS handle to the file, if file open */
 	os_event_t	sync_event;/*!< Condition event to group and
-				serialize calls to fsync */
+				serialize calls to fsync;
+				os_event_set() and os_event_reset()
+				are protected by fil_system_t::mutex */
 	ibool		is_raw_disk;/*!< TRUE if the 'file' is actually a raw
 				device or a raw disk partition */
 	ulint		size;	/*!< size of the file in database pages, 0 if
@@ -1288,16 +1290,10 @@ fil_space_get(
 	ulint	id);	/*!< in: space id */
 #endif /* !UNIV_INNOCHECKSUM */
 
-/****************************************************************//**
-Acquire fil_system mutex */
-void
-fil_system_enter(void);
-/*==================*/
-/****************************************************************//**
-Release fil_system mutex */
-void
-fil_system_exit(void);
-/*==================*/
+/** Acquire the fil_system mutex. */
+#define fil_system_enter()	mutex_enter(&fil_system->mutex)
+/** Release the fil_system mutex. */
+#define fil_system_exit()	mutex_exit(&fil_system->mutex)
 
 #ifndef UNIV_INNOCHECKSUM
 /*******************************************************************//**
