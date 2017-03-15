@@ -17,6 +17,8 @@
 
 call mtr.add_suppression("InnoDB: Page for tablespace .* ");
 call mtr.add_suppression("InnoDB: Invalid FSP_SPACE_FLAGS=");
+call mtr.add_suppression("InnoDB: Corruption: Block in space_id .* in file .* corrupted");
+call mtr.add_suppression("InnoDB: Based on page type .*");
 FLUSH TABLES;
 
 let MYSQLD_DATADIR =`SELECT @@datadir`;
@@ -25,7 +27,6 @@ let $pathfix=/: '.*test_wl5522.*t1.ibd'/: 'test_wl5522\\t1.ibd'/;
 let $strerrfix=/ (\(.+\))//;
 
 SET GLOBAL innodb_file_per_table = 1;
-SELECT @@innodb_file_per_table;
 
 DROP DATABASE IF EXISTS test_wl5522;
 CREATE DATABASE test_wl5522;
@@ -47,7 +48,6 @@ ALTER TABLE test_wl5522.t1 DISCARD TABLESPACE;
 --source include/wait_until_connected_again.inc
 --disable_reconnect
 
-SET SESSION debug_dbug="-d,ib_discard_before_commit_crash";
 DROP TABLE test_wl5522.t1;
 #### Before DISCARD commit crash
 
@@ -71,12 +71,10 @@ ALTER TABLE test_wl5522.t1 DISCARD TABLESPACE;
 --source include/wait_until_connected_again.inc
 --disable_reconnect
 
-SET SESSION debug_dbug="-d,ib_discard_after_commit_crash";
 DROP TABLE test_wl5522.t1;
 #### After DISCARD commit crash
 
 SET GLOBAL innodb_file_per_table = 1;
-SELECT @@innodb_file_per_table;
 
 # Create the table that we will use for crash recovery (during IMPORT)
 CREATE TABLE test_wl5522.t1 (c1 INT) ENGINE = Innodb;
@@ -125,7 +123,6 @@ ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 --source include/wait_until_connected_again.inc
 --disable_reconnect
 
-SET SESSION debug_dbug="-d,ib_import_before_commit_crash";
 #### Before commit crash
 
 # Check that the DD is consistent after recovery
@@ -158,7 +155,6 @@ EOF
 --source include/wait_until_connected_again.inc
 --disable_reconnect
 
-SET SESSION debug_dbug="-d,ib_import_before_checkpoint_crash";
 #### Before checkpoint crash
 
 # After the above test the results are non-deterministic, recreate the table
@@ -194,6 +190,7 @@ DROP TABLE test_wl5522.t1;
 CREATE TABLE test_wl5522.t1 (c1 INT) ENGINE = Innodb;
 INSERT INTO test_wl5522.t1 VALUES (1);
 
+SET @saved_debug_dbug = @@SESSION.debug_dbug;
 SET SESSION debug_dbug="+d,ib_export_io_write_failure_1";
 
 --replace_regex /, .*\).*t1.cfg/, Bad file descriptor) t1.cfg/
@@ -201,8 +198,7 @@ SET SESSION debug_dbug="+d,ib_export_io_write_failure_1";
 FLUSH TABLES test_wl5522.t1 FOR EXPORT;
 
 UNLOCK TABLES;
-
-SET SESSION debug_dbug="-d,ib_export_io_write_failure_1";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -218,7 +214,7 @@ FLUSH TABLES test_wl5522.t1 FOR EXPORT;
 
 UNLOCK TABLES;
 
-SET SESSION debug_dbug="-d,ib_export_io_write_failure_2";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -233,7 +229,7 @@ FLUSH TABLES test_wl5522.t1 FOR EXPORT;
 
 UNLOCK TABLES;
 
-SET SESSION debug_dbug="-d,ib_export_io_write_failure_3";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -248,7 +244,7 @@ FLUSH TABLES test_wl5522.t1 FOR EXPORT;
 
 UNLOCK TABLES;
 
-SET SESSION debug_dbug="-d,ib_export_io_write_failure_4";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -263,7 +259,7 @@ FLUSH TABLES test_wl5522.t1 FOR EXPORT;
 
 UNLOCK TABLES;
 
-SET SESSION debug_dbug="-d,ib_export_io_write_failure_5";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -279,7 +275,7 @@ FLUSH TABLES test_wl5522.t1 FOR EXPORT;
 
 UNLOCK TABLES;
 
-SET SESSION debug_dbug="-d,ib_export_io_write_failure_6";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -295,7 +291,7 @@ FLUSH TABLES test_wl5522.t1 FOR EXPORT;
 
 UNLOCK TABLES;
 
-SET SESSION debug_dbug="-d,ib_export_io_write_failure_7";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -311,7 +307,7 @@ FLUSH TABLES test_wl5522.t1 FOR EXPORT;
 
 UNLOCK TABLES;
 
-SET SESSION debug_dbug="-d,ib_export_io_write_failure_8";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -326,7 +322,7 @@ FLUSH TABLES test_wl5522.t1 FOR EXPORT;
 
 UNLOCK TABLES;
 
-SET SESSION debug_dbug="-d,ib_export_io_write_failure_9";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -342,7 +338,7 @@ FLUSH TABLES test_wl5522.t1 FOR EXPORT;
 
 UNLOCK TABLES;
 
-SET SESSION debug_dbug="-d,ib_export_io_write_failure_10";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -358,7 +354,7 @@ FLUSH TABLES test_wl5522.t1 FOR EXPORT;
 
 UNLOCK TABLES;
 
-SET SESSION debug_dbug="-d,ib_export_io_write_failure_11";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -374,7 +370,7 @@ FLUSH TABLES test_wl5522.t1 FOR EXPORT;
 
 UNLOCK TABLES;
 
-SET SESSION debug_dbug="-d,ib_export_io_write_failure_12";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -414,7 +410,7 @@ EOF
 --error ER_IO_READ_ERROR
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_io_read_error_1";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -438,7 +434,7 @@ EOF
 --error ER_IO_READ_ERROR
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_io_read_error_2";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -462,7 +458,7 @@ EOF
 --error ER_IO_READ_ERROR
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_io_read_error_3";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -486,7 +482,7 @@ EOF
 --error ER_IO_READ_ERROR
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_io_read_error_4";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -510,7 +506,7 @@ EOF
 --error ER_IO_READ_ERROR
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_io_read_error_5";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -534,7 +530,7 @@ EOF
 --error ER_IO_READ_ERROR
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_io_read_error_6";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -558,7 +554,7 @@ EOF
 --error ER_IO_READ_ERROR
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_io_read_error_7";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -582,7 +578,7 @@ EOF
 --error ER_IO_READ_ERROR
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_io_read_error_8";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -606,7 +602,7 @@ EOF
 --error ER_IO_READ_ERROR
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_io_read_error_9";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -631,7 +627,7 @@ EOF
 --error ER_IO_READ_ERROR
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_string_read_error";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -658,7 +654,7 @@ SET SESSION debug_dbug="+d,ib_import_OOM_1";
 --error ER_OUT_OF_RESOURCES 
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_OOM_1";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -690,7 +686,7 @@ SET SESSION debug_dbug="+d,ib_import_OOM_2";
 --error ER_OUT_OF_RESOURCES 
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_OOM_2";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -722,7 +718,7 @@ SET SESSION debug_dbug="+d,ib_import_OOM_4";
 --error ER_OUT_OF_RESOURCES 
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_OOM_4";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -754,7 +750,7 @@ SET SESSION debug_dbug="+d,ib_import_OOM_5";
 --error ER_OUT_OF_RESOURCES 
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_OOM_5";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -785,7 +781,7 @@ SET SESSION debug_dbug="+d,ib_import_OOM_6";
 --error ER_OUT_OF_RESOURCES 
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_OOM_6";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -815,7 +811,7 @@ SET SESSION debug_dbug="+d,ib_import_OOM_7";
 --error ER_OUT_OF_RESOURCES 
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_OOM_7";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -845,7 +841,7 @@ SET SESSION debug_dbug="+d,ib_import_OOM_8";
 --error ER_OUT_OF_RESOURCES 
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_OOM_8";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -875,7 +871,7 @@ SET SESSION debug_dbug="+d,ib_import_OOM_9";
 --error ER_OUT_OF_RESOURCES 
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_OOM_9";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -905,7 +901,7 @@ SET SESSION debug_dbug="+d,ib_import_OOM_10";
 --error ER_OUT_OF_RESOURCES 
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_OOM_10";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -937,7 +933,7 @@ SET SESSION debug_dbug="+d,ib_import_internal_error";
 --error ER_INTERNAL_ERROR
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_internal_error";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 # Restore files
 perl;
@@ -978,7 +974,7 @@ do "$ENV{MTR_SUITE_DIR}/include/innodb-util.pl";
 ib_restore_tablespaces("test_wl5522", "t1");
 EOF
 
-SET SESSION debug_dbug="-d,ib_import_reset_space_and_lsn_failure";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 # Test failure after attempting a tablespace open
 SET SESSION debug_dbug="+d,ib_import_open_tablespace_failure";
@@ -988,7 +984,7 @@ SET SESSION debug_dbug="+d,ib_import_open_tablespace_failure";
 --error ER_GET_ERRMSG
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_open_tablespace_failure";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 # Restore files
 perl;
@@ -1003,7 +999,7 @@ SET SESSION debug_dbug="+d,ib_import_check_bitmap_failure";
 --error ER_NOT_KEYFILE
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_check_bitmap_failure";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 # Restore files
 perl;
@@ -1017,7 +1013,7 @@ SET SESSION debug_dbug="+d,ib_import_cluster_root_adjust_failure";
 --error ER_NOT_KEYFILE
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_cluster_root_adjust_failure";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 # Restore files
 perl;
@@ -1031,7 +1027,7 @@ SET SESSION debug_dbug="+d,ib_import_cluster_failure";
 --error ER_NOT_KEYFILE
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_cluster_failure";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 # Restore files
 perl;
@@ -1045,7 +1041,7 @@ SET SESSION debug_dbug="+d,ib_import_sec_root_adjust_failure";
 --error ER_NOT_KEYFILE
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_sec_root_adjust_failure";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 # Restore files
 perl;
@@ -1059,7 +1055,7 @@ SET SESSION debug_dbug="+d,ib_import_set_max_rowid_failure";
 --error ER_NOT_KEYFILE
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_set_max_rowid_failure";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 # Left over from the failed IMPORT
 perl;
@@ -1242,7 +1238,7 @@ SET SESSION debug_dbug="+d,ib_import_trigger_corruption_1";
 --error ER_INTERNAL_ERROR
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_trigger_corruption_1";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -1273,7 +1269,7 @@ SET SESSION debug_dbug="+d,buf_page_is_corrupt_failure";
 --error ER_INTERNAL_ERROR
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,buf_page_is_corrupt_failure";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -1303,7 +1299,7 @@ SET SESSION debug_dbug="+d,ib_import_trigger_corruption_2";
 --error ER_INNODB_INDEX_CORRUPT
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_trigger_corruption_2";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -1333,7 +1329,7 @@ SET SESSION debug_dbug="+d,ib_import_trigger_corruption_3";
 --error ER_NOT_KEYFILE
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,ib_import_trigger_corruption_3";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -1353,7 +1349,7 @@ SET SESSION debug_dbug="+d,ib_import_create_index_failure_1";
 
 ALTER TABLE test_wl5522.t1 ADD INDEX idx(c1);
 
-SET SESSION debug_dbug="-d,ib_import_create_index_failure_1";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -1384,7 +1380,7 @@ SET SESSION debug_dbug="+d,fil_space_create_failure";
 --error ER_GET_ERRMSG
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,fil_space_create_failure";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -1415,7 +1411,7 @@ SET SESSION debug_dbug="+d,dict_tf_to_fsp_flags_failure";
 --error ER_GET_ERRMSG
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,dict_tf_to_fsp_flags_failure";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -1446,7 +1442,7 @@ SET SESSION debug_dbug="+d,fsp_flags_is_valid_failure";
 --error ER_INTERNAL_ERROR
 ALTER TABLE test_wl5522.t1 IMPORT TABLESPACE;
 
-SET SESSION debug_dbug="-d,fsp_flags_is_valid_failure";
+SET SESSION debug_dbug=@saved_debug_dbug;
 
 DROP TABLE test_wl5522.t1;
 
@@ -1495,4 +1491,3 @@ call mtr.add_suppression("while reading index meta-data, expected to read 44 byt
 --remove_file $MYSQLTEST_VARDIR/tmp/t1.ibd
 
 eval SET GLOBAL INNODB_FILE_PER_TABLE=$innodb_file_per_table;
-

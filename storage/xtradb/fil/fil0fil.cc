@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1995, 2016, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2013, 2017, MariaDB Corporation.
+Copyright (c) 2014, 2017, MariaDB Corporation. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -601,7 +601,6 @@ fil_node_open_file(
 	ibool		success;
 	byte*		buf2;
 	byte*		page;
-	ulint		page_size;
 
 	ut_ad(mutex_own(&(system->mutex)));
 	ut_a(node->n_pending == 0);
@@ -687,8 +686,6 @@ fil_node_open_file(
 			flags = cflags;
 		}
 
-		page_size = fsp_flags_get_page_size(flags);
-
 		if (UNIV_UNLIKELY(space_id != space->id)) {
 			ib_logf(IB_LOG_LEVEL_ERROR,
 				"tablespace id is " ULINTPF " in the data dictionary"
@@ -697,17 +694,10 @@ fil_node_open_file(
 			return(false);
 		}
 
-		if (size_bytes >= (1024*1024)) {
-			/* Truncate the size to whole extent size. */
-			size_bytes = ut_2pow_round(size_bytes, (1024*1024));
-		}
-
-		if (!fsp_flags_is_compressed(flags)) {
-			node->size = (ulint) (size_bytes / UNIV_PAGE_SIZE);
+		if (ulint zip_size = fsp_flags_get_zip_size(flags)) {
+			node->size = ulint(size_bytes / zip_size);
 		} else {
-			node->size = (ulint)
-				(size_bytes
-				 / fsp_flags_get_zip_size(flags));
+			node->size = ulint(size_bytes / UNIV_PAGE_SIZE);
 		}
 
 #ifdef UNIV_HOTBACKUP
@@ -1041,8 +1031,8 @@ fil_space_extend_must_retry(
 	we have set the node->being_extended flag. */
 	mutex_exit(&fil_system->mutex);
 
-	ulint	start_page_no		= space->size;
-	ulint	file_start_page_no	= start_page_no - node->size;
+	ulint		start_page_no		= space->size;
+	const ulint	file_start_page_no	= start_page_no - node->size;
 
 	/* Determine correct file block size */
 	if (node->file_block_size == 0) {
@@ -1052,64 +1042,126 @@ fil_space_extend_must_retry(
 	}
 
 	ulint	page_size	= fsp_flags_get_zip_size(space->flags);
-	ulint	pages_added	= 0;
-
 	if (!page_size) {
 		page_size = UNIV_PAGE_SIZE;
 	}
 
-#ifdef HAVE_POSIX_FALLOCATE
+#ifdef _WIN32
+	const ulint	io_completion_type = OS_FILE_READ;
+	/* Logically or physically extend the file with zero bytes,
+	depending on whether it is sparse. */
+
+	/* FIXME: Call DeviceIoControl(node->handle, FSCTL_SET_SPARSE, ...)
+	when opening a file when FSP_FLAGS_HAS_PAGE_COMPRESSION(). */
+	{
+		FILE_END_OF_FILE_INFO feof;
+		/* fil_read_first_page() expects UNIV_PAGE_SIZE bytes.
+		fil_node_open_file() expects at least 4 * UNIV_PAGE_SIZE bytes.
+		Do not shrink short ROW_FORMAT=COMPRESSED files. */
+		feof.EndOfFile.QuadPart = std::max(
+			os_offset_t(size - file_start_page_no) * page_size,
+			os_offset_t(FIL_IBD_FILE_INITIAL_SIZE
+				    * UNIV_PAGE_SIZE));
+		*success = SetFileInformationByHandle(node->handle,
+						      FileEndOfFileInfo,
+						      &feof, sizeof feof);
+		if (!*success) {
+			ib_logf(IB_LOG_LEVEL_ERROR, "extending file %s"
+				" from " INT64PF
+				" to " INT64PF " bytes failed with %u",
+				node->name,
+				os_offset_t(node->size) * page_size,
+				feof.EndOfFile.QuadPart, GetLastError());
+		} else {
+			start_page_no = size;
+		}
+	}
+#else
+	/* We will logically extend the file with ftruncate() if
+	page_compression is enabled, because the file is expected to
+	be sparse in that case. Make sure that ftruncate() can deal
+	with large files. */
+	const bool is_sparse	= sizeof(off_t) >= 8
+		&& FSP_FLAGS_HAS_PAGE_COMPRESSION(space->flags);
+
+# ifdef HAVE_POSIX_FALLOCATE
 	/* We must complete the I/O request after invoking
 	posix_fallocate() to avoid an assertion failure at shutdown.
 	Because no actual writes were dispatched, a read operation
 	will suffice. */
 	const ulint	io_completion_type = srv_use_posix_fallocate
-		? OS_FILE_READ : OS_FILE_WRITE;
+		|| is_sparse ? OS_FILE_READ : OS_FILE_WRITE;
 
-	if (srv_use_posix_fallocate) {
-		const os_offset_t start_offset	= static_cast<os_offset_t>(
-			start_page_no) * page_size;
-		const os_offset_t len		= static_cast<os_offset_t>(
-			pages_added) * page_size;
+	if (srv_use_posix_fallocate && !is_sparse) {
+		const os_offset_t	start_offset
+			= os_offset_t(start_page_no - file_start_page_no)
+			* page_size;
+		const ulint		n_pages = size - start_page_no;
+		const os_offset_t	len = os_offset_t(n_pages) * page_size;
 
-		*success = !posix_fallocate(node->handle, start_offset, len);
+		int err;
+		do {
+			err = posix_fallocate(node->handle, start_offset, len);
+		} while (err == EINTR
+			 && srv_shutdown_state == SRV_SHUTDOWN_NONE);
+
+		*success = !err;
 		if (!*success) {
-			ib_logf(IB_LOG_LEVEL_ERROR, "preallocating file "
-				"space for file \'%s\' failed.  Current size "
-				INT64PF ", desired size " INT64PF,
-				node->name, start_offset, len+start_offset);
-			os_file_handle_error_no_exit(
-				node->name, "posix_fallocate",
-				FALSE, __FILE__, __LINE__);
+			ib_logf(IB_LOG_LEVEL_ERROR, "extending file %s"
+				" from " INT64PF " to " INT64PF " bytes"
+				" failed with error %d",
+				node->name, start_offset, len + start_offset,
+				err);
 		}
 
 		DBUG_EXECUTE_IF("ib_os_aio_func_io_failure_28",
-				*success = FALSE; errno = 28;
+				*success = FALSE;
 				os_has_said_disk_full = TRUE;);
 
 		if (*success) {
 			os_has_said_disk_full = FALSE;
-		} else {
-			pages_added = 0;
+			start_page_no = size;
 		}
 	} else
-#else
-	const ulint io_completion_type = OS_FILE_WRITE;
-#endif
-	{
-		byte*	buf2;
-		byte*	buf;
-		ulint	buf_size;
-
+# else
+	const ulint io_completion_type = is_sparse
+		? OS_FILE_READ : OS_FILE_WRITE;
+# endif
+	if (is_sparse) {
+		/* fil_read_first_page() expects UNIV_PAGE_SIZE bytes.
+		fil_node_open_file() expects at least 4 * UNIV_PAGE_SIZE bytes.
+		Do not shrink short ROW_FORMAT=COMPRESSED files. */
+		off_t	s = std::max(off_t(size - file_start_page_no)
+				     * off_t(page_size),
+				     off_t(FIL_IBD_FILE_INITIAL_SIZE
+					   * UNIV_PAGE_SIZE));
+		*success = !ftruncate(node->handle, s);
+		if (!*success) {
+			ib_logf(IB_LOG_LEVEL_ERROR, "ftruncate of file %s"
+				" from " INT64PF " to " INT64PF " bytes"
+				" failed with error %d",
+				node->name,
+				os_offset_t(start_page_no - file_start_page_no)
+				* page_size, os_offset_t(s), errno);
+		} else {
+			start_page_no = size;
+		}
+	} else {
 		/* Extend at most 64 pages at a time */
-		buf_size = ut_min(64, size - start_page_no)
+		ulint	buf_size = ut_min(64, size - start_page_no)
 			* page_size;
-		buf2 = static_cast<byte*>(mem_alloc(buf_size + page_size));
-		buf = static_cast<byte*>(ut_align(buf2, page_size));
+		byte*	buf2 = static_cast<byte*>(
+			calloc(1, buf_size + page_size));
+		*success = buf2 != NULL;
+		if (!buf2) {
+			ib_logf(IB_LOG_LEVEL_ERROR, "Cannot allocate " ULINTPF
+				" bytes to extend file",
+				buf_size + page_size);
+		}
+		byte* const	buf = static_cast<byte*>(
+			ut_align(buf2, page_size));
 
-		memset(buf, 0, buf_size);
-
-		while (start_page_no < size) {
+		while (*success && start_page_no < size) {
 			ulint		n_pages
 				= ut_min(buf_size / page_size,
 					 size - start_page_no);
@@ -1118,50 +1170,40 @@ fil_space_extend_must_retry(
 				start_page_no - file_start_page_no)
 				* page_size;
 
-			const char* name = node->name == NULL
-				? space->name : node->name;
-
 			*success = os_aio(OS_FILE_WRITE, 0, OS_AIO_SYNC,
-					  name, node->handle, buf,
+					  node->name, node->handle, buf,
 					  offset, page_size * n_pages,
 					  page_size, node, NULL,
 					  space->id, NULL, 0);
 
 			DBUG_EXECUTE_IF("ib_os_aio_func_io_failure_28",
-					*success = FALSE; errno = 28;
+					*success = FALSE;
 					os_has_said_disk_full = TRUE;);
 
 			if (*success) {
 				os_has_said_disk_full = FALSE;
-			} else {
-				/* Let us measure the size of the file
-				to determine how much we were able to
-				extend it */
-				os_offset_t	size;
-
-				size = os_file_get_size(node->handle);
-				ut_a(size != (os_offset_t) -1);
-
-				n_pages = ((ulint) (size / page_size))
-					- node->size - pages_added;
-
-				pages_added += n_pages;
-				break;
 			}
+			/* Let us measure the size of the file
+			to determine how much we were able to
+			extend it */
+			os_offset_t	fsize = os_file_get_size(node->handle);
+			ut_a(fsize != os_offset_t(-1));
 
-			start_page_no += n_pages;
-			pages_added += n_pages;
+			start_page_no = ulint(fsize / page_size)
+				+ file_start_page_no;
 		}
 
-		mem_free(buf2);
+		free(buf2);
 	}
-
+#endif
 	mutex_enter(&fil_system->mutex);
 
 	ut_a(node->being_extended);
+	ut_a(start_page_no - file_start_page_no >= node->size);
 
-	space->size += pages_added;
-	node->size += pages_added;
+	ulint file_size = start_page_no - file_start_page_no;
+	space->size += file_size - node->size;
+	node->size = file_size;
 
 	fil_node_complete_io(node, fil_system, io_completion_type);
 
@@ -2309,7 +2351,7 @@ fil_check_first_page(const page_t* page, ulint space_id, ulint flags)
 	}
 
 	if (buf_page_is_corrupted(
-		    false, page, fsp_flags_get_zip_size(flags))) {
+			false, page, fsp_flags_get_zip_size(flags), NULL)) {
 		return("checksum mismatch");
 	}
 
@@ -3852,7 +3894,23 @@ fil_create_new_single_table_tablespace(
 		goto error_exit_3;
 	}
 
-	ret = os_file_set_size(path, file, size * UNIV_PAGE_SIZE);
+	{
+		/* fil_read_first_page() expects UNIV_PAGE_SIZE bytes.
+		fil_node_open_file() expects at least 4 * UNIV_PAGE_SIZE bytes.
+		Do not create too short ROW_FORMAT=COMPRESSED files. */
+		const ulint zip_size = fsp_flags_get_zip_size(flags);
+		const ulint page_size = zip_size ? zip_size : UNIV_PAGE_SIZE;
+		const os_offset_t fsize = std::max(
+			os_offset_t(size) * page_size,
+			os_offset_t(FIL_IBD_FILE_INITIAL_SIZE
+				    * UNIV_PAGE_SIZE));
+		/* ROW_FORMAT=COMPRESSED files never use page_compression
+		(are never sparse). */
+		ut_ad(!zip_size || !FSP_FLAGS_HAS_PAGE_COMPRESSION(flags));
+
+		ret = os_file_set_size(path, file, fsize,
+				       FSP_FLAGS_HAS_PAGE_COMPRESSION(flags));
+	}
 
 	if (!ret) {
 		err = DB_OUT_OF_FILE_SPACE;
@@ -3880,14 +3938,8 @@ fil_create_new_single_table_tablespace(
 	fsp_header_init_fields(page, space_id, flags);
 	mach_write_to_4(page + FIL_PAGE_ARCH_LOG_NO_OR_SPACE_ID, space_id);
 
-	if (!(fsp_flags_is_compressed(flags))) {
-		buf_flush_init_for_writing(page, NULL, 0);
-		ret = os_file_write(path, file, page, 0, UNIV_PAGE_SIZE);
-	} else {
+	if (const ulint zip_size = fsp_flags_get_zip_size(flags)) {
 		page_zip_des_t	page_zip;
-		ulint		zip_size;
-
-		zip_size = fsp_flags_get_zip_size(flags);
 
 		page_zip_set_size(&page_zip, zip_size);
 		page_zip.data = page + UNIV_PAGE_SIZE;
@@ -3898,6 +3950,9 @@ fil_create_new_single_table_tablespace(
 			page_zip.n_blobs = 0;
 		buf_flush_init_for_writing(page, &page_zip, 0);
 		ret = os_file_write(path, file, page_zip.data, 0, zip_size);
+	} else {
+		buf_flush_init_for_writing(page, NULL, 0);
+		ret = os_file_write(path, file, page, 0, UNIV_PAGE_SIZE);
 	}
 
 	ut_free(buf2);
@@ -4547,13 +4602,13 @@ fil_user_tablespace_find_space_id(
 			to UNIV_PAGE_SIZE. */
 			if (page_size == UNIV_PAGE_SIZE) {
 				uncompressed_ok = !buf_page_is_corrupted(
-					false, page, 0);
+					false, page, 0, NULL);
 			}
 
 			bool compressed_ok = false;
 			if (page_size <= UNIV_PAGE_SIZE_DEF) {
 				compressed_ok = !buf_page_is_corrupted(
-					false, page, page_size);
+					false, page, page_size, NULL);
 			}
 
 			if (uncompressed_ok || compressed_ok) {
@@ -7204,27 +7259,6 @@ fil_space_set_corrupt(
 
 	mutex_exit(&fil_system->mutex);
 }
-
-/****************************************************************//**
-Acquire fil_system mutex */
-void
-fil_system_enter(void)
-/*==================*/
-{
-	ut_ad(!mutex_own(&fil_system->mutex));
-	mutex_enter(&fil_system->mutex);
-}
-
-/****************************************************************//**
-Release fil_system mutex */
-void
-fil_system_exit(void)
-/*=================*/
-{
-	ut_ad(mutex_own(&fil_system->mutex));
-	mutex_exit(&fil_system->mutex);
-}
-
 
 /******************************************************************
 Get id of first tablespace or ULINT_UNDEFINED if none */

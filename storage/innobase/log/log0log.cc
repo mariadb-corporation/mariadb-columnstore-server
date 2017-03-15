@@ -2,7 +2,7 @@
 
 Copyright (c) 1995, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2009, Google Inc.
-Copyright (c) 2014, 2017, MariaDB Corporation. All Rights Reserved.
+Copyright (c) 2014, 2017, MariaDB Corporation.
 
 Portions of this file contain modifications contributed and copyrighted by
 Google, Inc. Those modifications are gratefully acknowledged and are described
@@ -38,6 +38,10 @@ Created 12/9/1995 Heikki Tuuri
 #endif
 
 #ifndef UNIV_HOTBACKUP
+#if MYSQL_VERSION_ID < 100200
+# include <my_systemd.h> /* sd_notifyf() */
+#endif
+
 #include "mem0mem.h"
 #include "buf0buf.h"
 #include "buf0flu.h"
@@ -1470,17 +1474,7 @@ log_write_up_to(
 	}
 
 loop:
-#ifdef UNIV_DEBUG
-	loop_count++;
-
-	ut_ad(loop_count < 5);
-
-# if 0
-	if (loop_count > 2) {
-		fprintf(stderr, "Log loop count %lu\n", loop_count);
-	}
-# endif
-#endif
+	ut_ad(++loop_count < 100);
 
 	mutex_enter(&(log_sys->mutex));
 	ut_ad(!recv_no_log_write);
@@ -1766,7 +1760,7 @@ log_preflush_pool_modified_pages(
 		and we could not make a new checkpoint on the basis of the
 		info on the buffer pool only. */
 
-		recv_apply_hashed_log_recs(TRUE);
+		recv_apply_hashed_log_recs(true);
 	}
 
 	success = buf_flush_list(ULINT_MAX, new_oldest, &n_pages);
@@ -2109,7 +2103,7 @@ log_checkpoint(
 	ut_ad(!srv_read_only_mode);
 
 	if (recv_recovery_is_on()) {
-		recv_apply_hashed_log_recs(TRUE);
+		recv_apply_hashed_log_recs(true);
 	}
 
 	if (srv_unix_file_flush_method != SRV_UNIX_NOSYNC) {
@@ -2383,6 +2377,13 @@ loop:
 
 	start_lsn += len;
 	buf += len;
+
+	if (recv_sys->report(ut_time())) {
+		ib_logf(IB_LOG_LEVEL_INFO, "Read redo log up to LSN=" LSN_PF,
+			start_lsn);
+		sd_notifyf(0, "STATUS=Read redo log up to LSN=" LSN_PF,
+			   start_lsn);
+	}
 
 	if (start_lsn != end_lsn) {
 
@@ -3246,7 +3247,6 @@ logs_empty_and_mark_files_at_shutdown(void)
 	lsn_t			lsn;
 	ulint			arch_log_no;
 	ulint			count = 0;
-	ulint			total_trx;
 	ulint			pending_io;
 	ibool			server_busy;
 
@@ -3279,10 +3279,9 @@ loop:
 	shutdown, because the InnoDB layer may have committed or
 	prepared transactions and we don't want to lose them. */
 
-	total_trx = trx_sys_any_active_transactions();
-
-	if (total_trx > 0) {
-
+	if (ulint total_trx = srv_was_started && !srv_read_only_mode
+	    && srv_force_recovery < SRV_FORCE_NO_TRX_UNDO
+	    ? trx_sys_any_active_transactions() : 0) {
 		if (srv_print_verbose_log && count > 600) {
 			ib_logf(IB_LOG_LEVEL_INFO,
 				"Waiting for %lu active transactions to finish",
