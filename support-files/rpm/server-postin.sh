@@ -75,10 +75,6 @@ SETARGETDIR=/etc/selinux/targeted/src/policy
 SEDOMPROG=$SETARGETDIR/domains/program
 SECONPROG=$SETARGETDIR/file_contexts/program
 
-if [ -x /usr/sbin/semodule ] ; then
-  /usr/sbin/semodule -i /usr/share/mysql/policy/selinux/mariadb.pp
-fi
-
 if [ -x sbin/restorecon ] ; then
 	sbin/restorecon -R /usr/local/mariadb/columnstore/mysql
 fi
