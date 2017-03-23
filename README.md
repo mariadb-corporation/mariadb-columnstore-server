@@ -1,6 +1,6 @@
 #MariaDB ColumnStore Server (version 1.0)
-This is the server part of MariaDB ColumnStore 1.0.7.
-MariaDB ColumnStore 1.0.7 is the development version of MariaDB ColumnStore. 
+This is the server part of MariaDB ColumnStore 1.0.8.
+MariaDB ColumnStore 1.0.8 is the development version of MariaDB ColumnStore. 
 It is built by porting InfiniDB 4.6.7 on MariaDB 10.1.22 and adding entirely 
 new features not found anywhere else.
 
@@ -10,9 +10,9 @@ MariaDB ColumnStore also requires the matching engine version. This can be found
 Always match the server engine / git branch with the engine git branch.
 
 ##GA release notice
-MariaDB ColumnStore 1.0.7 is an GA release.
+MariaDB ColumnStore 1.0.8 is an GA release.
 
-Currently building has only been certified on CentOS 6 and 7, Ubuntu 16.04, and Debain 8.. 
+Currently building has only been certified on CentOS 6 and 7, Ubuntu 16.04, Debain 8, and Suse 12.. 
 Building on other platforms will be certified in a later release.
 
 ##Issue tracking
@@ -98,6 +98,15 @@ These packages need to be installed along with the group development packages:
 ```bash
 apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev libkrb5-dev flex
 ```
+### For Suse 12
+
+These packages need to be install along with the group development packages:
+
+```bash
+zypper groupinstall "Development Tools"
+zypper install bison ncurses-devel readline-devel perl-devel openssl-devel cmake libxml2-devel
+```
+
 
 ##Building master branch
 The current master branch is the released version.
@@ -183,6 +192,7 @@ To develop a new branch/feature/pull request
   * MariaDB ColumnStore team will evaluate the changes and may request further development or changes before merge 
 
 ##Run dependencies
+
 ## For CentOS
 
 For CentOS 6 follow the install procedure for boost from the build Dependecy section above, with CentOS 7 you can just do:
@@ -212,6 +222,14 @@ These packages need to be installed:
 ```bash
 apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync
 ```
+## For Suse 12
+
+These packages need to be installed:
+
+```bash
+yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio rsync boost
+```
+
 
 ##MariaDB ColumnStore utilizes the System Logging for logging purposes
 So you will want to make sure that one of these system logging packages is installed:
