@@ -253,7 +253,7 @@ apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libre
 These packages need to be installed:
 
 ```bash
-yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio rsync boost snappy
+zypper install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio rsync boost snappy
 ```
 
 
