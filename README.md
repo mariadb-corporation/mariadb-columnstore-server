@@ -52,8 +52,15 @@ or
 apt-get install libboost-dev-all
 ```
 
-For CentOS 6, you will need to install the boost source of 1.55 and build it to generate the required libraries.
-So that means both the build and the install machines require this.
+For CentOS 6, you can either download and install the MariaDB Columnstore Centos 6 boost library package or install the boost source of 1.55 and build it to generate the required libraries. That means both the build and the install machines require this.
+
+Downloadng and installing the MariaDB Columnstore Centos 6 boost library package is documented here:
+
+https://mariadb.com/kb/en/mariadb/preparing-for-columnstore-installation/#boost-libraries
+
+Downloading and build the boost libraries:
+
+
 
 NOTE: This means that the "Development Tools" group install be done prior to this.
 
