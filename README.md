@@ -236,7 +236,7 @@ yum install boost
 In addition these packages need to be install:
 
 ```bash
-yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio rsync snappy
+yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio rsync snappy net-tools
 ```
 
 ## For Ubuntu 16
@@ -244,7 +244,7 @@ yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio rs
 These packages need to be installed:
 
 ```bash
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1 net-tools
 ```
 
 ## For Debian 8
@@ -252,14 +252,14 @@ apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libre
 These packages need to be installed:
 
 ```bash
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1 net-tools
 ```
 ## For SUSE 12
 
 These packages need to be installed:
 
 ```bash
-zypper install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio rsync boost snappy
+zypper install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio rsync boost snappy net-tools
 ```
 
 ##MariaDB ColumnStore utilizes the System Logging for logging purposes
