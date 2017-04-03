@@ -4216,7 +4216,7 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
     }
   }
 
-  if (bHasInfiniDB && thd->get_command() == COM_STMT_EXECUTE)
+  if ((bHasInfiniDB && thd->get_command() == COM_STMT_EXECUTE) || (thd->lex->sql_command == SQLCOM_CALL))
   {
     // @bug5298. disable re-prepare observer for infinidb query
     thd->m_reprepare_observer = NULL;
