@@ -3404,6 +3404,11 @@ bool JOIN::exec_infinidb()
     if (!hasCalpont)
     {
       thd->infinidb_vtable.vtable_state = THD::INFINIDB_REDO_QUERY;
+      // Merge with MariaDB 10.2 
+      if (result)
+      {
+        result->send_eof();
+      }
       DBUG_RETURN(TRUE);
     }
     // @InfiniDB. Cross engine support
