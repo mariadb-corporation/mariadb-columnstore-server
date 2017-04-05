@@ -259,7 +259,7 @@ apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libre
 These packages need to be installed:
 
 ```bash
-zypper install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio rsync boost snappy net-tools
+zypper install expect perl perl-DBI openssl file sudo libaio1 rsync boost-devel net-tools libsnappy1
 ```
 
 ##MariaDB ColumnStore utilizes the System Logging for logging purposes
