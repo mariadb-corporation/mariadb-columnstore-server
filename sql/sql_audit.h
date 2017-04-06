@@ -136,7 +136,14 @@ void mysql_audit_general(THD *thd, uint event_subtype,
 
     if (thd)
     {
-      query= thd->query_string;
+	  if (thd->infinidb_vtable.vtable_state != THD::INFINIDB_DISABLE_VTABLE)
+	  {
+		  query= CSET_STRING(thd->infinidb_vtable.original_query.c_ptr(), thd->infinidb_vtable.original_query.length(), thd->query_charset());
+	  }
+	  else
+	  {
+		  query= thd->query_string;
+	  }
       user= user_buff;
       userlen= make_user_name(thd, user_buff);
       rows= thd->get_stmt_da()->current_row_for_warning();
