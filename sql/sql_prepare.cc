@@ -4502,10 +4502,7 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
   // @bug4833. the state checking will be done inside idb_vtable_process() function
   // check infinidb table
   // @bug 2976. Check global tables for IDB table. If no IDB tables involved, redo this query with normal path.
-  //TABLE_LIST* global_list = thd->lex->query_tables;
-  global_list = thd->lex->query_tables;
-
-  for (; global_list; global_list = global_list->next_global)
+  for (global_list = thd->lex->query_tables; global_list; global_list = global_list->next_global)
   {
     //if (!global_list->table || !global_list->table->s->db_plugin)
     if (!(global_list->table && global_list->table->s && global_list->table->s->db_plugin))
@@ -4514,17 +4511,7 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
     if (global_list->table && global_list->table->isInfiniDB())
     {
       bHasInfiniDB = true;
-      continue;
-    }
-    //Windows never has SAFE_MUTEX defined...
-    if ((global_list->table->s->table_category == TABLE_CATEGORY_TEMPORARY) ||
-#if (defined(_MSC_VER) && defined(_DEBUG)) || defined(SAFE_MUTEX)
-        (strcmp((*global_list->table->s->db_plugin)->name.str, "MEMORY") == 0))
-#else
-        (strcmp(global_list->table->s->db_plugin->name.str, "MEMORY") == 0))))
-#endif
-    {
-      continue;
+      break;
     }
   }
 
