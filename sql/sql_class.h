@@ -2922,19 +2922,27 @@ public:
 	bool isInfiniDBDML; // default false
   	bool hasInfiniDBTable; // default false
 	bool isNewQuery;
-	INFINIDB_VTABLE() : autoswitch(false),
-		                has_order_by(false),
-		                mysql_optimizer_off(false),
-		                duplicate_field_name(false),
-		                call_sp(false),
-		                override_largeside_estimate(false),
-                        cal_conn_info(NULL),
-                		isUnion(false),
-		                impossibleWhereOnUnion(false),
-		                isUpdateWithDerive(false),
-		                isInfiniDBDML(false),
-		                hasInfiniDBTable(false),
-		                isNewQuery(true){}
+	INFINIDB_VTABLE() : cal_conn_info(NULL) {init();}
+	void init()
+	{
+		autoswitch = false;
+		has_order_by = false;
+		mysql_optimizer_off = false;
+		duplicate_field_name = false;
+		call_sp = false;
+		override_largeside_estimate = false;
+		if (cal_conn_info)
+		{
+			delete cal_conn_info;
+		}
+		cal_conn_info = NULL;
+		isUnion = false;
+		impossibleWhereOnUnion = false;
+		isUpdateWithDerive = false;
+		isInfiniDBDML = false;
+		hasInfiniDBTable = false;
+		isNewQuery = true;
+	}
   };			   
    
   INFINIDB_VTABLE infinidb_vtable;					// InfiniDB custom structure

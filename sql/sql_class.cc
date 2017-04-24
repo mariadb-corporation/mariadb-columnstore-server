@@ -1319,6 +1319,10 @@ void THD::init(void)
 #endif //EMBEDDED_LIBRARY
 
   apc_target.init(&LOCK_thd_data);
+
+  // @INFINIDB
+  infinidb_vtable.init();
+
   DBUG_VOID_RETURN;
 }
 
