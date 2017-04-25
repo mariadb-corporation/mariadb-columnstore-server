@@ -1639,7 +1639,18 @@ public:
   const char *func_name() const { return "group_concat("; }
   virtual Item_result result_type () const { return STRING_RESULT; }
   virtual Item_result cmp_type () const { return STRING_RESULT; }
+  // @InfiniDB move field_type() to item_sum.cc to access select_lex
+#if 0
+  enum_field_types field_type() const
+  {
+    if (too_big_for_varchar())
+      return MYSQL_TYPE_BLOB;
+    else
+      return MYSQL_TYPE_VARCHAR;
+  }
+#else
   enum_field_types field_type() const;
+#endif
   void clear();
   bool add();
   void reset_field() { DBUG_ASSERT(0); }        // not used

@@ -2,7 +2,7 @@
 
 Copyright (c) 1995, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2009, Percona Inc.
-Copyright (c) 2013, 2017, MariaDB Corporation. All Rights Reserved.
+Copyright (c) 2013, 2017, MariaDB Corporation.
 
 Portions of this file contain modifications contributed and copyrighted
 by Percona Inc.. Those modifications are
@@ -40,10 +40,6 @@ Created 10/21/1995 Heikki Tuuri
 
 #include "os0file.h"
 
-#ifdef UNIV_NONINL
-#include "os0file.ic"
-#endif
-
 #ifdef UNIV_LINUX
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -72,11 +68,6 @@ Created 10/21/1995 Heikki Tuuri
 # include <fcntl.h>
 # include <linux/falloc.h>
 #endif /* HAVE_FALLOC_PUNCH_HOLE_AND_KEEP_SIZE */
-
-#ifdef UNIV_DEBUG
-/** Set when InnoDB has invoked exit(). */
-bool	innodb_calling_exit;
-#endif /* UNIV_DEBUG */
 
 #if defined(UNIV_LINUX) && defined(HAVE_SYS_IOCTL_H)
 # include <sys/ioctl.h>
@@ -371,7 +362,7 @@ public:
 	void print(FILE* file);
 
 	/** @return the number of slots per segment */
-	ulint slots_per_segment() const
+	unsigned slots_per_segment() const
 		MY_ATTRIBUTE((warn_unused_result))
 	{
 		return(m_slots.size() / m_n_segments);
@@ -442,7 +433,7 @@ public:
 	@param[in]	max_events	number of events
 	@param[out]	io_ctx		io_ctx to initialize.
 	@return true on success. */
-	static bool linux_create_io_ctx(ulint max_events, io_context_t* io_ctx)
+	static bool linux_create_io_ctx(unsigned max_events, io_context_t* io_ctx)
 		MY_ATTRIBUTE((warn_unused_result));
 
 	/** Checks if the system supports native linux aio. On some kernel
@@ -687,22 +678,18 @@ static ulint		os_aio_n_segments = ULINT_UNDEFINED;
 
 /** If the following is true, read i/o handler threads try to
 wait until a batch of new read requests have been posted */
-static bool		os_aio_recommend_sleep_for_read_threads = false;
+static bool		os_aio_recommend_sleep_for_read_threads;
 
-ulint	os_n_file_reads		= 0;
-ulint	os_bytes_read_since_printout = 0;
-ulint	os_n_file_writes	= 0;
-ulint	os_n_fsyncs		= 0;
-ulint	os_n_file_reads_old	= 0;
-ulint	os_n_file_writes_old	= 0;
-ulint	os_n_fsyncs_old		= 0;
-/** Number of pending write operations */
-ulint	os_n_pending_writes = 0;
-/** Number of pending read operations */
-ulint	os_n_pending_reads = 0;
+ulint	os_n_file_reads;
+static ulint	os_bytes_read_since_printout;
+ulint	os_n_file_writes;
+ulint	os_n_fsyncs;
+static ulint	os_n_file_reads_old;
+static ulint	os_n_file_writes_old;
+static ulint	os_n_fsyncs_old;
 
-time_t	os_last_printout;
-bool	os_has_said_disk_full	= false;
+static time_t	os_last_printout;
+bool	os_has_said_disk_full;
 
 /** Default Zip compression level */
 extern uint page_zip_level;
@@ -1052,6 +1039,7 @@ AIO::pending_io_count() const
 #ifdef UNIV_DEBUG
 /** Validates the consistency the aio system some of the time.
 @return true if ok or the check was skipped */
+static
 bool
 os_aio_validate_skip()
 {
@@ -1925,8 +1913,7 @@ LinuxAIOHandler::collect()
 
 				slot->err = slot->type.punch_hole(
 					slot->file,
-					slot->offset,
-					static_cast<os_offset_t>(slot->len));
+					slot->offset, slot->len);
 			} else {
 				slot->err = DB_SUCCESS;
 			}
@@ -2134,7 +2121,7 @@ AIO::linux_dispatch(Slot* slot)
 @return true on success. */
 bool
 AIO::linux_create_io_ctx(
-	ulint		max_events,
+	unsigned	max_events,
 	io_context_t*	io_ctx)
 {
 	ssize_t		n_retries = 0;
@@ -2502,6 +2489,7 @@ os_file_fsync_posix(
 @param[out]	exists		true if the file exists
 @param[out]	type		Type of the file, if it exists
 @return true if call succeeded */
+static
 bool
 os_file_status_posix(
 	const char*	path,
@@ -2688,8 +2676,8 @@ os_file_create_simple_func(
 	we open the same file in the same mode, see man page of open(2). */
        if (!srv_read_only_mode
 	   && *success
-	   && (srv_unix_file_flush_method == SRV_UNIX_O_DIRECT
-	       || srv_unix_file_flush_method == SRV_UNIX_O_DIRECT_NO_FSYNC)) {
+	   && (srv_file_flush_method == SRV_O_DIRECT
+	       || srv_file_flush_method == SRV_O_DIRECT_NO_FSYNC)) {
 
 	       os_file_set_nocache(file, name, mode_str);
 	}
@@ -2912,8 +2900,8 @@ os_file_create_func(
 	on_error_silent = create_mode & OS_FILE_ON_ERROR_SILENT
 		? true : false;
 
-	create_mode &= ~OS_FILE_ON_ERROR_NO_EXIT;
-	create_mode &= ~OS_FILE_ON_ERROR_SILENT;
+	create_mode &= ulint(~(OS_FILE_ON_ERROR_NO_EXIT
+			       | OS_FILE_ON_ERROR_SILENT));
 
 	if (create_mode == OS_FILE_OPEN
 	    || create_mode == OS_FILE_OPEN_RAW
@@ -2960,7 +2948,7 @@ os_file_create_func(
 
 	if (!read_only
 	    && type == OS_LOG_FILE
-	    && srv_unix_file_flush_method == SRV_UNIX_O_DSYNC) {
+	    && srv_file_flush_method == SRV_O_DSYNC) {
 
 		create_flag |= O_SYNC;
 	}
@@ -2997,8 +2985,8 @@ os_file_create_func(
 	if (!read_only
 	    && *success
 	    && (type != OS_LOG_FILE && type != OS_DATA_TEMP_FILE)
-	    && (srv_unix_file_flush_method == SRV_UNIX_O_DIRECT
-		|| srv_unix_file_flush_method == SRV_UNIX_O_DIRECT_NO_FSYNC)) {
+	    && (srv_file_flush_method == SRV_O_DIRECT
+		|| srv_file_flush_method == SRV_O_DIRECT_NO_FSYNC)) {
 
 	       os_file_set_nocache(file, name, mode_str);
 	}
@@ -3607,6 +3595,7 @@ os_file_punch_hole_win32(
 @param[out]	exists		true if the file exists
 @param[out]	type		Type of the file, if it exists
 @return true if call succeeded */
+static
 bool
 os_file_status_win32(
 	const char*	path,
@@ -4217,20 +4206,55 @@ os_file_create_func(
 		return(OS_FILE_CLOSED);
 	}
 
-#ifdef UNIV_NON_BUFFERED_IO
+	if (type == OS_LOG_FILE) {
+		/* There is not reason to use buffered write to logs.*/
+		attributes |= FILE_FLAG_NO_BUFFERING;
+	}
+
+	switch (srv_file_flush_method)
+	{
+	case SRV_O_DSYNC: 
+		if (type == OS_LOG_FILE) {
+			/* Map O_SYNC to FILE_WRITE_THROUGH */
+			attributes |= FILE_FLAG_WRITE_THROUGH;
+		}
+		break;
+
+	case SRV_O_DIRECT_NO_FSYNC:
+	case SRV_O_DIRECT:
+		if (type == OS_DATA_FILE) {
+			attributes |= FILE_FLAG_NO_BUFFERING;
+		}
+		break;
+
+	case SRV_ALL_O_DIRECT_FSYNC:
+		/*Traditional Windows behavior, no buffering for any files.*/
+		attributes |= FILE_FLAG_NO_BUFFERING;
+		break;
+
+	case SRV_FSYNC:
+	case SRV_LITTLESYNC:
+		break;
+
+	case SRV_NOSYNC:
+		/* Let Windows cache manager handle all writes.*/
+		attributes &= ~(FILE_FLAG_WRITE_THROUGH | FILE_FLAG_NO_BUFFERING);
+		break;
+
+	default:
+		ut_a(false); /* unknown flush mode.*/
+	}
+
+
 	// TODO: Create a bug, this looks wrong. The flush log
 	// parameter is dynamic.
 	if (type == OS_LOG_FILE && srv_flush_log_at_trx_commit == 2) {
-
 		/* Do not use unbuffered i/o for the log files because
 		value 2 denotes that we do not flush the log at every
 		commit, but only once per second */
-
-	} else if (srv_win_file_flush_method == SRV_WIN_IO_UNBUFFERED) {
-
-		attributes |= FILE_FLAG_NO_BUFFERING;
+		attributes &= ~(FILE_FLAG_WRITE_THROUGH | FILE_FLAG_NO_BUFFERING);
 	}
-#endif /* UNIV_NON_BUFFERED_IO */
+
 
 	DWORD	access = GENERIC_READ;
 
@@ -4851,9 +4875,7 @@ os_file_io(
 			    && !type.is_log()
 			    && type.is_write()
 			    && type.punch_hole()) {
-				*err = type.punch_hole(file,
-					offset,
-					static_cast<os_offset_t>(n));
+				*err = type.punch_hole(file, offset, n);
 
 			} else {
 				*err = DB_SUCCESS;
@@ -4919,14 +4941,11 @@ os_file_pwrite(
 
 	++os_n_file_writes;
 
-	(void) my_atomic_addlint(&os_n_pending_writes, 1);
-	MONITOR_ATOMIC_INC(MONITOR_OS_PENDING_WRITES);
-
+	const bool monitor = MONITOR_IS_ON(MONITOR_OS_PENDING_WRITES);
+	MONITOR_ATOMIC_INC_LOW(MONITOR_OS_PENDING_WRITES, monitor);
 	ssize_t	n_bytes = os_file_io(type, file, const_cast<byte*>(buf),
 				     n, offset, err);
-
-	(void) my_atomic_addlint(&os_n_pending_writes, -1);
-	MONITOR_ATOMIC_DEC(MONITOR_OS_PENDING_WRITES);
+	MONITOR_ATOMIC_DEC_LOW(MONITOR_OS_PENDING_WRITES, monitor);
 
 	return(n_bytes);
 }
@@ -5006,13 +5025,10 @@ os_file_pread(
 {
 	++os_n_file_reads;
 
-	(void) my_atomic_addlint(&os_n_pending_reads, 1);
-	MONITOR_ATOMIC_INC(MONITOR_OS_PENDING_READS);
-
+	const bool monitor = MONITOR_IS_ON(MONITOR_OS_PENDING_READS);
+	MONITOR_ATOMIC_INC_LOW(MONITOR_OS_PENDING_READS, monitor);
 	ssize_t	n_bytes = os_file_io(type, file, buf, n, offset, err);
-
-	(void) my_atomic_addlint(&os_n_pending_reads, -1);
-	MONITOR_ATOMIC_DEC(MONITOR_OS_PENDING_READS);
+	MONITOR_ATOMIC_DEC_LOW(MONITOR_OS_PENDING_READS, monitor);
 
 	return(n_bytes);
 }
@@ -5511,10 +5527,7 @@ os_file_punch_hole(
 @param[in]	len		Size of the hole
 @return DB_SUCCESS or error code */
 dberr_t
-IORequest::punch_hole(
-	os_file_t	fh,
-	os_offset_t	off,
-	os_offset_t	len)
+IORequest::punch_hole(os_file_t fh, os_offset_t off, ulint len)
 {
 	/* In this debugging mode, we act as if punch hole is supported,
 	and then skip any calls to actually punch a hole here.
@@ -5523,7 +5536,7 @@ IORequest::punch_hole(
 		return(DB_SUCCESS);
 	);
 
-	os_offset_t trim_len = static_cast<os_offset_t>(get_trim_length(len));
+	ulint trim_len = get_trim_length(len);
 
 	if (trim_len == 0) {
 		return(DB_SUCCESS);
@@ -5764,7 +5777,7 @@ AIO::init_linux_native_aio()
 	}
 
 	io_context**	ctx = m_aio_ctx;
-	ulint		max_events = slots_per_segment();
+	unsigned	max_events = slots_per_segment();
 
 	for (ulint i = 0; i < m_n_segments; ++i, ++ctx) {
 
@@ -6041,7 +6054,11 @@ os_aio_free()
 {
 	AIO::shutdown();
 
-	if (!srv_use_native_aio) {
+	ut_ad(!os_aio_segment_wait_events || !srv_use_native_aio);
+	ut_ad(srv_use_native_aio || os_aio_segment_wait_events
+	      || !srv_was_started);
+
+	if (!srv_use_native_aio && os_aio_segment_wait_events) {
 		for (ulint i = 0; i < os_aio_n_segments; i++) {
 			os_event_destroy(os_aio_segment_wait_events[i]);
 		}
@@ -6058,9 +6075,7 @@ void
 os_aio_wake_all_threads_at_shutdown()
 {
 #ifdef WIN_ASYNC_IO
-
 	AIO::wake_at_shutdown();
-
 #elif defined(LINUX_NATIVE_AIO)
 	/* When using native AIO interface the io helper threads
 	wait on io_getevents with a timeout value of 500ms. At
@@ -7337,7 +7352,7 @@ AIO::print_segment_info(
 				fprintf(file, ", ");
 			}
 
-			fprintf(file, "%lu", *segments);
+			fprintf(file, ULINTPF, *segments);
 		}
 
 		fprintf(file, "] ");
@@ -7418,8 +7433,8 @@ os_aio_print(FILE*	file)
 	double		avg_bytes_read;
 
 	for (ulint i = 0; i < srv_n_file_io_threads; ++i) {
-		fprintf(file, "I/O thread %lu state: %s (%s)",
-			(ulint) i,
+		fprintf(file, "I/O thread " ULINTPF " state: %s (%s)",
+			i,
 			srv_io_thread_op_info[i],
 			srv_io_thread_function[i]);
 
@@ -7442,19 +7457,24 @@ os_aio_print(FILE*	file)
 	time_elapsed = 0.001 + difftime(current_time, os_last_printout);
 
 	fprintf(file,
-		"Pending flushes (fsync) log: %lu; buffer pool: %lu\n"
-		"%lu OS file reads, %lu OS file writes, %lu OS fsyncs\n",
-		(ulint) fil_n_pending_log_flushes,
-		(ulint) fil_n_pending_tablespace_flushes,
-		(ulint) os_n_file_reads,
-		(ulint) os_n_file_writes,
-		(ulint) os_n_fsyncs);
+		"Pending flushes (fsync) log: " ULINTPF
+		"; buffer pool: " ULINTPF "\n"
+		ULINTPF " OS file reads, "
+		ULINTPF " OS file writes, "
+		ULINTPF " OS fsyncs\n",
+		fil_n_pending_log_flushes,
+		fil_n_pending_tablespace_flushes,
+		os_n_file_reads,
+		os_n_file_writes,
+		os_n_fsyncs);
 
-	if (os_n_pending_writes != 0 || os_n_pending_reads != 0) {
+	const ulint n_reads = ulint(MONITOR_VALUE(MONITOR_OS_PENDING_READS));
+	const ulint n_writes = ulint(MONITOR_VALUE(MONITOR_OS_PENDING_WRITES));
+
+	if (n_reads != 0 || n_writes != 0) {
 		fprintf(file,
-			"%lu pending preads, %lu pending pwrites\n",
-			(ulint) os_n_pending_reads,
-			(ulint) os_n_pending_writes);
+			ULINTPF " pending reads, " ULINTPF " pending writes\n",
+			n_reads, n_writes);
 	}
 
 	if (os_n_file_reads == os_n_file_reads_old) {
@@ -7465,7 +7485,7 @@ os_aio_print(FILE*	file)
 	}
 
 	fprintf(file,
-		"%.2f reads/s, %lu avg bytes/read,"
+		"%.2f reads/s, " ULINTPF " avg bytes/read,"
 		" %.2f writes/s, %.2f fsyncs/s\n",
 		(os_n_file_reads - os_n_file_reads_old)
 		/ time_elapsed,
@@ -7520,7 +7540,7 @@ AIO::to_file(FILE* file) const
 {
 	acquire();
 
-	fprintf(file, " %lu\n", static_cast<ulint>(m_n_reserved));
+	fprintf(file, " " ULINTPF "\n", m_n_reserved);
 
 	for (ulint i = 0; i < m_slots.size(); ++i) {
 

@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 1994, 2015, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1994, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2012, Facebook Inc.
 
 This program is free software; you can redistribute it and/or modify it under
@@ -27,10 +27,6 @@ Created 10/4/1994 Heikki Tuuri
 #include "ha_prototypes.h"
 
 #include "page0cur.h"
-#ifdef UNIV_NONINL
-#include "page0cur.ic"
-#endif
-
 #include "page0zip.h"
 #include "btr0btr.h"
 #include "mtr0log.h"
@@ -39,11 +35,6 @@ Created 10/4/1994 Heikki Tuuri
 #include "gis0rtree.h"
 
 #include <algorithm>
-
-#ifdef PAGE_CUR_ADAPT
-# ifdef UNIV_SEARCH_PERF_STAT
-static ulint	page_cur_short_succ	= 0;
-# endif /* UNIV_SEARCH_PERF_STAT */
 
 /*******************************************************************//**
 This is a linear congruential generator PRNG. Returns a pseudo random
@@ -78,6 +69,11 @@ page_cur_lcg_prng(void)
 
 	return(lcg_current);
 }
+
+#ifdef BTR_CUR_HASH_ADAPT
+# ifdef UNIV_SEARCH_PERF_STAT
+static ulint	page_cur_short_succ;
+# endif /* UNIV_SEARCH_PERF_STAT */
 
 /** Try a search shortcut based on the last insert.
 @param[in]	block			index page
@@ -246,7 +242,7 @@ exit_func:
 	}
 	return(success);
 }
-#endif
+#endif /* BTR_CUR_HASH_ADAPT */
 
 #ifdef PAGE_CUR_LE_OR_EXTENDS
 /****************************************************************//**
@@ -359,7 +355,7 @@ page_cur_search_with_match(
 
 	ut_d(page_check_dir(page));
 
-#ifdef PAGE_CUR_ADAPT
+#ifdef BTR_CUR_HASH_ADAPT
 	if (page_is_leaf(page)
 	    && (mode == PAGE_CUR_LE)
 	    && !dict_index_is_spatial(index)
@@ -380,7 +376,7 @@ page_cur_search_with_match(
 		mode = PAGE_CUR_LE;
 	}
 # endif
-#endif
+#endif /* BTR_CUR_HASH_ADAPT */
 
 	/* If the mode is for R-tree indexes, use the special MBR
 	related compare functions */
@@ -552,6 +548,7 @@ up_rec_match:
 	}
 }
 
+#ifdef BTR_CUR_HASH_ADAPT
 /** Search the right position for a page cursor.
 @param[in]	block			buffer block
 @param[in]	index			index tree
@@ -619,7 +616,7 @@ page_cur_search_with_match_bytes(
 
 	ut_d(page_check_dir(page));
 
-#ifdef PAGE_CUR_ADAPT
+#ifdef BTR_CUR_HASH_ADAPT
 	if (page_is_leaf(page)
 	    && (mode == PAGE_CUR_LE)
 	    && (page_header_get_field(page, PAGE_N_DIRECTION) > 3)
@@ -639,7 +636,7 @@ page_cur_search_with_match_bytes(
 		mode = PAGE_CUR_LE;
 	}
 # endif
-#endif
+#endif /* BTR_CUR_HASH_ADAPT */
 
 	/* The following flag does not work for non-latin1 char sets because
 	cmp_full_field does not tell how many bytes matched */
@@ -805,6 +802,7 @@ up_rec_match:
 		mem_heap_free(heap);
 	}
 }
+#endif /* BTR_CUR_HASH_ADAPT */
 
 /***********************************************************//**
 Positions a page cursor on a randomly chosen user record on a page. If there
@@ -1326,7 +1324,8 @@ use_heap:
 		data_len = rec_offs_data_size(offsets);
 
 		fprintf(stderr, "InnoDB: Error: current_rec == insert_rec "
-			" extra_len %lu data_len %lu insert_buf %p rec %p\n",
+			" extra_len " ULINTPF
+			" data_len " ULINTPF " insert_buf %p rec %p\n",
 			extra_len, data_len, insert_buf, rec);
 		fprintf(stderr, "InnoDB; Physical record: \n");
 		rec_print(stderr, rec, index);

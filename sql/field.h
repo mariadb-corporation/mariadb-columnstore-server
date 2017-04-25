@@ -1,7 +1,7 @@
 #ifndef FIELD_INCLUDED
 #define FIELD_INCLUDED
 /* Copyright (c) 2000, 2015, Oracle and/or its affiliates.
-   Copyright (c) 2008, 2015, MariaDB
+   Copyright (c) 2008, 2017, MariaDB Corporation.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -563,7 +563,10 @@ inline bool is_temporal_type_with_time(enum_field_types type)
 enum enum_vcol_info_type
 {
   VCOL_GENERATED_VIRTUAL, VCOL_GENERATED_STORED,
-  VCOL_DEFAULT, VCOL_CHECK_FIELD, VCOL_CHECK_TABLE
+  VCOL_DEFAULT, VCOL_CHECK_FIELD, VCOL_CHECK_TABLE,
+  /* Additional types should be added here */
+  /* Following is the highest value last   */
+  VCOL_TYPE_NONE = 127 // Since the 0 value is already in use
 };
 
 static inline const char *vcol_type_name(enum_vcol_info_type type)
@@ -578,6 +581,8 @@ static inline const char *vcol_type_name(enum_vcol_info_type type)
   case VCOL_CHECK_FIELD:
   case VCOL_CHECK_TABLE:
     return "CHECK";
+  case VCOL_TYPE_NONE:
+    return "UNTYPED";
   }
   return 0;
 }
@@ -591,7 +596,8 @@ static inline const char *vcol_type_name(enum_vcol_info_type type)
 #define VCOL_NON_DETERMINISTIC 2
 #define VCOL_SESSION_FUNC      4  /* uses session data, e.g. USER or DAYNAME */
 #define VCOL_TIME_FUNC         8
-#define VCOL_IMPOSSIBLE       16
+#define VCOL_AUTO_INC         16
+#define VCOL_IMPOSSIBLE       32
 
 #define VCOL_NOT_STRICTLY_DETERMINISTIC                       \
   (VCOL_NON_DETERMINISTIC | VCOL_TIME_FUNC | VCOL_SESSION_FUNC)
@@ -609,6 +615,7 @@ static inline const char *vcol_type_name(enum_vcol_info_type type)
 class Virtual_column_info: public Sql_alloc
 {
 private:
+  enum_vcol_info_type vcol_type; /* Virtual column expression type */
   /*
     The following data is only updated by the parser and read
     when a Create_field object is created/initialized.
@@ -626,7 +633,8 @@ public:
   uint flags;
 
   Virtual_column_info()
-  : field_type((enum enum_field_types)MYSQL_TYPE_VIRTUAL),
+  : vcol_type((enum_vcol_info_type)VCOL_TYPE_NONE),
+    field_type((enum enum_field_types)MYSQL_TYPE_VIRTUAL),
     in_partitioning_expr(FALSE), stored_in_db(FALSE),
     utf8(TRUE), expr(NULL), flags(0)
   {
@@ -634,6 +642,19 @@ public:
     name.length= 0;
   };
   ~Virtual_column_info() {}
+  enum_vcol_info_type get_vcol_type() const
+  {
+    return vcol_type;
+  }
+  void set_vcol_type(enum_vcol_info_type v_type)
+  {
+    vcol_type= v_type;
+  }
+  const char *get_vcol_type_name() const
+  {
+    DBUG_ASSERT(vcol_type != VCOL_TYPE_NONE);
+    return vcol_type_name(vcol_type);
+  }
   enum_field_types get_real_type() const
   {
     return field_type;
@@ -1022,7 +1043,7 @@ public:
   virtual int cmp_max(const uchar *a, const uchar *b, uint max_len)
     { return cmp(a, b); }
   virtual int cmp(const uchar *,const uchar *)=0;
-  virtual int cmp_binary(const uchar *a,const uchar *b, uint32 max_length=~0L)
+  virtual int cmp_binary(const uchar *a,const uchar *b, uint32 max_length=~0U)
   { return memcmp(a,b,pack_length()); }
   virtual int cmp_offset(uint row_offset)
   { return cmp(ptr,ptr+row_offset); }
@@ -1352,7 +1373,7 @@ public:
   longlong convert_decimal2longlong(const my_decimal *val, bool unsigned_flag,
                                     int *err);
   /* The max. number of characters */
-  virtual uint32 char_length()
+  virtual uint32 char_length() const
   {
     return field_length / charset()->mbmaxlen;
   }
@@ -1373,7 +1394,8 @@ public:
   void set_storage_type(ha_storage_media storage_type_arg)
   {
     DBUG_ASSERT(field_storage_type() == HA_SM_DEFAULT);
-    flags |= (storage_type_arg << FIELD_FLAGS_STORAGE_MEDIA);
+    flags |= static_cast<uint32>(storage_type_arg) <<
+      FIELD_FLAGS_STORAGE_MEDIA;
   }
 
   column_format_type column_format() const
@@ -1385,7 +1407,8 @@ public:
   void set_column_format(column_format_type column_format_arg)
   {
     DBUG_ASSERT(column_format() == COLUMN_FORMAT_TYPE_DEFAULT);
-    flags |= (column_format_arg << FIELD_FLAGS_COLUMN_FORMAT);
+    flags |= static_cast<uint32>(column_format_arg) <<
+      FIELD_FLAGS_COLUMN_FORMAT;
   }
 
   /*
@@ -3134,7 +3157,7 @@ public:
   int cmp_max(const uchar *, const uchar *, uint max_length);
   int cmp(const uchar *a,const uchar *b)
   {
-    return cmp_max(a, b, ~0L);
+    return cmp_max(a, b, ~0U);
   }
   void sort_string(uchar *buff,uint length);
   uint get_key_image(uchar *buff,uint length, imagetype type);
@@ -3143,7 +3166,7 @@ public:
   virtual uchar *pack(uchar *to, const uchar *from, uint max_length);
   virtual const uchar *unpack(uchar* to, const uchar *from,
                               const uchar *from_end, uint param_data);
-  int cmp_binary(const uchar *a,const uchar *b, uint32 max_length=~0L);
+  int cmp_binary(const uchar *a,const uchar *b, uint32 max_length=~0U);
   int key_cmp(const uchar *,const uchar*);
   int key_cmp(const uchar *str, uint length);
   uint packed_col_length(const uchar *to, uint length);
@@ -3253,9 +3276,9 @@ public:
   my_decimal *val_decimal(my_decimal *);
   int cmp_max(const uchar *, const uchar *, uint max_length);
   int cmp(const uchar *a,const uchar *b)
-    { return cmp_max(a, b, ~0L); }
+    { return cmp_max(a, b, ~0U); }
   int cmp(const uchar *a, uint32 a_length, const uchar *b, uint32 b_length);
-  int cmp_binary(const uchar *a,const uchar *b, uint32 max_length=~0L);
+  int cmp_binary(const uchar *a,const uchar *b, uint32 max_length=~0U);
   int key_cmp(const uchar *,const uchar*);
   int key_cmp(const uchar *str, uint length);
   /* Never update the value of min_val for a blob field */
@@ -3309,7 +3332,7 @@ public:
     memcpy(ptr,length,packlength);
     memcpy(ptr+packlength, &data,sizeof(char*));
   }
-  void set_ptr_offset(my_ptrdiff_t ptr_diff, uint32 length, uchar *data)
+  void set_ptr_offset(my_ptrdiff_t ptr_diff, uint32 length, const uchar *data)
   {
     uchar *ptr_ofs= ADD_TO_PTR(ptr,ptr_diff,uchar*);
     store_length(ptr_ofs, packlength, length);
@@ -3377,7 +3400,7 @@ public:
   bool has_charset(void) const
   { return charset() == &my_charset_bin ? FALSE : TRUE; }
   uint32 max_display_length();
-  uint32 char_length();
+  uint32 char_length() const;
   uint is_equal(Create_field *new_field);
 private:
   int do_save_field_metadata(uchar *first_byte);
@@ -3955,26 +3978,26 @@ bool check_expression(Virtual_column_info *vcol, const char *name,
   The following are for the interface with the .frm file
 */
 
-#define FIELDFLAG_DECIMAL		1
-#define FIELDFLAG_BINARY		1	// Shares same flag
-#define FIELDFLAG_NUMBER		2
-#define FIELDFLAG_ZEROFILL		4
-#define FIELDFLAG_PACK			120	// Bits used for packing
-#define FIELDFLAG_INTERVAL		256     // mangled with decimals!
-#define FIELDFLAG_BITFIELD		512	// mangled with decimals!
-#define FIELDFLAG_BLOB			1024	// mangled with decimals!
-#define FIELDFLAG_GEOM			2048    // mangled with decimals!
+#define FIELDFLAG_DECIMAL		1U
+#define FIELDFLAG_BINARY		1U	// Shares same flag
+#define FIELDFLAG_NUMBER		2U
+#define FIELDFLAG_ZEROFILL		4U
+#define FIELDFLAG_PACK			120U	// Bits used for packing
+#define FIELDFLAG_INTERVAL		256U    // mangled with decimals!
+#define FIELDFLAG_BITFIELD		512U	// mangled with decimals!
+#define FIELDFLAG_BLOB			1024U	// mangled with decimals!
+#define FIELDFLAG_GEOM			2048U   // mangled with decimals!
 
-#define FIELDFLAG_TREAT_BIT_AS_CHAR     4096    /* use Field_bit_as_char */
-#define FIELDFLAG_LONG_DECIMAL          8192
-#define FIELDFLAG_NO_DEFAULT		16384   /* sql */
-#define FIELDFLAG_MAYBE_NULL		((uint) 32768)// sql
-#define FIELDFLAG_HEX_ESCAPE		((uint) 0x10000)
+#define FIELDFLAG_TREAT_BIT_AS_CHAR     4096U   /* use Field_bit_as_char */
+#define FIELDFLAG_LONG_DECIMAL          8192U
+#define FIELDFLAG_NO_DEFAULT		16384U  /* sql */
+#define FIELDFLAG_MAYBE_NULL		32768U	// sql
+#define FIELDFLAG_HEX_ESCAPE		0x10000U
 #define FIELDFLAG_PACK_SHIFT		3
 #define FIELDFLAG_DEC_SHIFT		8
-#define FIELDFLAG_MAX_DEC               63
+#define FIELDFLAG_MAX_DEC               63U
 
-#define MTYP_TYPENR(type) (type & 127)	/* Remove bits from type */
+#define MTYP_TYPENR(type) (type & 127U)	/* Remove bits from type */
 
 #define f_is_dec(x)		((x) & FIELDFLAG_DECIMAL)
 #define f_is_num(x)		((x) & FIELDFLAG_NUMBER)
@@ -3988,7 +4011,7 @@ bool check_expression(Virtual_column_info *vcol, const char *name,
 #define f_is_bitfield(x)        (((x) & (FIELDFLAG_BITFIELD | FIELDFLAG_NUMBER)) == FIELDFLAG_BITFIELD)
 #define f_is_blob(x)		(((x) & (FIELDFLAG_BLOB | FIELDFLAG_NUMBER)) == FIELDFLAG_BLOB)
 #define f_is_geom(x)		(((x) & (FIELDFLAG_GEOM | FIELDFLAG_NUMBER)) == FIELDFLAG_GEOM)
-#define f_settype(x)		(((int) (x)) << FIELDFLAG_PACK_SHIFT)
+#define f_settype(x)		(((uint) (x)) << FIELDFLAG_PACK_SHIFT)
 #define f_maybe_null(x)		((x) & FIELDFLAG_MAYBE_NULL)
 #define f_no_default(x)		((x) & FIELDFLAG_NO_DEFAULT)
 #define f_bit_as_char(x)        ((x) & FIELDFLAG_TREAT_BIT_AS_CHAR)

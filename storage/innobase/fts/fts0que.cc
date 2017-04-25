@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2007, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -36,11 +37,6 @@ Completed 2011/7/10 Sunny and Jimmy Yang
 #include "fts0types.h"
 #include "fts0plugin.h"
 #include "ut0new.h"
-
-#ifdef UNIV_NONINL
-#include "fts0types.ic"
-#include "fts0vlc.ic"
-#endif
 
 #include <iomanip>
 #include <vector>
@@ -307,6 +303,20 @@ fts_query_filter_doc_ids(
 	ibool			calc_doc_count);/*!< in: whether to remember doc
 						count */
 
+/** Process (nested) sub-expression, create a new result set to store the
+sub-expression result by processing nodes under current sub-expression
+list. Merge the sub-expression result with that of parent expression list.
+@param[in,out]	node	current root node
+@param[in,out]	visitor	callback function
+@param[in,out]	arg	argument for callback
+@return DB_SUCCESS if all go well */
+static
+dberr_t
+fts_ast_visit_sub_exp(
+	fts_ast_node_t*		node,
+	fts_ast_callback	visitor,
+	void*			arg);
+
 #if 0
 /*****************************************************************//***
 Find a doc_id in a word's ilist.
@@ -478,7 +488,7 @@ fts_query_lcs(
 	len = FTS_ELEM(table, c, 0, 0);
 
 	fts_print_lcs_table(table, r, c);
-	printf("\nLen=%lu\n", len);
+	printf("\nLen=" ULINTPF "\n", len);
 
 	ut_free(table);
 
@@ -3063,17 +3073,19 @@ fts_query_visitor(
 	DBUG_RETURN(query->error);
 }
 
-/*****************************************************************//**
-Process (nested) sub-expression, create a new result set to store the
+/** Process (nested) sub-expression, create a new result set to store the
 sub-expression result by processing nodes under current sub-expression
 list. Merge the sub-expression result with that of parent expression list.
+@param[in,out]	node	current root node
+@param[in,out]	visitor	callback function
+@param[in,out]	arg	argument for callback
 @return DB_SUCCESS if all go well */
+static
 dberr_t
 fts_ast_visit_sub_exp(
-/*==================*/
-	fts_ast_node_t*		node,		/*!< in,out: current root node */
-	fts_ast_callback	visitor,	/*!< in: callback function */
-	void*			arg)		/*!< in,out: arg for callback */
+	fts_ast_node_t*		node,
+	fts_ast_callback	visitor,
+	void*			arg)
 {
 	fts_ast_oper_t		cur_oper;
 	fts_query_t*		query = static_cast<fts_query_t*>(arg);
@@ -4004,19 +4016,6 @@ fts_query(
 	query.limit = limit;
 
 	query.n_docs = 0;
-#ifdef FTS_DOC_STATS_DEBUG
-	if (ft_enable_diag_print) {
-		error = fts_get_total_word_count(
-			trx, query.index, &query.total_words);
-
-		if (error != DB_SUCCESS) {
-			goto func_exit;
-		}
-
-		ib::info() << "Total docs: " << query.total_docs
-			<< " Total words: " << query.total_words;
-	}
-#endif /* FTS_DOC_STATS_DEBUG */
 
 	query.fts_common_table.suffix = "DELETED";
 

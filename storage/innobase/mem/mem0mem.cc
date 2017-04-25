@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1994, 2014, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -26,10 +27,6 @@ Created 6/9/1994 Heikki Tuuri
 #include "ha_prototypes.h"
 
 #include "mem0mem.h"
-#ifdef UNIV_NONINL
-#include "mem0mem.ic"
-#endif
-
 #include "buf0buf.h"
 #include "srv0srv.h"
 #include <stdarg.h>
@@ -272,7 +269,7 @@ mem_heap_create_block_func(
 	ulint		n,	/*!< in: number of bytes needed for user data */
 #ifdef UNIV_DEBUG
 	const char*	file_name,/*!< in: file name where created */
-	ulint		line,	/*!< in: line where created */
+	unsigned	line,	/*!< in: line where created */
 #endif /* UNIV_DEBUG */
 	ulint		type)	/*!< in: type of heap: MEM_HEAP_DYNAMIC or
 				MEM_HEAP_BUFFER */

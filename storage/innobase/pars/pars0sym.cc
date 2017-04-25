@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 1997, 2014, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1997, 2016, Oracle and/or its affiliates. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -24,11 +24,6 @@ Created 12/15/1997 Heikki Tuuri
 *******************************************************/
 
 #include "pars0sym.h"
-
-#ifdef UNIV_NONINL
-#include "pars0sym.ic"
-#endif
-
 #include "mem0mem.h"
 #include "data0type.h"
 #include "data0data.h"
@@ -228,22 +223,12 @@ sym_tab_add_bound_lit(
 
 	switch (blit->type) {
 	case DATA_FIXBINARY:
-		len = blit->length;
-		*lit_type = PARS_FIXBINARY_LIT;
-		break;
-
-	case DATA_BLOB:
-		*lit_type = PARS_BLOB_LIT;
-		break;
-
-	case DATA_VARCHAR:
-		*lit_type = PARS_STR_LIT;
-		break;
-
 	case DATA_CHAR:
-		ut_a(blit->length > 0);
-
+		ut_ad(blit->length > 0);
 		len = blit->length;
+		/* fall through */
+	case DATA_BLOB:
+	case DATA_VARCHAR:
 		*lit_type = PARS_STR_LIT;
 		break;
 

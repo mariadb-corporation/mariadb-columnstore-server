@@ -3,7 +3,7 @@
 Copyright (c) 1995, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2008, 2009 Google Inc.
 Copyright (c) 2009, Percona Inc.
-Copyright (c) 2013, 2017, MariaDB Corporation. All Rights Reserved.
+Copyright (c) 2013, 2017, MariaDB Corporation.
 
 Portions of this file contain modifications contributed and copyrighted by
 Google, Inc. Those modifications are gratefully acknowledged and are described
@@ -138,10 +138,6 @@ my_bool	srv_undo_log_truncate = FALSE;
 
 /** Maximum size of undo tablespace. */
 unsigned long long	srv_max_undo_log_size;
-
-/** UNDO logs that are not redo logged.
-These logs reside in the temp tablespace.*/
-const ulong		srv_tmp_undo_logs = 32;
 
 /** Default undo tablespace size in UNIV_PAGEs count (10MB). */
 const ulint SRV_UNDO_TABLESPACE_SIZE_IN_PAGES =
@@ -297,22 +293,11 @@ ulong	srv_read_ahead_threshold	= 56;
 of the buffer pool. */
 uint	srv_change_buffer_max_size = CHANGE_BUFFER_DEFAULT_SIZE;
 
-/* This parameter is used to throttle the number of insert buffers that are
-merged in a batch. By increasing this parameter on a faster disk you can
-possibly reduce the number of I/O operations performed to complete the
-merge operation. The value of this parameter is used as is by the
-background loop when the system is idle (low load), on a busy system
-the parameter is scaled down by a factor of 4, this is to avoid putting
-a heavier load on the I/O sub system. */
-
-ulong	srv_insert_buffer_batch_size = 20;
-
 char*	srv_file_flush_method_str = NULL;
-#ifndef _WIN32
-enum srv_unix_flush_t	srv_unix_file_flush_method = SRV_UNIX_FSYNC;
-#else
-enum srv_win_flush_t	srv_win_file_flush_method = SRV_WIN_IO_UNBUFFERED;
-#endif /* _WIN32 */
+
+
+enum srv_flush_t	srv_file_flush_method = IF_WIN(SRV_ALL_O_DIRECT_FSYNC,SRV_FSYNC);
+
 
 ulint	srv_max_n_open_files	  = 300;
 
@@ -414,37 +399,38 @@ UNIV_INTERN ulong	srv_n_spin_wait_rounds	= 15;
 uint	srv_spin_wait_delay;
 ibool	srv_priority_boost	= TRUE;
 
-static ulint		srv_n_rows_inserted_old		= 0;
-static ulint		srv_n_rows_updated_old		= 0;
-static ulint		srv_n_rows_deleted_old		= 0;
-static ulint		srv_n_rows_read_old		= 0;
-static ulint		srv_n_system_rows_inserted_old	= 0;
-static ulint		srv_n_system_rows_updated_old	= 0;
-static ulint		srv_n_system_rows_deleted_old	= 0;
-static ulint		srv_n_system_rows_read_old	= 0;
+static ulint		srv_n_rows_inserted_old;
+static ulint		srv_n_rows_updated_old;
+static ulint		srv_n_rows_deleted_old;
+static ulint		srv_n_rows_read_old;
+static ulint		srv_n_system_rows_inserted_old;
+static ulint		srv_n_system_rows_updated_old;
+static ulint		srv_n_system_rows_deleted_old;
+static ulint		srv_n_system_rows_read_old;
 
-ulint	srv_truncated_status_writes	= 0;
-ulint	srv_available_undo_logs         = 0;
+ulint	srv_truncated_status_writes;
+/** Number of initialized rollback segments for persistent undo log */
+ulong	srv_available_undo_logs;
 
-UNIV_INTERN ib_uint64_t srv_page_compression_saved      = 0;
-UNIV_INTERN ib_uint64_t srv_page_compression_trim_sect512       = 0;
-UNIV_INTERN ib_uint64_t srv_page_compression_trim_sect4096      = 0;
-UNIV_INTERN ib_uint64_t srv_index_pages_written         = 0;
-UNIV_INTERN ib_uint64_t srv_non_index_pages_written     = 0;
-UNIV_INTERN ib_uint64_t srv_pages_page_compressed       = 0;
-UNIV_INTERN ib_uint64_t srv_page_compressed_trim_op     = 0;
-UNIV_INTERN ib_uint64_t srv_page_compressed_trim_op_saved     = 0;
-UNIV_INTERN ib_uint64_t srv_index_page_decompressed     = 0;
+UNIV_INTERN ib_uint64_t srv_page_compression_saved;
+UNIV_INTERN ib_uint64_t srv_page_compression_trim_sect512;
+UNIV_INTERN ib_uint64_t srv_page_compression_trim_sect4096;
+UNIV_INTERN ib_uint64_t srv_index_pages_written;
+UNIV_INTERN ib_uint64_t srv_non_index_pages_written;
+UNIV_INTERN ib_uint64_t srv_pages_page_compressed;
+UNIV_INTERN ib_uint64_t srv_page_compressed_trim_op;
+UNIV_INTERN ib_uint64_t srv_page_compressed_trim_op_saved;
+UNIV_INTERN ib_uint64_t srv_index_page_decompressed;
 
 /* Defragmentation */
-UNIV_INTERN my_bool	srv_defragment = FALSE;
+UNIV_INTERN my_bool	srv_defragment;
 UNIV_INTERN uint	srv_defragment_n_pages = 7;
-UNIV_INTERN uint	srv_defragment_stats_accuracy = 0;
+UNIV_INTERN uint	srv_defragment_stats_accuracy;
 UNIV_INTERN uint	srv_defragment_fill_factor_n_recs = 20;
 UNIV_INTERN double	srv_defragment_fill_factor = 0.9;
 UNIV_INTERN uint	srv_defragment_frequency =
 	SRV_DEFRAGMENT_FREQUENCY_DEFAULT;
-UNIV_INTERN ulonglong	srv_defragment_interval = 0;
+UNIV_INTERN ulonglong	srv_defragment_interval;
 
 /* Set the following to 0 if you want InnoDB to write messages on
 stderr on startup/shutdown. */
@@ -462,9 +448,9 @@ i/o handler thread */
 const char* srv_io_thread_op_info[SRV_MAX_N_IO_THREADS];
 const char* srv_io_thread_function[SRV_MAX_N_IO_THREADS];
 
-time_t	srv_last_monitor_time;
+static time_t	srv_last_monitor_time;
 
-ib_mutex_t	srv_innodb_monitor_mutex;
+static ib_mutex_t	srv_innodb_monitor_mutex;
 
 /** Mutex protecting page_zip_stat_per_index */
 ib_mutex_t	page_zip_stat_per_index_mutex;
@@ -487,8 +473,8 @@ ib_mutex_t	srv_misc_tmpfile_mutex;
 /** Temporary file for miscellanous diagnostic output */
 FILE*	srv_misc_tmpfile;
 
-ulint	srv_main_thread_process_no	= 0;
-ulint	srv_main_thread_id		= 0;
+static ulint	srv_main_thread_process_no	= 0;
+static ulint	srv_main_thread_id		= 0;
 
 /* The following counts are used by the srv_master_thread. */
 
@@ -723,13 +709,12 @@ srv_print_master_thread_info(
 /*=========================*/
 	FILE  *file)    /* in: output stream */
 {
-	fprintf(file, "srv_master_thread loops: %lu srv_active,"
-		" %lu srv_shutdown, %lu srv_idle\n",
+	fprintf(file, "srv_master_thread loops: " ULINTPF " srv_active, "
+		ULINTPF " srv_shutdown, " ULINTPF " srv_idle\n"
+		"srv_master_thread log flush and writes: " ULINTPF "\n",
 		srv_main_active_loops,
 		srv_main_shutdown_loops,
-		srv_main_idle_loops);
-	fprintf(file,
-		"srv_master_thread log flush and writes: " ULINTPF "\n",
+		srv_main_idle_loops,
 		srv_log_writes_and_flush);
 }
 
@@ -965,14 +950,12 @@ srv_release_threads(enum srv_thread_type type, ulint n)
 	ut_ad(n > 0);
 
 	do {
-		srv_sys_mutex_enter();
-
 		running = 0;
 
-		for (ulint i = 0; i < srv_sys->n_sys_threads; i++) {
-			srv_slot_t*	slot;
+		srv_sys_mutex_enter();
 
-			slot = &srv_sys->sys_threads[i];
+		for (ulint i = 0; i < srv_sys->n_sys_threads; i++) {
+			srv_slot_t*	slot = &srv_sys->sys_threads[i];
 
 			if (!slot->in_use || srv_slot_get_type(slot) != type) {
 				continue;
@@ -1219,7 +1202,9 @@ srv_refresh_innodb_monitor_stats(void)
 
 	os_aio_refresh_stats();
 
+#ifdef BTR_CUR_HASH_ADAPT
 	btr_cur_n_sea_old = btr_cur_n_sea;
+#endif /* BTR_CUR_HASH_ADAPT */
 	btr_cur_n_non_sea_old = btr_cur_n_non_sea;
 
 	log_refresh_stats();
@@ -1350,6 +1335,7 @@ srv_printf_innodb_monitor(
 	      "-------------------------------------\n", file);
 	ibuf_print(file);
 
+#ifdef BTR_CUR_HASH_ADAPT
 	for (ulint i = 0; i < btr_ahi_parts; ++i) {
 		rw_lock_s_lock(btr_search_latches[i]);
 		ha_print_info(file, btr_search_sys->hash_tables[i]);
@@ -1363,6 +1349,12 @@ srv_printf_innodb_monitor(
 		(btr_cur_n_non_sea - btr_cur_n_non_sea_old)
 		/ time_elapsed);
 	btr_cur_n_sea_old = btr_cur_n_sea;
+#else /* BTR_CUR_HASH_ADAPT */
+	fprintf(file,
+		"%.2f non-hash searches/s\n",
+		(btr_cur_n_non_sea - btr_cur_n_non_sea_old)
+		/ time_elapsed);
+#endif /* BTR_CUR_HASH_ADAPT */
 	btr_cur_n_non_sea_old = btr_cur_n_non_sea;
 
 	fputs("---\n"
@@ -1391,13 +1383,13 @@ srv_printf_innodb_monitor(
 		srv_conc_get_waiting_threads());
 
 	/* This is a dirty read, without holding trx_sys->mutex. */
-	fprintf(file, "%lu read views open inside InnoDB\n",
+	fprintf(file, ULINTPF " read views open inside InnoDB\n",
 		trx_sys->mvcc->size());
 
 	n_reserved = fil_space_get_n_reserved_extents(0);
 	if (n_reserved > 0) {
 		fprintf(file,
-			"%lu tablespace extents now reserved for"
+			ULINTPF " tablespace extents now reserved for"
 			" B-tree split operations\n",
 			n_reserved);
 	}
@@ -1489,10 +1481,10 @@ srv_export_innodb_status(void)
 	mutex_enter(&srv_innodb_monitor_mutex);
 
 	export_vars.innodb_data_pending_reads =
-		os_n_pending_reads;
+		ulint(MONITOR_VALUE(MONITOR_OS_PENDING_READS));
 
 	export_vars.innodb_data_pending_writes =
-		os_n_pending_writes;
+		ulint(MONITOR_VALUE(MONITOR_OS_PENDING_READS));
 
 	export_vars.innodb_data_pending_fsyncs =
 		fil_n_pending_log_flushes
@@ -1653,12 +1645,8 @@ srv_export_innodb_status(void)
 
 #ifdef UNIV_DEBUG
 	rw_lock_s_lock(&purge_sys->latch);
-	trx_id_t	up_limit_id;
+	trx_id_t	up_limit_id	= purge_sys->view.up_limit_id();;
 	trx_id_t	done_trx_no	= purge_sys->done.trx_no;
-
-	up_limit_id	= purge_sys->view_active
-		? purge_sys->view.up_limit_id() : 0;
-
 	rw_lock_s_unlock(&purge_sys->latch);
 
 	mutex_enter(&trx_sys->mutex);
@@ -1698,6 +1686,8 @@ srv_export_innodb_status(void)
 		crypt_stat.estimated_iops;
 	export_vars.innodb_encryption_key_requests =
 		srv_stats.n_key_requests;
+	export_vars.innodb_key_rotation_list_length =
+		srv_stats.key_rotation_list_length;
 
 	export_vars.innodb_scrub_page_reorganizations =
 		scrub_stat.page_reorganizations;
@@ -1957,8 +1947,8 @@ loop:
 			"WSREP: avoiding InnoDB self crash due to long "
 			"semaphore wait of  > %lu seconds\n"
 			"Server is processing SST donor operation, "
-			"fatal_cnt now: %lu",
-			(ulong) srv_fatal_semaphore_wait_threshold, fatal_cnt);
+			"fatal_cnt now: " ULINTPF,
+			srv_fatal_semaphore_wait_threshold, fatal_cnt);
 	  }
 #endif /* WITH_WSREP */
 		if (fatal_cnt > 10) {
@@ -2687,7 +2677,7 @@ DECLARE_THREAD(srv_worker_thread)(
 	ut_ad(!srv_read_only_mode);
 	ut_a(srv_force_recovery < SRV_FORCE_NO_BACKGROUND);
 	my_thread_init();
-	THD*		thd = innobase_create_background_thd();
+	THD*		thd = innobase_create_background_thd("InnoDB purge worker");
 
 #ifdef UNIV_DEBUG_THREAD_CREATION
 	ib::info() << "Worker thread starting, id "
@@ -2916,7 +2906,7 @@ DECLARE_THREAD(srv_purge_coordinator_thread)(
 						required by os_thread_create */
 {
 	my_thread_init();
-	THD*		thd = innobase_create_background_thd();
+	THD*		thd = innobase_create_background_thd("InnoDB purge coordinator");
 	srv_slot_t*	slot;
 	ulint           n_total_purged = ULINT_UNDEFINED;
 

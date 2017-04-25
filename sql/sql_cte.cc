@@ -780,6 +780,7 @@ st_select_lex_unit *With_element::clone_parsed_spec(THD *thd,
     with_table->next_global= spec_tables;
   }
   res= &lex->unit;
+  res->set_with_clause(owner);
   
   lex->unit.include_down(with_table->select_lex);
   lex->unit.set_slave(with_select); 
@@ -1168,6 +1169,8 @@ bool With_element::check_unrestricted_recursive(st_select_lex *sel,
   ti.rewind();
   while ((tbl= ti++))
   {
+    if (!tbl->is_with_table_recursive_reference())
+      continue;
     for (TABLE_LIST *tab= tbl; tab; tab= tab->embedding)
     {
       if (tab->outer_join & (JOIN_TYPE_LEFT | JOIN_TYPE_RIGHT))
@@ -1226,6 +1229,7 @@ bool st_select_lex::check_subqueries_with_recursive_references()
 	continue;
       Item_subselect *subq= (Item_subselect *) sl_master->item;
       subq->with_recursive_reference= true;
+      subq->register_as_with_rec_ref(tbl->with);
     }
   }
   return false;
@@ -1259,9 +1263,9 @@ void With_clause::print(String *str, enum_query_type query_type)
        with_elem;
        with_elem= with_elem->next)
   {
-    with_elem->print(str, query_type);
     if (with_elem != with_list.first)
       str->append(", ");
+    with_elem->print(str, query_type);
   }
 }
 

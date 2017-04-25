@@ -2,6 +2,7 @@
 
 Copyright (c) 1995, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2008, Google Inc.
+Copyright (c) 2017, MariaDB Corporation.
 
 Portions of this file contain modifications contributed and copyrighted by
 Google, Inc. Those modifications are gratefully acknowledged and are described
@@ -31,11 +32,6 @@ Created 9/11/1995 Heikki Tuuri
 *******************************************************/
 
 #include "sync0rw.h"
-#ifdef UNIV_NONINL
-#include "sync0rw.ic"
-#include "sync0arr.ic"
-#endif
-
 #include "ha_prototypes.h"
 
 #include "os0thread.h"
@@ -203,7 +199,7 @@ rw_lock_create_func(
 	latch_level_t	level,		/*!< in: level */
 #endif /* UNIV_DEBUG */
 	const char*	cfile_name,	/*!< in: file name where created */
-	ulint		cline)		/*!< in: file line where created */
+	unsigned	cline)		/*!< in: file line where created */
 {
 #if defined(UNIV_DEBUG) && !defined(UNIV_PFS_RWLOCK)
 	/* It should have been created in pfs_rw_lock_create_func() */
@@ -236,7 +232,7 @@ rw_lock_create_func(
 	split the source file anyway. Or create the locks on lines
 	less than 8192. cline is unsigned:13. */
 	ut_ad(cline <= 8192);
-	lock->cline = (unsigned int) cline;
+	lock->cline = cline;
 	lock->count_os_wait = 0;
 	lock->last_s_file_name = "not yet reserved";
 	lock->last_x_file_name = "not yet reserved";
@@ -295,7 +291,7 @@ rw_lock_s_lock_spin(
 	ulint		pass,	/*!< in: pass value; != 0, if the lock
 				will be passed to another thread to unlock */
 	const char*	file_name, /*!< in: file name where lock requested */
-	ulint		line)	/*!< in: line where requested */
+	unsigned	line)	/*!< in: line where requested */
 {
 	ulint		i = 0;	/* spin round count */
 	sync_array_t*	sync_arr;
@@ -425,7 +421,7 @@ rw_lock_x_lock_wait_func(
 #endif
 	lint		threshold,/*!< in: threshold to wait for */
 	const char*	file_name,/*!< in: file name where lock requested */
-	ulint		line)	/*!< in: line where requested */
+	unsigned	line)	/*!< in: line where requested */
 {
 	ulint		i = 0;
 	ulint		n_spins = 0;
@@ -520,7 +516,7 @@ rw_lock_x_lock_low(
 	ulint		pass,	/*!< in: pass value; != 0, if the lock will
 				be passed to another thread to unlock */
 	const char*	file_name,/*!< in: file name where lock requested */
-	ulint		line)	/*!< in: line where requested */
+	unsigned	line)	/*!< in: line where requested */
 {
 	if (rw_lock_lock_word_decr(lock, X_LOCK_DECR, X_LOCK_HALF_DECR)) {
 
@@ -578,7 +574,7 @@ rw_lock_x_lock_low(
 	ut_d(rw_lock_add_debug_info(lock, pass, RW_LOCK_X, file_name, line));
 
 	lock->last_x_file_name = file_name;
-	lock->last_x_line = (unsigned int) line;
+	lock->last_x_line = line;
 
 	return(TRUE);
 }
@@ -593,7 +589,7 @@ rw_lock_sx_lock_low(
 	ulint		pass,	/*!< in: pass value; != 0, if the lock will
 				be passed to another thread to unlock */
 	const char*	file_name,/*!< in: file name where lock requested */
-	ulint		line)	/*!< in: line where requested */
+	unsigned	line)	/*!< in: line where requested */
 {
 	if (rw_lock_lock_word_decr(lock, X_LOCK_HALF_DECR, X_LOCK_HALF_DECR)) {
 
@@ -652,7 +648,7 @@ rw_lock_sx_lock_low(
 	ut_d(rw_lock_add_debug_info(lock, pass, RW_LOCK_SX, file_name, line));
 
 	lock->last_x_file_name = file_name;
-	lock->last_x_line = (unsigned int) line;
+	lock->last_x_line = line;
 
 	return(TRUE);
 }
@@ -673,7 +669,7 @@ rw_lock_x_lock_func(
 	ulint		pass,	/*!< in: pass value; != 0, if the lock will
 				be passed to another thread to unlock */
 	const char*	file_name,/*!< in: file name where lock requested */
-	ulint		line)	/*!< in: line where requested */
+	unsigned	line)	/*!< in: line where requested */
 {
 	ulint		i = 0;
 	sync_array_t*	sync_arr;
@@ -775,7 +771,7 @@ rw_lock_sx_lock_func(
 	ulint		pass,	/*!< in: pass value; != 0, if the lock will
 				be passed to another thread to unlock */
 	const char*	file_name,/*!< in: file name where lock requested */
-	ulint		line)	/*!< in: line where requested */
+	unsigned	line)	/*!< in: line where requested */
 
 {
 	ulint		i = 0;
@@ -928,7 +924,7 @@ rw_lock_add_debug_info(
 	ulint		pass,		/*!< in: pass value */
 	ulint		lock_type,	/*!< in: lock type */
 	const char*	file_name,	/*!< in: file where requested */
-	ulint		line)		/*!< in: line where requested */
+	unsigned	line)		/*!< in: line where requested */
 {
 	ut_ad(file_name != NULL);
 
@@ -1175,41 +1171,6 @@ rw_lock_list_print_info(
 	mutex_exit(&rw_lock_list_mutex);
 }
 
-/***************************************************************//**
-Prints debug info of an rw-lock. */
-void
-rw_lock_print(
-/*==========*/
-	rw_lock_t*	lock)	/*!< in: rw-lock */
-{
-	rw_lock_debug_t* info;
-
-	fprintf(stderr,
-		"-------------\n"
-		"RW-LATCH INFO\n"
-		"RW-LATCH: %p ", (void*) lock);
-
-	if (lock->lock_word != X_LOCK_DECR) {
-
-		if (lock->waiters) {
-			fputs(" Waiters for the lock exist\n", stderr);
-		} else {
-			putc('\n', stderr);
-		}
-
-		rw_lock_debug_mutex_enter();
-
-		for (info = UT_LIST_GET_FIRST(lock->debug_list);
-		     info != NULL;
-		     info = UT_LIST_GET_NEXT(list, info)) {
-
-			rw_lock_debug_print(stderr, info);
-		}
-
-		rw_lock_debug_mutex_exit();
-	}
-}
-
 /*********************************************************************//**
 Prints info of a debug struct. */
 void
@@ -1247,32 +1208,6 @@ rw_lock_debug_print(
 	}
 
 	fprintf(f, "\n");
-}
-
-/***************************************************************//**
-Returns the number of currently locked rw-locks. Works only in the debug
-version.
-@return number of locked rw-locks */
-ulint
-rw_lock_n_locked(void)
-/*==================*/
-{
-	ulint		count = 0;
-
-	mutex_enter(&rw_lock_list_mutex);
-
-	for (const rw_lock_t* lock = UT_LIST_GET_FIRST(rw_lock_list);
-	     lock != NULL;
-	     lock = UT_LIST_GET_NEXT(list, lock)) {
-
-		if (lock->lock_word != X_LOCK_DECR) {
-			count++;
-		}
-	}
-
-	mutex_exit(&rw_lock_list_mutex);
-
-	return(count);
 }
 
 /** Print where it was locked from

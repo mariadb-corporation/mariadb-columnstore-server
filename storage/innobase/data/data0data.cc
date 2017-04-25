@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1994, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -26,11 +27,6 @@ Created 5/30/1994 Heikki Tuuri
 #include "ha_prototypes.h"
 
 #include "data0data.h"
-
-#ifdef UNIV_NONINL
-#include "data0data.ic"
-#endif
-
 #include "rem0rec.h"
 #include "rem0cmp.h"
 #include "page0page.h"
@@ -44,11 +40,6 @@ Created 5/30/1994 Heikki Tuuri
 debug version, dtuple_create() will make all fields of dtuple_t point
 to data_error. */
 byte	data_error;
-
-# ifndef UNIV_DEBUG_VALGRIND
-/** this is used to fool the compiler in dtuple_validate */
-ulint	data_dummy;
-# endif /* !UNIV_DEBUG_VALGRIND */
 #endif /* UNIV_DEBUG */
 
 /** Compare two data tuples.
@@ -125,6 +116,7 @@ dfield_check_typed_no_assert(
 /**********************************************************//**
 Checks that a data tuple is typed.
 @return TRUE if ok */
+static
 ibool
 dtuple_check_typed_no_assert(
 /*=========================*/
@@ -232,10 +224,6 @@ dtuple_validate(
 			ulint		j;
 
 			for (j = 0; j < len; j++) {
-
-				data_dummy  += *data; /* fool the compiler not
-						      to optimize out this
-						      code */
 				data++;
 			}
 #endif /* !UNIV_DEBUG_VALGRIND */
@@ -441,7 +429,7 @@ print_hex:
 		fputs(" Hex: ",stderr);
 
 		for (i = 0; i < len; i++) {
-			fprintf(stderr, "%02lx", static_cast<ulong>(*data++));
+			fprintf(stderr, "%02x", *data++);
 		}
 
 		if (dfield_is_ext(dfield)) {
@@ -728,7 +716,7 @@ skip_field:
 			DEBUG_SYNC_C("ib_mv_nonupdated_column_offpage");
 
 			upd_field_t	upd_field;
-			upd_field.field_no = longest_i;
+			upd_field.field_no = unsigned(longest_i);
 			upd_field.orig_len = 0;
 			upd_field.exp = NULL;
 			upd_field.old_v_val = NULL;

@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2006, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2017, MariaDB Corporation. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -35,9 +36,6 @@ simple headers.
 
 /* Forward declarations */
 class THD;
-class Field;
-struct fts_string_t;
-//typedef struct charset_info_st CHARSET_INFO;
 
 // JAN: TODO missing features:
 #undef MYSQL_57_SELECT_COUNT_OPTIMIZATION
@@ -48,23 +46,6 @@ struct fts_string_t;
 #undef MYSQL_REPLACE_TRX_IN_THD
 #undef MYSQL_SPATIAL_INDEX
 #undef MYSQL_STORE_FTS_DOC_ID
-
-/*********************************************************************//**
-Wrapper around MySQL's copy_and_convert function.
-@return number of bytes copied to 'to' */
-ulint
-innobase_convert_string(
-/*====================*/
-	void*		to,		/*!< out: converted string */
-	ulint		to_length,	/*!< in: number of bytes reserved
-					for the converted string */
-	CHARSET_INFO*	to_cs,		/*!< in: character set to convert to */
-	const void*	from,		/*!< in: string to convert */
-	ulint		from_length,	/*!< in: number of bytes to convert */
-	CHARSET_INFO*	from_cs,	/*!< in: character set to convert
-					from */
-	uint*		errors);	/*!< out: number of errors encountered
-					during the conversion */
 
 /*******************************************************************//**
 Formats the raw data in "data" (in InnoDB on-disk format) that is of
@@ -156,6 +137,13 @@ thd_has_edited_nontrans_tables(
 /*===========================*/
 	THD*	thd);	/*!< in: thread handle */
 
+/**
+Get high resolution timestamp for the current query start time.
+
+@retval timestamp in microseconds precision
+*/
+unsigned long long thd_query_start_micro(const MYSQL_THD thd);
+
 /*************************************************************//**
 Prints info of a THD object (== user session thread) to the given file. */
 void
@@ -206,16 +194,6 @@ innobase_strcasecmp(
 /*================*/
 	const char*	a,	/*!< in: first string to compare */
 	const char*	b);	/*!< in: second string to compare */
-
-/******************************************************************//**
-Compares NUL-terminated UTF-8 strings case insensitively. The
-second string contains wildcards.
-@return 0 if a match is found, 1 if not */
-int
-innobase_wildcasecmp(
-/*=================*/
-	const char*	a,	/*!< in: string to compare */
-	const char*	b);	/*!< in: wildcard string to compare */
 
 /** Strip dir name from a full path name and return only the file name
 @param[in]	path_name	full path name
@@ -317,16 +295,6 @@ innobase_get_at_most_n_mbchars(
 				number of CHARACTERS n in the prefix) */
 	ulint data_len,		/*!< in: length of the string in bytes */
 	const char* str);	/*!< in: character string */
-
-/******************************************************************//**
-Returns true if the thread supports XA,
-global value of innodb_supports_xa if thd is NULL.
-@return true if thd supports XA */
-ibool
-thd_supports_xa(
-/*============*/
-	THD*	thd);	/*!< in: thread handle, or NULL to query
-			the global innodb_supports_xa */
 
 /** Get status of innodb_tmpdir.
 @param[in]	thd	thread handle, or NULL to query
@@ -649,10 +617,11 @@ buffer pool size.
 void
 innodb_set_buf_pool_size(ulonglong buf_pool_size);
 
-/** Create a MYSQL_THD for background purge threads and mark it as such.
-@returns new MYSQL_THD */
+/** Create a MYSQL_THD for a background thread and mark it as such.
+@param name thread info for SHOW PROCESSLIST
+@return new MYSQL_THD */
 MYSQL_THD
-innobase_create_background_thd();
+innobase_create_background_thd(const char* name);
 
 /** Destroy a background purge thread THD.
 @param[in]	thd	MYSQL_THD to destroy */

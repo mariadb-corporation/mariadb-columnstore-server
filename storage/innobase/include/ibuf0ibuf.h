@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1997, 2016, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2016, MariaDB Corporation.
+Copyright (c) 2016, 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -274,7 +274,7 @@ ibuf_page_low(
 	ibool			x_latch,
 #endif /* UNIV_DEBUG */
 	const char*		file,
-	ulint			line,
+	unsigned		line,
 	mtr_t*			mtr)
 	MY_ATTRIBUTE((warn_unused_result));
 
@@ -450,8 +450,6 @@ for the file segment from which the pages for the ibuf tree are allocated */
 /* The insert buffer tree itself is always located in space 0. */
 #define IBUF_SPACE_ID		static_cast<ulint>(0)
 
-#ifndef UNIV_NONINL
 #include "ibuf0ibuf.ic"
-#endif
 
 #endif

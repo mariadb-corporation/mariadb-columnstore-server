@@ -26,11 +26,6 @@ Created 2011/12/19
 
 #include "ha_prototypes.h"
 #include "buf0dblwr.h"
-
-#ifdef UNIV_NONINL
-#include "buf0buf.ic"
-#endif
-
 #include "buf0buf.h"
 #include "buf0checksum.h"
 #include "srv0start.h"
@@ -211,19 +206,6 @@ start_again:
 
 	ib::info() << "Doublewrite buffer not found: creating new";
 
-	ulint min_doublewrite_size =
-		( ( 2 * TRX_SYS_DOUBLEWRITE_BLOCK_SIZE
-		  + FSP_EXTENT_SIZE / 2
-		  + 100)
-		* UNIV_PAGE_SIZE);
-	if (buf_pool_get_curr_size() <  min_doublewrite_size) {
-		ib::error() << "Cannot create doublewrite buffer: you must"
-			" increase your buffer pool size. Cannot continue"
-			" operation.";
-
-		return(false);
-	}
-
 	block2 = fseg_create(TRX_SYS_SPACE, TRX_SYS_PAGE_NO,
 			     TRX_SYS_DOUBLEWRITE
 			     + TRX_SYS_DOUBLEWRITE_FSEG, &mtr);
@@ -238,9 +220,9 @@ start_again:
 			" increase your tablespace size."
 			" Cannot continue operation.";
 
-		/* We exit without committing the mtr to prevent
-		its modifications to the database getting to disk */
-
+		/* The mini-transaction did not write anything yet;
+		we merely failed to allocate a page. */
+		mtr.commit();
 		return(false);
 	}
 
@@ -255,7 +237,12 @@ start_again:
 			ib::error() << "Cannot create doublewrite buffer: "
 				" you must increase your tablespace size."
 				" Cannot continue operation.";
-
+			/* This may essentially corrupt the doublewrite
+			buffer. However, usually the doublewrite buffer
+			is created at database initialization, and it
+			should not matter (just remove all newly created
+			InnoDB files and restart). */
+			mtr.commit();
 			return(false);
 		}
 
@@ -397,13 +384,7 @@ buf_dblwr_init_or_load_pages(
 
 	doublewrite = read_buf + TRX_SYS_DOUBLEWRITE;
 
-	if (mach_read_from_4(read_buf + FIL_PAGE_FILE_FLUSH_LSN_OR_KEY_VERSION) != 0) {
-		byte* tmp = fil_space_decrypt((ulint)TRX_SYS_SPACE,
-						read_buf + UNIV_PAGE_SIZE,
-						univ_page_size, /* page size */
-						read_buf);
-		doublewrite = tmp + TRX_SYS_DOUBLEWRITE;
-	}
+	/* TRX_SYS_PAGE_NO is not encrypted see fil_crypt_rotate_page() */
 
 	if (mach_read_from_4(doublewrite + TRX_SYS_DOUBLEWRITE_MAGIC)
 	    == TRX_SYS_DOUBLEWRITE_MAGIC_N) {
@@ -614,14 +595,14 @@ buf_dblwr_process(void)
 				/* Decompress the page before
 				validating the checksum. */
 				fil_decompress_page(
-					NULL, read_buf, UNIV_PAGE_SIZE,
+					NULL, read_buf, srv_page_size,
 					NULL, true);
 			}
 
 			if (fil_space_verify_crypt_checksum(
-				    read_buf, page_size)
+				    read_buf, page_size, space_id, page_no)
 			   || !buf_page_is_corrupted(
-				   true, read_buf, page_size, false)) {
+				   true, read_buf, page_size, space)) {
 				/* The page is good; there is no need
 				to consult the doublewrite buffer. */
 				continue;
@@ -640,11 +621,12 @@ buf_dblwr_process(void)
 			/* Decompress the page before
 			validating the checksum. */
 			fil_decompress_page(
-				NULL, page, UNIV_PAGE_SIZE, NULL, true);
+				NULL, page, srv_page_size, NULL, true);
 		}
 
-		if (!fil_space_verify_crypt_checksum(page, page_size)
-		    && buf_page_is_corrupted(true, page, page_size, false)) {
+		if (!fil_space_verify_crypt_checksum(page, page_size,
+						     space_id, page_no)
+		    && buf_page_is_corrupted(true, page, page_size, space)) {
 			if (!is_all_zero) {
 				ib::warn() << "A doublewrite copy of page "
 					<< page_id << " is corrupted.";

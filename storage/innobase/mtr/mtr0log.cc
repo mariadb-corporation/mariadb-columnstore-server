@@ -24,11 +24,6 @@ Created 12/7/1995 Heikki Tuuri
 *******************************************************/
 
 #include "mtr0log.h"
-
-#ifdef UNIV_NONINL
-#include "mtr0log.ic"
-#endif /* UNIV_NOINL */
-
 #include "buf0buf.h"
 #include "dict0dict.h"
 #include "log0recv.h"
@@ -101,7 +96,7 @@ mlog_parse_initial_log_record(
 		return(NULL);
 	}
 
-	*type = (mlog_id_t)((ulint)*ptr & ~MLOG_SINGLE_REC_FLAG);
+	*type = mlog_id_t(*ptr & ~MLOG_SINGLE_REC_FLAG);
 	ut_ad(*type <= MLOG_BIGGEST_TYPE || EXTRA_CHECK_MLOG_NUMBER(*type));
 
 	ptr++;

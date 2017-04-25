@@ -197,13 +197,6 @@ fsp_is_system_temporary(ulint	space_id)
 	return(space_id == SRV_TMP_SPACE_ID);
 }
 
-/** Check if checksum is disabled for the given space.
-@param[in]	space_id	verify is checksum is enabled for given space.
-@return true if checksum is disabled for given space. */
-bool
-fsp_is_checksum_disabled(
-	ulint	space_id);
-
 #ifdef UNIV_DEBUG
 /** Skip some of the sanity checks that are time consuming even in debug mode
 and can affect frequent verification runs that are done to ensure stability of
@@ -416,7 +409,7 @@ fsp_flags_is_valid(ulint flags)
 	bits 10..14 would be nonzero 0bsssaa where sss is
 	nonzero PAGE_SSIZE (3, 4, 6, or 7)
 	and aa is ATOMIC_WRITES (not 0b11). */
-	if (FSP_FLAGS_GET_RESERVED(flags) & ~1) {
+	if (FSP_FLAGS_GET_RESERVED(flags) & ~1U) {
 		return(false);
 	}
 

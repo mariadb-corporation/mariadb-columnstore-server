@@ -46,7 +46,6 @@
 #include "wsrep_mysqld.h"
 #endif /* MYSQL_CLIENT */
 
-#include <base64.h>
 #include <my_bitmap.h>
 #include "rpl_utility.h"
 #include "rpl_constants.h"
@@ -1141,39 +1140,6 @@ int append_query_string(CHARSET_INFO *csinfo, String *to,
   to->length(orig_len + ptr - beg);
   return 0;
 }
-
-/*
-InfiniDB: Checks to see if we should replicate. 
-vtables and InfiniDB tables do not replicate 
-#InfiniDB TODO Ask server team to add Plugin API call for this 
-Or perhaps there's a way to do it already with the don't list. 
-*/
-static bool idb_okay_to_repl(THD* thd, char const* query, uint32 q_len)
-{
-	char* ptr = 0;
-
-	if (thd->db_length == 15 && strncmp(thd->db, "infinidb_vtable", 15) == 0)
-		return FALSE;
-
-	//we only care about a few patterns, and they're always the same because we write them
-
-	//drop table infinidb_vtable.$vtable_nnn ...
-	ptr = strstr((char*)query, "drop table infinidb_vtable.$vtable_");
-	if (ptr)
-	{
-		return FALSE;
-	}
-
-	//alter table infinidb_vtable.$vtable_nnn ...
-	ptr = strstr((char*)query, "alter table infinidb_vtable.$vtable_");
-	if (ptr)
-	{
-		return FALSE;
-	}
-
-	return TRUE;
-}
-
 #endif
 
 
@@ -2927,8 +2893,8 @@ log_event_print_value(IO_CACHE *file, const uchar *ptr,
     case 2:
       {
         strmake(typestr, "ENUM(2 bytes)", typestr_length);
-      if (!ptr)
-        goto return_null;
+        if (!ptr)
+          goto return_null;
 
         int32 i32= uint2korr(ptr);
         my_b_printf(file, "%d", i32);
@@ -5106,10 +5072,7 @@ int Query_log_event::do_apply_event(rpl_group_info *rgi,
             ::do_apply_event(), then the companion SET also have so
             we don't need to reset_one_shot_variables().
   */
-  // @InfiniDB Add check for OK to replicate.
-  bool idb_okay = true;
-  idb_okay = idb_okay_to_repl(thd, query_arg, q_len_arg);
-  if (idb_okay && (is_trans_keyword() || rpl_filter->db_ok(thd->db)) )
+  if (is_trans_keyword() || rpl_filter->db_ok(thd->db))
   {
     thd->set_time(when, when_sec_part);
     thd->set_query_and_id((char*)query_arg, q_len_arg,
@@ -7255,9 +7218,11 @@ bool Rotate_log_event::write()
 
   @retval
     0	ok
+    1   error
 */
 int Rotate_log_event::do_update_pos(rpl_group_info *rgi)
 {
+  int error= 0;
   Relay_log_info *rli= rgi->rli;
   DBUG_ENTER("Rotate_log_event::do_update_pos");
 
@@ -7306,7 +7271,7 @@ int Rotate_log_event::do_update_pos(rpl_group_info *rgi)
                         (ulong) rli->group_master_log_pos));
     mysql_mutex_unlock(&rli->data_lock);
     rpl_global_gtid_slave_state->record_and_update_gtid(thd, rgi);
-    rli->flush();
+    error= rli->flush();
     
     /*
       Reset thd->variables.option_bits and sql_mode etc, because this could
@@ -7324,8 +7289,7 @@ int Rotate_log_event::do_update_pos(rpl_group_info *rgi)
   else
     rgi->inc_event_relay_log_pos();
 
-
-  DBUG_RETURN(0);
+  DBUG_RETURN(error);
 }
 
 
@@ -9089,6 +9053,7 @@ void Stop_log_event::print(FILE* file, PRINT_EVENT_INFO* print_event_info)
 
 int Stop_log_event::do_update_pos(rpl_group_info *rgi)
 {
+  int error= 0;
   Relay_log_info *rli= rgi->rli;
   DBUG_ENTER("Stop_log_event::do_update_pos");
   /*
@@ -9104,9 +9069,10 @@ int Stop_log_event::do_update_pos(rpl_group_info *rgi)
   {
     rpl_global_gtid_slave_state->record_and_update_gtid(thd, rgi);
     rli->inc_group_relay_log_pos(0, rgi);
-    rli->flush();
+    if (rli->flush())
+      error= 1;
   }
-  DBUG_RETURN(0);
+  DBUG_RETURN(error);
 }
 
 #endif /* !MYSQL_CLIENT */
@@ -11190,8 +11156,8 @@ int
 Rows_log_event::do_update_pos(rpl_group_info *rgi)
 {
   Relay_log_info *rli= rgi->rli;
-  DBUG_ENTER("Rows_log_event::do_update_pos");
   int error= 0;
+  DBUG_ENTER("Rows_log_event::do_update_pos");
 
   DBUG_PRINT("info", ("flags: %s",
                       get_flags(STMT_END_F) ? "STMT_END_F " : ""));
@@ -11203,7 +11169,7 @@ Rows_log_event::do_update_pos(rpl_group_info *rgi)
       Step the group log position if we are not in a transaction,
       otherwise increase the event log position.
     */
-    rli->stmt_done(log_pos, thd, rgi);
+    error= rli->stmt_done(log_pos, thd, rgi);
     /*
       Clear any errors in thd->net.last_err*. It is not known if this is
       needed or not. It is believed that any errors that may exist in
@@ -11356,7 +11322,7 @@ Annotate_rows_log_event::Annotate_rows_log_event(THD *thd,
                                                  bool direct)
   : Log_event(thd, 0, using_trans),
     m_save_thd_query_txt(0),
-    m_save_thd_query_len(0)
+    m_save_thd_query_len(0), m_saved_thd_query(false)
 {
   m_query_txt= thd->query();
   m_query_len= thd->query_length();
@@ -11370,7 +11336,7 @@ Annotate_rows_log_event::Annotate_rows_log_event(const char *buf,
                                       const Format_description_log_event *desc)
   : Log_event(buf, desc),
     m_save_thd_query_txt(0),
-    m_save_thd_query_len(0)
+    m_save_thd_query_len(0), m_saved_thd_query(false)
 {
   m_query_len= event_len - desc->common_header_len;
   m_query_txt= (char*) buf + desc->common_header_len;
@@ -11379,7 +11345,7 @@ Annotate_rows_log_event::Annotate_rows_log_event(const char *buf,
 Annotate_rows_log_event::~Annotate_rows_log_event()
 {
 #ifndef MYSQL_CLIENT
-  if (m_save_thd_query_txt)
+  if (m_saved_thd_query)
     thd->set_query(m_save_thd_query_txt, m_save_thd_query_len);
 #endif
 }
@@ -11463,8 +11429,10 @@ void Annotate_rows_log_event::print(FILE *file, PRINT_EVENT_INFO *pinfo)
 #if !defined(MYSQL_CLIENT) && defined(HAVE_REPLICATION)
 int Annotate_rows_log_event::do_apply_event(rpl_group_info *rgi)
 {
+  rgi->free_annotate_event();
   m_save_thd_query_txt= thd->query();
   m_save_thd_query_len= thd->query_length();
+  m_saved_thd_query= true;
   thd->set_query(m_query_txt, m_query_len);
   return 0;
 }

@@ -399,7 +399,7 @@ void
 dict_table_add_to_cache(
 /*====================*/
 	dict_table_t*	table,		/*!< in: table */
-	ibool		can_be_evicted,	/*!< in: TRUE if can be evicted*/
+	bool		can_be_evicted,	/*!< in: whether can be evicted*/
 	mem_heap_t*	heap)		/*!< in: temporary heap */
 	MY_ATTRIBUTE((nonnull));
 /**********************************************************************//**
@@ -498,16 +498,6 @@ dict_foreign_replace_index(
 					to use table->col_names */
 	const dict_index_t*	index)	/*!< in: index to be replaced */
 	MY_ATTRIBUTE((nonnull(1,3), warn_unused_result));
-/**********************************************************************//**
-Determines whether a string starts with the specified keyword.
-@return TRUE if str starts with keyword */
-ibool
-dict_str_starts_with_keyword(
-/*=========================*/
-	THD*		thd,		/*!< in: MySQL thread handle */
-	const char*	str,		/*!< in: string to scan for keyword */
-	const char*	keyword)	/*!< in: keyword to look for */
-	MY_ATTRIBUTE((nonnull, warn_unused_result));
 /** Scans a table create SQL string and adds to the data dictionary
 the foreign key constraints declared in the string. This function
 should be called after the indexes for a table have been created.
@@ -1567,11 +1557,9 @@ dict_index_calc_min_rec_len(
 /*========================*/
 	const dict_index_t*	index)	/*!< in: index */
 	MY_ATTRIBUTE((nonnull, warn_unused_result));
-/********************************************************************//**
-Reserves the dictionary system mutex for MySQL. */
+/** Reserve the dictionary system mutex. */
 void
-dict_mutex_enter_for_mysql_func(const char * file, ulint line);
-/*============================*/
+dict_mutex_enter_for_mysql_func(const char *file, unsigned line);
 
 #define dict_mutex_enter_for_mysql() \
   dict_mutex_enter_for_mysql_func(__FILE__, __LINE__)
@@ -2065,8 +2053,6 @@ bool
 dict_table_have_virtual_index(
 	dict_table_t*	table);
 
-#ifndef UNIV_NONINL
 #include "dict0dict.ic"
-#endif
 
 #endif

@@ -31,11 +31,6 @@ Created 9/17/2000 Heikki Tuuri
 #include <spatial.h>
 
 #include "row0mysql.h"
-
-#ifdef UNIV_NONINL
-#include "row0mysql.ic"
-#endif
-
 #include "btr0sea.h"
 #include "dict0boot.h"
 #include "dict0crea.h"
@@ -75,7 +70,7 @@ Created 9/17/2000 Heikki Tuuri
 #include <deque>
 #include <vector>
 
-const char* MODIFICATIONS_NOT_ALLOWED_MSG_FORCE_RECOVERY =
+static const char* MODIFICATIONS_NOT_ALLOWED_MSG_FORCE_RECOVERY =
 	"innodb_force_recovery is on. We do not allow database modifications"
 	" by the user. Shut down mysqld and edit my.cnf to set"
 	" innodb_force_recovery=0";
@@ -378,6 +373,7 @@ row_mysql_store_geometry(
 /*******************************************************************//**
 Read geometry data in the MySQL format.
 @return pointer to geometry data */
+static
 const byte*
 row_mysql_read_geometry(
 /*====================*/
@@ -1444,7 +1440,7 @@ row_insert_for_mysql(
 		return(DB_TABLESPACE_NOT_FOUND);
 	} else if (prebuilt->table->is_encrypted) {
 		ib_push_warning(trx, DB_DECRYPTION_FAILED,
-			"Table %s in tablespace %lu encrypted."
+			"Table %s in tablespace " ULINTPF " encrypted."
 			"However key management plugin or used key_id is not found or"
 			" used encryption algorithm or method does not match.",
 			prebuilt->table->name, prebuilt->table->space);
@@ -1870,7 +1866,7 @@ row_update_for_mysql_using_upd_graph(
 		DBUG_RETURN(DB_ERROR);
 	} else if (prebuilt->table->is_encrypted) {
 		ib_push_warning(trx, DB_DECRYPTION_FAILED,
-			"Table %s in tablespace %lu encrypted."
+			"Table %s in tablespace " ULINTPF " encrypted."
 			"However key management plugin or used key_id is not found or"
 			" used encryption algorithm or method does not match.",
 			prebuilt->table->name, prebuilt->table->space);
@@ -2344,7 +2340,7 @@ row_mysql_freeze_data_dictionary_func(
 /*==================================*/
 	trx_t*		trx,	/*!< in/out: transaction */
 	const char*	file,	/*!< in: file name */
-	ulint		line)	/*!< in: line number */
+	unsigned	line)	/*!< in: line number */
 {
 	ut_a(trx->dict_operation_lock_mode == 0);
 
@@ -2377,7 +2373,7 @@ row_mysql_lock_data_dictionary_func(
 /*================================*/
 	trx_t*		trx,	/*!< in/out: transaction */
 	const char*	file,	/*!< in: file name */
-	ulint		line)	/*!< in: line number */
+	unsigned	line)	/*!< in: line number */
 {
 	ut_a(trx->dict_operation_lock_mode == 0
 	     || trx->dict_operation_lock_mode == RW_X_LATCH);
@@ -3438,9 +3434,6 @@ fil_wait_crypt_bg_threads(
 {
 	time_t start = time(0);
 	time_t last = start;
-	if (table->space != 0) {
-		fil_space_crypt_mark_space_closing(table->space, table->crypt_data);
-	}
 
 	while (table->get_ref_count()> 0) {
 		dict_mutex_exit_for_mysql();
@@ -3452,14 +3445,14 @@ fil_wait_crypt_bg_threads(
 			ib::warn()
 				<< "Waited " << now - start
 				<< " seconds for ref-count on table: "
-				<< table->name.m_name << " space: " << table->space;
+				<< table->name << " space: " << table->space;
 			last = now;
 		}
 		if (now >= start + 300) {
 			ib::warn()
 				<< "After " << now - start
 				<< " seconds, gave up waiting "
-				<< "for ref-count on table: " << table->name.m_name
+				<< "for ref-count on table: " << table->name
 				<< " space: " << table->space;
 			break;
 		}
@@ -3909,7 +3902,14 @@ row_drop_table_for_mysql(
 		/* If table has not yet have crypt_data, try to read it to
 		make freeing the table easier. */
 		if (!table->crypt_data) {
-			table->crypt_data = fil_space_get_crypt_data(table->space);
+			if (fil_space_t* space = fil_space_acquire_silent(
+				    table->space)) {
+				/* We use crypt data in dict_table_t
+				in ha_innodb.cc to push warnings to
+				user thread. */
+				table->crypt_data = space->crypt_data;
+				fil_space_release(space);
+			}
 		}
 
 		/* We use the private SQL parser of Innobase to generate the

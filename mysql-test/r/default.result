@@ -541,10 +541,10 @@ DROP FUNCTION f1;
 CREATE PROCEDURE p1(par INT) CREATE TABLE t1 (a INT DEFAULT par);
 ERROR HY000: Function or expression 'par' cannot be used in the DEFAULT clause of `a`
 CREATE TABLE t1 (a INT DEFAULT par);
-ERROR 42S22: Unknown column 'par' in 'virtual column function'
+ERROR 42S22: Unknown column 'par' in 'DEFAULT'
 CREATE PROCEDURE p1() CREATE TABLE t1 (a INT DEFAULT par);
 CALL p1;
-ERROR 42S22: Unknown column 'par' in 'virtual column function'
+ERROR 42S22: Unknown column 'par' in 'DEFAULT'
 DROP PROCEDURE p1;
 CREATE TABLE t1 (a INT DEFAULT VALUES(a));
 ERROR HY000: Function or expression 'values()' cannot be used in the DEFAULT clause of `a`
@@ -1940,6 +1940,21 @@ INSERT INTO t1 (a,b) VALUES ('2003-02-01','2003-05-01 12:05:55');
 SELECT * FROM t1;
 a	b	c
 2003-02-01	2003-05-01 12:05:55	128885
+DROP TABLE t1;
+CREATE OR REPLACE TABLE t1 ( col INT DEFAULT ( 1 LIKE ( NOW() BETWEEN '2000-01-01' AND '2012-12-12' ) ) );
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `col` int(11) DEFAULT (1 like (current_timestamp() between '2000-01-01' and '2012-12-12'))
+) ENGINE=MyISAM DEFAULT CHARSET=latin1
+SET timestamp = UNIX_TIMESTAMP( '2004-04-04' );
+INSERT INTO t1 VALUES( DEFAULT );
+SET timestamp = DEFAULT;
+INSERT INTO t1 VALUES( DEFAULT );
+SELECT * FROM t1;
+col
+1
+0
 DROP TABLE t1;
 #
 # Hybrid type functions
@@ -3364,4 +3379,6 @@ a	b	t
 drop table t1;
 create table t1 (col1 int default(-(default(col1))));
 ERROR 01000: Expression for field `col1` is refering to uninitialized field `col1`
+create table t1 (col int default (yearweek((exp(710)))));
+ERROR 22003: DOUBLE value is out of range in 'exp(710)'
 # end of 10.2 test

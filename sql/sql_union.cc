@@ -930,7 +930,8 @@ bool st_select_lex_unit::exec()
   if (executed && !uncacheable && !describe)
     DBUG_RETURN(FALSE);
   executed= 1;
-  if (!(uncacheable & ~UNCACHEABLE_EXPLAIN) && item)
+  if (!(uncacheable & ~UNCACHEABLE_EXPLAIN) && item &&
+      !item->with_recursive_reference)
     item->make_const();
   
   saved_error= optimize();
@@ -1247,7 +1248,7 @@ bool st_select_lex_unit::exec_recursive()
   thd->inc_examined_row_count(examined_rows);
 
   incr_table->file->info(HA_STATUS_VARIABLE);
-  if (incr_table->file->stats.records == 0)
+  if (with_element->level && incr_table->file->stats.records == 0)
     with_element->set_as_stabilized();
   else
     with_element->level++;
@@ -1260,9 +1261,15 @@ bool st_select_lex_unit::exec_recursive()
                                                  !is_unrestricted);
     if (!with_element->rec_result->first_rec_table_to_update)
       with_element->rec_result->first_rec_table_to_update= rec_table;
-    if (with_element->level == 1)
+    if (with_element->level == 1 && rec_table->reginfo.join_tab)
       rec_table->reginfo.join_tab->preread_init_done= true;  
   }
+  for (Item_subselect *sq= with_element->sq_with_rec_ref.first;
+       sq;
+       sq= sq->next_with_rec_ref)
+  {
+    sq->engine->force_reexecution();
+  }   
 
   thd->lex->current_select= lex_select_save;
 err:

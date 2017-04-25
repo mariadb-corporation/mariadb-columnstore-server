@@ -1060,7 +1060,7 @@ next:
   {
     /* Try to fix */
     TABLE_LIST *derived=  res->belong_to_derived;
-    if (derived->is_merged_derived())
+    if (derived->is_merged_derived() && !derived->derived->is_excluded())
     {
       DBUG_PRINT("info",
                  ("convert merged to materialization to resolve the conflict"));
@@ -4827,9 +4827,9 @@ static bool fix_all_session_vcol_exprs(THD *thd, TABLE_LIST *tables)
             fix_session_vcol_expr(thd, (*df)->default_value))
           goto err;
 
-        for (Virtual_column_info **cc= t->check_constraints; cc && *cc; cc++)
-          if (fix_session_vcol_expr(thd, (*cc)))
-            goto err;
+      for (Virtual_column_info **cc= t->check_constraints; cc && *cc; cc++)
+        if (fix_session_vcol_expr(thd, (*cc)))
+          goto err;
 
       thd->security_ctx= save_security_ctx;
     }
@@ -5815,7 +5815,7 @@ find_field_in_tables(THD *thd, Item_ident *item,
       if (!table_ref->belong_to_view &&
           !table_ref->belong_to_derived)
       {
-        SELECT_LEX *current_sel= thd->lex->current_select;
+        SELECT_LEX *current_sel= item->context->select_lex;
         SELECT_LEX *last_select= table_ref->select_lex;
         bool all_merged= TRUE;
         for (SELECT_LEX *sl= current_sel; sl && sl!=last_select;

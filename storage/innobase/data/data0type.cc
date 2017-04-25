@@ -1,6 +1,7 @@
 /*****************************************************************************
 
-Copyright (c) 1996, 2014, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1996, 2015, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -26,10 +27,6 @@ Created 1/16/1996 Heikki Tuuri
 #include "ha_prototypes.h"
 
 #include "data0type.h"
-
-#ifdef UNIV_NONINL
-#include "data0type.ic"
-#endif
 
 /* At the database startup we store the default-charset collation number of
 this MySQL installation to this global variable. If we have < 4.1.2 format
@@ -140,23 +137,6 @@ dtype_is_non_binary_string_type(
 }
 
 /*********************************************************************//**
-Forms a precise type from the < 4.1.2 format precise type plus the
-charset-collation code.
-@return precise type, including the charset-collation code */
-ulint
-dtype_form_prtype(
-/*==============*/
-	ulint	old_prtype,	/*!< in: the MySQL type code and the flags
-				DATA_BINARY_TYPE etc. */
-	ulint	charset_coll)	/*!< in: MySQL charset-collation code */
-{
-	ut_a(old_prtype < 256 * 256);
-	ut_a(charset_coll <= MAX_CHAR_COLL_NUM);
-
-	return(old_prtype + (charset_coll << 16));
-}
-
-/*********************************************************************//**
 Validates a data type structure.
 @return TRUE if ok */
 ibool
@@ -177,12 +157,11 @@ dtype_validate(
 	return(TRUE);
 }
 
-/*********************************************************************//**
-Prints a data type structure. */
+#ifdef UNIV_DEBUG
+/** Print a data type structure.
+@param[in]	type	data type */
 void
-dtype_print(
-/*========*/
-	const dtype_t*	type)	/*!< in: type */
+dtype_print(const dtype_t* type)
 {
 	ulint	mtype;
 	ulint	prtype;
@@ -294,3 +273,4 @@ dtype_print(
 
 	fprintf(stderr, " len %lu", (ulong) len);
 }
+#endif /* UNIV_DEBUG */

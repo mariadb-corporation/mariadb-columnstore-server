@@ -2,7 +2,7 @@
 #define SQL_SELECT_INCLUDED
 
 /* Copyright (c) 2000, 2013, Oracle and/or its affiliates.
-   Copyright (c) 2008, 2015, MariaDB
+   Copyright (c) 2008, 2017, MariaDB Corporation.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -36,9 +36,9 @@
 
 typedef struct st_join_table JOIN_TAB;
 /* Values in optimize */
-#define KEY_OPTIMIZE_EXISTS		1
-#define KEY_OPTIMIZE_REF_OR_NULL	2
-#define KEY_OPTIMIZE_EQ	                4
+#define KEY_OPTIMIZE_EXISTS		1U
+#define KEY_OPTIMIZE_REF_OR_NULL	2U
+#define KEY_OPTIMIZE_EQ	                4U
 
 inline uint get_hash_join_key_no() { return MAX_KEY; }
 
@@ -178,10 +178,10 @@ enum sj_strategy_enum
 };
 
 /* Values for JOIN_TAB::packed_info */
-#define TAB_INFO_HAVE_VALUE 1
-#define TAB_INFO_USING_INDEX 2
-#define TAB_INFO_USING_WHERE 4
-#define TAB_INFO_FULL_SCAN_ON_NULL 8
+#define TAB_INFO_HAVE_VALUE 1U
+#define TAB_INFO_USING_INDEX 2U
+#define TAB_INFO_USING_WHERE 4U
+#define TAB_INFO_FULL_SCAN_ON_NULL 8U
 
 typedef enum_nested_loop_state
 (*Next_select_func)(JOIN *, struct st_join_table *, bool);
@@ -1995,7 +1995,7 @@ class Virtual_tmp_table: public TABLE
 
     This is needed to avoid memory leaks, as some fields can be BLOB
     variants and thus can have String onboard. Strings must be destructed
-    as they store data not the heap (not on MEM_ROOT).
+    as they store data on the heap (not on MEM_ROOT).
   */
   void destruct_fields()
   {
@@ -2027,6 +2027,7 @@ public:
     @param thd         - Current thread.
   */
   static void *operator new(size_t size, THD *thd) throw();
+  static void operator delete(void *ptr, size_t size) { TRASH(ptr, size); }
 
   Virtual_tmp_table(THD *thd)
   {
@@ -2037,7 +2038,8 @@ public:
 
   ~Virtual_tmp_table()
   {
-    destruct_fields();
+    if (s)
+      destruct_fields();
   }
 
   /**
@@ -2122,6 +2124,17 @@ create_virtual_tmp_table(THD *thd, List<Column_definition> &field_list)
   Virtual_tmp_table *table;
   if (!(table= new(thd) Virtual_tmp_table(thd)))
     return NULL;
+
+  /*
+    If "simulate_create_virtual_tmp_table_out_of_memory" debug option
+    is enabled, we now enable "simulate_out_of_memory". This effectively
+    makes table->init() fail on OOM inside multi_alloc_root().
+    This is done to test that ~Virtual_tmp_table() called from the "delete"
+    below correcly handles OOM.
+  */
+  DBUG_EXECUTE_IF("simulate_create_virtual_tmp_table_out_of_memory",
+                  DBUG_SET("+d,simulate_out_of_memory"););
+
   if (table->init(field_list.elements) ||
       table->add(field_list) ||
       table->open())

@@ -2,7 +2,7 @@
 
 Copyright (c) 2010, 2015, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2012, Facebook Inc.
-Copyright (c) 2013, 2016, MariaDB Corporation.
+Copyright (c) 2013, 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of the GNU General Public License as published by the
@@ -361,16 +361,20 @@ enum monitor_id_t {
 	MONITOR_INDEX_REORG_SUCCESSFUL,
 	MONITOR_INDEX_DISCARD,
 
+#ifdef BTR_CUR_HASH_ADAPT
 	/* Adaptive Hash Index related counters */
 	MONITOR_MODULE_ADAPTIVE_HASH,
 	MONITOR_OVLD_ADAPTIVE_HASH_SEARCH,
+#endif /* BTR_CUR_HASH_ADAPT */
 	MONITOR_OVLD_ADAPTIVE_HASH_SEARCH_BTREE,
+#ifdef BTR_CUR_HASH_ADAPT
 	MONITOR_ADAPTIVE_HASH_PAGE_ADDED,
 	MONITOR_ADAPTIVE_HASH_PAGE_REMOVED,
 	MONITOR_ADAPTIVE_HASH_ROW_ADDED,
 	MONITOR_ADAPTIVE_HASH_ROW_REMOVED,
 	MONITOR_ADAPTIVE_HASH_ROW_REMOVE_NOT_FOUND,
 	MONITOR_ADAPTIVE_HASH_ROW_UPDATED,
+#endif /* BTR_CUR_HASH_ADAPT */
 
 	/* Tablespace related counters */
 	MONITOR_MODULE_FIL_SYSTEM,
@@ -599,9 +603,10 @@ on the counters */
 
 /** Atomically increment a monitor counter.
 Use MONITOR_INC if appropriate mutex protection exists.
-@param monitor monitor to be incremented by 1 */
-# define MONITOR_ATOMIC_INC(monitor)					\
-	if (MONITOR_IS_ON(monitor)) {					\
+@param monitor	monitor to be incremented by 1
+@param enabled	whether the monitor is enabled */
+#define MONITOR_ATOMIC_INC_LOW(monitor, enabled)			\
+	if (enabled) {							\
 		ib_uint64_t	value;					\
 		value  = my_atomic_add64(				\
 			(int64*) &MONITOR_VALUE(monitor), 1) + 1;	\
@@ -614,9 +619,10 @@ Use MONITOR_INC if appropriate mutex protection exists.
 
 /** Atomically decrement a monitor counter.
 Use MONITOR_DEC if appropriate mutex protection exists.
-@param monitor monitor to be decremented by 1 */
-# define MONITOR_ATOMIC_DEC(monitor)					\
-	if (MONITOR_IS_ON(monitor)) {					\
+@param monitor	monitor to be decremented by 1
+@param enabled	whether the monitor is enabled */
+#define MONITOR_ATOMIC_DEC_LOW(monitor, enabled)			\
+	if (enabled) {							\
 		ib_uint64_t	value;					\
 		value = my_atomic_add64(				\
 			(int64*) &MONITOR_VALUE(monitor), -1) - 1;	\
@@ -626,6 +632,17 @@ Use MONITOR_DEC if appropriate mutex protection exists.
 			MONITOR_MIN_VALUE(monitor) = value;		\
 		}							\
 	}
+
+/** Atomically increment a monitor counter if it is enabled.
+Use MONITOR_INC if appropriate mutex protection exists.
+@param monitor	monitor to be incremented by 1 */
+#define MONITOR_ATOMIC_INC(monitor)				\
+	MONITOR_ATOMIC_INC_LOW(monitor, MONITOR_IS_ON(monitor))
+/** Atomically decrement a monitor counter if it is enabled.
+Use MONITOR_DEC if appropriate mutex protection exists.
+@param monitor	monitor to be decremented by 1 */
+#define MONITOR_ATOMIC_DEC(monitor)				\
+	MONITOR_ATOMIC_DEC_LOW(monitor, MONITOR_IS_ON(monitor))
 
 #define	MONITOR_DEC(monitor)						\
 	if (MONITOR_IS_ON(monitor)) {					\
@@ -885,8 +902,6 @@ void
 srv_mon_default_on(void);
 /*====================*/
 
-#ifndef UNIV_NONINL
 #include "srv0mon.ic"
-#endif
 
 #endif

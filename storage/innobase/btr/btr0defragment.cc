@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (C) 2013, 2014 Facebook, Inc. All Rights Reserved.
-Copyright (C) 2014, 2016, MariaDB Corporation. All Rights Reserved.
+Copyright (C) 2014, 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -233,7 +233,9 @@ btr_defragment_add_index(
 		return NULL;
 	}
 
-	if (btr_page_get_level(page, &mtr) == 0) {
+	ut_ad(page_is_root(page));
+
+	if (page_is_leaf(page)) {
 		// Index root is a leaf page, no need to defragment.
 		mtr_commit(&mtr);
 		return NULL;
@@ -696,8 +698,8 @@ btr_defragment_n_pages(
 			     (data_size_per_rec
 			      * srv_defragment_fill_factor_n_recs));
 	optimal_page_size -= reserved_space;
-	n_new_slots = (total_data_size + optimal_page_size - 1)
-		      / optimal_page_size;
+	n_new_slots = uint((total_data_size + optimal_page_size - 1)
+			   / optimal_page_size);
 	if (n_new_slots >= n_pages) {
 		/* Can't defragment. */
 		if (end_of_index)

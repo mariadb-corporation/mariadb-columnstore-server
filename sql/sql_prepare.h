@@ -23,6 +23,10 @@
 #define LAST_STMT_ID 0xFFFFFFFF
 #define STMT_ID_MASK 0x7FFFFFFF
 
+
+#define LAST_STMT_ID 0xFFFFFFFF
+#define STMT_ID_MASK 0x7FFFFFFF
+
 class THD;
 struct LEX;
 

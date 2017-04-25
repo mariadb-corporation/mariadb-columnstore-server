@@ -5387,6 +5387,7 @@ create view v1 as select 1;
 
 --let $MYSQLD_DATADIR= `select @@datadir`
 --let SEARCH_FILE= $MYSQLD_DATADIR/test/v1.frm
+--let SEARCH_RANGE= 50000
 --let SEARCH_PATTERN=mariadb-version
 --source include/search_pattern_in_file.inc
 
@@ -5508,6 +5509,66 @@ SHOW CREATE VIEW v1;
 
 drop view v1;
 drop table t1,t2;
+
+--echo #
+--echo # MDEV-12099: usage of mergeable view with LEFT JOIN 
+--echo #             that can be converted to INNER JOIN
+--echo #
+
+create table t1 (a int, b int, key(a)) engine=myisam;
+insert into t1 values
+ (3,20), (7,10), (2,10), (4,30), (8,70), 
+ (7,70), (9,100), (9,60), (8,80), (7,60);
+
+create table t2 (c int, d int, key (c)) engine=myisam;
+insert into t2 values
+  (50,100), (20, 200), (10,300),
+  (150,100), (120, 200), (110,300),
+  (250,100), (220, 200), (210,300);
+  
+create table t3(e int, f int not null, key(e), unique (f)) engine=myisam;
+insert into t3 values
+  (100, 3), (300, 5), (400, 4), (300,7),
+  (300,2), (600, 13), (800, 15), (700, 14),
+  (600, 23), (800, 25), (700, 24); 
+
+create view v1 as
+  select * from t2 left join t3 on t3.e=t2.d where t3.f is not null;
+
+select *
+  from t1 left join v1 on v1.c=t1.b 
+    where t1.a < 5;
+
+select *
+  from t1 left join ( t2 left join t3 on t3.e=t2.d )
+          on t2.c=t1.b and  t3.f is not null
+    where t1.a < 5;
+
+explain extended
+select *
+  from t1 left join v1 on v1.c=t1.b 
+    where t1.a < 5;
+
+explain extended
+select *
+  from t1 left join ( t2 left join t3 on t3.e=t2.d )
+          on t2.c=t1.b and  t3.f is not null
+    where t1.a < 5;
+
+explain extended
+select *
+  from t1 left join v1 on v1.c=t1.b and v1.f=t1.a
+    where t1.a < 5;
+
+explain extended
+select *
+  from t1 left join ( t2 left join t3 on t3.e=t2.d )
+       on t2.c=t1.b and t3.f=t1.a and t3.f is not null
+    where t1.a < 5;
+
+drop view v1;
+drop table t1,t2,t3;
+
 --echo # -----------------------------------------------------------------
 --echo # -- End of 5.5 tests.
 --echo # -----------------------------------------------------------------
@@ -5718,6 +5779,44 @@ DROP VIEW v1;
 
 DROP TABLE t1;
 
+--echo #
+--echo # MDEV-8642: WHERE Clause not applied on View - Empty result set returned
+--echo #
+
+CREATE TABLE `t1` (
+  `id` int(20) NOT NULL AUTO_INCREMENT,
+  `use_case` int(11) DEFAULT NULL,
+  `current_deadline` date DEFAULT NULL,
+  `ts_create` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `id_UNIQUE` (`id`)
+) ENGINE=MyISAM AUTO_INCREMENT=13976 DEFAULT CHARSET=latin1;
+INSERT INTO `t1` VALUES (1,10,'2015-12-18','2015-08-18 08:38:16');
+INSERT INTO `t1` VALUES (2,20,'2015-10-18','2015-08-18 08:43:30');
+CREATE VIEW v1 AS SELECT
+     use_case as use_case_id,
+     (
+          SELECT 
+               deadline_sub.current_deadline
+          FROM 
+               t1 deadline_sub
+          WHERE 
+               deadline_sub.use_case = use_case_id
+               AND ts_create = (SELECT 
+                                        MIN(ts_create)
+                                   FROM 
+                                        t1 startdate_sub
+                                   WHERE 
+                                        startdate_sub.use_case = use_case_id
+                )
+     ) AS InitialDeadline
+FROM 
+     t1;
+
+SELECT * FROM v1 where use_case_id = 10;
+
+drop view v1;
+drop table t1;
 
 --echo # -----------------------------------------------------------------
 --echo # -- End of 10.0 tests.
@@ -6069,6 +6168,35 @@ select * from v1;
 show create view v1;
 drop view v1;
 drop table t1;
+
+--echo #
+--echo # MDEV-10704: Assertion `field->field->table == table_arg'
+--echo # failed in fill_record(THD*, TABLE*, List<Item>&, List<Item>&,
+--echo # bool, bool)
+--echo #
+
+CREATE TABLE t1 (i INT);
+CREATE TABLE t2 (j INT);
+CREATE TABLE t3 (k INT);
+
+CREATE ALGORITHM = MERGE VIEW v AS SELECT j AS f1, k AS f2 FROM ( SELECT j FROM t1, t2 ) sq, t3;
+--error ER_VIEW_MULTIUPDATE
+REPLACE INTO v (f1,f2) VALUES (1,1);
+
+drop view v;
+drop table t1,t2,t3;
+
+
+--echo #
+--echo # MDEV-12379: Server crashes in TABLE_LIST::is_with_table on
+--echo # SHOW CREATE VIEW
+--echo #
+
+CREATE TABLE t (i INT);
+CREATE VIEW v AS SELECT * FROM ( SELECT * FROM t ) sq;
+DROP TABLE IF EXISTS t;
+SHOW CREATE VIEW v;
+DROP VIEW v;
 
 --echo #
 --echo # End of 10.2 tests

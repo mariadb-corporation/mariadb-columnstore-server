@@ -2,7 +2,7 @@
 
 Copyright (c) 1995, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2009, Percona Inc.
-Copyright (c) 2013, 2017, MariaDB Corporation. All Rights Reserved.
+Copyright (c) 2013, 2017, MariaDB Corporation.
 
 Portions of this file contain modifications contributed and copyrighted
 by Percona Inc.. Those modifications are
@@ -52,23 +52,10 @@ struct fil_space_t;
 extern bool	os_has_said_disk_full;
 extern my_bool	srv_use_trim;
 
-/** Number of pending read operations */
-extern ulint	os_n_pending_reads;
-/** Number of pending write operations */
-extern ulint	os_n_pending_writes;
-
 /** File offset in bytes */
 typedef ib_uint64_t os_offset_t;
 
 #ifdef _WIN32
-
-/**
-Gets the operating system version. Currently works only on Windows.
-@return OS_WIN95, OS_WIN31, OS_WINNT, OS_WIN2000, OS_WINXP, OS_WINVISTA,
-OS_WIN7. */
-
-ulint
-os_get_os_version();
 
 typedef HANDLE	os_file_dir_t;	/*!< directory stream */
 
@@ -110,7 +97,7 @@ whole block gets written. This should be true even in most cases of a crash:
 if this fails for a log block, then it is equivalent to a media failure in the
 log. */
 
-#define OS_FILE_LOG_BLOCK_SIZE		512
+#define OS_FILE_LOG_BLOCK_SIZE		512U
 
 /** Options for os_file_create_func @{ */
 enum os_file_create_t {
@@ -426,15 +413,12 @@ public:
 		}
 	}
 
-	/** Punch a hole in the file if it was a write
+	/** Free storage space associated with a section of the file.
 	@param[in]	fh		Open file handle
-	@param[in]	len		Compressed buffer length for write
+	@param[in]	off		Starting offset (SEEK_SET)
+	@param[in]	len		Size of the hole
 	@return DB_SUCCESS or error code */
-
-	dberr_t punch_hole(
-		os_file_t	fh,
-		os_offset_t	offset,
-		os_offset_t	len);
+	dberr_t punch_hole(os_file_t fh, os_offset_t off, ulint len);
 
 private:
 	/** Page to be written on write operation. */
@@ -861,7 +845,7 @@ pfs_os_file_create_simple_func(
 	bool		read_only,
 	bool*		success,
 	const char*	src_file,
-	ulint		src_line)
+	uint		src_line)
 	MY_ATTRIBUTE((warn_unused_result));
 
 /** NOTE! Please use the corresponding macro
@@ -892,7 +876,7 @@ pfs_os_file_create_simple_no_error_handling_func(
 	bool		read_only,
 	bool*		success,
 	const char*	src_file,
-	ulint		src_line)
+	uint		src_line)
 	MY_ATTRIBUTE((warn_unused_result));
 
 /** NOTE! Please use the corresponding macro os_file_create(), not directly
@@ -926,7 +910,7 @@ pfs_os_file_create_func(
 	bool		read_only,
 	bool*		success,
 	const char*	src_file,
-	ulint		src_line)
+	uint		src_line)
 	MY_ATTRIBUTE((warn_unused_result));
 
 /** NOTE! Please use the corresponding macro os_file_close(), not directly
@@ -941,7 +925,7 @@ bool
 pfs_os_file_close_func(
 	os_file_t	file,
 	const char*	src_file,
-	ulint		src_line);
+	uint		src_line);
 
 /** NOTE! Please use the corresponding macro os_file_read(), not directly
 this function!
@@ -964,7 +948,7 @@ pfs_os_file_read_func(
 	os_offset_t	offset,
 	ulint		n,
 	const char*	src_file,
-	ulint		src_line);
+	uint		src_line);
 
 /** NOTE! Please use the corresponding macro os_file_read_no_error_handling(),
 not directly this function!
@@ -990,7 +974,7 @@ pfs_os_file_read_no_error_handling_func(
 	ulint		n,
 	ulint*		o,
 	const char*	src_file,
-	ulint		src_line);
+	uint		src_line);
 
 /** NOTE! Please use the corresponding macro os_aio(), not directly this
 function!
@@ -1028,7 +1012,7 @@ pfs_os_aio_func(
 	fil_node_t*	m1,
 	void*		m2,
 	const char*	src_file,
-	ulint		src_line);
+	uint		src_line);
 
 /** NOTE! Please use the corresponding macro os_file_write(), not directly
 this function!
@@ -1054,7 +1038,7 @@ pfs_os_file_write_func(
 	os_offset_t	offset,
 	ulint		n,
 	const char*	src_file,
-	ulint		src_line);
+	uint		src_line);
 
 /** NOTE! Please use the corresponding macro os_file_flush(), not directly
 this function!
@@ -1070,7 +1054,7 @@ bool
 pfs_os_file_flush_func(
 	os_file_t	file,
 	const char*	src_file,
-	ulint		src_line);
+	uint		src_line);
 
 /** NOTE! Please use the corresponding macro os_file_rename(), not directly
 this function!
@@ -1089,7 +1073,7 @@ pfs_os_file_rename_func(
 	const char*	oldpath,
 	const char*	newpath,
 	const char*	src_file,
-	ulint		src_line);
+	uint		src_line);
 
 /**
 NOTE! Please use the corresponding macro os_file_delete(), not directly
@@ -1107,7 +1091,7 @@ pfs_os_file_delete_func(
 	mysql_pfs_key_t	key,
 	const char*	name,
 	const char*	src_file,
-	ulint		src_line);
+	uint		src_line);
 
 /**
 NOTE! Please use the corresponding macro os_file_delete_if_exists(), not
@@ -1127,7 +1111,7 @@ pfs_os_file_delete_if_exists_func(
 	const char*	name,
 	bool*		exist,
 	const char*	src_file,
-	ulint		src_line);
+	uint		src_line);
 
 #else /* UNIV_PFS_IO */
 
@@ -1609,8 +1593,6 @@ os_file_get_block_size(
 	os_file_t	file,	/*!< in: handle to a file */
 	const char*	name);	/*!< in: file name */
 
-#ifndef UNIV_NONINL
 #include "os0file.ic"
-#endif /* UNIV_NONINL */
 
 #endif /* os0file_h */

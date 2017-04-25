@@ -868,7 +868,8 @@ JOIN::prepare(TABLE_LIST *tables_init,
       select_lex->check_unrestricted_recursive(
                       thd->variables.only_standard_compliant_cte))
     DBUG_RETURN(-1);
-  select_lex->check_subqueries_with_recursive_references();
+  if (select_lex->first_execution)
+    select_lex->check_subqueries_with_recursive_references();
   
   int res= check_and_do_in_subquery_rewrites(this);
 
@@ -4998,6 +4999,8 @@ static uint get_semi_join_select_list_index(Field *field)
     @param num_values      Number of values[] that we are comparing against
     @param usable_tables   Tables which can be used for key optimization
     @param sargables       IN/OUT Array of found sargable candidates
+    @param row_col_no      if = n that > 0 then field is compared only
+                           against the n-th component of row values
 
   @note
     If we are doing a NOT NULL comparison on a NOT NULL field in a outer join
@@ -5011,7 +5014,8 @@ static void
 add_key_field(JOIN *join,
               KEY_FIELD **key_fields,uint and_level, Item_bool_func *cond,
               Field *field, bool eq_func, Item **value, uint num_values,
-              table_map usable_tables, SARGABLE_PARAM **sargables)
+              table_map usable_tables, SARGABLE_PARAM **sargables,
+              uint row_col_no= 0)
 {
   uint optimize= 0;  
   if (eq_func &&
@@ -5040,7 +5044,15 @@ add_key_field(JOIN *join,
     bool optimizable=0;
     for (uint i=0; i<num_values; i++)
     {
-      table_map value_used_tables= (value[i])->used_tables();
+      Item *curr_val; 
+      if (row_col_no && value[i]->real_item()->type() == Item::ROW_ITEM)
+      {
+        Item_row *value_tuple= (Item_row *) (value[i]->real_item());
+        curr_val= value_tuple->element_index(row_col_no - 1);
+      }
+      else
+        curr_val= value[i];
+      table_map value_used_tables= curr_val->used_tables();
       used_tables|= value_used_tables;
       if (!(value_used_tables & (field->table->map | RAND_TABLE_BIT)))
         optimizable=1;
@@ -5078,7 +5090,15 @@ add_key_field(JOIN *join,
       bool is_const=1;
       for (uint i=0; i<num_values; i++)
       {
-        if (!(is_const&= value[i]->const_item()))
+        Item *curr_val;
+        if (row_col_no && value[i]->real_item()->type() == Item::ROW_ITEM)
+	{
+          Item_row *value_tuple= (Item_row *) (value[i]->real_item());
+          curr_val= value_tuple->element_index(row_col_no - 1);
+        }
+        else
+          curr_val= value[i];
+        if (!(is_const&= curr_val->const_item()))
           break;
       }
       if (is_const)
@@ -5145,12 +5165,14 @@ add_key_field(JOIN *join,
     @param  key_fields     Pointer to add key, if usable
     @param  and_level      And level, to be stored in KEY_FIELD
     @param  cond           Condition predicate
-    @param  field          Field used in comparision
+    @param  field_item     Field item used for comparison
     @param  eq_func        True if we used =, <=> or IS NULL
-    @param  value          Value used for comparison with field
-                           Is NULL for BETWEEN and IN    
+    @param  value          Value used for comparison with field_item
+    @param   num_values    Number of values[] that we are comparing against 
     @param  usable_tables  Tables which can be used for key optimization
     @param  sargables      IN/OUT Array of found sargable candidates
+    @param row_col_no      if = n that > 0 then field is compared only
+                           against the n-th component of row values    
 
   @note
     If field items f1 and f2 belong to the same multiple equality and
@@ -5165,11 +5187,12 @@ add_key_equal_fields(JOIN *join, KEY_FIELD **key_fields, uint and_level,
                      Item_bool_func *cond, Item *field_item,
                      bool eq_func, Item **val,
                      uint num_values, table_map usable_tables,
-                     SARGABLE_PARAM **sargables)
+                     SARGABLE_PARAM **sargables, uint row_col_no= 0)
 {
   Field *field= ((Item_field *) (field_item->real_item()))->field;
   add_key_field(join, key_fields, and_level, cond, field,
-                eq_func, val, num_values, usable_tables, sargables);
+                eq_func, val, num_values, usable_tables, sargables,
+                row_col_no);
   Item_equal *item_equal= field_item->get_item_equal();
   if (item_equal)
   { 
@@ -5185,7 +5208,7 @@ add_key_equal_fields(JOIN *join, KEY_FIELD **key_fields, uint and_level,
       {
         add_key_field(join, key_fields, and_level, cond, equal_field,
                       eq_func, val, num_values, usable_tables,
-                      sargables);
+                      sargables, row_col_no);
       }
     }
   }
@@ -5367,6 +5390,24 @@ Item_func_in::add_key_fields(JOIN *join, KEY_FIELD **key_fields,
                          (Item_field*) (args[0]->real_item()), false,
                          args + 1, arg_count - 1, usable_tables, sargables);
   }
+  else if (key_item()->type() == Item::ROW_ITEM &&
+           !(used_tables() & OUTER_REF_TABLE_BIT))
+  {
+    Item_row *key_row= (Item_row *) key_item();
+    Item **key_col= key_row->addr(0);
+    uint row_cols= key_row->cols();
+    for (uint i= 0; i < row_cols; i++, key_col++)
+    {
+      if (is_local_field(*key_col))
+      {
+        Item_field *field_item= (Item_field *)((*key_col)->real_item());
+        add_key_equal_fields(join, key_fields, *and_level, this,
+                             field_item, false, args + 1, arg_count - 1,
+                             usable_tables, sargables, i + 1);
+      } 
+    }
+  }
+  
 }
 
 
@@ -9088,8 +9129,6 @@ bool JOIN::get_best_combination()
     form= table[tablenr]= j->table;
     used_tables|= form->map;
     form->reginfo.join_tab=j;
-    if (!*j->on_expr_ref)
-      form->reginfo.not_exists_optimize=0;	// Only with LEFT JOIN
     DBUG_PRINT("info",("type: %d", j->type));
     if (j->type == JT_CONST)
       goto loop_end;					// Handled in make_join_stat..
@@ -9652,8 +9691,6 @@ static void add_not_null_conds(JOIN *join)
             UPDATE t1 SET t1.f2=(SELECT MAX(t2.f4) FROM t2 WHERE t2.f3=t1.f1);
             not_null_item is the t1.f1, but it's referred_tab is 0.
           */
-          if (!referred_tab)
-            continue;
           if (!(notnull= new (join->thd->mem_root)
                 Item_func_isnotnull(join->thd, item)))
             DBUG_VOID_RETURN;
@@ -9665,16 +9702,19 @@ static void add_not_null_conds(JOIN *join)
           */
           if (notnull->fix_fields(join->thd, &notnull))
             DBUG_VOID_RETURN;
+
           DBUG_EXECUTE("where",print_where(notnull,
-                                           referred_tab->table->alias.c_ptr(),
-                                           QT_ORDINARY););
+                                            (referred_tab ?
+                                            referred_tab->table->alias.c_ptr() :
+                                            "outer_ref_cond"),
+                                            QT_ORDINARY););
           if (!tab->first_inner)
-	  {
-            COND *new_cond= referred_tab->join == join ? 
+          {
+            COND *new_cond= (referred_tab && referred_tab->join == join) ?
                               referred_tab->select_cond :
                               join->outer_ref_cond;
             add_cond_and_fix(join->thd, &new_cond, notnull);
-            if (referred_tab->join == join)
+            if (referred_tab && referred_tab->join == join)
               referred_tab->set_select_cond(new_cond, __LINE__);
             else 
               join->outer_ref_cond= new_cond;
@@ -9826,7 +9866,10 @@ make_outerjoin_info(JOIN *join)
       tab->cond_equal= tbl->cond_equal;
       if (embedding && !embedding->is_active_sjm())
         tab->first_upper= embedding->nested_join->first_nested;
-    }    
+    }
+    else if (!embedding)
+      tab->table->reginfo.not_exists_optimize= 0;
+          
     for ( ; embedding ; embedding= embedding->embedding)
     {
       if (embedding->is_active_sjm())
@@ -9836,7 +9879,10 @@ make_outerjoin_info(JOIN *join)
       }
       /* Ignore sj-nests: */
       if (!(embedding->on_expr && embedding->outer_join))
+      {
+        tab->table->reginfo.not_exists_optimize= 0;
         continue;
+      }
       NESTED_JOIN *nested_join= embedding->nested_join;
       if (!nested_join->counter)
       {
@@ -9852,17 +9898,10 @@ make_outerjoin_info(JOIN *join)
       }
       if (!tab->first_inner)  
         tab->first_inner= nested_join->first_nested;
-      if (tab->table->reginfo.not_exists_optimize)
-        tab->first_inner->table->reginfo.not_exists_optimize= 1;         
       if (++nested_join->counter < nested_join->n_tables)
         break;
       /* Table tab is the last inner table for nested join. */
       nested_join->first_nested->last_inner= tab;
-      if (tab->first_inner->table->reginfo.not_exists_optimize)
-      {
-        for (JOIN_TAB *join_tab= tab->first_inner; join_tab <= tab; join_tab++)
-          join_tab->table->reginfo.not_exists_optimize= 1;
-      } 
     }
   }
   DBUG_RETURN(FALSE);
@@ -10641,7 +10680,7 @@ void JOIN::drop_unused_derived_keys()
       continue;
     if (!tmp_tbl->pos_in_table_list->is_materialized_derived())
       continue;
-    if (tmp_tbl->max_keys > 1)
+    if (tmp_tbl->max_keys > 1 && !tab->is_ref_for_hash_join())
       tmp_tbl->use_index(tab->ref.key);
     if (tmp_tbl->s->keys)
     {
@@ -16227,7 +16266,9 @@ static Field *create_tmp_field_from_item(THD *thd, Item *item, TABLE *table,
   DBUG_ASSERT(thd == table->in_use);
   new_field= item->Item::create_tmp_field(false, table);
     
-  if (copy_func && item->real_item()->is_result_field())
+  if (copy_func &&
+      (item->is_result_field() || 
+       (item->real_item()->is_result_field())))
     *((*copy_func)++) = item;			// Save for copy_funcs
   if (modify_item)
     item->set_result_field(new_field);
@@ -18833,32 +18874,41 @@ evaluate_join_record(JOIN *join, JOIN_TAB *join_tab,
       first_unmatched->found= 1;
       for (JOIN_TAB *tab= first_unmatched; tab <= join_tab; tab++)
       {
+        /*
+          Check whether 'not exists' optimization can be used here.
+          If  tab->table->reginfo.not_exists_optimize is set to true
+          then WHERE contains a conjunctive predicate IS NULL over
+          a non-nullable field of tab. When activated this predicate
+          will filter out all records with matches for the left part
+          of the outer join whose inner tables start from the
+          first_unmatched table and include table tab. To safely use
+          'not exists' optimization we have to check that the
+          IS NULL predicate is really activated, i.e. all guards
+          that wrap it are in the 'open' state. 
+	*/  
+	bool not_exists_opt_is_applicable=
+               tab->table->reginfo.not_exists_optimize;
+	for (JOIN_TAB *first_upper= first_unmatched->first_upper;
+             not_exists_opt_is_applicable && first_upper;
+             first_upper= first_upper->first_upper)
+        {
+          if (!first_upper->found)
+            not_exists_opt_is_applicable= false;
+        }
         /* Check all predicates that has just been activated. */
         /*
           Actually all predicates non-guarded by first_unmatched->found
           will be re-evaluated again. It could be fixed, but, probably,
           it's not worth doing now.
         */
-        /*
-          not_exists_optimize has been created from a
-          select_cond containing 'is_null'. This 'is_null'
-          predicate is still present on any 'tab' with
-          'not_exists_optimize'. Furthermore, the usual rules
-          for condition guards also applies for
-          'not_exists_optimize' -> When 'is_null==false' we
-          know all cond. guards are open and we can apply
-          the 'not_exists_optimize'.
-        */
-        DBUG_ASSERT(!(tab->table->reginfo.not_exists_optimize &&
-                     !tab->select_cond));
-
         if (tab->select_cond && !tab->select_cond->val_int())
         {
           /* The condition attached to table tab is false */
-
           if (tab == join_tab)
           {
             found= 0;
+            if (not_exists_opt_is_applicable)
+              DBUG_RETURN(NESTED_LOOP_NO_MORE_ROWS);
           }            
           else
           {
@@ -18867,21 +18917,10 @@ evaluate_join_record(JOIN *join, JOIN_TAB *join_tab,
               not to the last table of the current nest level.
             */
             join->return_tab= tab;
-          }
-
-          if (tab->table->reginfo.not_exists_optimize)
-          {
-            /*
-              When not_exists_optimize is set: No need to further
-              explore more rows of 'tab' for this partial result.
-              Any found 'tab' matches are known to evaluate to 'false'.
-              Returning .._NO_MORE_ROWS will skip rem. 'tab' rows.
-            */
-            DBUG_RETURN(NESTED_LOOP_NO_MORE_ROWS);
-          }
-          else if (tab != join_tab)
-          {
-            DBUG_RETURN(NESTED_LOOP_OK);
+            if (not_exists_opt_is_applicable)
+              DBUG_RETURN(NESTED_LOOP_NO_MORE_ROWS);
+            else
+              DBUG_RETURN(NESTED_LOOP_OK);
           }
         }
       }
@@ -20941,7 +20980,7 @@ static int test_if_order_by_key(JOIN *join,
   key_parts= (uint) (key_part - table->key_info[idx].key_part);
 
   if (reverse == -1 && 
-      !(table->file->index_flags(idx, user_defined_kp, 1) & HA_READ_PREV))
+      !(table->file->index_flags(idx, user_defined_kp-1, 1) & HA_READ_PREV))
     reverse= 0;                               // Index can't be used
   
   if (have_pk_suffix && reverse == -1)
@@ -23631,6 +23670,9 @@ copy_funcs(Item **func_ptr, const THD *thd)
   Item *func;
   for (; (func = *func_ptr) ; func_ptr++)
   {
+    if (func->type() == Item::FUNC_ITEM &&
+        ((Item_func *) func)->with_window_func)
+      continue;
     func->save_in_result_field(1);
     /*
       Need to check the THD error state because Item::val_xxx() don't
@@ -25329,7 +25371,7 @@ void TABLE_LIST::print(THD *thd, table_map eliminated_tables, String *str,
     }
     else if (derived)
     {
-      if (!derived->derived->is_with_table())
+      if (!is_with_table())
       {
         // A derived table
         str->append('(');

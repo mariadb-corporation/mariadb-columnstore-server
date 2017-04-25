@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1994, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -24,11 +25,6 @@ Created 5/30/1994 Heikki Tuuri
 *************************************************************************/
 
 #include "rem0rec.h"
-
-#ifdef UNIV_NONINL
-#include "rem0rec.ic"
-#endif
-
 #include "page0page.h"
 #include "mtr0mtr.h"
 #include "mtr0log.h"
@@ -148,9 +144,6 @@ A complete-field prefix of a record is a prefix which ends at the
 end of some field (containing also <FIELD-END>).
 A record is a complete-field prefix of another record, if
 the corresponding canonical strings have the same property. */
-
-/* this is used to fool compiler in rec_validate */
-ulint	rec_dummy;
 
 /***************************************************************//**
 Validates the consistency of an old-style physical record.
@@ -549,7 +542,7 @@ rec_get_offsets_func(
 					 (ULINT_UNDEFINED if all fields) */
 #ifdef UNIV_DEBUG
 	const char*		file,	/*!< in: file name where called */
-	ulint			line,	/*!< in: line number where called */
+	unsigned		line,	/*!< in: line number where called */
 #endif /* UNIV_DEBUG */
 	mem_heap_t**		heap)	/*!< in/out: memory heap */
 {
@@ -1772,11 +1765,9 @@ rec_validate_old(
 /*=============*/
 	const rec_t*	rec)	/*!< in: physical record */
 {
-	const byte*	data;
 	ulint		len;
 	ulint		n_fields;
 	ulint		len_sum		= 0;
-	ulint		sum		= 0;
 	ulint		i;
 
 	ut_a(rec);
@@ -1788,7 +1779,7 @@ rec_validate_old(
 	}
 
 	for (i = 0; i < n_fields; i++) {
-		data = rec_get_nth_field_old(rec, i, &len);
+		rec_get_nth_field_offs_old(rec, i, &len);
 
 		if (!((len < UNIV_PAGE_SIZE) || (len == UNIV_SQL_NULL))) {
 			ib::error() << "Record field " << i << " len " << len;
@@ -1797,10 +1788,6 @@ rec_validate_old(
 
 		if (len != UNIV_SQL_NULL) {
 			len_sum += len;
-			sum += *(data + len -1); /* dereference the
-						 end of the field to
-						 cause a memory trap
-						 if possible */
 		} else {
 			len_sum += rec_get_nth_field_size(rec, i);
 		}
@@ -1811,8 +1798,6 @@ rec_validate_old(
 			<< rec_get_data_size_old(rec);
 		return(FALSE);
 	}
-
-	rec_dummy = sum; /* This is here only to fool the compiler */
 
 	return(TRUE);
 }
@@ -1826,11 +1811,9 @@ rec_validate(
 	const rec_t*	rec,	/*!< in: physical record */
 	const ulint*	offsets)/*!< in: array returned by rec_get_offsets() */
 {
-	const byte*	data;
 	ulint		len;
 	ulint		n_fields;
 	ulint		len_sum		= 0;
-	ulint		sum		= 0;
 	ulint		i;
 
 	ut_a(rec);
@@ -1844,7 +1827,7 @@ rec_validate(
 	ut_a(rec_offs_comp(offsets) || n_fields <= rec_get_n_fields_old(rec));
 
 	for (i = 0; i < n_fields; i++) {
-		data = rec_get_nth_field(rec, offsets, i, &len);
+		rec_get_nth_field_offs(offsets, i, &len);
 
 		if (!((len < UNIV_PAGE_SIZE) || (len == UNIV_SQL_NULL))) {
 			ib::error() << "Record field " << i << " len " << len;
@@ -1853,10 +1836,6 @@ rec_validate(
 
 		if (len != UNIV_SQL_NULL) {
 			len_sum += len;
-			sum += *(data + len -1); /* dereference the
-						 end of the field to
-						 cause a memory trap
-						 if possible */
 		} else if (!rec_offs_comp(offsets)) {
 			len_sum += rec_get_nth_field_size(rec, i);
 		}
@@ -1867,8 +1846,6 @@ rec_validate(
 			<< rec_offs_data_size(offsets);
 		return(FALSE);
 	}
-
-	rec_dummy = sum; /* This is here only to fool the compiler */
 
 	if (!rec_offs_comp(offsets)) {
 		ut_a(rec_validate_old(rec));
@@ -1894,17 +1871,17 @@ rec_print_old(
 
 	n = rec_get_n_fields_old(rec);
 
-	fprintf(file, "PHYSICAL RECORD: n_fields %lu;"
-		" %u-byte offsets; info bits %lu\n",
-		(ulong) n,
+	fprintf(file, "PHYSICAL RECORD: n_fields " ULINTPF ";"
+		" %u-byte offsets; info bits " ULINTPF "\n",
+		n,
 		rec_get_1byte_offs_flag(rec) ? 1 : 2,
-		(ulong) rec_get_info_bits(rec, FALSE));
+		rec_get_info_bits(rec, FALSE));
 
 	for (i = 0; i < n; i++) {
 
 		data = rec_get_nth_field_old(rec, i, &len);
 
-		fprintf(file, " %lu:", (ulong) i);
+		fprintf(file, " " ULINTPF ":", i);
 
 		if (len != UNIV_SQL_NULL) {
 			if (len <= 30) {
@@ -1913,8 +1890,8 @@ rec_print_old(
 			} else {
 				ut_print_buf(file, data, 30);
 
-				fprintf(file, " (total %lu bytes)",
-					(ulong) len);
+				fprintf(file, " (total " ULINTPF " bytes)",
+					len);
 			}
 		} else {
 			fprintf(file, " SQL NULL, size " ULINTPF " ",
@@ -1931,6 +1908,7 @@ rec_print_old(
 /***************************************************************//**
 Prints a physical record in ROW_FORMAT=COMPACT.  Ignores the
 record header. */
+static
 void
 rec_print_comp(
 /*===========*/
@@ -1946,7 +1924,7 @@ rec_print_comp(
 
 		data = rec_get_nth_field(rec, offsets, i, &len);
 
-		fprintf(file, " %lu:", (ulong) i);
+		fprintf(file, " " ULINTPF ":", i);
 
 		if (len != UNIV_SQL_NULL) {
 			if (len <= 30) {
@@ -1954,16 +1932,17 @@ rec_print_comp(
 				ut_print_buf(file, data, len);
 			} else if (rec_offs_nth_extern(offsets, i)) {
 				ut_print_buf(file, data, 30);
-				fprintf(file, " (total %lu bytes, external)",
-					(ulong) len);
+				fprintf(file,
+					" (total " ULINTPF " bytes, external)",
+					len);
 				ut_print_buf(file, data + len
 					     - BTR_EXTERN_FIELD_REF_SIZE,
 					     BTR_EXTERN_FIELD_REF_SIZE);
 			} else {
 				ut_print_buf(file, data, 30);
 
-				fprintf(file, " (total %lu bytes)",
-					(ulong) len);
+				fprintf(file, " (total " ULINTPF " bytes)",
+					len);
 			}
 		} else {
 			fputs(" SQL NULL", file);
@@ -1975,6 +1954,7 @@ rec_print_comp(
 
 /***************************************************************//**
 Prints an old-style spatial index record. */
+static
 void
 rec_print_mbr_old(
 /*==============*/
@@ -2028,7 +2008,7 @@ rec_print_mbr_old(
 				}
 			}
 		} else {
-			fprintf(file, " SQL NULL, size %lu ",
+			fprintf(file, " SQL NULL, size " ULINTPF " ",
 				rec_get_nth_field_size(rec, i));
 		}
 
@@ -2144,10 +2124,10 @@ rec_print_new(
 		return;
 	}
 
-	fprintf(file, "PHYSICAL RECORD: n_fields %lu;"
-		" compact format; info bits %lu\n",
-		(ulong) rec_offs_n_fields(offsets),
-		(ulong) rec_get_info_bits(rec, TRUE));
+	fprintf(file, "PHYSICAL RECORD: n_fields " ULINTPF ";"
+		" compact format; info bits " ULINTPF "\n",
+		rec_offs_n_fields(offsets),
+		rec_get_info_bits(rec, TRUE));
 
 	rec_print_comp(file, rec, offsets);
 	rec_validate(rec, offsets);
@@ -2363,9 +2343,10 @@ wsrep_rec_get_foreign_key(
 		data = rec_get_nth_field(rec, offsets, i, &len);
 		if (key_len + ((len != UNIV_SQL_NULL) ? len + 1 : 1) > 
 		    *buf_len) {
-			fprintf (stderr, 
-				 "WSREP: FK key len exceeded %lu %lu %lu\n", 
-				 key_len, len, *buf_len);
+			fprintf(stderr,
+				"WSREP: FK key len exceeded "
+				ULINTPF " " ULINTPF " " ULINTPF "\n",
+				key_len, len, *buf_len);
 			goto err_out;
 		}
 

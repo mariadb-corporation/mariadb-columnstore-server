@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1995, 2016, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2013, 2017, MariaDB Corporation. All Rights Reserved.
+Copyright (c) 2013, 2017, MariaDB Corporation.
 Copyright (c) 2013, 2014, Fusion-io
 
 This program is free software; you can redistribute it and/or modify it under
@@ -30,11 +30,6 @@ Created 11/11/1995 Heikki Tuuri
 #include <my_dbug.h>
 
 #include "buf0flu.h"
-
-#ifdef UNIV_NONINL
-#include "buf0flu.ic"
-#endif
-
 #include "buf0buf.h"
 #include "buf0mtflu.h"
 #include "buf0checksum.h"
@@ -898,6 +893,9 @@ buf_flush_init_for_writing(
 			newest_lsn);
 
 	if (skip_checksum) {
+		ut_ad(block == NULL
+		      || block->page.id.space() == SRV_TMP_SPACE_ID);
+		ut_ad(page_get_space_id(page) == SRV_TMP_SPACE_ID);
 		mach_write_to_4(page + FIL_PAGE_SPACE_OR_CHKSUM, checksum);
 	} else {
 		if (block != NULL && UNIV_PAGE_SIZE == 16384) {
@@ -1008,10 +1006,16 @@ buf_flush_write_block_low(
 	buf_flush_t	flush_type,	/*!< in: type of flush */
 	bool		sync)		/*!< in: true if sync IO request */
 {
+	fil_space_t*	space = fil_space_acquire(bpage->id.space(), true);
+	if (!space) {
+		return;
+	}
+	ut_ad(space->purpose == FIL_TYPE_TEMPORARY
+	      || space->purpose == FIL_TYPE_IMPORT
+	      || space->purpose == FIL_TYPE_TABLESPACE);
+	const bool	is_temp = space->purpose == FIL_TYPE_TEMPORARY;
+	ut_ad(is_temp == fsp_is_system_temporary(space->id));
 	page_t*	frame = NULL;
-	ulint space_id = bpage->id.space();
-	bool atomic_writes = fil_space_get_atomic_writes(space_id);
-
 #ifdef UNIV_DEBUG
 	buf_pool_t*	buf_pool = buf_pool_from_bpage(bpage);
 	ut_ad(!buf_pool_mutex_own(buf_pool));
@@ -1073,34 +1077,31 @@ buf_flush_write_block_low(
 			reinterpret_cast<const buf_block_t*>(bpage),
 			reinterpret_cast<const buf_block_t*>(bpage)->frame,
 			bpage->zip.data ? &bpage->zip : NULL,
-			bpage->newest_modification,
-			fsp_is_checksum_disabled(bpage->id.space()));
+			bpage->newest_modification, is_temp);
 		break;
 	}
 
-	frame = buf_page_encrypt_before_write(bpage, frame, space_id);
+	frame = buf_page_encrypt_before_write(space, bpage, frame);
 
 	/* Disable use of double-write buffer for temporary tablespace.
 	Given the nature and load of temporary tablespace doublewrite buffer
 	adds an overhead during flushing. */
 
-	if (!srv_use_doublewrite_buf
-	    || buf_dblwr == NULL
-	    || srv_read_only_mode
-	    || fsp_is_system_temporary(bpage->id.space())
-	    || atomic_writes) {
-
-		ut_ad(!srv_read_only_mode
-		      || fsp_is_system_temporary(bpage->id.space()));
+	if (is_temp || space->atomic_write_supported
+	    || !srv_use_doublewrite_buf
+	    || buf_dblwr == NULL) {
 
 		ulint	type = IORequest::WRITE | IORequest::DO_NOT_WAKE;
 
 		IORequest	request(type, bpage);
 
+		/* TODO: pass the tablespace to fil_io() */
 		fil_io(request,
 		       sync, bpage->id, bpage->size, 0, bpage->size.physical(),
-			frame, bpage);
+		       frame, bpage);
 	} else {
+		ut_ad(!srv_read_only_mode);
+
 		if (flush_type == BUF_FLUSH_SINGLE_PAGE) {
 			buf_dblwr_write_single_page(bpage, sync);
 		} else {
@@ -1114,12 +1115,16 @@ buf_flush_write_block_low(
 	are working on. */
 	if (sync) {
 		ut_ad(flush_type == BUF_FLUSH_SINGLE_PAGE);
-		fil_flush(bpage->id.space());
+		if (!is_temp) {
+			fil_flush(space);
+		}
 
 		/* true means we want to evict this page from the
 		LRU list as well. */
 		buf_page_io_complete(bpage, true);
 	}
+
+	fil_space_release(space);
 
 	/* Increment the counter of I/O operations used
 	for selecting LRU policy. */
@@ -2317,29 +2322,6 @@ buf_flush_LRU_list(
 			   0, &n);
 
 	return(n.flushed);
-}
-/*********************************************************************//**
-Clears up tail of the LRU lists:
-* Put replaceable pages at the tail of LRU to the free list
-* Flush dirty pages at the tail of LRU to the disk
-The depth to which we scan each buffer pool is controlled by dynamic
-config parameter innodb_LRU_scan_depth.
-@return total pages flushed */
-ulint
-buf_flush_LRU_lists(void)
-/*=====================*/
-{
-	ulint	n_flushed = 0;
-	for (ulint i = 0; i < srv_buf_pool_instances; i++) {
-
-		n_flushed += buf_flush_LRU_list(buf_pool_from_array(i));
-	}
-
-	if (n_flushed) {
-		buf_flush_stats(0, n_flushed);
-	}
-
-	return(n_flushed);
 }
 
 /*********************************************************************//**
@@ -3720,6 +3702,7 @@ buf_pool_get_dirty_pages_count(
 /******************************************************************//**
 Check if there are any dirty pages that belong to a space id in the flush list.
 @return number of dirty pages present in all the buffer pools */
+static
 ulint
 buf_flush_get_dirty_pages_count(
 /*============================*/

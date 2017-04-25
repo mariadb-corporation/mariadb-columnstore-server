@@ -239,7 +239,10 @@ struct mtr_t {
 	/** Start a mini-transaction.
 	@param sync		true if it is a synchronous mini-transaction
 	@param read_only	true if read only mini-transaction */
-	void start(bool sync = true, bool read_only = false);
+	void start(bool sync = true, bool read_only = false)
+	{
+		start(NULL, sync, read_only);
+	}
 
 	/** Start a mini-transaction.
 	@param sync		true if it is a synchronous mini-transaction
@@ -378,21 +381,21 @@ struct mtr_t {
 	@param lock	rw-lock
 	@param file	file name from where called
 	@param line	line number in file */
-	inline void s_lock(rw_lock_t* lock, const char* file, ulint line);
+	inline void s_lock(rw_lock_t* lock, const char* file, unsigned line);
 
 	/** Locks a rw-latch in X mode.
 	NOTE: use mtr_x_lock().
 	@param lock	rw-lock
 	@param file	file name from where called
 	@param line	line number in file */
-	inline void x_lock(rw_lock_t* lock, const char*	file, ulint line);
+	inline void x_lock(rw_lock_t* lock, const char*	file, unsigned line);
 
 	/** Locks a rw-latch in X mode.
 	NOTE: use mtr_sx_lock().
 	@param lock	rw-lock
 	@param file	file name from where called
 	@param line	line number in file */
-	inline void sx_lock(rw_lock_t* lock, const char* file, ulint line);
+	inline void sx_lock(rw_lock_t* lock, const char* file, unsigned line);
 
 	/** Acquire a tablespace X-latch.
 	NOTE: use mtr_x_lock_space().
@@ -403,7 +406,7 @@ struct mtr_t {
 	fil_space_t* x_lock_space(
 		ulint		space_id,
 		const char*	file,
-		ulint		line);
+		unsigned	line);
 
 	/** Release an object in the memo stack.
 	@param object	object
@@ -609,8 +612,6 @@ private:
 	bool			m_sync;
 };
 
-#ifndef UNIV_NONINL
 #include "mtr0mtr.ic"
-#endif /* UNIV_NOINL */
 
 #endif /* mtr0mtr_h */

@@ -5479,7 +5479,7 @@ DROP FUNCTION f1;
 DROP VIEW v1;
 DROP TABLE t1, t2;
 create view v1 as select 1;
-FOUND /mariadb-version/ in v1.frm
+FOUND 1 /mariadb-version/ in v1.frm
 drop view v1;
 #
 # MDEV-7260: Crash in get_best_combination when executing multi-table
@@ -5583,6 +5583,89 @@ Warnings:
 Warning	1356	View 'test.v1' references invalid table(s) or column(s) or function(s) or definer/invoker of view lack rights to use them
 drop view v1;
 drop table t1,t2;
+#
+# MDEV-12099: usage of mergeable view with LEFT JOIN 
+#             that can be converted to INNER JOIN
+#
+create table t1 (a int, b int, key(a)) engine=myisam;
+insert into t1 values
+(3,20), (7,10), (2,10), (4,30), (8,70), 
+(7,70), (9,100), (9,60), (8,80), (7,60);
+create table t2 (c int, d int, key (c)) engine=myisam;
+insert into t2 values
+(50,100), (20, 200), (10,300),
+(150,100), (120, 200), (110,300),
+(250,100), (220, 200), (210,300);
+create table t3(e int, f int not null, key(e), unique (f)) engine=myisam;
+insert into t3 values
+(100, 3), (300, 5), (400, 4), (300,7),
+(300,2), (600, 13), (800, 15), (700, 14),
+(600, 23), (800, 25), (700, 24);
+create view v1 as
+select * from t2 left join t3 on t3.e=t2.d where t3.f is not null;
+select *
+from t1 left join v1 on v1.c=t1.b 
+where t1.a < 5;
+a	b	c	d	e	f
+2	10	10	300	300	5
+2	10	10	300	300	7
+2	10	10	300	300	2
+3	20	NULL	NULL	NULL	NULL
+4	30	NULL	NULL	NULL	NULL
+select *
+from t1 left join ( t2 left join t3 on t3.e=t2.d )
+on t2.c=t1.b and  t3.f is not null
+where t1.a < 5;
+a	b	c	d	e	f
+2	10	10	300	300	5
+2	10	10	300	300	7
+2	10	10	300	300	2
+3	20	NULL	NULL	NULL	NULL
+4	30	NULL	NULL	NULL	NULL
+explain extended
+select *
+from t1 left join v1 on v1.c=t1.b 
+where t1.a < 5;
+id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
+1	SIMPLE	t1	range	a	a	5	NULL	3	100.00	Using index condition
+1	SIMPLE	t2	ref	c	c	5	test.t1.b	2	100.00	Using where
+1	SIMPLE	t3	ref	f,e	e	5	test.t2.d	2	100.00	Using where
+Warnings:
+Note	1003	select `test`.`t1`.`a` AS `a`,`test`.`t1`.`b` AS `b`,`test`.`t2`.`c` AS `c`,`test`.`t2`.`d` AS `d`,`test`.`t3`.`e` AS `e`,`test`.`t3`.`f` AS `f` from `test`.`t1` left join (`test`.`t2` join `test`.`t3`) on(`test`.`t2`.`c` = `test`.`t1`.`b` and `test`.`t3`.`e` = `test`.`t2`.`d` and `test`.`t3`.`f` is not null and `test`.`t1`.`b` is not null and `test`.`t2`.`d` is not null) where `test`.`t1`.`a` < 5
+explain extended
+select *
+from t1 left join ( t2 left join t3 on t3.e=t2.d )
+on t2.c=t1.b and  t3.f is not null
+where t1.a < 5;
+id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
+1	SIMPLE	t1	range	a	a	5	NULL	3	100.00	Using index condition
+1	SIMPLE	t2	ref	c	c	5	test.t1.b	2	100.00	Using where
+1	SIMPLE	t3	ref	f,e	e	5	test.t2.d	2	100.00	Using where
+Warnings:
+Note	1003	select `test`.`t1`.`a` AS `a`,`test`.`t1`.`b` AS `b`,`test`.`t2`.`c` AS `c`,`test`.`t2`.`d` AS `d`,`test`.`t3`.`e` AS `e`,`test`.`t3`.`f` AS `f` from `test`.`t1` left join (`test`.`t2` join `test`.`t3`) on(`test`.`t2`.`c` = `test`.`t1`.`b` and `test`.`t3`.`e` = `test`.`t2`.`d` and `test`.`t3`.`f` is not null and `test`.`t1`.`b` is not null and `test`.`t2`.`d` is not null) where `test`.`t1`.`a` < 5
+explain extended
+select *
+from t1 left join v1 on v1.c=t1.b and v1.f=t1.a
+where t1.a < 5;
+id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
+1	SIMPLE	t1	range	a	a	5	NULL	3	100.00	Using index condition
+1	SIMPLE	t3	eq_ref	f,e	f	4	test.t1.a	1	100.00	Using where
+1	SIMPLE	t2	ref	c	c	5	test.t1.b	2	100.00	Using where
+Warnings:
+Note	1003	select `test`.`t1`.`a` AS `a`,`test`.`t1`.`b` AS `b`,`test`.`t2`.`c` AS `c`,`test`.`t2`.`d` AS `d`,`test`.`t3`.`e` AS `e`,`test`.`t3`.`f` AS `f` from `test`.`t1` left join (`test`.`t2` join `test`.`t3`) on(`test`.`t2`.`c` = `test`.`t1`.`b` and `test`.`t3`.`f` = `test`.`t1`.`a` and `test`.`t2`.`d` = `test`.`t3`.`e` and `test`.`t1`.`a` is not null and `test`.`t1`.`a` is not null and `test`.`t1`.`b` is not null) where `test`.`t1`.`a` < 5
+explain extended
+select *
+from t1 left join ( t2 left join t3 on t3.e=t2.d )
+on t2.c=t1.b and t3.f=t1.a and t3.f is not null
+where t1.a < 5;
+id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
+1	SIMPLE	t1	range	a	a	5	NULL	3	100.00	Using index condition
+1	SIMPLE	t3	eq_ref	f,e	f	4	test.t1.a	1	100.00	Using where
+1	SIMPLE	t2	ref	c	c	5	test.t1.b	2	100.00	Using where
+Warnings:
+Note	1003	select `test`.`t1`.`a` AS `a`,`test`.`t1`.`b` AS `b`,`test`.`t2`.`c` AS `c`,`test`.`t2`.`d` AS `d`,`test`.`t3`.`e` AS `e`,`test`.`t3`.`f` AS `f` from `test`.`t1` left join (`test`.`t2` join `test`.`t3`) on(`test`.`t2`.`c` = `test`.`t1`.`b` and `test`.`t3`.`f` = `test`.`t1`.`a` and `test`.`t2`.`d` = `test`.`t3`.`e` and `test`.`t1`.`a` is not null and `test`.`t1`.`a` is not null and `test`.`t1`.`b` is not null) where `test`.`t1`.`a` < 5
+drop view v1;
+drop table t1,t2,t3;
 # -----------------------------------------------------------------
 # -- End of 5.5 tests.
 # -----------------------------------------------------------------
@@ -5871,6 +5954,43 @@ a
 2
 DROP VIEW v1;
 DROP TABLE t1;
+#
+# MDEV-8642: WHERE Clause not applied on View - Empty result set returned
+#
+CREATE TABLE `t1` (
+`id` int(20) NOT NULL AUTO_INCREMENT,
+`use_case` int(11) DEFAULT NULL,
+`current_deadline` date DEFAULT NULL,
+`ts_create` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+PRIMARY KEY (`id`),
+UNIQUE KEY `id_UNIQUE` (`id`)
+) ENGINE=MyISAM AUTO_INCREMENT=13976 DEFAULT CHARSET=latin1;
+INSERT INTO `t1` VALUES (1,10,'2015-12-18','2015-08-18 08:38:16');
+INSERT INTO `t1` VALUES (2,20,'2015-10-18','2015-08-18 08:43:30');
+CREATE VIEW v1 AS SELECT
+use_case as use_case_id,
+(
+SELECT 
+deadline_sub.current_deadline
+FROM 
+t1 deadline_sub
+WHERE 
+deadline_sub.use_case = use_case_id
+AND ts_create = (SELECT 
+MIN(ts_create)
+FROM 
+t1 startdate_sub
+WHERE 
+startdate_sub.use_case = use_case_id
+)
+) AS InitialDeadline
+FROM 
+t1;
+SELECT * FROM v1 where use_case_id = 10;
+use_case_id	InitialDeadline
+10	2015-12-18
+drop view v1;
+drop table t1;
 # -----------------------------------------------------------------
 # -- End of 10.0 tests.
 # -----------------------------------------------------------------
@@ -6332,6 +6452,32 @@ View	Create View	character_set_client	collation_connection
 v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select !((2,3) in (select `t1`.`i`,`t1`.`j` from `t1`)) AS `(2, 3) not in (select i, j from t1)`	latin1	latin1_swedish_ci
 drop view v1;
 drop table t1;
+#
+# MDEV-10704: Assertion `field->field->table == table_arg'
+# failed in fill_record(THD*, TABLE*, List<Item>&, List<Item>&,
+# bool, bool)
+#
+CREATE TABLE t1 (i INT);
+CREATE TABLE t2 (j INT);
+CREATE TABLE t3 (k INT);
+CREATE ALGORITHM = MERGE VIEW v AS SELECT j AS f1, k AS f2 FROM ( SELECT j FROM t1, t2 ) sq, t3;
+REPLACE INTO v (f1,f2) VALUES (1,1);
+ERROR HY000: Can not modify more than one base table through a join view 'test.v'
+drop view v;
+drop table t1,t2,t3;
+#
+# MDEV-12379: Server crashes in TABLE_LIST::is_with_table on
+# SHOW CREATE VIEW
+#
+CREATE TABLE t (i INT);
+CREATE VIEW v AS SELECT * FROM ( SELECT * FROM t ) sq;
+DROP TABLE IF EXISTS t;
+SHOW CREATE VIEW v;
+View	Create View	character_set_client	collation_connection
+v	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v` AS select `sq`.`i` AS `i` from (select `test`.`t`.`i` AS `i` from `test`.`t`) `sq`	latin1	latin1_swedish_ci
+Warnings:
+Warning	1356	View 'test.v' references invalid table(s) or column(s) or function(s) or definer/invoker of view lack rights to use them
+DROP VIEW v;
 #
 # End of 10.2 tests
 #

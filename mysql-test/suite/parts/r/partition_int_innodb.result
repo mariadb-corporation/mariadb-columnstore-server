@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 create table t1 (a tinyint unsigned not null, primary key(a)) engine='InnoDB' 
 partition by key (a) (
 partition pa1 max_rows=20 min_rows=2,
@@ -216,6 +217,8 @@ a
 32766
 32767
 drop table t3;
+=======
+>>>>>>> mariadb/10.2
 create table t1 (a int unsigned not null, primary key(a)) engine='InnoDB' 
 partition by key (a) (
 partition pa1 max_rows=20 min_rows=2,
@@ -325,6 +328,7 @@ a
 2147483646
 2147483647
 drop table t3;
+<<<<<<< HEAD
 create table t1 (a mediumint unsigned not null, primary key(a)) engine='InnoDB' 
 partition by key (a) (
 partition pa1 max_rows=20 min_rows=2,
@@ -555,3 +559,5 @@ a
 9223372036854775805
 9223372036854775807
 drop table t3;
+=======
+>>>>>>> mariadb/10.2

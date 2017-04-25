@@ -1017,7 +1017,7 @@ Virtual_column_info *add_virtual_expression(THD *thd, Item *expr)
 bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
 %}
 
-%pure_parser                                    /* We have threads */
+%pure-parser                                    /* We have threads */
 %parse-param { THD *thd }
 %lex-param { THD *thd }
 /*
@@ -6013,8 +6013,8 @@ field_list_item:
         ;
 
 column_def:
-          field_spec opt_check_constraint
-          { $$= $1;  $$->check_constraint= $2; }
+          field_spec
+          { $$= $1; }
         | field_spec references
           { $$= $1; }
         ;
@@ -6152,10 +6152,12 @@ field_spec:
             lex->init_last_field(f, $1.str, NULL);
             $<create_field>$= f;
           }
-          field_type_or_serial
+          field_type_or_serial opt_check_constraint
           {
             LEX *lex=Lex;
             $$= $<create_field>2;
+
+            $$->check_constraint= $4;
 
             if ($$->check(thd))
               MYSQL_YYABORT;
@@ -7748,7 +7750,7 @@ alter_list_item:
                                 $5->name, $4->csname));
             if (Lex->create_info.add_alter_list_item_convert_to_charset($5))
               MYSQL_YYABORT;
-            Lex->alter_info.flags|= Alter_info::ALTER_CONVERT;
+            Lex->alter_info.flags|= Alter_info::ALTER_OPTIONS;
           }
         | create_table_options_space_separated
           {

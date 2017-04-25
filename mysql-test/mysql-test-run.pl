@@ -1028,7 +1028,7 @@ sub print_global_resfile {
   resfile_global("gprof", $opt_gprof ? 1 : 0);
   resfile_global("valgrind", $opt_valgrind ? 1 : 0);
   resfile_global("callgrind", $opt_callgrind ? 1 : 0);
-  resfile_global("mem", $opt_mem ? 1 : 0);
+  resfile_global("mem", $opt_mem);
   resfile_global("tmpdir", $opt_tmpdir);
   resfile_global("vardir", $opt_vardir);
   resfile_global("fast", $opt_fast ? 1 : 0);
@@ -1423,12 +1423,14 @@ sub command_line_setup {
 
     # Search through list of locations that are known
     # to be "fast disks" to find a suitable location
-    # Use --mem=<dir> as first location to look.
-    my @tmpfs_locations= ($opt_mem,"/run/shm", "/dev/shm", "/tmp");
+    my @tmpfs_locations= ("/run/shm", "/dev/shm", "/tmp");
+
+    # Use $ENV{'MTR_MEM'} as first location to look (if defined)
+    unshift(@tmpfs_locations, $ENV{'MTR_MEM'}) if defined $ENV{'MTR_MEM'};
 
     foreach my $fs (@tmpfs_locations)
     {
-      if ( -d $fs )
+      if ( -d $fs && ! -l $fs )
       {
 	my $template= "var_${opt_build_thread}_XXXX";
 	$opt_mem= tempdir( $template, DIR => $fs, CLEANUP => 0);
@@ -2755,7 +2757,7 @@ sub mysql_server_start($) {
     # Already started
 
     # Write start of testcase to log file
-    mark_log($mysqld->value('#log-error'), $tinfo);
+    mark_log($mysqld->value('log-error'), $tinfo);
 
     return;
   }
@@ -2812,7 +2814,7 @@ sub mysql_server_start($) {
   mkpath($tmpdir) unless -d $tmpdir;
 
   # Write start of testcase to log file
-  mark_log($mysqld->value('#log-error'), $tinfo);
+  mark_log($mysqld->value('log-error'), $tinfo);
 
   # Run <tname>-master.sh
   if ($mysqld->option('#!run-master-sh') and
@@ -4257,7 +4259,7 @@ sub get_log_from_proc ($$) {
 
   foreach my $mysqld (all_servers()) {
     if ($mysqld->{proc} eq $proc) {
-      my @srv_lines= extract_server_log($mysqld->if_exist('#log-error'), $name);
+      my @srv_lines= extract_server_log($mysqld->if_exist('log-error'), $name);
       $srv_log= "\nServer log from this test:\n" .
 	"----------SERVER LOG START-----------\n". join ("", @srv_lines) .
 	"----------SERVER LOG END-------------\n";
@@ -4348,7 +4350,7 @@ sub extract_warning_lines ($$) {
      qr/InnoDB: Warning: a long semaphore wait:/,
      qr/InnoDB: Dumping buffer pool.*/,
      qr/InnoDB: Buffer pool.*/,
-     qr/InnoDB: Warning: Writer thread is waiting this semaphore/,
+     qr/InnoDB: Warning: Writer thread is waiting this semaphore:/,
      qr/Slave: Unknown table 't1' .* 1051/,
      qr/Slave SQL:.*(Internal MariaDB error code: [[:digit:]]+|Query:.*)/,
      qr/slave SQL thread aborted/,
@@ -4419,7 +4421,6 @@ sub extract_warning_lines ($$) {
      qr|InnoDB: TABLE to scan your table for corruption|,
      qr/InnoDB: See also */,
      qr/InnoDB: Cannot open .*ib_buffer_pool.* for reading: No such file or directory*/,
-     qr|InnoDB: Creating foreign key constraint system tables.|,
      qr/InnoDB: Table .*mysql.*innodb_table_stats.* not found./,
      qr/InnoDB: User stopword table .* does not exist./
 
@@ -4465,7 +4466,7 @@ sub start_check_warnings ($$) {
 
   my $name= "warnings-".$mysqld->name();
 
-  my $log_error= $mysqld->value('#log-error');
+  my $log_error= $mysqld->value('log-error');
   # To be communicated to the test
   $ENV{MTR_LOG_ERROR}= $log_error;
   extract_warning_lines($log_error, 0);
@@ -4623,7 +4624,7 @@ sub check_warnings_post_shutdown {
   foreach my $mysqld ( mysqlds())
   {
     my ($testlist, $match_lines)=
-        extract_warning_lines($mysqld->value('#log-error'), 1);
+        extract_warning_lines($mysqld->value('log-error'), 1);
     $testname_hash->{$_}= 1 for @$testlist;
     $report.= join('', @$match_lines);
   }
@@ -5072,7 +5073,7 @@ sub mysqld_start ($$) {
   # Remove the old pidfile if any
   unlink($mysqld->value('pid-file'));
 
-  my $output= $mysqld->value('#log-error');
+  my $output= $mysqld->value('log-error');
 
   if ( $opt_valgrind and $opt_debug )
   {
@@ -5975,9 +5976,9 @@ Options to control directories to use
   vardir=DIR            The directory where files generated from the test run
                         is stored (default: ./var). Specifying a ramdisk or
                         tmpfs will speed up tests.
-  mem                   Run testsuite in "memory" using tmpfs or ramdisk
-                        Attempts to find a suitable location
-                        using a builtin list of standard locations
+  mem[=DIR]             Run testsuite in "memory" using tmpfs or ramdisk
+                        Attempts to use DIR first if specified else
+                        uses a builtin list of standard locations
                         for tmpfs (/run/shm, /dev/shm, /tmp)
                         The option can also be set using environment
                         variable MTR_MEM=[DIR]

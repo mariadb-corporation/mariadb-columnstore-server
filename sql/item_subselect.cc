@@ -40,6 +40,7 @@
 #include "set_var.h"
 #include "sql_select.h"
 #include "sql_parse.h"                          // check_stack_overrun
+#include "sql_cte.h"
 #include "sql_test.h"
 
 double get_post_group_estimate(JOIN* join, double join_op_rows);
@@ -312,7 +313,8 @@ bool Item_subselect::fix_fields(THD *thd_param, Item **ref)
   else
     goto end;
   
-  if ((uncacheable= engine->uncacheable() & ~UNCACHEABLE_EXPLAIN))
+  if ((uncacheable= engine->uncacheable() & ~UNCACHEABLE_EXPLAIN) ||
+      with_recursive_reference)
   {
     const_item_cache= 0;
     if (uncacheable & UNCACHEABLE_RAND)
@@ -917,7 +919,7 @@ table_map Item_subselect::used_tables() const
 bool Item_subselect::const_item() const
 {
   DBUG_ASSERT(thd);
-  return (thd->lex->context_analysis_only ?
+  return (thd->lex->context_analysis_only || with_recursive_reference ?
           FALSE :
           forced_const || const_item_cache);
 }
@@ -934,10 +936,11 @@ void Item_subselect::update_used_tables()
   if (!forced_const)
   {
     recalc_used_tables(parent_select, FALSE);
-    if (!engine->uncacheable())
+    if (!(engine->uncacheable() & ~UNCACHEABLE_EXPLAIN))
     {
       // did all used tables become static?
-      if (!(used_tables_cache & ~engine->upper_select_const_tables()))
+      if (!(used_tables_cache & ~engine->upper_select_const_tables()) &&
+          ! with_recursive_reference)
         const_item_cache= 1;
     }
   }
@@ -1735,7 +1738,7 @@ bool Item_in_subselect::val_bool()
   if (forced_const)
     return value;
   DBUG_ASSERT((engine->uncacheable() & ~UNCACHEABLE_EXPLAIN) ||
-              ! engine->is_executed());
+              ! engine->is_executed() || with_recursive_reference);
   null_value= was_null= FALSE;
   if (exec())
   {
@@ -2113,6 +2116,7 @@ Item_in_subselect::create_single_in_to_exists_cond(JOIN *join,
         We can encounter "NULL IN (SELECT ...)". Wrap the added condition
         within a trig_cond.
       */
+      disable_cond_guard_for_const_null_left_expr(0);
       item= new (thd->mem_root) Item_func_trig_cond(thd, item, get_cond_guard(0));
     }
 
@@ -2137,6 +2141,7 @@ Item_in_subselect::create_single_in_to_exists_cond(JOIN *join,
 	having= new (thd->mem_root) Item_is_not_null_test(thd, this, having);
         if (left_expr->maybe_null)
         {
+          disable_cond_guard_for_const_null_left_expr(0);
           if (!(having= new (thd->mem_root) Item_func_trig_cond(thd, having,
                                                             get_cond_guard(0))))
             DBUG_RETURN(true);
@@ -2155,6 +2160,7 @@ Item_in_subselect::create_single_in_to_exists_cond(JOIN *join,
       */
       if (!abort_on_null && left_expr->maybe_null)
       {
+        disable_cond_guard_for_const_null_left_expr(0);
         if (!(item= new (thd->mem_root) Item_func_trig_cond(thd, item,
                                                             get_cond_guard(0))))
           DBUG_RETURN(true);
@@ -2184,6 +2190,7 @@ Item_in_subselect::create_single_in_to_exists_cond(JOIN *join,
                                                   (char *)"<result>"));
         if (!abort_on_null && left_expr->maybe_null)
         {
+          disable_cond_guard_for_const_null_left_expr(0);
           if (!(new_having= new (thd->mem_root) Item_func_trig_cond(thd, new_having,
                                                             get_cond_guard(0))))
             DBUG_RETURN(true);
@@ -2381,8 +2388,10 @@ Item_in_subselect::create_row_in_to_exists_cond(JOIN * join,
                                   (char *)"<list ref>"));
       Item *col_item= new (thd->mem_root)
         Item_cond_or(thd, item_eq, item_isnull);
-      if (!abort_on_null && left_expr->element_index(i)->maybe_null)
+      if (!abort_on_null && left_expr->element_index(i)->maybe_null &&
+          get_cond_guard(i))
       {
+        disable_cond_guard_for_const_null_left_expr(i);
         if (!(col_item= new (thd->mem_root)
               Item_func_trig_cond(thd, col_item, get_cond_guard(i))))
           DBUG_RETURN(true);
@@ -2398,8 +2407,10 @@ Item_in_subselect::create_row_in_to_exists_cond(JOIN * join,
                                        ref_pointer_array[i],
                                        (char *)"<no matter>",
                                        (char *)"<list ref>"));
-      if (!abort_on_null && left_expr->element_index(i)->maybe_null)
+      if (!abort_on_null && left_expr->element_index(i)->maybe_null &&
+          get_cond_guard(i) )
       {
+        disable_cond_guard_for_const_null_left_expr(i);
         if (!(item_nnull_test= 
               new (thd->mem_root)
               Item_func_trig_cond(thd, item_nnull_test, get_cond_guard(i))))
@@ -2458,8 +2469,9 @@ Item_in_subselect::create_row_in_to_exists_cond(JOIN * join,
                                            (char *)"<no matter>",
                                            (char *)"<list ref>"));
         item= new (thd->mem_root) Item_cond_or(thd, item, item_isnull);
-        if (left_expr->element_index(i)->maybe_null)
+        if (left_expr->element_index(i)->maybe_null && get_cond_guard(i))
         {
+          disable_cond_guard_for_const_null_left_expr(i);
           if (!(item= new (thd->mem_root)
                 Item_func_trig_cond(thd, item, get_cond_guard(i))))
             DBUG_RETURN(true);
@@ -2469,7 +2481,8 @@ Item_in_subselect::create_row_in_to_exists_cond(JOIN * join,
         }
         *having_item= and_items(thd, *having_item, having_col_item);
       }
-      if (!abort_on_null && left_expr->element_index(i)->maybe_null)
+      if (!abort_on_null && left_expr->element_index(i)->maybe_null &&
+          get_cond_guard(i))
       {
         if (!(item= new (thd->mem_root)
               Item_func_trig_cond(thd, item, get_cond_guard(i))))
@@ -2821,7 +2834,8 @@ bool Item_exists_subselect::exists2in_processor(void *opt_arg)
       join->having ||
       first_select->with_sum_func ||
       !first_select->leaf_tables.elements||
-      !join->conds)
+      !join->conds ||
+      with_recursive_reference)
     DBUG_RETURN(FALSE);
 
   DBUG_ASSERT(first_select->order_list.elements == 0 &&
@@ -3473,6 +3487,11 @@ int subselect_single_select_engine::get_identifier()
   return select_lex->select_number; 
 }
 
+void subselect_single_select_engine::force_reexecution()
+{ 
+  executed= false;
+}
+
 void subselect_single_select_engine::cleanup()
 {
   DBUG_ENTER("subselect_single_select_engine::cleanup");
@@ -3499,6 +3518,11 @@ void subselect_union_engine::cleanup()
 bool subselect_union_engine::is_executed() const
 {
   return unit->executed;
+}
+
+void subselect_union_engine::force_reexecution()
+{ 
+  unit->executed= false;
 }
 
 
@@ -3820,7 +3844,8 @@ int subselect_single_select_engine::exec()
       tab->read_record.read_record= tab->save_read_record;
     }
     executed= 1;
-    if (!(uncacheable() & ~UNCACHEABLE_EXPLAIN))
+    if (!(uncacheable() & ~UNCACHEABLE_EXPLAIN) &&
+        !item->with_recursive_reference)
       item->make_const();
     thd->where= save_where;
     thd->lex->current_select= save_select;
@@ -6664,6 +6689,13 @@ end:
 
 void subselect_table_scan_engine::cleanup()
 {
+}
+
+
+void Item_subselect::register_as_with_rec_ref(With_element *with_elem)
+{
+  with_elem->sq_with_rec_ref.link_in_list(this, &this->next_with_rec_ref);
+  with_recursive_reference= true;
 }
 
 

@@ -2,7 +2,7 @@
 #define SQL_ITEM_INCLUDED
 
 /* Copyright (c) 2000, 2015, Oracle and/or its affiliates.
-   Copyright (c) 2009, 2016, MariaDB
+   Copyright (c) 2009, 2017, MariaDB Corporation.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -30,8 +30,6 @@
 
 C_MODE_START
 #include <ma_dyncol.h>
-
-typedef SQL_I_List<ORDER> SQL_LIST;  // @InfiniDB  TODO remove this
 
 /*
   A prototype for a C-compatible structure to store a value of any data type.
@@ -99,10 +97,10 @@ enum precedence {
 typedef Bounds_checked_array<Item*> Ref_ptr_array;
 
 static inline uint32
-char_to_byte_length_safe(uint32 char_length_arg, uint32 mbmaxlen_arg)
+char_to_byte_length_safe(size_t char_length_arg, uint32 mbmaxlen_arg)
 {
-   ulonglong tmp= ((ulonglong) char_length_arg) * mbmaxlen_arg;
-   return (tmp > UINT_MAX32) ? (uint32) UINT_MAX32 : (uint32) tmp;
+  ulonglong tmp= ((ulonglong) char_length_arg) * mbmaxlen_arg;
+  return tmp > UINT_MAX32 ? UINT_MAX32 : static_cast<uint32>(tmp);
 }
 
 bool mark_unsupported_function(const char *where, void *store, uint result);
@@ -525,7 +523,7 @@ class Copy_query_with_rewrite
   bool copy_up_to(size_t bytes)
   {
     DBUG_ASSERT(bytes >= from);
-    return dst->append(src + from, bytes - from);
+    return dst->append(src + from, uint32(bytes - from));
   }
 
 public:
@@ -1558,6 +1556,7 @@ public:
   /*========= Item processors, to be used with Item::walk() ========*/
   virtual bool remove_dependence_processor(void *arg) { return 0; }
   virtual bool cleanup_processor(void *arg);
+  virtual bool cleanup_excluding_fields_processor(void *arg) { return cleanup_processor(arg); }
   virtual bool cleanup_excluding_const_fields_processor(void *arg) { return cleanup_processor(arg); }
   virtual bool collect_item_field_processor(void *arg) { return 0; }
   virtual bool collect_outer_ref_processor(void *arg) {return 0; }
@@ -1842,7 +1841,7 @@ public:
     max_length= char_to_byte_length_safe(max_char_length_arg, cs->mbmaxlen);
     collation.collation= cs;
   }
-  void fix_char_length(uint32 max_char_length_arg)
+  void fix_char_length(size_t max_char_length_arg)
   {
     max_length= char_to_byte_length_safe(max_char_length_arg,
                                          collation.collation->mbmaxlen);
@@ -2618,6 +2617,11 @@ public:
   bool check_vcol_func_processor(void *arg)
   {
     context= 0;
+    if (field && (field->unireg_check == Field::NEXT_NUMBER))
+    {
+      // Auto increment fields are unsupported
+      return mark_unsupported_function(field_name, arg, VCOL_FIELD_REF | VCOL_AUTO_INC);
+    }
     return mark_unsupported_function(field_name, arg, VCOL_FIELD_REF);
   }
   void cleanup();
@@ -2636,6 +2640,8 @@ public:
   virtual void print(String *str, enum_query_type query_type);
   bool exclusive_dependence_on_table_processor(void *map);
   bool exclusive_dependence_on_grouping_fields_processor(void *arg);
+  bool cleanup_excluding_fields_processor(void *arg)
+  { return field ? 0 : cleanup_processor(arg); }
   bool cleanup_excluding_const_fields_processor(void *arg)
   { return field && const_item() ? 0 : cleanup_processor(arg); }
   
@@ -2813,15 +2819,16 @@ class Item_param :public Item_basic_value,
       - Item_param::fixed changes to false
   */
 public:
+  // @InfiniDB make enum_item_param_state public
   enum enum_item_param_state
   {
     NO_VALUE, NULL_VALUE, INT_VALUE, REAL_VALUE,
     STRING_VALUE, TIME_VALUE, LONG_DATA_VALUE,
     DECIMAL_VALUE, DEFAULT_VALUE, IGNORE_VALUE
   } state;
-
   enum Type item_type;
 private:
+
   void fix_type(Type type)
   {
     item_type= type;
@@ -4327,6 +4334,14 @@ public:
   { return depended_from != NULL; }
   bool exclusive_dependence_on_grouping_fields_processor(void *arg)
   { return depended_from != NULL; }
+  bool cleanup_excluding_fields_processor(void *arg)
+  {
+    Item *item= real_item();
+    if (item && item->type() == FIELD_ITEM &&
+        ((Item_field *)item)->field)
+      return 0;
+    return cleanup_processor(arg);
+  }
   bool cleanup_excluding_const_fields_processor(void *arg)
   { 
     Item *item= real_item();
@@ -4543,7 +4558,7 @@ public:
   Item *get_copy(THD *thd, MEM_ROOT *mem_root)
   { return get_item_copy<Item_cache_wrapper>(thd, mem_root, this); }
   Item *build_clone(THD *thd, MEM_ROOT *mem_root) { return 0; }
-  Item* get_orig_item() { return orig_item; }
+  Item* get_orig_item() { return orig_item; } // @InfiniDB
 };
 
 
@@ -4939,6 +4954,11 @@ public:
   virtual double val_real() = 0;
   virtual longlong val_int() = 0;
   virtual int save_in_field(Field *field, bool no_conversions) = 0;
+  bool walk(Item_processor processor, bool walk_subquery, void *args)
+  {
+    return (item->walk(processor, walk_subquery, args)) ||
+      (this->*processor)(args);
+  }
 };
 
 /**
@@ -5459,7 +5479,25 @@ public:
   }
   bool check_vcol_func_processor(void *arg) 
   {
+    if (example)
+    {
+      Item::vcol_func_processor_result *res= (Item::vcol_func_processor_result*)arg;
+      example->check_vcol_func_processor(arg);
+      if (res->errors & VCOL_NOT_STRICTLY_DETERMINISTIC)
+        res->errors|= VCOL_SESSION_FUNC;
+      return false;
+    }
     return mark_unsupported_function("cache", arg, VCOL_IMPOSSIBLE);
+  }
+  bool cleanup_excluding_fields_processor(void* arg)
+  {
+    cleanup();
+    return 0;
+  }
+  void cleanup()
+  {
+    clear();
+    Item_basic_constant::cleanup();
   }
   /**
      Check if saved item has a non-NULL value.

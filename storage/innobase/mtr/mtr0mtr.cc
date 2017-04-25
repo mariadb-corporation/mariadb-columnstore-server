@@ -36,10 +36,6 @@ Created 11/26/1995 Heikki Tuuri
 
 #include "log0recv.h"
 
-#ifdef UNIV_NONINL
-#include "mtr0mtr.ic"
-#endif /* UNIV_NONINL */
-
 /** Iterate over a memo block in reverse. */
 template <typename Functor>
 struct Iterate {
@@ -124,11 +120,11 @@ struct FindPage
 		/* There must be some flags to look for. */
 		ut_ad(flags);
 		/* We can only look for page-related flags. */
-		ut_ad(!(flags & ~(MTR_MEMO_PAGE_S_FIX
-				  | MTR_MEMO_PAGE_X_FIX
-				  | MTR_MEMO_PAGE_SX_FIX
-				  | MTR_MEMO_BUF_FIX
-				  | MTR_MEMO_MODIFY)));
+		ut_ad(!(flags & ulint(~(MTR_MEMO_PAGE_S_FIX
+					| MTR_MEMO_PAGE_X_FIX
+					| MTR_MEMO_PAGE_SX_FIX
+					| MTR_MEMO_BUF_FIX
+					| MTR_MEMO_MODIFY))));
 	}
 
 	/** Visit a memo entry.
@@ -495,15 +491,6 @@ mtr_write_log(
 @param sync		true if it is a synchronous mini-transaction
 @param read_only	true if read only mini-transaction */
 void
-mtr_t::start(bool sync, bool read_only)
-{
-	start(NULL, sync, read_only);
-}
-
-/** Start a mini-transaction.
-@param sync		true if it is a synchronous mini-transaction
-@param read_only	true if read only mini-transaction */
-void
 mtr_t::start(trx_t* trx, bool sync, bool read_only)
 {
 	UNIV_MEM_INVALID(this, sizeof(*this));
@@ -680,7 +667,7 @@ NOTE: use mtr_x_lock_space().
 @param[in]	line		line number in file
 @return the tablespace object (never NULL) */
 fil_space_t*
-mtr_t::x_lock_space(ulint space_id, const char* file, ulint line)
+mtr_t::x_lock_space(ulint space_id, const char* file, unsigned line)
 {
 	fil_space_t*	space;
 
@@ -1053,14 +1040,14 @@ struct FlaggedCheck {
 		/* There must be some flags to look for. */
 		ut_ad(flags);
 		/* Look for rw-lock-related and page-related flags. */
-		ut_ad(!(flags & ~(MTR_MEMO_PAGE_S_FIX
-				  | MTR_MEMO_PAGE_X_FIX
-				  | MTR_MEMO_PAGE_SX_FIX
-				  | MTR_MEMO_BUF_FIX
-				  | MTR_MEMO_MODIFY
-				  | MTR_MEMO_X_LOCK
-				  | MTR_MEMO_SX_LOCK
-				  | MTR_MEMO_S_LOCK)));
+		ut_ad(!(flags & ulint(~(MTR_MEMO_PAGE_S_FIX
+					| MTR_MEMO_PAGE_X_FIX
+					| MTR_MEMO_PAGE_SX_FIX
+					| MTR_MEMO_BUF_FIX
+					| MTR_MEMO_MODIFY
+					| MTR_MEMO_X_LOCK
+					| MTR_MEMO_SX_LOCK
+					| MTR_MEMO_S_LOCK))));
 		/* Either some rw-lock-related or page-related flags
 		must be specified, but not both at the same time. */
 		ut_ad(!(flags & (MTR_MEMO_PAGE_S_FIX

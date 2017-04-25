@@ -88,6 +88,7 @@ select count(*) from t2;
 count(*)
 3072
 drop table t2;
+<<<<<<< HEAD
 create table t1 (a double not null, primary key(a)) engine='InnoDB' 
 partition by key (a) (
 partition pa1 max_rows=20 min_rows=2,
@@ -170,3 +171,5 @@ select count(*) from t2;
 count(*)
 3072
 drop table t2;
+=======
+>>>>>>> mariadb/10.2

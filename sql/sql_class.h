@@ -1,6 +1,6 @@
 /*
    Copyright (c) 2000, 2016, Oracle and/or its affiliates.
-   Copyright (c) 2009, 2016, MariaDB
+   Copyright (c) 2009, 2017, MariaDB Corporation.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -179,7 +179,7 @@ public:
   }
 
   inline char *str() const { return string.str; }
-  inline uint32 length() const { return string.length; }
+  inline size_t length() const { return string.length; }
   CHARSET_INFO *charset() const { return cs; }
 
   friend LEX_STRING * thd_query_string (MYSQL_THD thd);
@@ -478,16 +478,22 @@ enum killed_state
   KILL_TIMEOUT= 8,
   KILL_TIMEOUT_HARD= 9,
   /*
+    When binlog reading thread connects to the server it kills
+    all the binlog threads with the same ID.
+  */
+  KILL_SLAVE_SAME_ID= 10,
+  /*
     All of the following killed states will kill the connection
     KILL_CONNECTION must be the first of these and it must start with
     an even number (becasue of HARD bit)!
   */
-  KILL_CONNECTION= 10,
-  KILL_CONNECTION_HARD= 11,
-  KILL_SYSTEM_THREAD= 12,
-  KILL_SYSTEM_THREAD_HARD= 13,
-  KILL_SERVER= 14,
-  KILL_SERVER_HARD= 15
+  KILL_CONNECTION= 12,
+  KILL_CONNECTION_HARD= 13,
+  KILL_SYSTEM_THREAD= 14,
+  KILL_SYSTEM_THREAD_HARD= 15,
+  KILL_SERVER= 16,
+  KILL_SERVER_HARD= 17,
+
 };
 
 extern int killed_errno(killed_state killed);
@@ -1089,7 +1095,10 @@ public:
 
 
   inline char *query() const { return query_string.str(); }
-  inline uint32 query_length() const { return query_string.length(); }
+  inline uint32 query_length() const
+  {
+    return static_cast<uint32>(query_string.length());
+  }
   CHARSET_INFO *query_charset() const { return query_string.charset(); }
   void set_query_inner(const CSET_STRING &string_arg)
   {
@@ -2882,6 +2891,9 @@ public:
   }
 
   // ------------------------------ InfiniDB ------------------------------
+  // This structure needs to be removed and replaced with standard plugin structures.
+  // There may be some pain, as this structure is used inside the server code
+  // and the plugin stuff wasn't designed for that.
   public:
   	
   enum infinidb_state
@@ -2933,7 +2945,14 @@ public:
 		override_largeside_estimate = false;
 		if (cal_conn_info)
 		{
-			delete cal_conn_info;
+			// Kludge because cal_conn_info is created in the engine and just left
+			// laying about. It can't be reused unless an init function is made.
+			// This whole mechanism should change when INFINIFB_VTABLE is created
+			// via API
+			// If we can't get the structure to work via api, then we need to rethink
+			// how cal_conn_info is created and destroyed. Perhaps include the definition
+			// of cal_connection_info here and control its creation more systematically.
+			free(cal_conn_info);
 		}
 		cal_conn_info = NULL;
 		isUnion = false;
@@ -2947,7 +2966,7 @@ public:
    
   INFINIDB_VTABLE infinidb_vtable;					// InfiniDB custom structure
   
-  // ------------------------------ InfiniDB ------------------------------
+  // ------------------------------ end InfiniDB ------------------------------
 
   /* scramble - random string sent to client on handshake */
   char	     scramble[SCRAMBLE_LENGTH+1];

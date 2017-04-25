@@ -300,7 +300,6 @@ my_error_innodb(
 		break;
 	case DB_OUT_OF_FILE_SPACE:
 		my_error(ER_RECORD_FILE_FULL, MYF(0), table);
-		ut_error;
 		break;
 	case DB_TEMP_FILE_WRITE_FAIL:
 		my_error(ER_TEMP_FILE_WRITE_FAILURE, MYF(0));
@@ -589,7 +588,7 @@ ha_innobase::check_if_supported_inplace_alter(
 	}
 
 	update_thd();
-	trx_search_latch_release_if_reserved(m_prebuilt->trx);
+	trx_assert_no_search_latch(m_prebuilt->trx);
 
 	/* Change on engine specific table options require rebuild of the
 	table */
@@ -4532,9 +4531,11 @@ prepare_inplace_alter_table_dict(
 		ulint		space_id = 0;
 		ulint		z = 0;
 		ulint		key_id = FIL_DEFAULT_ENCRYPTION_KEY;
-		fil_encryption_t mode = FIL_SPACE_ENCRYPTION_DEFAULT;
+		fil_encryption_t mode = FIL_ENCRYPTION_DEFAULT;
 
-		crypt_data = fil_space_get_crypt_data(ctx->prebuilt->table->space);
+		fil_space_t* space = fil_space_acquire(ctx->prebuilt->table->space);
+		crypt_data = space->crypt_data;
+		fil_space_release(space);
 
 		if (crypt_data) {
 			key_id = crypt_data->key_id;
@@ -5019,7 +5020,7 @@ op_ok:
 				ctx->prebuilt->trx->mysql_thd)
 				? DB_SUCCESS : DB_ERROR;
 			ctx->new_table->fts->fts_status
-				&= ~TABLE_DICT_LOCKED;
+				&= ulint(~TABLE_DICT_LOCKED);
 
 			if (error != DB_SUCCESS) {
 				goto error_handling;
@@ -8608,7 +8609,7 @@ ha_innobase::commit_inplace_alter_table(
 			trx_rollback_for_mysql(trx);
 		} else {
 			ut_ad(trx_state_eq(trx, TRX_STATE_ACTIVE));
-			ut_ad(trx_is_rseg_updated(trx));
+			ut_ad(trx->has_logged());
 
 			if (mtr.get_log()->size() > 0) {
 				ut_ad(*mtr.get_log()->front()->begin()
@@ -8802,11 +8803,12 @@ foreign_fail:
 		DBUG_ASSERT(ctx0->old_table->get_ref_count() == 1);
 
 		trx_commit_for_mysql(m_prebuilt->trx);
-
+#ifdef BTR_CUR_HASH_ADAPT
 		if (btr_search_enabled) {
 			btr_search_disable(false);
 			btr_search_enable();
 		}
+#endif /* BTR_CUR_HASH_ADAPT */
 
 		char	tb_name[FN_REFLEN];
 		ut_strcpy(tb_name, m_prebuilt->table->name.m_name);
