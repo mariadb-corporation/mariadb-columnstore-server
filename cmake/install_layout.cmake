@@ -137,13 +137,13 @@ SET(INSTALL_SCRIPTDIR_RPM               "scripts")
 SET(INSTALL_SYSCONFDIR_RPM		        "/usr/local/mariadb/columnstore/mysql")
 SET(INSTALL_SYSCONF2DIR_RPM             "/usr/local/mariadb/columnstore/mysql/my.cnf.d")
 #
-IF(CMAKE_SIZEOF_VOID_P EQUAL 8)
-  SET(INSTALL_LIBDIR_RPM                "lib64")
-  SET(INSTALL_PLUGINDIR_RPM             "lib64/plugin")
-ELSE()
+#IF(CMAKE_SIZEOF_VOID_P EQUAL 8)
+#  SET(INSTALL_LIBDIR_RPM                "lib64")
+#  SET(INSTALL_PLUGINDIR_RPM             "lib64/plugin")
+#ELSE()
   SET(INSTALL_LIBDIR_RPM                "lib")
   SET(INSTALL_PLUGINDIR_RPM             "lib/plugin")
-ENDIF()
+#ENDIF()
 #
 SET(INSTALL_INCLUDEDIR_RPM              "include/mysql")
 #
