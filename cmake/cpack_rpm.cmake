@@ -30,9 +30,6 @@ SET(CPACK_COMPONENTS_ALL Server ManPagesServer IniFiles Server_Scripts
                          ManPagesTest Readme ManPagesClient Test 
                          Common Client SharedLibraries ClientPlugins)
 
-## dhill
-SET(INFINIDB_RPM_PACKAGE_NAME "mariadb-columnstore")
-SET(INFINIDB_BIT "x86_64")
 
 IF (NOT CPACK_RPM_PACKAGE_VERSION)
 SET (CPACK_RPM_PACKAGE_VERSION ${PACKAGE_VERSION})
