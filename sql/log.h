@@ -26,6 +26,7 @@ class Relay_log_info;
 
 class Format_description_log_event;
 
+void setup_log_handling();
 bool trans_has_updated_trans_table(const THD* thd);
 bool stmt_has_updated_trans_table(const THD *thd);
 bool use_trans_cache(const THD* thd, bool is_transactional);
@@ -587,6 +588,8 @@ public:
   mysql_mutex_t LOCK_binlog_background_thread;
   mysql_cond_t COND_binlog_background_thread;
   mysql_cond_t COND_binlog_background_thread_end;
+
+  void stop_background_thread();
 
   using MYSQL_LOG::generate_name;
   using MYSQL_LOG::is_open;

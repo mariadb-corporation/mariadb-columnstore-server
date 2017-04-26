@@ -33,6 +33,7 @@ Grants for test_user@%
 GRANT test_role TO 'test_user'@'%'
 GRANT test_ROLE TO 'test_user'@'%'
 GRANT USAGE ON *.* TO 'test_user'@'%'
+connect  test_user,localhost,test_user;
 #
 # Test users privileges when interacting with those roles;
 #
@@ -52,6 +53,7 @@ Some Secret P4ssw0rd
 |-|4><
 insert into secret_db.t1 values ("|_33T|-|4><");
 ERROR 42000: INSERT command denied to user 'test_user'@'localhost' for table 't1'
+connection default;
 drop role test_ROLE;
 drop role test_role;
 drop user test_user;

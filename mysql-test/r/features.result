@@ -3,6 +3,7 @@ set sql_mode="";
 flush status;
 show status like "feature%";
 Variable_name	Value
+Feature_check_constraint	0
 Feature_delay_key_write	0
 Feature_dynamic_columns	0
 Feature_fulltext	0
@@ -11,6 +12,7 @@ Feature_locale	0
 Feature_subquery	0
 Feature_timezone	0
 Feature_trigger	0
+Feature_window_functions	0
 Feature_xml	0
 #
 # Feature GIS
@@ -116,7 +118,7 @@ select @a;
 1
 SHOW TRIGGERS IN test like 't1';
 Trigger	Event	Table	Statement	Timing	Created	sql_mode	Definer	character_set_client	collation_connection	Database Collation
-trg	INSERT	t1	set @a:=1	BEFORE	NULL		root@localhost	latin1	latin1_swedish_ci	latin1_swedish_ci
+trg	INSERT	t1	set @a:=1	BEFORE	#		root@localhost	latin1	latin1_swedish_ci	latin1_swedish_ci
 drop trigger trg;
 drop table t1;
 show status like "%trigger%";
@@ -158,3 +160,9 @@ drop table t1;
 show status like "feature_delay_key_write";
 Variable_name	Value
 Feature_delay_key_write	2
+create table t1 (a int check (a > 5));
+create table t2 (b int, constraint foo check (b < 10));
+drop table t1, t2;
+show status like "feature_check_constraint";
+Variable_name	Value
+Feature_check_constraint	2

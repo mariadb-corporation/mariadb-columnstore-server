@@ -79,7 +79,7 @@ EXPLAIN
         "key_length": "5",
         "used_key_parts": ["a"],
         "rows": 8,
-        "attached_condition": "(t2.a < 10)"
+        "attached_condition": "t2.a < 10"
       }
     }
   }
@@ -104,7 +104,7 @@ ANALYZE
         "r_rows": 10,
         "r_filtered": 100,
         "r_total_time_ms": "REPLACED",
-        "attached_condition": "(t2.a < 10)"
+        "attached_condition": "t2.a < 10"
       }
     }
   }
@@ -172,14 +172,14 @@ EXPLAIN
   "query_block": {
     "select_id": 1,
     "filesort": {
+      "sort_key": "t2.b",
       "temporary_table": {
-        "function": "buffer",
         "table": {
           "table_name": "t0",
           "access_type": "ALL",
           "rows": 10,
           "filtered": 100,
-          "attached_condition": "(t0.a is not null)"
+          "attached_condition": "t0.a is not null"
         },
         "table": {
           "table_name": "t2",
@@ -205,6 +205,7 @@ ANALYZE
     "r_loops": 1,
     "r_total_time_ms": "REPLACED",
     "filesort": {
+      "sort_key": "t2.b",
       "r_loops": 1,
       "r_total_time_ms": "REPLACED",
       "r_limit": 4,
@@ -220,7 +221,7 @@ ANALYZE
           "r_total_time_ms": "REPLACED",
           "filtered": 100,
           "r_filtered": 100,
-          "attached_condition": "(t0.a is not null)"
+          "attached_condition": "t0.a is not null"
         },
         "table": {
           "table_name": "t2",
@@ -257,12 +258,13 @@ EXPLAIN
     "select_id": 1,
     "read_sorted_file": {
       "filesort": {
+        "sort_key": "t0.a",
         "table": {
           "table_name": "t0",
           "access_type": "ALL",
           "rows": 10,
           "filtered": 100,
-          "attached_condition": "(t0.a is not null)"
+          "attached_condition": "t0.a is not null"
         }
       }
     },
@@ -290,6 +292,7 @@ ANALYZE
     "read_sorted_file": {
       "r_rows": 10,
       "filesort": {
+        "sort_key": "t0.a",
         "r_loops": 1,
         "r_total_time_ms": "REPLACED",
         "r_used_priority_queue": false,
@@ -304,7 +307,7 @@ ANALYZE
           "r_total_time_ms": "REPLACED",
           "filtered": 100,
           "r_filtered": 1,
-          "attached_condition": "(t0.a is not null)"
+          "attached_condition": "t0.a is not null"
         }
       }
     },
@@ -346,6 +349,7 @@ ANALYZE
     "r_loops": 1,
     "r_total_time_ms": "REPLACED",
     "filesort": {
+      "sort_key": "t2.c",
       "r_loops": 1,
       "r_total_time_ms": "REPLACED",
       "r_used_priority_queue": false,
@@ -361,7 +365,7 @@ ANALYZE
           "r_total_time_ms": "REPLACED",
           "filtered": 100,
           "r_filtered": 50,
-          "attached_condition": "((t2.a % 2) = 0)"
+          "attached_condition": "t2.a % 2 = 0"
         }
       }
     }
@@ -424,7 +428,7 @@ ANALYZE
           "buffer_type": "flat",
           "buffer_size": "256Kb",
           "join_type": "BNL",
-          "attached_condition": "(t3.a = t0.a)",
+          "attached_condition": "t3.a = t0.a",
           "r_filtered": 10
         }
       }
@@ -455,18 +459,20 @@ ANALYZE
     "r_loops": 1,
     "r_total_time_ms": "REPLACED",
     "filesort": {
+      "sort_key": "count(distinct t5.b)",
       "r_loops": 1,
       "r_total_time_ms": "REPLACED",
       "r_limit": 1,
       "r_used_priority_queue": true,
       "r_output_rows": 2,
-      "filesort": {
-        "r_loops": 1,
-        "r_total_time_ms": "REPLACED",
-        "r_used_priority_queue": false,
-        "r_output_rows": 6,
-        "r_buffer_size": "REPLACED",
-        "temporary_table": {
+      "temporary_table": {
+        "filesort": {
+          "sort_key": "t5.a",
+          "r_loops": 1,
+          "r_total_time_ms": "REPLACED",
+          "r_used_priority_queue": false,
+          "r_output_rows": 6,
+          "r_buffer_size": "REPLACED",
           "temporary_table": {
             "table": {
               "table_name": "t6",
@@ -477,7 +483,7 @@ ANALYZE
               "r_total_time_ms": "REPLACED",
               "filtered": 100,
               "r_filtered": 80,
-              "attached_condition": "((t6.b > 0) and (t6.a <= 5))"
+              "attached_condition": "t6.b > 0 and t6.a <= 5"
             },
             "block-nl-join": {
               "table": {
@@ -493,7 +499,7 @@ ANALYZE
               "buffer_type": "flat",
               "buffer_size": "256Kb",
               "join_type": "BNL",
-              "attached_condition": "(t5.a = t6.a)",
+              "attached_condition": "t5.a = t6.a",
               "r_filtered": 21.429
             }
           }
@@ -511,26 +517,31 @@ EXPLAIN
   "query_block": {
     "select_id": 1,
     "filesort": {
+      "sort_key": "count(distinct t5.b)",
       "temporary_table": {
-        "function": "buffer",
-        "table": {
-          "table_name": "t6",
-          "access_type": "ALL",
-          "rows": 5,
-          "filtered": 100,
-          "attached_condition": "((t6.b > 0) and (t6.a <= 5))"
-        },
-        "block-nl-join": {
-          "table": {
-            "table_name": "t5",
-            "access_type": "ALL",
-            "rows": 7,
-            "filtered": 100
-          },
-          "buffer_type": "flat",
-          "buffer_size": "256Kb",
-          "join_type": "BNL",
-          "attached_condition": "(t5.a = t6.a)"
+        "filesort": {
+          "sort_key": "t5.a",
+          "temporary_table": {
+            "table": {
+              "table_name": "t6",
+              "access_type": "ALL",
+              "rows": 5,
+              "filtered": 100,
+              "attached_condition": "t6.b > 0 and t6.a <= 5"
+            },
+            "block-nl-join": {
+              "table": {
+                "table_name": "t5",
+                "access_type": "ALL",
+                "rows": 7,
+                "filtered": 100
+              },
+              "buffer_type": "flat",
+              "buffer_size": "256Kb",
+              "join_type": "BNL",
+              "attached_condition": "t5.a = t6.a"
+            }
+          }
         }
       }
     }

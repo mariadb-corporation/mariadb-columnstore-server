@@ -14,7 +14,7 @@ SET @@session.max_allowed_packet = 1024;
 ERROR HY000: SESSION variable 'max_allowed_packet' is read-only. Use SET GLOBAL to assign the value
 SELECT @@session.max_allowed_packet;
 @@session.max_allowed_packet
-4194304
+16777216
 SET @@session.net_buffer_length = 1024;
 ERROR HY000: SESSION variable 'net_buffer_length' is read-only. Use SET GLOBAL to assign the value
 SELECT @@session.net_buffer_length;
@@ -32,9 +32,12 @@ SELECT @@global.max_allowed_packet;
 SELECT @@global.net_buffer_length;
 @@global.net_buffer_length
 1024
-## Creating new connection test_con1 ##
+connect  test_con1,localhost,root,,;
+connection test_con1;
 ## Inserting and fetching data of length greater than 1024 ##
 INSERT into t1(name) values("aaassssssssddddddddffffffgggggggg, askdlfjalsdkjfalksdjflaksdjfalkjdflaksjdflakjdflajsflajflajdfalsjfdlajfladjslfajdflajdsflajsflakjsdfla;kjflsdjkf;aljfa;lkdsfjla;sjlkajffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllakjsdffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffa;;;;;;;;;;;;;;;;;;;;;;;;;;;dsklfjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjkljffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffdkskkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk");
+disconnect test_con1;
+connection default;
 drop table t1;
 SET @@global.max_allowed_packet= @start_max_allowed_packet;
 SET @@global.net_buffer_length= @start_value;

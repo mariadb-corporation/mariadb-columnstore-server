@@ -34,7 +34,7 @@ create database rewrite;
 connection master;
 use test;
 create table t1 (a date, b date, c date not null, d date);
-load data infile '../../std_data/loaddata1.dat' into table t1 fields terminated by ',';
+load data infile '../../std_data/loaddata1.dat' ignore into table t1 fields terminated by ',';
 load data infile '../../std_data/loaddata1.dat' into table t1 fields terminated by ',' IGNORE 2 LINES;
 sync_slave_with_master;
 
@@ -43,7 +43,7 @@ select * from rewrite.t1;
 
 connection master;
 truncate table t1;
-load data infile '../../std_data/loaddata1.dat' into table t1 fields terminated by ',' LINES STARTING BY ',' (b,c,d);
+load data infile '../../std_data/loaddata1.dat' ignore into table t1 fields terminated by ',' LINES STARTING BY ',' (b,c,d);
 sync_slave_with_master;
 
 connection slave;
@@ -133,17 +133,11 @@ SET sql_log_bin= 1;
 --echo ****                  t_03_01_temp, t_03_02_temp, t_03_03_temp on database_master_temp_03
 --echo ****
 
---echo
---echo con_temp_01
---echo
 connection con_temp_01;
 USE database_master_temp_01;
 CREATE TEMPORARY TABLE t_01_01_temp(a int);
 INSERT INTO t_01_01_temp VALUES(1);
 
---echo
---echo con_temp_02
---echo
 connection con_temp_02;
 USE database_master_temp_01;
 CREATE TEMPORARY TABLE t_01_01_temp(a int);
@@ -154,9 +148,6 @@ INSERT INTO t_02_01_temp VALUES(1);
 CREATE TEMPORARY TABLE t_02_02_temp(a int);
 INSERT INTO t_02_02_temp VALUES(1);
 
---echo
---echo con_temp_03
---echo
 connection con_temp_03;
 USE database_master_temp_01;
 CREATE TEMPORARY TABLE t_01_01_temp(a int);

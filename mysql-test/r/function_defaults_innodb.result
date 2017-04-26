@@ -10,50 +10,40 @@ SET TIME_ZONE = "+00:00";
 # Test of errors for column data types that dont support function
 # defaults.
 #
-CREATE TABLE t1( a BIT DEFAULT CURRENT_TIMESTAMP );
-ERROR 42000: Invalid default value for 'a'
-CREATE TABLE t1( a TINYINT DEFAULT CURRENT_TIMESTAMP );
-ERROR 42000: Invalid default value for 'a'
-CREATE TABLE t1( a SMALLINT DEFAULT CURRENT_TIMESTAMP );
-ERROR 42000: Invalid default value for 'a'
-CREATE TABLE t1( a MEDIUMINT DEFAULT CURRENT_TIMESTAMP );
-ERROR 42000: Invalid default value for 'a'
-CREATE TABLE t1( a INT DEFAULT CURRENT_TIMESTAMP );
-ERROR 42000: Invalid default value for 'a'
-CREATE TABLE t1( a BIGINT DEFAULT CURRENT_TIMESTAMP );
-ERROR 42000: Invalid default value for 'a'
-CREATE TABLE t1( a FLOAT DEFAULT CURRENT_TIMESTAMP );
-ERROR 42000: Invalid default value for 'a'
-CREATE TABLE t1( a DECIMAL DEFAULT CURRENT_TIMESTAMP );
-ERROR 42000: Invalid default value for 'a'
-CREATE TABLE t1( a DATE DEFAULT CURRENT_TIMESTAMP );
-ERROR 42000: Invalid default value for 'a'
-CREATE TABLE t1( a TIME DEFAULT CURRENT_TIMESTAMP );
-ERROR 42000: Invalid default value for 'a'
-CREATE TABLE t1( a YEAR DEFAULT CURRENT_TIMESTAMP );
-ERROR 42000: Invalid default value for 'a'
-CREATE TABLE t1( a BIT ON UPDATE CURRENT_TIMESTAMP );
+CREATE OR REPLACE TABLE t1( a BIT DEFAULT CURRENT_TIMESTAMP );
+CREATE OR REPLACE TABLE t1( a TINYINT DEFAULT CURRENT_TIMESTAMP );
+CREATE OR REPLACE TABLE t1( a SMALLINT DEFAULT CURRENT_TIMESTAMP );
+CREATE OR REPLACE TABLE t1( a MEDIUMINT DEFAULT CURRENT_TIMESTAMP );
+CREATE OR REPLACE TABLE t1( a INT DEFAULT CURRENT_TIMESTAMP );
+CREATE OR REPLACE TABLE t1( a BIGINT DEFAULT CURRENT_TIMESTAMP );
+CREATE OR REPLACE TABLE t1( a FLOAT DEFAULT CURRENT_TIMESTAMP );
+CREATE OR REPLACE TABLE t1( a DECIMAL DEFAULT CURRENT_TIMESTAMP );
+CREATE OR REPLACE TABLE t1( a DATE DEFAULT CURRENT_TIMESTAMP );
+CREATE OR REPLACE TABLE t1( a TIME DEFAULT CURRENT_TIMESTAMP );
+CREATE OR REPLACE TABLE t1( a YEAR DEFAULT CURRENT_TIMESTAMP );
+CREATE OR REPLACE TABLE t1( a BIT ON UPDATE CURRENT_TIMESTAMP );
 ERROR HY000: Invalid ON UPDATE clause for 'a' column
-CREATE TABLE t1( a TINYINT ON UPDATE CURRENT_TIMESTAMP );
+CREATE OR REPLACE TABLE t1( a TINYINT ON UPDATE CURRENT_TIMESTAMP );
 ERROR HY000: Invalid ON UPDATE clause for 'a' column
-CREATE TABLE t1( a SMALLINT ON UPDATE CURRENT_TIMESTAMP );
+CREATE OR REPLACE TABLE t1( a SMALLINT ON UPDATE CURRENT_TIMESTAMP );
 ERROR HY000: Invalid ON UPDATE clause for 'a' column
-CREATE TABLE t1( a MEDIUMINT ON UPDATE CURRENT_TIMESTAMP );
+CREATE OR REPLACE TABLE t1( a MEDIUMINT ON UPDATE CURRENT_TIMESTAMP );
 ERROR HY000: Invalid ON UPDATE clause for 'a' column
-CREATE TABLE t1( a INT ON UPDATE CURRENT_TIMESTAMP );
+CREATE OR REPLACE TABLE t1( a INT ON UPDATE CURRENT_TIMESTAMP );
 ERROR HY000: Invalid ON UPDATE clause for 'a' column
-CREATE TABLE t1( a BIGINT ON UPDATE CURRENT_TIMESTAMP );
+CREATE OR REPLACE TABLE t1( a BIGINT ON UPDATE CURRENT_TIMESTAMP );
 ERROR HY000: Invalid ON UPDATE clause for 'a' column
-CREATE TABLE t1( a FLOAT ON UPDATE CURRENT_TIMESTAMP );
+CREATE OR REPLACE TABLE t1( a FLOAT ON UPDATE CURRENT_TIMESTAMP );
 ERROR HY000: Invalid ON UPDATE clause for 'a' column
-CREATE TABLE t1( a DECIMAL ON UPDATE CURRENT_TIMESTAMP );
+CREATE OR REPLACE TABLE t1( a DECIMAL ON UPDATE CURRENT_TIMESTAMP );
 ERROR HY000: Invalid ON UPDATE clause for 'a' column
-CREATE TABLE t1( a DATE ON UPDATE CURRENT_TIMESTAMP );
+CREATE OR REPLACE TABLE t1( a DATE ON UPDATE CURRENT_TIMESTAMP );
 ERROR HY000: Invalid ON UPDATE clause for 'a' column
-CREATE TABLE t1( a TIME ON UPDATE CURRENT_TIMESTAMP );
+CREATE OR REPLACE TABLE t1( a TIME ON UPDATE CURRENT_TIMESTAMP );
 ERROR HY000: Invalid ON UPDATE clause for 'a' column
-CREATE TABLE t1( a YEAR ON UPDATE CURRENT_TIMESTAMP );
+CREATE OR REPLACE TABLE t1( a YEAR ON UPDATE CURRENT_TIMESTAMP );
 ERROR HY000: Invalid ON UPDATE clause for 'a' column
+drop table if exists t1;
 #
 # Test that the default clause behaves like NOW() regarding time zones.
 #
@@ -494,7 +484,7 @@ SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
   `b` int(11) DEFAULT NULL,
-  `a` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  `a` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 DROP TABLE t1;
 CREATE TABLE t1 ( a INT, b TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, c TIMESTAMP NULL );
@@ -502,7 +492,7 @@ ALTER TABLE t1 MODIFY b TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE C
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `b` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `b` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `a` int(11) DEFAULT NULL,
   `c` timestamp NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
@@ -512,7 +502,7 @@ ALTER TABLE t1 MODIFY b TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE C
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `b` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `b` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `a` int(11) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 DROP TABLE t1;
@@ -538,7 +528,7 @@ CREATE TABLE t1 ( a TIMESTAMP NOT NULL DEFAULT '0000-00-00 00:00:00' ON UPDATE N
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00' ON UPDATE CURRENT_TIMESTAMP,
+  `a` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00' ON UPDATE current_timestamp(),
   `b` int(11) DEFAULT NULL,
   `c` timestamp NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
@@ -547,7 +537,7 @@ SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
   `b` int(11) DEFAULT NULL,
-  `a` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `a` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `c` timestamp NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 DROP TABLE t1;
@@ -557,7 +547,7 @@ SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
   `c` timestamp NULL DEFAULT NULL,
-  `a` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00' ON UPDATE CURRENT_TIMESTAMP,
+  `a` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00' ON UPDATE current_timestamp(),
   `b` int(11) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 DROP TABLE t1;
@@ -565,7 +555,7 @@ CREATE TABLE t1 ( a TIMESTAMP NOT NULL DEFAULT NOW() ON UPDATE CURRENT_TIMESTAMP
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `a` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `b` int(11) DEFAULT NULL,
   `c` timestamp NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
@@ -574,7 +564,7 @@ SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
   `b` int(11) DEFAULT NULL,
-  `a` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `a` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `c` timestamp NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 DROP TABLE t1;
@@ -584,7 +574,7 @@ SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
   `c` timestamp NULL DEFAULT NULL,
-  `a` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `a` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `b` int(11) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 DROP TABLE t1;
@@ -597,7 +587,7 @@ SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
   `a` int(11) DEFAULT NULL,
-  `b` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  `b` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 DROP TABLE t1;
 #
@@ -661,7 +651,7 @@ CREATE TABLE t2  SELECT a FROM t1;
 SHOW CREATE TABLE t2;
 Table	Create Table
 t2	CREATE TABLE `t2` (
-  `a` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  `a` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 SELECT * FROM t2;
 a
@@ -670,7 +660,7 @@ CREATE TABLE t3  SELECT b FROM t1;
 SHOW CREATE TABLE t3;
 Table	Create Table
 t3	CREATE TABLE `t3` (
-  `b` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
+  `b` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 SELECT * FROM t3;
 b
@@ -679,7 +669,7 @@ CREATE TABLE t4  SELECT c FROM t1;
 SHOW CREATE TABLE t4;
 Table	Create Table
 t4	CREATE TABLE `t4` (
-  `c` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00' ON UPDATE CURRENT_TIMESTAMP
+  `c` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00' ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 SELECT * FROM t4;
 c
@@ -706,7 +696,7 @@ CREATE TABLE t7  SELECT f FROM t1;
 SHOW CREATE TABLE t7;
 Table	Create Table
 t7	CREATE TABLE `t7` (
-  `f` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  `f` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 SELECT * FROM t7;
 f
@@ -715,7 +705,7 @@ CREATE TABLE t8  SELECT g FROM t1;
 SHOW CREATE TABLE t8;
 Table	Create Table
 t8	CREATE TABLE `t8` (
-  `g` datetime DEFAULT CURRENT_TIMESTAMP
+  `g` datetime DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 SELECT * FROM t8;
 g
@@ -724,7 +714,7 @@ CREATE TABLE t9  SELECT h FROM t1;
 SHOW CREATE TABLE t9;
 Table	Create Table
 t9	CREATE TABLE `t9` (
-  `h` datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP
+  `h` datetime DEFAULT NULL ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 SELECT * FROM t9;
 h
@@ -764,25 +754,25 @@ SELECT * FROM t1;
 SHOW CREATE TABLE t12;
 Table	Create Table
 t12	CREATE TABLE `t12` (
-  `k` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `l` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `m` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `n` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00' ON UPDATE CURRENT_TIMESTAMP,
+  `k` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `l` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `m` timestamp NOT NULL DEFAULT current_timestamp(),
+  `n` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00' ON UPDATE current_timestamp(),
   `o` timestamp NOT NULL DEFAULT '1986-09-27 03:00:00',
   `p` timestamp NULL DEFAULT NULL,
-  `q` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `r` datetime DEFAULT CURRENT_TIMESTAMP,
-  `s` datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  `q` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `r` datetime DEFAULT current_timestamp(),
+  `s` datetime DEFAULT NULL ON UPDATE current_timestamp(),
   `t` datetime DEFAULT NULL,
   `u` datetime DEFAULT '1986-09-27 03:00:00',
-  `a` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `b` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `c` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00' ON UPDATE CURRENT_TIMESTAMP,
+  `a` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `b` timestamp NOT NULL DEFAULT current_timestamp(),
+  `c` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00' ON UPDATE current_timestamp(),
   `d` timestamp NOT NULL DEFAULT '1986-09-27 03:00:00',
   `e` timestamp NULL DEFAULT NULL,
-  `f` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `g` datetime DEFAULT CURRENT_TIMESTAMP,
-  `h` datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  `f` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `g` datetime DEFAULT current_timestamp(),
+  `h` datetime DEFAULT NULL ON UPDATE current_timestamp(),
   `i` datetime DEFAULT NULL,
   `j` datetime DEFAULT '1986-09-27 03:00:00'
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
@@ -803,7 +793,7 @@ CREATE TABLE t2 SELECT a FROM t1;
 SHOW CREATE TABLE t2;
 Table	Create Table
 t2	CREATE TABLE `t2` (
-  `a` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  `a` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 SELECT * FROM t2;
 a
@@ -812,7 +802,7 @@ CREATE TABLE t3 SELECT b FROM t1;
 SHOW CREATE TABLE t3;
 Table	Create Table
 t3	CREATE TABLE `t3` (
-  `b` datetime DEFAULT CURRENT_TIMESTAMP
+  `b` datetime DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 SELECT * FROM t3;
 b
@@ -821,7 +811,7 @@ CREATE TABLE t4 SELECT c FROM t1;
 SHOW CREATE TABLE t4;
 Table	Create Table
 t4	CREATE TABLE `t4` (
-  `c` datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP
+  `c` datetime DEFAULT NULL ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 SELECT * FROM t4;
 c
@@ -858,15 +848,15 @@ CREATE TABLE t2 ( b TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRE
 SHOW CREATE TABLE t2;
 Table	Create Table
 t2	CREATE TABLE `t2` (
-  `b` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `b` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `a` int(11) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 SET TIMESTAMP = 2000.876543;
 INSERT INTO t2( a ) VALUES ( 3 );
 SELECT * FROM t2;
 b	a
-0000-00-00 00:00:00	1
-0000-00-00 00:00:00	2
+1970-01-01 00:16:40	1
+1970-01-01 00:16:40	2
 1970-01-01 00:33:20	3
 DROP TABLE t1, t2;
 #
@@ -1051,7 +1041,7 @@ FROM dual;
 SELECT 1, 2 INTO OUTFILE 't5.dat' FROM dual;
 # Mon Aug 1 15:11:19 2011 UTC
 SET TIMESTAMP = 1312211479.918273;
-LOAD DATA INFILE 't3.dat' INTO TABLE t1;
+LOAD DATA INFILE 't3.dat' IGNORE INTO TABLE t1;
 Warnings:
 Warning	1261	Row 1 doesn't contain data for all columns
 Warning	1261	Row 1 doesn't contain data for all columns
@@ -1071,7 +1061,7 @@ f	NULL
 g	NULL
 h	NULL
 i	NULL
-LOAD DATA INFILE 't4.dat' INTO TABLE t2;
+LOAD DATA INFILE 't4.dat' IGNORE INTO TABLE t2;
 Warnings:
 Warning	1263	Column set to default value; NULL supplied to NOT NULL column 'e' at row 1
 Warning	1263	Column set to default value; NULL supplied to NOT NULL column 'f' at row 1
@@ -1121,7 +1111,7 @@ DELETE FROM t2;
 # (read_fixed_length()) than under the LOAD ... INTO TABLE t1 command
 # above. The code in this path is copy-pasted code from the path taken
 # under the syntax used in the previous LOAD command.
-LOAD DATA INFILE 't3.dat' INTO TABLE t1
+LOAD DATA INFILE 't3.dat' IGNORE INTO TABLE t1
 FIELDS TERMINATED BY '' ENCLOSED BY '';
 Warnings:
 Warning	1261	Row 1 doesn't contain data for all columns
@@ -1235,17 +1225,17 @@ t1	CREATE TABLE `t1` (
   `dummy` int(11) DEFAULT NULL,
   `a` datetime DEFAULT NULL,
   `b` datetime DEFAULT '2011-11-18 00:00:00',
-  `like_b` datetime DEFAULT CURRENT_TIMESTAMP,
+  `like_b` datetime DEFAULT current_timestamp(),
   `c` datetime NOT NULL DEFAULT '2011-11-18 00:00:00',
-  `like_c` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `d` timestamp NULL DEFAULT '2011-05-03 00:00:00' ON UPDATE CURRENT_TIMESTAMP,
+  `like_c` datetime NOT NULL DEFAULT current_timestamp(),
+  `d` timestamp NULL DEFAULT '2011-05-03 00:00:00' ON UPDATE current_timestamp(),
   `e` timestamp NOT NULL DEFAULT '2011-05-03 00:00:00',
-  `f` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `f` timestamp NOT NULL DEFAULT current_timestamp(),
   `g` timestamp NULL DEFAULT NULL,
   `h` int(11) DEFAULT NULL,
-  `i` int(11) NOT NULL DEFAULT '42'
+  `i` int(11) NOT NULL DEFAULT 42
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-LOAD DATA INFILE "file1.dat" INTO table t1;
+LOAD DATA INFILE "file1.dat" IGNORE INTO table t1;
 Warnings:
 Warning	1261	Row 1 doesn't contain data for all columns
 Warning	1261	Row 1 doesn't contain data for all columns
@@ -1287,17 +1277,17 @@ t1	CREATE TABLE `t1` (
   `dummy` int(11) DEFAULT NULL,
   `a` datetime DEFAULT NULL,
   `b` datetime DEFAULT '2011-11-18 00:00:00',
-  `like_b` datetime DEFAULT CURRENT_TIMESTAMP,
+  `like_b` datetime DEFAULT current_timestamp(),
   `c` datetime NOT NULL DEFAULT '2011-11-18 00:00:00',
-  `like_c` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `d` timestamp NULL DEFAULT '2011-05-03 00:00:00' ON UPDATE CURRENT_TIMESTAMP,
+  `like_c` datetime NOT NULL DEFAULT current_timestamp(),
+  `d` timestamp NULL DEFAULT '2011-05-03 00:00:00' ON UPDATE current_timestamp(),
   `e` timestamp NOT NULL DEFAULT '2011-05-03 00:00:00',
-  `f` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `f` timestamp NULL DEFAULT current_timestamp(),
   `g` timestamp NULL DEFAULT NULL,
   `h` int(11) DEFAULT NULL,
-  `i` int(11) NOT NULL DEFAULT '42'
+  `i` int(11) NOT NULL DEFAULT 42
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-LOAD DATA INFILE "file1.dat" INTO table t1;
+LOAD DATA INFILE "file1.dat" IGNORE INTO table t1;
 Warnings:
 Warning	1261	Row 1 doesn't contain data for all columns
 Warning	1261	Row 1 doesn't contain data for all columns
@@ -1354,17 +1344,17 @@ t1	CREATE TABLE `t1` (
   `dummy` int(11) DEFAULT NULL,
   `a` datetime DEFAULT NULL,
   `b` datetime DEFAULT '2011-11-18 00:00:00',
-  `like_b` datetime DEFAULT CURRENT_TIMESTAMP,
+  `like_b` datetime DEFAULT current_timestamp(),
   `c` datetime NOT NULL DEFAULT '2011-11-18 00:00:00',
-  `like_c` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `d` timestamp NULL DEFAULT '2011-05-03 00:00:00' ON UPDATE CURRENT_TIMESTAMP,
+  `like_c` datetime NOT NULL DEFAULT current_timestamp(),
+  `d` timestamp NULL DEFAULT '2011-05-03 00:00:00' ON UPDATE current_timestamp(),
   `e` timestamp NOT NULL DEFAULT '2011-05-03 00:00:00',
-  `f` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `f` timestamp NOT NULL DEFAULT current_timestamp(),
   `g` timestamp NULL DEFAULT NULL,
   `h` int(11) DEFAULT NULL,
-  `i` int(11) NOT NULL DEFAULT '42'
+  `i` int(11) NOT NULL DEFAULT 42
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-LOAD DATA INFILE "file2.dat" INTO table t1;
+LOAD DATA INFILE "file2.dat" IGNORE INTO table t1;
 Warnings:
 Warning	1263	Column set to default value; NULL supplied to NOT NULL column 'c' at row 1
 Warning	1263	Column set to default value; NULL supplied to NOT NULL column 'like_c' at row 1
@@ -1392,17 +1382,17 @@ t1	CREATE TABLE `t1` (
   `dummy` int(11) DEFAULT NULL,
   `a` datetime DEFAULT NULL,
   `b` datetime DEFAULT '2011-11-18 00:00:00',
-  `like_b` datetime DEFAULT CURRENT_TIMESTAMP,
+  `like_b` datetime DEFAULT current_timestamp(),
   `c` datetime NOT NULL DEFAULT '2011-11-18 00:00:00',
-  `like_c` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `d` timestamp NULL DEFAULT '2011-05-03 00:00:00' ON UPDATE CURRENT_TIMESTAMP,
+  `like_c` datetime NOT NULL DEFAULT current_timestamp(),
+  `d` timestamp NULL DEFAULT '2011-05-03 00:00:00' ON UPDATE current_timestamp(),
   `e` timestamp NOT NULL DEFAULT '2011-05-03 00:00:00',
-  `f` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `f` timestamp NULL DEFAULT current_timestamp(),
   `g` timestamp NULL DEFAULT NULL,
   `h` int(11) DEFAULT NULL,
-  `i` int(11) NOT NULL DEFAULT '42'
+  `i` int(11) NOT NULL DEFAULT 42
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-LOAD DATA INFILE "file2.dat" INTO table t1;
+LOAD DATA INFILE "file2.dat" IGNORE INTO table t1;
 Warnings:
 Warning	1263	Column set to default value; NULL supplied to NOT NULL column 'c' at row 1
 Warning	1263	Column set to default value; NULL supplied to NOT NULL column 'like_c' at row 1
@@ -1440,7 +1430,7 @@ SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
   `a` int(11) DEFAULT NULL,
-  `b` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  `b` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 INSERT INTO t1 ( a ) VALUES ( 1 );
 SELECT * FROM t1;
@@ -1454,7 +1444,7 @@ a	b
 # 1970-01-01 03:33:20
 SET TIMESTAMP = 2000.000234;
 UPDATE v1 SET a = 2;
-ERROR HY000: CHECK OPTION failed 'test.v1'
+ERROR 44000: CHECK OPTION failed `test`.`v1`
 SELECT * FROM t1;
 a	b
 1	1970-01-01 03:16:40
@@ -1477,7 +1467,7 @@ a	c
 1973-08-14 09:11:22	1
 SET TIMESTAMP = 1.126789;
 INSERT INTO v1 ( c ) VALUES ( 1 ) ON DUPLICATE KEY UPDATE c = 2;
-ERROR HY000: CHECK OPTION failed 'test.v1'
+ERROR 44000: CHECK OPTION failed `test`.`v1`
 SELECT * FROM v1;
 a	c
 1973-08-14 09:11:22	1
@@ -1566,50 +1556,40 @@ SET TIME_ZONE = "+00:00";
 # Test of errors for column data types that dont support function
 # defaults.
 #
-CREATE TABLE t1( a BIT DEFAULT CURRENT_TIMESTAMP(6) );
-ERROR 42000: Invalid default value for 'a'
-CREATE TABLE t1( a TINYINT DEFAULT CURRENT_TIMESTAMP(6) );
-ERROR 42000: Invalid default value for 'a'
-CREATE TABLE t1( a SMALLINT DEFAULT CURRENT_TIMESTAMP(6) );
-ERROR 42000: Invalid default value for 'a'
-CREATE TABLE t1( a MEDIUMINT DEFAULT CURRENT_TIMESTAMP(6) );
-ERROR 42000: Invalid default value for 'a'
-CREATE TABLE t1( a INT DEFAULT CURRENT_TIMESTAMP(6) );
-ERROR 42000: Invalid default value for 'a'
-CREATE TABLE t1( a BIGINT DEFAULT CURRENT_TIMESTAMP(6) );
-ERROR 42000: Invalid default value for 'a'
-CREATE TABLE t1( a FLOAT DEFAULT CURRENT_TIMESTAMP(6) );
-ERROR 42000: Invalid default value for 'a'
-CREATE TABLE t1( a DECIMAL DEFAULT CURRENT_TIMESTAMP(6) );
-ERROR 42000: Invalid default value for 'a'
-CREATE TABLE t1( a DATE DEFAULT CURRENT_TIMESTAMP(6) );
-ERROR 42000: Invalid default value for 'a'
-CREATE TABLE t1( a TIME DEFAULT CURRENT_TIMESTAMP(6) );
-ERROR 42000: Invalid default value for 'a'
-CREATE TABLE t1( a YEAR DEFAULT CURRENT_TIMESTAMP(6) );
-ERROR 42000: Invalid default value for 'a'
-CREATE TABLE t1( a BIT ON UPDATE CURRENT_TIMESTAMP(6) );
+CREATE OR REPLACE TABLE t1( a BIT DEFAULT CURRENT_TIMESTAMP(6) );
+CREATE OR REPLACE TABLE t1( a TINYINT DEFAULT CURRENT_TIMESTAMP(6) );
+CREATE OR REPLACE TABLE t1( a SMALLINT DEFAULT CURRENT_TIMESTAMP(6) );
+CREATE OR REPLACE TABLE t1( a MEDIUMINT DEFAULT CURRENT_TIMESTAMP(6) );
+CREATE OR REPLACE TABLE t1( a INT DEFAULT CURRENT_TIMESTAMP(6) );
+CREATE OR REPLACE TABLE t1( a BIGINT DEFAULT CURRENT_TIMESTAMP(6) );
+CREATE OR REPLACE TABLE t1( a FLOAT DEFAULT CURRENT_TIMESTAMP(6) );
+CREATE OR REPLACE TABLE t1( a DECIMAL DEFAULT CURRENT_TIMESTAMP(6) );
+CREATE OR REPLACE TABLE t1( a DATE DEFAULT CURRENT_TIMESTAMP(6) );
+CREATE OR REPLACE TABLE t1( a TIME DEFAULT CURRENT_TIMESTAMP(6) );
+CREATE OR REPLACE TABLE t1( a YEAR DEFAULT CURRENT_TIMESTAMP(6) );
+CREATE OR REPLACE TABLE t1( a BIT ON UPDATE CURRENT_TIMESTAMP(6) );
 ERROR HY000: Invalid ON UPDATE clause for 'a' column
-CREATE TABLE t1( a TINYINT ON UPDATE CURRENT_TIMESTAMP(6) );
+CREATE OR REPLACE TABLE t1( a TINYINT ON UPDATE CURRENT_TIMESTAMP(6) );
 ERROR HY000: Invalid ON UPDATE clause for 'a' column
-CREATE TABLE t1( a SMALLINT ON UPDATE CURRENT_TIMESTAMP(6) );
+CREATE OR REPLACE TABLE t1( a SMALLINT ON UPDATE CURRENT_TIMESTAMP(6) );
 ERROR HY000: Invalid ON UPDATE clause for 'a' column
-CREATE TABLE t1( a MEDIUMINT ON UPDATE CURRENT_TIMESTAMP(6) );
+CREATE OR REPLACE TABLE t1( a MEDIUMINT ON UPDATE CURRENT_TIMESTAMP(6) );
 ERROR HY000: Invalid ON UPDATE clause for 'a' column
-CREATE TABLE t1( a INT ON UPDATE CURRENT_TIMESTAMP(6) );
+CREATE OR REPLACE TABLE t1( a INT ON UPDATE CURRENT_TIMESTAMP(6) );
 ERROR HY000: Invalid ON UPDATE clause for 'a' column
-CREATE TABLE t1( a BIGINT ON UPDATE CURRENT_TIMESTAMP(6) );
+CREATE OR REPLACE TABLE t1( a BIGINT ON UPDATE CURRENT_TIMESTAMP(6) );
 ERROR HY000: Invalid ON UPDATE clause for 'a' column
-CREATE TABLE t1( a FLOAT ON UPDATE CURRENT_TIMESTAMP(6) );
+CREATE OR REPLACE TABLE t1( a FLOAT ON UPDATE CURRENT_TIMESTAMP(6) );
 ERROR HY000: Invalid ON UPDATE clause for 'a' column
-CREATE TABLE t1( a DECIMAL ON UPDATE CURRENT_TIMESTAMP(6) );
+CREATE OR REPLACE TABLE t1( a DECIMAL ON UPDATE CURRENT_TIMESTAMP(6) );
 ERROR HY000: Invalid ON UPDATE clause for 'a' column
-CREATE TABLE t1( a DATE ON UPDATE CURRENT_TIMESTAMP(6) );
+CREATE OR REPLACE TABLE t1( a DATE ON UPDATE CURRENT_TIMESTAMP(6) );
 ERROR HY000: Invalid ON UPDATE clause for 'a' column
-CREATE TABLE t1( a TIME ON UPDATE CURRENT_TIMESTAMP(6) );
+CREATE OR REPLACE TABLE t1( a TIME ON UPDATE CURRENT_TIMESTAMP(6) );
 ERROR HY000: Invalid ON UPDATE clause for 'a' column
-CREATE TABLE t1( a YEAR ON UPDATE CURRENT_TIMESTAMP(6) );
+CREATE OR REPLACE TABLE t1( a YEAR ON UPDATE CURRENT_TIMESTAMP(6) );
 ERROR HY000: Invalid ON UPDATE clause for 'a' column
+drop table if exists t1;
 #
 # Test that the default clause behaves like NOW() regarding time zones.
 #
@@ -2050,7 +2030,7 @@ SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
   `b` int(11) DEFAULT NULL,
-  `a` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
+  `a` timestamp(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 DROP TABLE t1;
 CREATE TABLE t1 ( a INT, b TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6), c TIMESTAMP(6) NULL );
@@ -2058,7 +2038,7 @@ ALTER TABLE t1 MODIFY b TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UP
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `b` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  `b` timestamp(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6),
   `a` int(11) DEFAULT NULL,
   `c` timestamp(6) NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
@@ -2068,7 +2048,7 @@ ALTER TABLE t1 MODIFY b TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UP
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `b` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  `b` timestamp(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6),
   `a` int(11) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 DROP TABLE t1;
@@ -2094,7 +2074,7 @@ CREATE TABLE t1 ( a TIMESTAMP(6) NOT NULL DEFAULT '0000-00-00 00:00:00' ON UPDAT
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` timestamp(6) NOT NULL DEFAULT '0000-00-00 00:00:00.000000' ON UPDATE CURRENT_TIMESTAMP(6),
+  `a` timestamp(6) NOT NULL DEFAULT '0000-00-00 00:00:00.000000' ON UPDATE current_timestamp(6),
   `b` int(11) DEFAULT NULL,
   `c` timestamp(6) NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
@@ -2103,7 +2083,7 @@ SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
   `b` int(11) DEFAULT NULL,
-  `a` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  `a` timestamp(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6),
   `c` timestamp(6) NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 DROP TABLE t1;
@@ -2113,7 +2093,7 @@ SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
   `c` timestamp(6) NULL DEFAULT NULL,
-  `a` timestamp(6) NOT NULL DEFAULT '0000-00-00 00:00:00.000000' ON UPDATE CURRENT_TIMESTAMP(6),
+  `a` timestamp(6) NOT NULL DEFAULT '0000-00-00 00:00:00.000000' ON UPDATE current_timestamp(6),
   `b` int(11) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 DROP TABLE t1;
@@ -2121,7 +2101,7 @@ CREATE TABLE t1 ( a TIMESTAMP(6) NOT NULL DEFAULT NOW(6) ON UPDATE CURRENT_TIMES
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  `a` timestamp(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6),
   `b` int(11) DEFAULT NULL,
   `c` timestamp(6) NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
@@ -2130,7 +2110,7 @@ SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
   `b` int(11) DEFAULT NULL,
-  `a` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  `a` timestamp(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6),
   `c` timestamp(6) NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 DROP TABLE t1;
@@ -2140,7 +2120,7 @@ SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
   `c` timestamp(6) NULL DEFAULT NULL,
-  `a` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  `a` timestamp(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6),
   `b` int(11) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 DROP TABLE t1;
@@ -2153,7 +2133,7 @@ SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
   `a` int(11) DEFAULT NULL,
-  `b` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
+  `b` timestamp(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 DROP TABLE t1;
 #
@@ -2217,7 +2197,7 @@ CREATE TABLE t2  SELECT a FROM t1;
 SHOW CREATE TABLE t2;
 Table	Create Table
 t2	CREATE TABLE `t2` (
-  `a` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
+  `a` timestamp(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 SELECT * FROM t2;
 a
@@ -2226,7 +2206,7 @@ CREATE TABLE t3  SELECT b FROM t1;
 SHOW CREATE TABLE t3;
 Table	Create Table
 t3	CREATE TABLE `t3` (
-  `b` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+  `b` timestamp(6) NOT NULL DEFAULT current_timestamp(6)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 SELECT * FROM t3;
 b
@@ -2235,7 +2215,7 @@ CREATE TABLE t4  SELECT c FROM t1;
 SHOW CREATE TABLE t4;
 Table	Create Table
 t4	CREATE TABLE `t4` (
-  `c` timestamp(6) NOT NULL DEFAULT '0000-00-00 00:00:00.000000' ON UPDATE CURRENT_TIMESTAMP(6)
+  `c` timestamp(6) NOT NULL DEFAULT '0000-00-00 00:00:00.000000' ON UPDATE current_timestamp(6)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 SELECT * FROM t4;
 c
@@ -2262,7 +2242,7 @@ CREATE TABLE t7  SELECT f FROM t1;
 SHOW CREATE TABLE t7;
 Table	Create Table
 t7	CREATE TABLE `t7` (
-  `f` datetime(6) DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
+  `f` datetime(6) DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 SELECT * FROM t7;
 f
@@ -2271,7 +2251,7 @@ CREATE TABLE t8  SELECT g FROM t1;
 SHOW CREATE TABLE t8;
 Table	Create Table
 t8	CREATE TABLE `t8` (
-  `g` datetime(6) DEFAULT CURRENT_TIMESTAMP(6)
+  `g` datetime(6) DEFAULT current_timestamp(6)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 SELECT * FROM t8;
 g
@@ -2280,7 +2260,7 @@ CREATE TABLE t9  SELECT h FROM t1;
 SHOW CREATE TABLE t9;
 Table	Create Table
 t9	CREATE TABLE `t9` (
-  `h` datetime(6) DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP(6)
+  `h` datetime(6) DEFAULT NULL ON UPDATE current_timestamp(6)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 SELECT * FROM t9;
 h
@@ -2320,25 +2300,25 @@ SELECT * FROM t1;
 SHOW CREATE TABLE t12;
 Table	Create Table
 t12	CREATE TABLE `t12` (
-  `k` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-  `l` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-  `m` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  `n` timestamp(6) NOT NULL DEFAULT '0000-00-00 00:00:00.000000' ON UPDATE CURRENT_TIMESTAMP(6),
+  `k` timestamp(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6),
+  `l` timestamp(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6),
+  `m` timestamp(6) NOT NULL DEFAULT current_timestamp(6),
+  `n` timestamp(6) NOT NULL DEFAULT '0000-00-00 00:00:00.000000' ON UPDATE current_timestamp(6),
   `o` timestamp(6) NOT NULL DEFAULT '1986-09-27 03:00:00.098765',
   `p` timestamp(6) NULL DEFAULT NULL,
-  `q` datetime(6) DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-  `r` datetime(6) DEFAULT CURRENT_TIMESTAMP(6),
-  `s` datetime(6) DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP(6),
+  `q` datetime(6) DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6),
+  `r` datetime(6) DEFAULT current_timestamp(6),
+  `s` datetime(6) DEFAULT NULL ON UPDATE current_timestamp(6),
   `t` datetime(6) DEFAULT NULL,
   `u` datetime(6) DEFAULT '1986-09-27 03:00:00.098765',
-  `a` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-  `b` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  `c` timestamp(6) NOT NULL DEFAULT '0000-00-00 00:00:00.000000' ON UPDATE CURRENT_TIMESTAMP(6),
+  `a` timestamp(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6),
+  `b` timestamp(6) NOT NULL DEFAULT current_timestamp(6),
+  `c` timestamp(6) NOT NULL DEFAULT '0000-00-00 00:00:00.000000' ON UPDATE current_timestamp(6),
   `d` timestamp(6) NOT NULL DEFAULT '1986-09-27 03:00:00.098765',
   `e` timestamp(6) NULL DEFAULT NULL,
-  `f` datetime(6) DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-  `g` datetime(6) DEFAULT CURRENT_TIMESTAMP(6),
-  `h` datetime(6) DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP(6),
+  `f` datetime(6) DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6),
+  `g` datetime(6) DEFAULT current_timestamp(6),
+  `h` datetime(6) DEFAULT NULL ON UPDATE current_timestamp(6),
   `i` datetime(6) DEFAULT NULL,
   `j` datetime(6) DEFAULT '1986-09-27 03:00:00.098765'
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
@@ -2359,7 +2339,7 @@ CREATE TABLE t2 SELECT a FROM t1;
 SHOW CREATE TABLE t2;
 Table	Create Table
 t2	CREATE TABLE `t2` (
-  `a` datetime(6) DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
+  `a` datetime(6) DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 SELECT * FROM t2;
 a
@@ -2368,7 +2348,7 @@ CREATE TABLE t3 SELECT b FROM t1;
 SHOW CREATE TABLE t3;
 Table	Create Table
 t3	CREATE TABLE `t3` (
-  `b` datetime(6) DEFAULT CURRENT_TIMESTAMP(6)
+  `b` datetime(6) DEFAULT current_timestamp(6)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 SELECT * FROM t3;
 b
@@ -2377,7 +2357,7 @@ CREATE TABLE t4 SELECT c FROM t1;
 SHOW CREATE TABLE t4;
 Table	Create Table
 t4	CREATE TABLE `t4` (
-  `c` datetime(6) DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP(6)
+  `c` datetime(6) DEFAULT NULL ON UPDATE current_timestamp(6)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 SELECT * FROM t4;
 c
@@ -2414,15 +2394,15 @@ CREATE TABLE t2 ( b TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE
 SHOW CREATE TABLE t2;
 Table	Create Table
 t2	CREATE TABLE `t2` (
-  `b` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  `b` timestamp(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6),
   `a` int(11) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 SET TIMESTAMP = 2000.876543;
 INSERT INTO t2( a ) VALUES ( 3 );
 SELECT * FROM t2;
 b	a
-0000-00-00 00:00:00.000000	1
-0000-00-00 00:00:00.000000	2
+1970-01-01 00:16:40.987654	1
+1970-01-01 00:16:40.987654	2
 1970-01-01 00:33:20.876543	3
 DROP TABLE t1, t2;
 #
@@ -2607,7 +2587,7 @@ FROM dual;
 SELECT 1, 2 INTO OUTFILE 't5.dat' FROM dual;
 # Mon Aug 1 15:11:19 2011 UTC
 SET TIMESTAMP = 1312211479.918273;
-LOAD DATA INFILE 't3.dat' INTO TABLE t1;
+LOAD DATA INFILE 't3.dat' IGNORE INTO TABLE t1;
 Warnings:
 Warning	1261	Row 1 doesn't contain data for all columns
 Warning	1261	Row 1 doesn't contain data for all columns
@@ -2627,7 +2607,7 @@ f	NULL
 g	NULL
 h	NULL
 i	NULL
-LOAD DATA INFILE 't4.dat' INTO TABLE t2;
+LOAD DATA INFILE 't4.dat' IGNORE INTO TABLE t2;
 Warnings:
 Warning	1263	Column set to default value; NULL supplied to NOT NULL column 'e' at row 1
 Warning	1263	Column set to default value; NULL supplied to NOT NULL column 'f' at row 1
@@ -2677,7 +2657,7 @@ DELETE FROM t2;
 # (read_fixed_length()) than under the LOAD ... INTO TABLE t1 command
 # above. The code in this path is copy-pasted code from the path taken
 # under the syntax used in the previous LOAD command.
-LOAD DATA INFILE 't3.dat' INTO TABLE t1
+LOAD DATA INFILE 't3.dat' IGNORE INTO TABLE t1
 FIELDS TERMINATED BY '' ENCLOSED BY '';
 Warnings:
 Warning	1261	Row 1 doesn't contain data for all columns
@@ -2791,17 +2771,17 @@ t1	CREATE TABLE `t1` (
   `dummy` int(11) DEFAULT NULL,
   `a` datetime(6) DEFAULT NULL,
   `b` datetime(6) DEFAULT '2011-11-18 00:00:00.000000',
-  `like_b` datetime(6) DEFAULT CURRENT_TIMESTAMP(6),
+  `like_b` datetime(6) DEFAULT current_timestamp(6),
   `c` datetime(6) NOT NULL DEFAULT '2011-11-18 00:00:00.000000',
-  `like_c` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  `d` timestamp(6) NULL DEFAULT '2011-05-03 00:00:00.000000' ON UPDATE CURRENT_TIMESTAMP(6),
+  `like_c` datetime(6) NOT NULL DEFAULT current_timestamp(6),
+  `d` timestamp(6) NULL DEFAULT '2011-05-03 00:00:00.000000' ON UPDATE current_timestamp(6),
   `e` timestamp(6) NOT NULL DEFAULT '2011-05-03 00:00:00.000000',
-  `f` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `f` timestamp(6) NOT NULL DEFAULT current_timestamp(6),
   `g` timestamp(6) NULL DEFAULT NULL,
   `h` int(11) DEFAULT NULL,
-  `i` int(11) NOT NULL DEFAULT '42'
+  `i` int(11) NOT NULL DEFAULT 42
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-LOAD DATA INFILE "file1.dat" INTO table t1;
+LOAD DATA INFILE "file1.dat" IGNORE INTO table t1;
 Warnings:
 Warning	1261	Row 1 doesn't contain data for all columns
 Warning	1261	Row 1 doesn't contain data for all columns
@@ -2843,17 +2823,17 @@ t1	CREATE TABLE `t1` (
   `dummy` int(11) DEFAULT NULL,
   `a` datetime(6) DEFAULT NULL,
   `b` datetime(6) DEFAULT '2011-11-18 00:00:00.000000',
-  `like_b` datetime(6) DEFAULT CURRENT_TIMESTAMP(6),
+  `like_b` datetime(6) DEFAULT current_timestamp(6),
   `c` datetime(6) NOT NULL DEFAULT '2011-11-18 00:00:00.000000',
-  `like_c` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  `d` timestamp(6) NULL DEFAULT '2011-05-03 00:00:00.000000' ON UPDATE CURRENT_TIMESTAMP(6),
+  `like_c` datetime(6) NOT NULL DEFAULT current_timestamp(6),
+  `d` timestamp(6) NULL DEFAULT '2011-05-03 00:00:00.000000' ON UPDATE current_timestamp(6),
   `e` timestamp(6) NOT NULL DEFAULT '2011-05-03 00:00:00.000000',
-  `f` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `f` timestamp NULL DEFAULT current_timestamp(),
   `g` timestamp(6) NULL DEFAULT NULL,
   `h` int(11) DEFAULT NULL,
-  `i` int(11) NOT NULL DEFAULT '42'
+  `i` int(11) NOT NULL DEFAULT 42
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-LOAD DATA INFILE "file1.dat" INTO table t1;
+LOAD DATA INFILE "file1.dat" IGNORE INTO table t1;
 Warnings:
 Warning	1261	Row 1 doesn't contain data for all columns
 Warning	1261	Row 1 doesn't contain data for all columns
@@ -2910,17 +2890,17 @@ t1	CREATE TABLE `t1` (
   `dummy` int(11) DEFAULT NULL,
   `a` datetime(6) DEFAULT NULL,
   `b` datetime(6) DEFAULT '2011-11-18 00:00:00.000000',
-  `like_b` datetime(6) DEFAULT CURRENT_TIMESTAMP(6),
+  `like_b` datetime(6) DEFAULT current_timestamp(6),
   `c` datetime(6) NOT NULL DEFAULT '2011-11-18 00:00:00.000000',
-  `like_c` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  `d` timestamp(6) NULL DEFAULT '2011-05-03 00:00:00.000000' ON UPDATE CURRENT_TIMESTAMP(6),
+  `like_c` datetime(6) NOT NULL DEFAULT current_timestamp(6),
+  `d` timestamp(6) NULL DEFAULT '2011-05-03 00:00:00.000000' ON UPDATE current_timestamp(6),
   `e` timestamp(6) NOT NULL DEFAULT '2011-05-03 00:00:00.000000',
-  `f` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `f` timestamp(6) NOT NULL DEFAULT current_timestamp(6),
   `g` timestamp(6) NULL DEFAULT NULL,
   `h` int(11) DEFAULT NULL,
-  `i` int(11) NOT NULL DEFAULT '42'
+  `i` int(11) NOT NULL DEFAULT 42
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-LOAD DATA INFILE "file2.dat" INTO table t1;
+LOAD DATA INFILE "file2.dat" IGNORE INTO table t1;
 Warnings:
 Warning	1263	Column set to default value; NULL supplied to NOT NULL column 'c' at row 1
 Warning	1263	Column set to default value; NULL supplied to NOT NULL column 'like_c' at row 1
@@ -2948,17 +2928,17 @@ t1	CREATE TABLE `t1` (
   `dummy` int(11) DEFAULT NULL,
   `a` datetime(6) DEFAULT NULL,
   `b` datetime(6) DEFAULT '2011-11-18 00:00:00.000000',
-  `like_b` datetime(6) DEFAULT CURRENT_TIMESTAMP(6),
+  `like_b` datetime(6) DEFAULT current_timestamp(6),
   `c` datetime(6) NOT NULL DEFAULT '2011-11-18 00:00:00.000000',
-  `like_c` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  `d` timestamp(6) NULL DEFAULT '2011-05-03 00:00:00.000000' ON UPDATE CURRENT_TIMESTAMP(6),
+  `like_c` datetime(6) NOT NULL DEFAULT current_timestamp(6),
+  `d` timestamp(6) NULL DEFAULT '2011-05-03 00:00:00.000000' ON UPDATE current_timestamp(6),
   `e` timestamp(6) NOT NULL DEFAULT '2011-05-03 00:00:00.000000',
-  `f` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `f` timestamp NULL DEFAULT current_timestamp(),
   `g` timestamp(6) NULL DEFAULT NULL,
   `h` int(11) DEFAULT NULL,
-  `i` int(11) NOT NULL DEFAULT '42'
+  `i` int(11) NOT NULL DEFAULT 42
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-LOAD DATA INFILE "file2.dat" INTO table t1;
+LOAD DATA INFILE "file2.dat" IGNORE INTO table t1;
 Warnings:
 Warning	1263	Column set to default value; NULL supplied to NOT NULL column 'c' at row 1
 Warning	1263	Column set to default value; NULL supplied to NOT NULL column 'like_c' at row 1
@@ -2996,7 +2976,7 @@ SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
   `a` int(11) DEFAULT NULL,
-  `b` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
+  `b` timestamp(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 INSERT INTO t1 ( a ) VALUES ( 1 );
 SELECT * FROM t1;
@@ -3010,7 +2990,7 @@ a	b
 # 1970-01-01 03:33:20
 SET TIMESTAMP = 2000.000234;
 UPDATE v1 SET a = 2;
-ERROR HY000: CHECK OPTION failed 'test.v1'
+ERROR 44000: CHECK OPTION failed `test`.`v1`
 SELECT * FROM t1;
 a	b
 1	1970-01-01 03:16:40.123456
@@ -3033,7 +3013,7 @@ a	c
 1973-08-14 09:11:22.089786	1
 SET TIMESTAMP = 1.126789;
 INSERT INTO v1 ( c ) VALUES ( 1 ) ON DUPLICATE KEY UPDATE c = 2;
-ERROR HY000: CHECK OPTION failed 'test.v1'
+ERROR 44000: CHECK OPTION failed `test`.`v1`
 SELECT * FROM v1;
 a	c
 1973-08-14 09:11:22.089786	1

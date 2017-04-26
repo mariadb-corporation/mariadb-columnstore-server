@@ -2,13 +2,12 @@
 # MDEV-11623 MariaDB 10.1 fails to start datadir created with
 # MariaDB 10.0/MySQL 5.6 using innodb-page-size!=16K
 #
-call mtr.add_suppression("InnoDB: adjusting FSP_SPACE_FLAGS of tablespace");
-SET GLOBAL innodb_file_per_table=1;
-SET GLOBAL innodb_file_format=Barracuda;
 CREATE TABLE tr(a INT)ENGINE=InnoDB ROW_FORMAT=REDUNDANT;
 CREATE TABLE tc(a INT)ENGINE=InnoDB ROW_FORMAT=COMPACT;
 CREATE TABLE td(a INT)ENGINE=InnoDB ROW_FORMAT=DYNAMIC;
+SET INNODB_STRICT_MODE=OFF;
 CREATE TABLE tz(a INT)ENGINE=InnoDB ROW_FORMAT=COMPRESSED KEY_BLOCK_SIZE=1;
+SET INNODB_STRICT_MODE=ON;
 CREATE TABLE tdd(a INT) ENGINE=InnoDB, DATA DIRECTORY='MYSQL_TMP_DIR';
 CREATE TABLE tp(a INT) ENGINE=InnoDB page_compressed=1;
 CREATE TABLE ti(a INT) ENGINE=InnoDB;

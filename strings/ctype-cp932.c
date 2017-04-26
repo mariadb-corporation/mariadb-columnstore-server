@@ -191,18 +191,6 @@ static const uchar sort_order_cp932[]=
 #include "ctype-mb.ic"
 
 
-static uint ismbchar_cp932(CHARSET_INFO *cs __attribute__((unused)),
-			 const char* p, const char *e)
-{
-  return (iscp932head((uchar) *p) && (e-p)>1 && iscp932tail((uchar)p[1]) ? 2: 0);
-}
-
-static uint mbcharlen_cp932(CHARSET_INFO *cs __attribute__((unused)),uint c)
-{
-  return (iscp932head((uchar) c) ? 2 : 1);
-}
-
-
 #define cp932code(c,d)	((((uint) (uchar)(c)) << 8) | (uint) (uchar) (d))
 
 
@@ -34658,6 +34646,22 @@ size_t my_numcells_cp932(CHARSET_INFO *cs __attribute__((unused)),
 #include "strcoll.ic"
 
 
+#define DEFINE_STRNNCOLLSP_NOPAD
+#define MY_FUNCTION_NAME(x)   my_ ## x ## _cp932_japanese_nopad_ci
+#define WEIGHT_PAD_SPACE     (256 * (int) ' ')
+#define WEIGHT_MB1(x)        (256 * (int) sort_order_cp932[(uchar) (x)])
+#define WEIGHT_MB2(x,y)      (cp932code(x, y))
+#include "strcoll.ic"
+
+
+#define DEFINE_STRNNCOLLSP_NOPAD
+#define MY_FUNCTION_NAME(x)   my_ ## x ## _cp932_nopad_bin
+#define WEIGHT_PAD_SPACE     (256 * (int) ' ')
+#define WEIGHT_MB1(x)        (256 * (int) (uchar) (x))
+#define WEIGHT_MB2(x,y)      (cp932code(x, y))
+#include "strcoll.ic"
+
+
 static MY_COLLATION_HANDLER my_collation_handler_cp932_japanese_ci=
 {
   NULL,                  /* init */
@@ -34690,14 +34694,43 @@ static MY_COLLATION_HANDLER my_collation_handler_cp932_bin=
 };
 
 
+static MY_COLLATION_HANDLER my_collation_handler_cp932_japanese_nopad_ci=
+{
+  NULL,                  /* init */
+  my_strnncoll_cp932_japanese_ci,
+  my_strnncollsp_cp932_japanese_nopad_ci,
+  my_strnxfrm_mb_nopad,
+  my_strnxfrmlen_simple,
+  my_like_range_mb,
+  my_wildcmp_mb,
+  my_strcasecmp_8bit,
+  my_instr_mb,
+  my_hash_sort_simple_nopad,
+  my_propagate_simple
+};
+
+
+static MY_COLLATION_HANDLER my_collation_handler_cp932_nopad_bin=
+{
+  NULL,	                /* init */
+  my_strnncoll_cp932_bin,
+  my_strnncollsp_cp932_nopad_bin,
+  my_strnxfrm_mb_nopad,
+  my_strnxfrmlen_simple,
+  my_like_range_mb,
+  my_wildcmp_mb_bin,
+  my_strcasecmp_mb_bin,
+  my_instr_mb,
+  my_hash_sort_mb_nopad_bin,
+  my_propagate_simple
+};
+
+
 static MY_CHARSET_HANDLER my_charset_handler=
 {
   NULL,			/* init */
-  ismbchar_cp932,
-  mbcharlen_cp932,
   my_numchars_mb,
   my_charpos_mb,
-  my_well_formed_len_cp932,
   my_lengthsp_8bit,
   my_numcells_cp932,
   my_mb_wc_cp932,	/* mb_wc */
@@ -34788,6 +34821,71 @@ struct charset_info_st my_charset_cp932_bin=
     1,                  /* levels_for_order   */
     &my_charset_handler,
     &my_collation_handler_cp932_bin
+};
+
+
+struct charset_info_st my_charset_cp932_japanese_nopad_ci=
+{
+    MY_NOPAD_ID(95),0,0, /* number       */
+    MY_CS_COMPILED|MY_CS_STRNXFRM|MY_CS_NOPAD, /* state */
+    "cp932",             /* cs name      */
+    "cp932_japanese_nopad_ci",/* name    */
+    "",                  /* comment      */
+    NULL,                /* tailoring    */
+    ctype_cp932,
+    to_lower_cp932,
+    to_upper_cp932,
+    sort_order_cp932,
+    NULL,                /* uca           */
+    NULL,                /* tab_to_uni    */
+    NULL,                /* tab_from_uni  */
+    &my_caseinfo_cp932,  /* caseinfo      */
+    NULL,                /* state_map     */
+    NULL,                /* ident_map     */
+    1,                   /* strxfrm_multiply */
+    1,                   /* caseup_multiply  */
+    1,                   /* casedn_multiply  */
+    1,                   /* mbminlen      */
+    2,                   /* mbmaxlen      */
+    0,                   /* min_sort_char */
+    0xFCFC,              /* max_sort_char */
+    ' ',                 /* pad char      */
+    1,                   /* escape_with_backslash_is_dangerous */
+    1,                   /* levels_for_order */
+    &my_charset_handler,
+    &my_collation_handler_cp932_japanese_nopad_ci
+};
+
+struct charset_info_st my_charset_cp932_nopad_bin=
+{
+    MY_NOPAD_ID(96),0,0, /* number        */
+    MY_CS_COMPILED|MY_CS_BINSORT|MY_CS_NOPAD, /* state */
+    "cp932",             /* cs name       */
+    "cp932_nopad_bin",   /* name          */
+    "",                  /* comment       */
+    NULL,                /* tailoring     */
+    ctype_cp932,
+    to_lower_cp932,
+    to_upper_cp932,
+    NULL,                /* sort_order    */
+    NULL,                /* uca           */
+    NULL,                /* tab_to_uni    */
+    NULL,                /* tab_from_uni  */
+    &my_caseinfo_cp932,  /* caseinfo      */
+    NULL,                /* state_map     */
+    NULL,                /* ident_map     */
+    1,                   /* strxfrm_multiply */
+    1,                   /* caseup_multiply  */
+    1,                   /* casedn_multiply  */
+    1,                   /* mbminlen      */
+    2,                   /* mbmaxlen      */
+    0,                   /* min_sort_char */
+    0xFCFC,              /* max_sort_char */
+    ' ',                 /* pad char      */
+    1,                   /* escape_with_backslash_is_dangerous */
+    1,                   /* levels_for_order */
+    &my_charset_handler,
+    &my_collation_handler_cp932_nopad_bin
 };
 
 #endif

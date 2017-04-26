@@ -1,6 +1,6 @@
 /*
    Copyright (c) 2000, 2014, Oracle and/or its affiliates.
-   Copyright (c) 2009, 2015, MariaDB
+   Copyright (c) 2009, 2016, MariaDB Corporation
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -899,7 +899,8 @@ mysql_rm_db_internal(THD *thd,char *db, bool if_exists, bool silent)
     {
       LEX_STRING db_name= { table->db, table->db_length };
       LEX_STRING table_name= { table->table_name, table->table_name_length };
-      if (table->open_type == OT_BASE_ONLY || !find_temporary_table(thd, table))
+      if (table->open_type == OT_BASE_ONLY ||
+          !thd->find_temporary_table(table))
         (void) delete_statistics_for_table(thd, &db_name, &table_name);
     }
   }
@@ -1050,7 +1051,10 @@ exit:
     it to 0.
   */
   if (thd->db && cmp_db_names(thd->db, db) && !error)
+  {
     mysql_change_db_impl(thd, NULL, 0, thd->variables.collation_server);
+    SESSION_TRACKER_CHANGED(thd, CURRENT_SCHEMA_TRACKER, NULL);
+  }
   my_dirend(dirp);
   DBUG_RETURN(error);
 }
@@ -1474,7 +1478,7 @@ bool mysql_change_db(THD *thd, const LEX_STRING *new_db_name, bool force_switch)
 
       mysql_change_db_impl(thd, NULL, 0, thd->variables.collation_server);
 
-      DBUG_RETURN(FALSE);
+      goto done;
     }
     else
     {
@@ -1491,8 +1495,7 @@ bool mysql_change_db(THD *thd, const LEX_STRING *new_db_name, bool force_switch)
 
     mysql_change_db_impl(thd, &INFORMATION_SCHEMA_NAME, SELECT_ACL,
                          system_charset_info);
-
-    DBUG_RETURN(FALSE);
+    goto done;
   }
 
   /*
@@ -1579,8 +1582,7 @@ bool mysql_change_db(THD *thd, const LEX_STRING *new_db_name, bool force_switch)
       mysql_change_db_impl(thd, NULL, 0, thd->variables.collation_server);
 
       /* The operation succeed. */
-
-      DBUG_RETURN(FALSE);
+      goto done;
     }
     else
     {
@@ -1604,6 +1606,9 @@ bool mysql_change_db(THD *thd, const LEX_STRING *new_db_name, bool force_switch)
 
   mysql_change_db_impl(thd, &new_db_file_name, db_access, db_default_cl);
 
+done:
+  SESSION_TRACKER_CHANGED(thd, CURRENT_SCHEMA_TRACKER, NULL);
+  SESSION_TRACKER_CHANGED(thd, SESSION_STATE_CHANGE_TRACKER, NULL);
   DBUG_RETURN(FALSE);
 }
 
@@ -1793,7 +1798,7 @@ bool mysql_upgrade_db(THD *thd, LEX_STRING *old_db)
       create trigger trg1 before insert on t2 for each row set @a:=1
       rename database d1 to d2;
 
-    TODO: Triggers, having the renamed database explicitely written
+    TODO: Triggers, having the renamed database explicitly written
     in the table qualifiers.
     1. when the same database is renamed:
         create trigger d1.trg1 before insert on d1.t1 for each row set @a:=1;

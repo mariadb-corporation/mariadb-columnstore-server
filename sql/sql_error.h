@@ -1,5 +1,4 @@
 /* Copyright (c) 2000, 2011, Oracle and/or its affiliates. All rights reserved.
-Copyright (c) 2016, MariaDB Corporation
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -659,6 +658,8 @@ public:
     DA_OK,
     /** Set whenever one calls my_eof(). */
     DA_EOF,
+    /** Set whenever one calls my_ok() in PS bulk mode. */
+    DA_OK_BULK,
     /** Set whenever one calls my_error() or my_message(). */
     DA_ERROR,
     /** Set in case of a custom response, such as one from COM_STMT_PREPARE. */
@@ -700,10 +701,24 @@ public:
 
   bool is_disabled() const { return m_status == DA_DISABLED; }
 
+  void set_bulk_execution(bool bulk) { is_bulk_execution= bulk; }
+
+  bool is_bulk_op() const { return is_bulk_execution; }
+
   enum_diagnostics_status status() const { return m_status; }
 
   const char *message() const
-  { DBUG_ASSERT(m_status == DA_ERROR || m_status == DA_OK); return m_message; }
+  { DBUG_ASSERT(m_status == DA_ERROR || m_status == DA_OK ||
+                m_status == DA_OK_BULK); return m_message; }
+
+  bool skip_flush() const
+  {
+    DBUG_ASSERT(m_status == DA_OK || m_status == DA_OK_BULK);
+    return m_skip_flush;
+  }
+
+  void set_skip_flush()
+  { m_skip_flush= TRUE; }
 
   uint sql_errno() const
   { DBUG_ASSERT(m_status == DA_ERROR); return m_sql_errno; }
@@ -712,14 +727,21 @@ public:
   { DBUG_ASSERT(m_status == DA_ERROR); return m_sqlstate; }
 
   ulonglong affected_rows() const
-  { DBUG_ASSERT(m_status == DA_OK); return m_affected_rows; }
+  {
+    DBUG_ASSERT(m_status == DA_OK || m_status == DA_OK_BULK);
+    return m_affected_rows;
+  }
 
   ulonglong last_insert_id() const
-  { DBUG_ASSERT(m_status == DA_OK); return m_last_insert_id; }
+  {
+    DBUG_ASSERT(m_status == DA_OK || m_status == DA_OK_BULK);
+    return m_last_insert_id;
+  }
 
   uint statement_warn_count() const
   {
-    DBUG_ASSERT(m_status == DA_OK || m_status == DA_EOF);
+    DBUG_ASSERT(m_status == DA_OK || m_status == DA_OK_BULK ||
+                m_status == DA_EOF);
     return m_statement_warn_count;
   }
 
@@ -858,6 +880,9 @@ private:
   /** Set to make set_error_status after set_{ok,eof}_status possible. */
   bool m_can_overwrite_status;
 
+  /** Skip flushing network buffer after writing OK (for COM_MULTI) */
+  bool m_skip_flush;
+
   /** Message buffer. Can be used by OK or ERROR status. */
   char m_message[MYSQL_ERRMSG_SIZE];
 
@@ -898,6 +923,8 @@ private:
   uint	     m_statement_warn_count;
 
   enum_diagnostics_status m_status;
+
+  my_bool is_bulk_execution;
 
   Warning_info m_main_wi;
 
@@ -974,27 +1001,5 @@ inline bool is_sqlstate_not_found(const char *s)
 inline bool is_sqlstate_exception(const char *s)
 { return s[0] != '0' || s[1] > '2'; }
 
-// @InfiniDB util API for error handling
-#include "handler.h"                            /* ha_resolve_by_name */
-#include "sql_plugin.h"                         /* plugin_ref */
-const LEX_STRING InfiniDB= { C_STRING_WITH_LEN("InfiniDB") };
-
-// generic API
-inline void IDB_set_error(THD* thd, uint64_t errCode, LEX_STRING* args, uint argCount)
-{
-    plugin_ref plugin =     ha_resolve_by_name(thd, &InfiniDB, false);
-    handlerton* hton = plugin_data(plugin, handlerton*);
-    hton->set_error(thd, errCode, args, argCount);
-}
-
-// one arg API
-inline void IDB_set_error(THD* thd, uint64_t errCode, char* arg)
-{
-    plugin_ref plugin =     ha_resolve_by_name(thd, &InfiniDB, false);
-    handlerton* hton = plugin_data(plugin, handlerton*);
-    LEX_STRING args[1];
-    args[0].str = arg;
-    hton->set_error(thd, errCode, args, 1);
-}
 
 #endif // SQL_ERROR_H

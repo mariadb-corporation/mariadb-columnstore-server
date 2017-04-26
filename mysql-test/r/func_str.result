@@ -1,5 +1,7 @@
 drop table if exists t1,t2;
 set global max_allowed_packet=1048576;
+connect  conn1,localhost,root,,;
+connection conn1;
 set names latin1;
 select 'hello',"'hello'",'""hello""','''h''e''l''l''o''',"hel""lo",'hel\'lo';
 hello	'hello'	""hello""	'h'e'l'l'o'	hel"lo	hel'lo
@@ -316,6 +318,8 @@ quote(concat('abc\'', '\\cba'))
 select quote(1/0), quote('\0\Z');
 quote(1/0)	quote('\0\Z')
 NULL	'\0\Z'
+Warnings:
+Warning	1365	Division by 0
 select length(quote(concat(char(0),"test")));
 length(quote(concat(char(0),"test")))
 8
@@ -585,15 +589,15 @@ select _latin1'B' in (_latin1'a',_latin1'b' collate latin1_bin);
 _latin1'B' in (_latin1'a',_latin1'b' collate latin1_bin)
 0
 select _latin2'B' in (_latin1'a',_latin1'b');
-ERROR HY000: Illegal mix of collations (latin2_general_ci,COERCIBLE), (latin1_swedish_ci,COERCIBLE), (latin1_swedish_ci,COERCIBLE) for operation ' IN '
+ERROR HY000: Illegal mix of collations (latin2_general_ci,COERCIBLE), (latin1_swedish_ci,COERCIBLE), (latin1_swedish_ci,COERCIBLE) for operation 'in'
 select _latin1'B' in (_latin2'a',_latin1'b');
-ERROR HY000: Illegal mix of collations (latin1_swedish_ci,COERCIBLE), (latin2_general_ci,COERCIBLE), (latin1_swedish_ci,COERCIBLE) for operation ' IN '
+ERROR HY000: Illegal mix of collations (latin1_swedish_ci,COERCIBLE), (latin2_general_ci,COERCIBLE), (latin1_swedish_ci,COERCIBLE) for operation 'in'
 select _latin1'B' in (_latin1'a',_latin2'b');
-ERROR HY000: Illegal mix of collations (latin1_swedish_ci,COERCIBLE), (latin1_swedish_ci,COERCIBLE), (latin2_general_ci,COERCIBLE) for operation ' IN '
+ERROR HY000: Illegal mix of collations (latin1_swedish_ci,COERCIBLE), (latin1_swedish_ci,COERCIBLE), (latin2_general_ci,COERCIBLE) for operation 'in'
 select _latin1'B' COLLATE latin1_general_ci in (_latin1'a' COLLATE latin1_bin,_latin1'b');
-ERROR HY000: Illegal mix of collations (latin1_general_ci,EXPLICIT), (latin1_bin,EXPLICIT), (latin1_swedish_ci,COERCIBLE) for operation ' IN '
+ERROR HY000: Illegal mix of collations (latin1_general_ci,EXPLICIT), (latin1_bin,EXPLICIT), (latin1_swedish_ci,COERCIBLE) for operation 'in'
 select _latin1'B' COLLATE latin1_general_ci in (_latin1'a',_latin1'b' COLLATE latin1_bin);
-ERROR HY000: Illegal mix of collations (latin1_general_ci,EXPLICIT), (latin1_swedish_ci,COERCIBLE), (latin1_bin,EXPLICIT) for operation ' IN '
+ERROR HY000: Illegal mix of collations (latin1_general_ci,EXPLICIT), (latin1_swedish_ci,COERCIBLE), (latin1_bin,EXPLICIT) for operation 'in'
 select collation(bin(130)), coercibility(bin(130));
 collation(bin(130))	coercibility(bin(130))
 latin1_swedish_ci	4
@@ -727,34 +731,34 @@ t1	CREATE TABLE `t1` (
   `bin(130)` varchar(64) DEFAULT NULL,
   `oct(130)` varchar(64) DEFAULT NULL,
   `conv(130,16,10)` varchar(64) DEFAULT NULL,
-  `hex(130)` varchar(6) NOT NULL,
-  `char(130)` varbinary(4) NOT NULL,
-  `format(130,10)` varchar(37) NOT NULL,
-  `left(_latin2'a',1)` varchar(1) CHARACTER SET latin2 NOT NULL,
-  `right(_latin2'a',1)` varchar(1) CHARACTER SET latin2 NOT NULL,
-  `lcase(_latin2'a')` varchar(1) CHARACTER SET latin2 NOT NULL,
-  `ucase(_latin2'a')` varchar(1) CHARACTER SET latin2 NOT NULL,
-  `substring(_latin2'a',1,1)` varchar(1) CHARACTER SET latin2 NOT NULL,
-  `concat(_latin2'a',_latin2'b')` varchar(2) CHARACTER SET latin2 NOT NULL,
-  `lpad(_latin2'a',4,_latin2'b')` varchar(4) CHARACTER SET latin2 NOT NULL,
-  `rpad(_latin2'a',4,_latin2'b')` varchar(4) CHARACTER SET latin2 NOT NULL,
-  `concat_ws(_latin2'a',_latin2'b')` varchar(1) CHARACTER SET latin2 NOT NULL,
-  `make_set(255,_latin2'a',_latin2'b',_latin2'c')` varchar(5) CHARACTER SET latin2 NOT NULL,
-  `export_set(255,_latin2'y',_latin2'n',_latin2' ')` varchar(127) CHARACTER SET latin2 NOT NULL,
-  `trim(_latin2' a ')` varchar(3) CHARACTER SET latin2 NOT NULL,
-  `ltrim(_latin2' a ')` varchar(3) CHARACTER SET latin2 NOT NULL,
-  `rtrim(_latin2' a ')` varchar(3) CHARACTER SET latin2 NOT NULL,
-  `trim(LEADING _latin2' ' FROM _latin2' a ')` varchar(3) CHARACTER SET latin2 NOT NULL,
-  `trim(TRAILING _latin2' ' FROM _latin2' a ')` varchar(3) CHARACTER SET latin2 NOT NULL,
-  `trim(BOTH _latin2' ' FROM _latin2' a ')` varchar(3) CHARACTER SET latin2 NOT NULL,
-  `repeat(_latin2'a',10)` varchar(10) CHARACTER SET latin2 NOT NULL,
-  `reverse(_latin2'ab')` varchar(2) CHARACTER SET latin2 NOT NULL,
-  `quote(_latin2'ab')` varchar(6) CHARACTER SET latin2 NOT NULL,
-  `soundex(_latin2'ab')` varchar(4) CHARACTER SET latin2 NOT NULL,
-  `substring(_latin2'ab',1)` varchar(2) CHARACTER SET latin2 NOT NULL,
-  `insert(_latin2'abcd',2,3,_latin2'ef')` varchar(6) CHARACTER SET latin2 NOT NULL,
-  `replace(_latin2'abcd',_latin2'b',_latin2'B')` varchar(4) CHARACTER SET latin2 NOT NULL,
-  `encode('abcd','ab')` varbinary(4) NOT NULL
+  `hex(130)` varchar(6) DEFAULT NULL,
+  `char(130)` varbinary(4) DEFAULT NULL,
+  `format(130,10)` varchar(45) DEFAULT NULL,
+  `left(_latin2'a',1)` varchar(1) CHARACTER SET latin2 DEFAULT NULL,
+  `right(_latin2'a',1)` varchar(1) CHARACTER SET latin2 DEFAULT NULL,
+  `lcase(_latin2'a')` varchar(1) CHARACTER SET latin2 DEFAULT NULL,
+  `ucase(_latin2'a')` varchar(1) CHARACTER SET latin2 DEFAULT NULL,
+  `substring(_latin2'a',1,1)` varchar(1) CHARACTER SET latin2 DEFAULT NULL,
+  `concat(_latin2'a',_latin2'b')` varchar(2) CHARACTER SET latin2 DEFAULT NULL,
+  `lpad(_latin2'a',4,_latin2'b')` varchar(4) CHARACTER SET latin2 DEFAULT NULL,
+  `rpad(_latin2'a',4,_latin2'b')` varchar(4) CHARACTER SET latin2 DEFAULT NULL,
+  `concat_ws(_latin2'a',_latin2'b')` varchar(1) CHARACTER SET latin2 DEFAULT NULL,
+  `make_set(255,_latin2'a',_latin2'b',_latin2'c')` varchar(5) CHARACTER SET latin2 DEFAULT NULL,
+  `export_set(255,_latin2'y',_latin2'n',_latin2' ')` varchar(127) CHARACTER SET latin2 DEFAULT NULL,
+  `trim(_latin2' a ')` varchar(3) CHARACTER SET latin2 DEFAULT NULL,
+  `ltrim(_latin2' a ')` varchar(3) CHARACTER SET latin2 DEFAULT NULL,
+  `rtrim(_latin2' a ')` varchar(3) CHARACTER SET latin2 DEFAULT NULL,
+  `trim(LEADING _latin2' ' FROM _latin2' a ')` varchar(3) CHARACTER SET latin2 DEFAULT NULL,
+  `trim(TRAILING _latin2' ' FROM _latin2' a ')` varchar(3) CHARACTER SET latin2 DEFAULT NULL,
+  `trim(BOTH _latin2' ' FROM _latin2' a ')` varchar(3) CHARACTER SET latin2 DEFAULT NULL,
+  `repeat(_latin2'a',10)` varchar(10) CHARACTER SET latin2 DEFAULT NULL,
+  `reverse(_latin2'ab')` varchar(2) CHARACTER SET latin2 DEFAULT NULL,
+  `quote(_latin2'ab')` varchar(6) CHARACTER SET latin2 DEFAULT NULL,
+  `soundex(_latin2'ab')` varchar(4) CHARACTER SET latin2 DEFAULT NULL,
+  `substring(_latin2'ab',1)` varchar(2) CHARACTER SET latin2 DEFAULT NULL,
+  `insert(_latin2'abcd',2,3,_latin2'ef')` varchar(6) CHARACTER SET latin2 DEFAULT NULL,
+  `replace(_latin2'abcd',_latin2'b',_latin2'B')` varchar(4) CHARACTER SET latin2 DEFAULT NULL,
+  `encode('abcd','ab')` varbinary(4) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 create table t1 (a char character set latin2);
@@ -839,7 +843,7 @@ explain extended select 'mood' sounds like 'mud';
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	No tables used
 Warnings:
-Note	1003	select (soundex('mood') = soundex('mud')) AS `'mood' sounds like 'mud'`
+Note	1003	select soundex('mood') = soundex('mud') AS `'mood' sounds like 'mud'`
 explain extended select aes_decrypt(aes_encrypt('abc','1'),'1');
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	No tables used
@@ -919,7 +923,7 @@ explain extended select FIELD('b' COLLATE latin1_bin,'A','B');
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	No tables used
 Warnings:
-Note	1003	select field(('b' collate latin1_bin),'A','B') AS `FIELD('b' COLLATE latin1_bin,'A','B')`
+Note	1003	select field('b' collate latin1_bin,'A','B') AS `FIELD('b' COLLATE latin1_bin,'A','B')`
 explain extended select FIND_IN_SET(_latin1'B', _latin1'a,b,c,d');
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	No tables used
@@ -974,7 +978,7 @@ explain extended select quote(1/0);
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	No tables used
 Warnings:
-Note	1003	select quote((1 / 0)) AS `quote(1/0)`
+Note	1003	select quote(1 / 0) AS `quote(1/0)`
 explain extended select crc32("123");
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	No tables used
@@ -1060,11 +1064,11 @@ aaaaaaaaaaccccc
 bbbbbbbbbbddddd
 drop table t1, t2;
 create table t1 (c1 INT, c2 INT UNSIGNED);
-insert into t1 values ('21474836461','21474836461');
+insert ignore into t1 values ('21474836461','21474836461');
 Warnings:
 Warning	1264	Out of range value for column 'c1' at row 1
 Warning	1264	Out of range value for column 'c2' at row 1
-insert into t1 values ('-21474836461','-21474836461');
+insert ignore into t1 values ('-21474836461','-21474836461');
 Warnings:
 Warning	1264	Out of range value for column 'c1' at row 1
 Warning	1264	Out of range value for column 'c2' at row 1
@@ -1235,13 +1239,13 @@ create table t1 (i int);
 insert into t1 values (1000000000),(1);
 select lpad(i, 7, ' ') as t from t1;
 Catalog	Database	Table	Table_alias	Column	Column_alias	Type	Length	Max length	Is_null	Flags	Decimals	Charsetnr
-def					t	253	7	7	Y	0	31	8
+def					t	253	7	7	Y	0	39	8
 t
 1000000
       1
 select rpad(i, 7, ' ') as t from t1;
 Catalog	Database	Table	Table_alias	Column	Column_alias	Type	Length	Max length	Is_null	Flags	Decimals	Charsetnr
-def					t	253	7	7	Y	0	31	8
+def					t	253	7	7	Y	0	39	8
 t
 1000000
 1      
@@ -1288,27 +1292,27 @@ EXPLAIN EXTENDED SELECT s FROM t1 WHERE TRIM(s) > 'ab';
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`s` AS `s` from `test`.`t1` where (trim(`test`.`t1`.`s`) > 'ab')
+Note	1003	select `test`.`t1`.`s` AS `s` from `test`.`t1` where trim(`test`.`t1`.`s`) > 'ab'
 EXPLAIN EXTENDED SELECT s FROM t1 WHERE TRIM('y' FROM s) > 'ab';
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`s` AS `s` from `test`.`t1` where (trim(both 'y' from `test`.`t1`.`s`) > 'ab')
+Note	1003	select `test`.`t1`.`s` AS `s` from `test`.`t1` where trim(both 'y' from `test`.`t1`.`s`) > 'ab'
 EXPLAIN EXTENDED SELECT s FROM t1 WHERE TRIM(LEADING 'y' FROM s) > 'ab';
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`s` AS `s` from `test`.`t1` where (trim(leading 'y' from `test`.`t1`.`s`) > 'ab')
+Note	1003	select `test`.`t1`.`s` AS `s` from `test`.`t1` where trim(leading 'y' from `test`.`t1`.`s`) > 'ab'
 EXPLAIN EXTENDED SELECT s FROM t1 WHERE TRIM(TRAILING 'y' FROM s) > 'ab';
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`s` AS `s` from `test`.`t1` where (trim(trailing 'y' from `test`.`t1`.`s`) > 'ab')
+Note	1003	select `test`.`t1`.`s` AS `s` from `test`.`t1` where trim(trailing 'y' from `test`.`t1`.`s`) > 'ab'
 EXPLAIN EXTENDED SELECT s FROM t1 WHERE TRIM(BOTH 'y' FROM s) > 'ab';
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`s` AS `s` from `test`.`t1` where (trim(both 'y' from `test`.`t1`.`s`) > 'ab')
+Note	1003	select `test`.`t1`.`s` AS `s` from `test`.`t1` where trim(both 'y' from `test`.`t1`.`s`) > 'ab'
 DROP TABLE t1;
 create table t1(f1 varchar(4));
 explain extended select encode(f1,'zxcv') as 'enc' from t1;
@@ -1398,7 +1402,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t2	const	PRIMARY	PRIMARY	12	const	1	100.00	Using index
 1	SIMPLE	t1	ref	code	code	13	const	3	100.00	Using where; Using index
 Warnings:
-Note	1003	select `test`.`t1`.`code` AS `code`,'a12' AS `id` from `test`.`t1` join `test`.`t2` where ((`test`.`t1`.`code` = 'a12') and (length(`test`.`t1`.`code`) = 5))
+Note	1003	select `test`.`t1`.`code` AS `code`,'a12' AS `id` from `test`.`t1` join `test`.`t2` where `test`.`t1`.`code` = 'a12' and length(`test`.`t1`.`code`) = 5
 DROP TABLE t1,t2;
 select encode(NULL, NULL);
 encode(NULL, NULL)
@@ -1543,7 +1547,7 @@ select locate('lo','hello',-18446744073709551615);
 locate('lo','hello',-18446744073709551615)
 0
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
 select locate('lo','hello',18446744073709551615);
 locate('lo','hello',18446744073709551615)
 0
@@ -1551,22 +1555,22 @@ select locate('lo','hello',-18446744073709551616);
 locate('lo','hello',-18446744073709551616)
 0
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
 select locate('lo','hello',18446744073709551616);
 locate('lo','hello',18446744073709551616)
 0
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
 select locate('lo','hello',-18446744073709551617);
 locate('lo','hello',-18446744073709551617)
 0
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
 select locate('lo','hello',18446744073709551617);
 locate('lo','hello',18446744073709551617)
 0
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
 select left('hello', 10);
 left('hello', 10)
 hello
@@ -1598,8 +1602,8 @@ select left('hello', -18446744073709551615);
 left('hello', -18446744073709551615)
 
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
 select left('hello', 18446744073709551615);
 left('hello', 18446744073709551615)
 hello
@@ -1607,26 +1611,26 @@ select left('hello', -18446744073709551616);
 left('hello', -18446744073709551616)
 
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
 select left('hello', 18446744073709551616);
 left('hello', 18446744073709551616)
 hello
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
 select left('hello', -18446744073709551617);
 left('hello', -18446744073709551617)
 
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
 select left('hello', 18446744073709551617);
 left('hello', 18446744073709551617)
 hello
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
 select right('hello', 10);
 right('hello', 10)
 hello
@@ -1658,8 +1662,8 @@ select right('hello', -18446744073709551615);
 right('hello', -18446744073709551615)
 
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
 select right('hello', 18446744073709551615);
 right('hello', 18446744073709551615)
 hello
@@ -1667,26 +1671,26 @@ select right('hello', -18446744073709551616);
 right('hello', -18446744073709551616)
 
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
 select right('hello', 18446744073709551616);
 right('hello', 18446744073709551616)
 hello
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
 select right('hello', -18446744073709551617);
 right('hello', -18446744073709551617)
 
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
 select right('hello', 18446744073709551617);
 right('hello', 18446744073709551617)
 hello
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
 select substring('hello', 2, -1);
 substring('hello', 2, -1)
 
@@ -1718,8 +1722,8 @@ select substring('hello', -18446744073709551615, 1);
 substring('hello', -18446744073709551615, 1)
 
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
 select substring('hello', 18446744073709551615, 1);
 substring('hello', 18446744073709551615, 1)
 
@@ -1727,26 +1731,26 @@ select substring('hello', -18446744073709551616, 1);
 substring('hello', -18446744073709551616, 1)
 
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
 select substring('hello', 18446744073709551616, 1);
 substring('hello', 18446744073709551616, 1)
 
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
 select substring('hello', -18446744073709551617, 1);
 substring('hello', -18446744073709551617, 1)
 
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
 select substring('hello', 18446744073709551617, 1);
 substring('hello', 18446744073709551617, 1)
 
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
 select substring('hello', 1, -1);
 substring('hello', 1, -1)
 
@@ -1772,8 +1776,8 @@ select substring('hello', 1, -18446744073709551615);
 substring('hello', 1, -18446744073709551615)
 
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
 select substring('hello', 1, 18446744073709551615);
 substring('hello', 1, 18446744073709551615)
 hello
@@ -1781,26 +1785,26 @@ select substring('hello', 1, -18446744073709551616);
 substring('hello', 1, -18446744073709551616)
 
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
 select substring('hello', 1, 18446744073709551616);
 substring('hello', 1, 18446744073709551616)
 hello
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
 select substring('hello', 1, -18446744073709551617);
 substring('hello', 1, -18446744073709551617)
 
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
 select substring('hello', 1, 18446744073709551617);
 substring('hello', 1, 18446744073709551617)
 hello
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
 select substring('hello', -1, -1);
 substring('hello', -1, -1)
 
@@ -1826,10 +1830,10 @@ select substring('hello', -18446744073709551615, -18446744073709551615);
 substring('hello', -18446744073709551615, -18446744073709551615)
 
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
 select substring('hello', 18446744073709551615, 18446744073709551615);
 substring('hello', 18446744073709551615, 18446744073709551615)
 
@@ -1837,34 +1841,34 @@ select substring('hello', -18446744073709551616, -18446744073709551616);
 substring('hello', -18446744073709551616, -18446744073709551616)
 
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
 select substring('hello', 18446744073709551616, 18446744073709551616);
 substring('hello', 18446744073709551616, 18446744073709551616)
 
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
 select substring('hello', -18446744073709551617, -18446744073709551617);
 substring('hello', -18446744073709551617, -18446744073709551617)
 
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
 select substring('hello', 18446744073709551617, 18446744073709551617);
 substring('hello', 18446744073709551617, 18446744073709551617)
 
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
 select insert('hello', -1, 1, 'hi');
 insert('hello', -1, 1, 'hi')
 hello
@@ -1890,7 +1894,7 @@ select insert('hello', -18446744073709551615, 1, 'hi');
 insert('hello', -18446744073709551615, 1, 'hi')
 hello
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
 select insert('hello', 18446744073709551615, 1, 'hi');
 insert('hello', 18446744073709551615, 1, 'hi')
 hello
@@ -1898,22 +1902,22 @@ select insert('hello', -18446744073709551616, 1, 'hi');
 insert('hello', -18446744073709551616, 1, 'hi')
 hello
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
 select insert('hello', 18446744073709551616, 1, 'hi');
 insert('hello', 18446744073709551616, 1, 'hi')
 hello
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
 select insert('hello', -18446744073709551617, 1, 'hi');
 insert('hello', -18446744073709551617, 1, 'hi')
 hello
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
 select insert('hello', 18446744073709551617, 1, 'hi');
 insert('hello', 18446744073709551617, 1, 'hi')
 hello
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
 select insert('hello', 1, -1, 'hi');
 insert('hello', 1, -1, 'hi')
 hi
@@ -1939,7 +1943,7 @@ select insert('hello', 1, -18446744073709551615, 'hi');
 insert('hello', 1, -18446744073709551615, 'hi')
 hi
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
 select insert('hello', 1, 18446744073709551615, 'hi');
 insert('hello', 1, 18446744073709551615, 'hi')
 hi
@@ -1947,22 +1951,22 @@ select insert('hello', 1, -18446744073709551616, 'hi');
 insert('hello', 1, -18446744073709551616, 'hi')
 hi
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
 select insert('hello', 1, 18446744073709551616, 'hi');
 insert('hello', 1, 18446744073709551616, 'hi')
 hi
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
 select insert('hello', 1, -18446744073709551617, 'hi');
 insert('hello', 1, -18446744073709551617, 'hi')
 hi
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
 select insert('hello', 1, 18446744073709551617, 'hi');
 insert('hello', 1, 18446744073709551617, 'hi')
 hi
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
 select insert('hello', -1, -1, 'hi');
 insert('hello', -1, -1, 'hi')
 hello
@@ -1988,8 +1992,8 @@ select insert('hello', -18446744073709551615, -18446744073709551615, 'hi');
 insert('hello', -18446744073709551615, -18446744073709551615, 'hi')
 hello
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
 select insert('hello', 18446744073709551615, 18446744073709551615, 'hi');
 insert('hello', 18446744073709551615, 18446744073709551615, 'hi')
 hello
@@ -1997,26 +2001,26 @@ select insert('hello', -18446744073709551616, -18446744073709551616, 'hi');
 insert('hello', -18446744073709551616, -18446744073709551616, 'hi')
 hello
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
 select insert('hello', 18446744073709551616, 18446744073709551616, 'hi');
 insert('hello', 18446744073709551616, 18446744073709551616, 'hi')
 hello
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
 select insert('hello', -18446744073709551617, -18446744073709551617, 'hi');
 insert('hello', -18446744073709551617, -18446744073709551617, 'hi')
 hello
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
 select insert('hello', 18446744073709551617, 18446744073709551617, 'hi');
 insert('hello', 18446744073709551617, 18446744073709551617, 'hi')
 hello
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
 select repeat('hello', -1);
 repeat('hello', -1)
 
@@ -2048,8 +2052,8 @@ select repeat('hello', -18446744073709551615);
 repeat('hello', -18446744073709551615)
 
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
 select repeat('hello', 18446744073709551615);
 repeat('hello', 18446744073709551615)
 NULL
@@ -2059,27 +2063,27 @@ select repeat('hello', -18446744073709551616);
 repeat('hello', -18446744073709551616)
 
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
 select repeat('hello', 18446744073709551616);
 repeat('hello', 18446744073709551616)
 NULL
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
 Warning	1301	Result of repeat() was larger than max_allowed_packet (1048576) - truncated
 select repeat('hello', -18446744073709551617);
 repeat('hello', -18446744073709551617)
 
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
 select repeat('hello', 18446744073709551617);
 repeat('hello', 18446744073709551617)
 NULL
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
 Warning	1301	Result of repeat() was larger than max_allowed_packet (1048576) - truncated
 select space(-1);
 space(-1)
@@ -2112,8 +2116,8 @@ select space(-18446744073709551615);
 space(-18446744073709551615)
 
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
 select space(18446744073709551615);
 space(18446744073709551615)
 NULL
@@ -2123,27 +2127,27 @@ select space(-18446744073709551616);
 space(-18446744073709551616)
 
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
 select space(18446744073709551616);
 space(18446744073709551616)
 NULL
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
 Warning	1301	Result of space() was larger than max_allowed_packet (1048576) - truncated
 select space(-18446744073709551617);
 space(-18446744073709551617)
 
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
 select space(18446744073709551617);
 space(18446744073709551617)
 NULL
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
 Warning	1301	Result of space() was larger than max_allowed_packet (1048576) - truncated
 select rpad('hello', -1, '1');
 rpad('hello', -1, '1')
@@ -2176,8 +2180,8 @@ select rpad('hello', -18446744073709551615, '1');
 rpad('hello', -18446744073709551615, '1')
 NULL
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
 select rpad('hello', 18446744073709551615, '1');
 rpad('hello', 18446744073709551615, '1')
 NULL
@@ -2187,27 +2191,27 @@ select rpad('hello', -18446744073709551616, '1');
 rpad('hello', -18446744073709551616, '1')
 NULL
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
 select rpad('hello', 18446744073709551616, '1');
 rpad('hello', 18446744073709551616, '1')
 NULL
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
 Warning	1301	Result of rpad() was larger than max_allowed_packet (1048576) - truncated
 select rpad('hello', -18446744073709551617, '1');
 rpad('hello', -18446744073709551617, '1')
 NULL
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
 select rpad('hello', 18446744073709551617, '1');
 rpad('hello', 18446744073709551617, '1')
 NULL
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
 Warning	1301	Result of rpad() was larger than max_allowed_packet (1048576) - truncated
 select lpad('hello', -1, '1');
 lpad('hello', -1, '1')
@@ -2240,8 +2244,8 @@ select lpad('hello', -18446744073709551615, '1');
 lpad('hello', -18446744073709551615, '1')
 NULL
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551615' to INT. Value truncated
 select lpad('hello', 18446744073709551615, '1');
 lpad('hello', 18446744073709551615, '1')
 NULL
@@ -2251,27 +2255,27 @@ select lpad('hello', -18446744073709551616, '1');
 lpad('hello', -18446744073709551616, '1')
 NULL
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551616' to INT. Value truncated
 select lpad('hello', 18446744073709551616, '1');
 lpad('hello', 18446744073709551616, '1')
 NULL
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
-Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
+Warning	1916	Got overflow when converting '18446744073709551616' to INT. Value truncated
 Warning	1301	Result of lpad() was larger than max_allowed_packet (1048576) - truncated
 select lpad('hello', -18446744073709551617, '1');
 lpad('hello', -18446744073709551617, '1')
 NULL
 Warnings:
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
-Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
+Warning	1916	Got overflow when converting '-18446744073709551617' to INT. Value truncated
 select lpad('hello', 18446744073709551617, '1');
 lpad('hello', 18446744073709551617, '1')
 NULL
 Warnings:
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
-Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated.
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
+Warning	1916	Got overflow when converting '18446744073709551617' to INT. Value truncated
 Warning	1301	Result of lpad() was larger than max_allowed_packet (1048576) - truncated
 SET @orig_sql_mode = @@SQL_MODE;
 SET SQL_MODE=traditional;
@@ -2525,7 +2529,7 @@ create table t1(a float);
 insert into t1 values (1.33);
 select format(a, 2) from t1;
 Catalog	Database	Table	Table_alias	Column	Column_alias	Type	Length	Max length	Is_null	Flags	Decimals	Charsetnr
-def					format(a, 2)	253	49	4	Y	0	31	8
+def					format(a, 2)	253	57	4	Y	0	39	8
 format(a, 2)
 1.33
 drop table t1;
@@ -2853,7 +2857,7 @@ CREATE TABLE t1 AS SELECT format(123,2,'no_NO');
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `format(123,2,'no_NO')` varchar(37) NOT NULL
+  `format(123,2,'no_NO')` varchar(45) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT * FROM t1;
 format(123,2,'no_NO')
@@ -2911,6 +2915,7 @@ SELECT @tmp_max:= @@global.max_allowed_packet;
 @tmp_max:= @@global.max_allowed_packet
 1048576
 SET @@global.max_allowed_packet=1024*1024*1024;
+connect  newconn, localhost, root,,;
 SELECT @@global.max_allowed_packet;
 @@global.max_allowed_packet
 1073741824
@@ -2942,7 +2947,9 @@ Warning	1292	Truncated incorrect INTEGER value: '511993d3c99719e38a6779073019dac
 Warning	1292	Truncated incorrect DECIMAL value: '[.DC2.]'
 Warning	1292	Truncated incorrect INTEGER value: '511993d3c99719e38a6779073019dacd7178ddb9'
 Warning	1292	Truncated incorrect DOUBLE value: '0.000000000000000000000000000000111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111'
+connection conn1;
 SET @@global.max_allowed_packet:= @tmp_max;
+disconnect newconn;
 SELECT @tmp_max:= @@global.max_allowed_packet;
 @tmp_max:= @@global.max_allowed_packet
 1048576
@@ -2992,7 +2999,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',63)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(85) NOT NULL
+  `to_base64` varchar(85) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3014,7 +3021,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',62)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(85) NOT NULL
+  `to_base64` varchar(85) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3036,7 +3043,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',61)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(85) NOT NULL
+  `to_base64` varchar(85) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3058,7 +3065,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',60)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(81) NOT NULL
+  `to_base64` varchar(81) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3080,7 +3087,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',59)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(81) NOT NULL
+  `to_base64` varchar(81) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3102,7 +3109,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',58)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(81) NOT NULL
+  `to_base64` varchar(81) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3124,7 +3131,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',57)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(76) NOT NULL
+  `to_base64` varchar(76) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3145,7 +3152,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',56)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(76) NOT NULL
+  `to_base64` varchar(76) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3166,7 +3173,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',55)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(76) NOT NULL
+  `to_base64` varchar(76) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3187,7 +3194,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',54)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(72) NOT NULL
+  `to_base64` varchar(72) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3208,7 +3215,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',53)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(72) NOT NULL
+  `to_base64` varchar(72) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3229,7 +3236,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',52)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(72) NOT NULL
+  `to_base64` varchar(72) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3250,7 +3257,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',51)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(68) NOT NULL
+  `to_base64` varchar(68) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3271,7 +3278,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',50)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(68) NOT NULL
+  `to_base64` varchar(68) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3292,7 +3299,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',49)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(68) NOT NULL
+  `to_base64` varchar(68) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3313,7 +3320,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',48)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(64) NOT NULL
+  `to_base64` varchar(64) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3334,7 +3341,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',47)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(64) NOT NULL
+  `to_base64` varchar(64) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3355,7 +3362,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',46)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(64) NOT NULL
+  `to_base64` varchar(64) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3376,7 +3383,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',45)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(60) NOT NULL
+  `to_base64` varchar(60) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3397,7 +3404,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',44)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(60) NOT NULL
+  `to_base64` varchar(60) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3418,7 +3425,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',43)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(60) NOT NULL
+  `to_base64` varchar(60) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3439,7 +3446,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',42)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(56) NOT NULL
+  `to_base64` varchar(56) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3460,7 +3467,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',41)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(56) NOT NULL
+  `to_base64` varchar(56) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3481,7 +3488,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',40)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(56) NOT NULL
+  `to_base64` varchar(56) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3502,7 +3509,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',39)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(52) NOT NULL
+  `to_base64` varchar(52) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3523,7 +3530,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',38)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(52) NOT NULL
+  `to_base64` varchar(52) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3544,7 +3551,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',37)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(52) NOT NULL
+  `to_base64` varchar(52) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3565,7 +3572,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',36)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(48) NOT NULL
+  `to_base64` varchar(48) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3586,7 +3593,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',35)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(48) NOT NULL
+  `to_base64` varchar(48) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3607,7 +3614,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',34)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(48) NOT NULL
+  `to_base64` varchar(48) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3628,7 +3635,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',33)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(44) NOT NULL
+  `to_base64` varchar(44) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3649,7 +3656,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',32)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(44) NOT NULL
+  `to_base64` varchar(44) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3670,7 +3677,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',31)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(44) NOT NULL
+  `to_base64` varchar(44) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3691,7 +3698,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',30)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(40) NOT NULL
+  `to_base64` varchar(40) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3712,7 +3719,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',29)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(40) NOT NULL
+  `to_base64` varchar(40) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3733,7 +3740,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',28)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(40) NOT NULL
+  `to_base64` varchar(40) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3754,7 +3761,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',27)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(36) NOT NULL
+  `to_base64` varchar(36) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3775,7 +3782,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',26)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(36) NOT NULL
+  `to_base64` varchar(36) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3796,7 +3803,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',25)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(36) NOT NULL
+  `to_base64` varchar(36) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3817,7 +3824,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',24)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(32) NOT NULL
+  `to_base64` varchar(32) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3838,7 +3845,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',23)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(32) NOT NULL
+  `to_base64` varchar(32) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3859,7 +3866,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',22)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(32) NOT NULL
+  `to_base64` varchar(32) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3880,7 +3887,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',21)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(28) NOT NULL
+  `to_base64` varchar(28) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3901,7 +3908,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',20)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(28) NOT NULL
+  `to_base64` varchar(28) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3922,7 +3929,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',19)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(28) NOT NULL
+  `to_base64` varchar(28) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3943,7 +3950,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',18)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(24) NOT NULL
+  `to_base64` varchar(24) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3964,7 +3971,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',17)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(24) NOT NULL
+  `to_base64` varchar(24) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -3985,7 +3992,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',16)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(24) NOT NULL
+  `to_base64` varchar(24) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -4006,7 +4013,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',15)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(20) NOT NULL
+  `to_base64` varchar(20) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -4027,7 +4034,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',14)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(20) NOT NULL
+  `to_base64` varchar(20) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -4048,7 +4055,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',13)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(20) NOT NULL
+  `to_base64` varchar(20) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -4069,7 +4076,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',12)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(16) NOT NULL
+  `to_base64` varchar(16) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -4090,7 +4097,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',11)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(16) NOT NULL
+  `to_base64` varchar(16) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -4111,7 +4118,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',10)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(16) NOT NULL
+  `to_base64` varchar(16) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -4132,7 +4139,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',9)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(12) NOT NULL
+  `to_base64` varchar(12) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -4153,7 +4160,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',8)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(12) NOT NULL
+  `to_base64` varchar(12) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -4174,7 +4181,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',7)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(12) NOT NULL
+  `to_base64` varchar(12) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -4195,7 +4202,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',6)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(8) NOT NULL
+  `to_base64` varchar(8) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -4216,7 +4223,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',5)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(8) NOT NULL
+  `to_base64` varchar(8) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -4237,7 +4244,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',4)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(8) NOT NULL
+  `to_base64` varchar(8) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -4258,7 +4265,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',3)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(4) NOT NULL
+  `to_base64` varchar(4) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -4279,7 +4286,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',2)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(4) NOT NULL
+  `to_base64` varchar(4) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -4300,7 +4307,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',1)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` varchar(4) NOT NULL
+  `to_base64` varchar(4) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -4321,7 +4328,7 @@ CREATE TABLE t1 AS SELECT TO_BASE64(REPEAT('a',0)) AS to_base64;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `to_base64` char(0) NOT NULL
+  `to_base64` char(0) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT to_base64, LENGTH(to_base64) FROM t1;
 to_base64	LENGTH(to_base64)
@@ -4542,6 +4549,8 @@ SET NAMES latin2;
 EXECUTE stmt;
 COLLATION(space(2))
 latin2_general_ci
+disconnect conn1;
+connection default;
 set global max_allowed_packet=default;
 #
 # End of 5.6 tests
@@ -4568,7 +4577,7 @@ SELECT * FROM t1 WHERE a=18446744073709551615 AND FORMAT(a,0)='18,446,744,073,70
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where ((`test`.`t1`.`a` = 18446744073709551615) and (format(`test`.`t1`.`a`,0) = '18,446,744,073,709,551,615'))
+Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where `test`.`t1`.`a` = 18446744073709551615 and format(`test`.`t1`.`a`,0) = '18,446,744,073,709,551,615'
 DROP TABLE t1;
 #
 # Bug#58081 Duplicate entry error when doing GROUP BY

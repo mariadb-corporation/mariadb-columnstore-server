@@ -31,12 +31,12 @@ test_like_range_for_charset(CHARSET_INFO *cs, const char *src, size_t src_len)
   cs->coll->like_range(cs, src, src_len, '\\', '_', '%',
                        sizeof(min_str),  min_str, max_str, &min_len, &max_len);
   diag("min_len=%d\tmax_len=%d\t%s", (int) min_len, (int) max_len, cs->name);
-  min_well_formed_len= cs->cset->well_formed_len(cs,
-                                                 min_str, min_str + min_len,
-                                                 10000, &error);
-  max_well_formed_len= cs->cset->well_formed_len(cs,
-                                                 max_str, max_str + max_len,
-                                                 10000, &error);
+  min_well_formed_len= my_well_formed_length(cs,
+                                             min_str, min_str + min_len,
+                                             10000, &error);
+  max_well_formed_len= my_well_formed_length(cs,
+                                             max_str, max_str + max_len,
+                                             10000, &error);
   if (min_len != min_well_formed_len)
     diag("Bad min_str: min_well_formed_len=%d min_str[%d]=0x%02X",
           (int) min_well_formed_len, (int) min_well_formed_len,
@@ -627,7 +627,7 @@ strcollsp(CHARSET_INFO *cs, const STRNNCOLL_PARAM *param)
   {
     char ahex[64], bhex[64];
     int res= cs->coll->strnncollsp(cs, (uchar *) p->a, p->alen,
-                                       (uchar *) p->b, p->blen, 0);
+                                       (uchar *) p->b, p->blen);
     str2hex(ahex, sizeof(ahex), p->a, p->alen);
     str2hex(bhex, sizeof(bhex), p->b, p->blen);
     diag("%-20s %-10s %-10s %10d %10d%s",
@@ -641,7 +641,7 @@ strcollsp(CHARSET_INFO *cs, const STRNNCOLL_PARAM *param)
     {
       /* Test in reverse order */
       res= cs->coll->strnncollsp(cs, (uchar *) p->b, p->blen,
-                                     (uchar *) p->a, p->alen, 0);
+                                     (uchar *) p->a, p->alen);
       if (!eqres(res, -p->res))
       {
         diag("Comparison in reverse order failed. Expected %d, got %d",

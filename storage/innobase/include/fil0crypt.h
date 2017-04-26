@@ -26,7 +26,8 @@ Created 04/01/2015 Jan Lindström
 #ifndef fil0crypt_h
 #define fil0crypt_h
 
-#include "os0sync.h"
+#include "os0event.h"
+#include "my_crypt.h"
 
 /**
 * Magic pattern in start of crypt data on page 0
@@ -79,10 +80,6 @@ struct key_struct
 /** is encryption enabled */
 extern ulong	srv_encrypt_tables;
 
-#ifdef UNIV_PFS_MUTEX
-extern mysql_pfs_key_t fil_crypt_data_mutex_key;
-#endif
-
 /** Mutex helper for crypt_data->scheme
 @param[in, out]	schme	encryption scheme
 @param[in]	exit	should we exit or enter mutex ? */
@@ -133,8 +130,7 @@ struct fil_space_crypt_struct : st_encryption_scheme
 		key_found = new_min_key_version;
 		key_id = new_key_id;
 		my_random_bytes(iv, sizeof(iv));
-		mutex_create(fil_crypt_data_mutex_key,
-			&mutex, SYNC_NO_ORDER_CHECK);
+		mutex_create(LATCH_ID_FIL_CRYPT_DATA_MUTEX, &mutex);
 		locker = crypt_data_scheme_locker;
 		type = new_type;
 
@@ -241,7 +237,8 @@ fil_space_crypt_t *
 fil_space_create_crypt_data(
 /*========================*/
 	fil_encryption_t	encrypt_mode,	/*!< in: encryption mode */
-	uint			key_id);	/*!< in: encryption key id */
+	uint			key_id)		/*!< in: encryption key id */
+	__attribute__((warn_unused_result));
 
 /*********************************************************************
 Destroy crypt data */
@@ -324,7 +321,8 @@ UNIV_INTERN
 bool
 fil_space_check_encryption_read(
 /*============================*/
-	ulint space);          /*!< in: tablespace id */
+	ulint	space)	/*!< in: tablespace id */
+	__attribute__((warn_unused_result));
 
 /******************************************************************
 Decrypt a page
@@ -335,10 +333,11 @@ fil_space_decrypt(
 /*==============*/
 	fil_space_crypt_t*	crypt_data,	/*!< in: crypt data */
 	byte*			tmp_frame,	/*!< in: temporary buffer */
-	ulint			page_size,	/*!< in: page size */
+	const page_size_t&	page_size,	/*!< in: page size */
 	byte*			src_frame,	/*!< in:out: page buffer */
-	dberr_t*		err);		/*!< in: out: DB_SUCCESS or
+	dberr_t*		err)		/*!< in: out: DB_SUCCESS or
 						error code */
+	__attribute__((warn_unused_result));
 
 /*********************************************************************
 Encrypt buffer page
@@ -352,8 +351,9 @@ fil_space_encrypt(
 	ulint	offset,		/*!< in: page no */
 	lsn_t	lsn,		/*!< in: page lsn */
 	byte*	src_frame,	/*!< in: page frame */
-	ulint	size,		/*!< in: size of data to encrypt */
-	byte*	dst_frame);	/*!< in: where to encrypt to */
+	const page_size_t&	page_size,	/*!< in: page size */
+	byte*	dst_frame)	/*!< in: where to encrypt to */
+	__attribute__((warn_unused_result));
 
 /*********************************************************************
 Decrypt buffer page
@@ -363,10 +363,10 @@ UNIV_INTERN
 byte*
 fil_space_decrypt(
 /*==============*/
-	ulint	space,		/*!< in: tablespace id */
-	byte*	src_frame,	/*!< in: page frame */
-	ulint	page_size,	/*!< in: size of data to encrypt */
-	byte*	dst_frame)	/*!< in: where to decrypt to */
+	ulint			space,		/*!< in: tablespace id */
+	byte*			src_frame,	/*!< in: page frame */
+	const page_size_t&	page_size,	/*!< in: page size */
+	byte*			dst_frame)	/*!< in: where to decrypt to */
 	__attribute__((warn_unused_result));
 
 /*********************************************************************
@@ -378,8 +378,9 @@ UNIV_INTERN
 bool
 fil_space_verify_crypt_checksum(
 /*============================*/
-	const byte* src_frame,/*!< in: page frame */
-	ulint zip_size);      /*!< in: size of data to encrypt */
+	const byte*		src_frame,/*!< in: page frame */
+	const page_size_t&	page_size)	/*!< in: page size */
+	__attribute__((warn_unused_result));
 
 /*********************************************************************
 Init threads for key rotation */
@@ -516,9 +517,9 @@ fil_encrypt_buf(
 	ulint		offset,		/*!< in: Page offset */
 	lsn_t		lsn,		/*!< in: lsn */
 	byte*		src_frame,	/*!< in: Source page to be encrypted */
-	ulint		zip_size,	/*!< in: compressed size if
-					row_format compressed */
-	byte*		dst_frame);	/*!< in: outbut buffer */
+	const page_size_t&	page_size,	/*!< in: page size */
+	byte*		dst_frame)	/*!< in: outbut buffer */
+	__attribute__((warn_unused_result));
 
 /******************************************************************
 Calculate post encryption checksum
@@ -528,8 +529,9 @@ UNIV_INTERN
 ulint
 fil_crypt_calculate_checksum(
 /*=========================*/
-	ulint	zip_size,	/*!< in: zip_size or 0 */
-	byte*	dst_frame);	/*!< in: page where to calculate */
+	const page_size_t&	page_size,	/*!< in: page size */
+	byte*	dst_frame)	/*!< in: page where to calculate */
+	__attribute__((warn_unused_result));
 
 #ifndef UNIV_NONINL
 #include "fil0crypt.ic"

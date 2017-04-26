@@ -137,6 +137,13 @@ typedef unsigned long long my_ulonglong;
 /* backward compatibility define - to be removed eventually */
 #define ER_WARN_DATA_TRUNCATED WARN_DATA_TRUNCATED
 #define WARN_PLUGIN_DELETE_BUILTIN ER_PLUGIN_DELETE_BUILTIN
+#define ER_FK_DUP_NAME ER_DUP_CONSTRAINT_NAME
+#define ER_VIRTUAL_COLUMN_FUNCTION_IS_NOT_ALLOWED ER_GENERATED_COLUMN_FUNCTION_IS_NOT_ALLOWED
+#define ER_PRIMARY_KEY_BASED_ON_VIRTUAL_COLUMN ER_PRIMARY_KEY_BASED_ON_GENERATED_COLUMN
+#define ER_WRONG_FK_OPTION_FOR_VIRTUAL_COLUMN ER_WRONG_FK_OPTION_FOR_GENERATED_COLUMN
+#define ER_WARNING_NON_DEFAULT_VALUE_FOR_VIRTUAL_COLUMN ER_WARNING_NON_DEFAULT_VALUE_FOR_GENERATED_COLUMN
+#define ER_UNSUPPORTED_ACTION_ON_VIRTUAL_COLUMN ER_UNSUPPORTED_ACTION_ON_GENERATED_COLUMN
+#define ER_UNSUPPORTED_ENGINE_FOR_VIRTUAL_COLUMNS ER_UNSUPPORTED_ENGINE_FOR_GENERATED_COLUMNS
 
 typedef struct st_mysql_rows {
   struct st_mysql_rows *next;		/* list of rows */
@@ -367,7 +374,7 @@ void STDCALL mysql_server_end(void);
 /*
   mysql_server_init/end need to be called when using libmysqld or
   libmysqlclient (exactly, mysql_server_init() is called by mysql_init() so
-  you don't need to call it explicitely; but you need to call
+  you don't need to call it explicitly; but you need to call
   mysql_server_end() to free memory). The names are a bit misleading
   (mysql_SERVER* to be used when using libmysqlCLIENT). So we add more general
   names which suit well whether you're using libmysqld or libmysqlclient. We

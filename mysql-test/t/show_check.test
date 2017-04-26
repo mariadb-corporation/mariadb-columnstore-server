@@ -774,6 +774,7 @@ SHOW COLUMNS FROM t1;
 
 --echo ----------------------------------------------------------------
 
+--replace_column 6 #
 SHOW TRIGGERS LIKE 't1';
 
 --echo ----------------------------------------------------------------
@@ -798,6 +799,14 @@ SELECT
   DEFINER
 FROM INFORMATION_SCHEMA.TRIGGERS
 WHERE trigger_name = 't1_bi';
+
+# Metadata is different for the field "CREATED" with and without --ps
+# So test it separately.
+
+--disable_ps_protocol
+--replace_column 1 #
+SELECT CREATED FROM INFORMATION_SCHEMA.TRIGGERS WHERE trigger_name='t1_bi';
+--enable_ps_protocol
 
 --echo ----------------------------------------------------------------
 
@@ -1092,32 +1101,53 @@ CREATE TRIGGER t1_bi BEFORE INSERT ON t1 FOR EACH ROW SET @a = 1;
 
 # Test.
 
+--replace_column 7 #
 SHOW CREATE TRIGGER t1_bi;
 
 CREATE PROCEDURE p1() SHOW CREATE TRIGGER t1_bi;
 
+--replace_column 7 #
 CALL p1();
+--replace_column 7 #
 CALL p1();
+--replace_column 7 #
 CALL p1();
+--replace_column 7 #
 CALL p1();
+--replace_column 7 #
 CALL p1();
+--replace_column 7 #
 CALL p1();
+--replace_column 7 #
 CALL p1();
+--replace_column 7 #
 CALL p1();
+--replace_column 7 #
 CALL p1();
+--replace_column 7 #
 CALL p1();
 
 PREPARE stmt1 FROM 'SHOW CREATE TRIGGER t1_bi';
 
+--replace_column 7 #
 EXECUTE stmt1;
+--replace_column 7 #
 EXECUTE stmt1;
+--replace_column 7 #
 EXECUTE stmt1;
+--replace_column 7 #
 EXECUTE stmt1;
+--replace_column 7 #
 EXECUTE stmt1;
+--replace_column 7 #
 EXECUTE stmt1;
+--replace_column 7 #
 EXECUTE stmt1;
+--replace_column 7 #
 EXECUTE stmt1;
+--replace_column 7 #
 EXECUTE stmt1;
+--replace_column 7 #
 EXECUTE stmt1;
 
 # Cleanup.
@@ -1178,6 +1208,7 @@ SHOW CREATE PROCEDURE p1;
 
 SHOW CREATE FUNCTION f1;
 
+--replace_column 7 #
 SHOW CREATE TRIGGER t1_bi;
 
 SHOW CREATE EVENT ev1;
@@ -1232,7 +1263,6 @@ connection default;
 
 CREATE TABLE t1 (i INT PRIMARY KEY);
 LOCK TABLE t1 WRITE;
---echo # Switching to connection 'con1'.
 connection con1;
 --echo # This statement used to be blocked.
 SHOW CREATE TABLE t1;
@@ -1240,7 +1270,6 @@ SHOW CREATE TABLE t1;
 disconnect con1;
 --source include/wait_until_disconnected.inc
 
---echo # Switching to connection 'default'.
 connection default;
 UNLOCK TABLES;
 DROP TABLE t1;
@@ -1257,22 +1286,18 @@ DROP TABLE IF EXISTS t1;
 
 CREATE TABLE t1(a INT);
 
---echo # Connection con1
 connect (con1,localhost,root);
 LOCK TABLE t1 WRITE;
 
---echo # Connection default
 connection default;
 START TRANSACTION;
 SHOW CREATE TABLE t1;
 
---echo # Connection con1
 connection con1;
 # Used to block
 ALTER TABLE t1 CHARACTER SET = utf8;
 UNLOCK TABLES;
 
---echo # Connection default
 connection default;
 COMMIT;
 disconnect con1;
@@ -1292,27 +1317,24 @@ CREATE TRIGGER t1_bi BEFORE INSERT ON t1 FOR EACH ROW SET new.a = 1;
 
 --echo # Test 1: SHOW CREATE TRIGGER with WRITE locked table.
 
---echo # Connection con1
 connect (con1, localhost, root);
 LOCK TABLE t1 WRITE;
 
---echo # Connection default
 connection default;
 # Should not block.
+--replace_column 7 #
 SHOW CREATE TRIGGER t1_bi;
 
---echo # Connection con1
 connection con1;
 UNLOCK TABLES;
 
 --echo # Test 2: ALTER TABLE with SHOW CREATE TRIGGER in transaction
 
---echo # Connection default
 connection default;
 START TRANSACTION;
+--replace_column 7 #
 SHOW CREATE TRIGGER t1_bi;
 
---echo # Connection con1
 connection con1;
 # Should not block.
 ALTER TABLE t1 CHARACTER SET = utf8;
@@ -1320,7 +1342,6 @@ ALTER TABLE t1 CHARACTER SET = utf8;
 disconnect con1;
 --source include/wait_until_disconnected.inc
 
---echo # Connection default
 connection default;
 COMMIT;
 DROP TRIGGER t1_bi;

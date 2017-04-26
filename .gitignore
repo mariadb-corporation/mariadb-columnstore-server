@@ -3,16 +3,19 @@
 *.reject
 *.spec
 *.bak
+*.dgcov
+*.rpm
 .*.swp
 *.ninja
 .ninja_*
 .gdb_history
 errmsg.sys
 typescript
+_CPack_Packages
 CMakeCache.txt
 CMakeFiles/
 MakeFile
-install_manifest.txt
+install_manifest*.txt
 CPackConfig.cmake
 CPackSourceConfig.cmake
 CTestTestfile.cmake
@@ -42,7 +45,6 @@ dbug/factorial
 dbug/tests
 dbug/user.ps
 dbug/user.t
-debian/mariadb-server-10.1.files
 extra/comp_err
 extra/innochecksum
 extra/jemalloc/build/
@@ -80,6 +82,9 @@ mysql-test/lib/My/SafeProcess/my_safe_process
 mysql-test/mtr
 mysql-test/mysql-test-run
 mysql-test/var
+mysql-test-gcov.err
+mysql-test-gcov.msg
+mysys/test_hash
 mysys/thr_lock
 mysys/thr_timer
 packaging/rpm-oel/mysql.spec
@@ -200,6 +205,7 @@ storage/tokudb/PerconaFT/tools/tokudb_load
 storage/tokudb/PerconaFT/tools/tokuftdump
 storage/tokudb/PerconaFT/tools/tokuft_logprint
 storage/tokudb/PerconaFT/xz/
+strings/conf_to_src
 support-files/MySQL-shared-compat.spec
 support-files/binary-configure
 support-files/config.huge.ini
@@ -236,7 +242,6 @@ storage/mroonga/vendor/groonga/src/groonga-benchmark
 storage/mroonga/vendor/groonga/src/suggest/groonga-suggest-create-dataset
 storage/mroonga/mysql-test/mroonga/storage/r/information_schema_plugins.result
 storage/mroonga/mysql-test/mroonga/storage/r/variable_version.result
-mariadb-columnstore-engine/
 # C and C++
 
 # Compiled Object files

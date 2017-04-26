@@ -1,7 +1,7 @@
 SET timestamp=UNIX_TIMESTAMP('2001-02-03 10:20:30');
 drop table if exists t1, t2, t3;
 create table t1 (a time(7));
-ERROR 42000: Too big precision 7 specified for 'a'. Maximum is 6.
+ERROR 42000: Too big precision 7 specified for 'a'. Maximum is 6
 create table t1 (a time(3), key(a));
 insert t1 values ('2010-12-11 00:20:03.1234');
 Warnings:
@@ -15,7 +15,7 @@ Note	1265	Data truncated for column 'a' at row 1
 insert t1 values (20101211030405.789e0);
 Warnings:
 Note	1265	Data truncated for column 'a' at row 1
-insert t1 values (99991231235959e1);
+insert ignore t1 values (99991231235959e1);
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 select * from t1;
@@ -105,7 +105,7 @@ a	a + interval 2 year
 01:02:13.3332	NULL
 Warnings:
 Warning	1441	Datetime function: time field overflow
-insert t1 select a + interval 2 year from t1;
+insert ignore t1 select a + interval 2 year from t1;
 Warnings:
 Warning	1441	Datetime function: time field overflow
 select * from t1;

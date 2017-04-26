@@ -1199,7 +1199,7 @@ char *ha_connect::GetRealString(const char *s)
 {
   char *sv;
 
-  if (IsPartitioned() && s && partname && *partname) {
+  if (IsPartitioned() && s && *partname) {
     sv= (char*)PlugSubAlloc(xp->g, NULL, 0);
     sprintf(sv, s, partname);
     PlugSubAlloc(xp->g, NULL, strlen(sv) + 1);
@@ -1504,7 +1504,7 @@ void *ha_connect::GetColumnOption(PGLOBAL g, void *field, PCOLINFO pcf)
     pcf->Flags |= U_NULLS;
 
   // Mark virtual columns as such
-  if (fp->vcol_info && !fp->stored_in_db)
+  if (!fp->stored_in_db())
     pcf->Flags |= U_VIRTUAL;
 
   pcf->Key= 0;   // Not used when called from MySQL
@@ -2003,7 +2003,7 @@ int ha_connect::MakeRecord(char *buf)
   for (field= table->field; *field && !rc; field++) {
     fp= *field;
 
-    if (fp->vcol_info && !fp->stored_in_db)
+    if (!fp->stored_in_db())
       continue;            // This is a virtual column
 
     if (bitmap_is_set(map, fp->field_index) || alter) {
@@ -2124,8 +2124,7 @@ int ha_connect::ScanRecord(PGLOBAL g, uchar *)
   for (Field **field=table->field ; *field ; field++) {
     fp= *field;
 
-    if ((fp->vcol_info && !fp->stored_in_db) ||
-         fp->option_struct->special)
+    if (!fp->stored_in_db() || fp->option_struct->special)
       continue;            // Is a virtual column possible here ???
 
     if ((xmod == MODE_INSERT && tdbp->GetAmType() != TYPE_AM_MYSQL
@@ -2880,7 +2879,7 @@ PCFIL ha_connect::CheckCond(PGLOBAL g, PCFIL filp, const Item *cond)
                 strncat(body, res->ptr(), res->length());
 
                 if (res->length() < 19)
-                  strcat(body, "1970-01-01 00:00:00" + res->length());
+                  strcat(body, &"1970-01-01 00:00:00"[res->length()]);
 
                 strcat(body, "'}");
                 break;
@@ -2909,7 +2908,7 @@ PCFIL ha_connect::CheckCond(PGLOBAL g, PCFIL filp, const Item *cond)
                     strncat(body, res->ptr(), res->length());
 
                     if (res->length() < 19)
-                      strcat(body, "1970-01-01 00:00:00" + res->length());
+                      strcat(body, &"1970-01-01 00:00:00"[res->length()]);
 
                     strcat(body, "'}");
                     break;
@@ -3416,7 +3415,7 @@ int ha_connect::delete_row(const uchar *)
 
 
 /****************************************************************************/
-/*  We seem to come here at the begining of an index use.                   */
+/*  We seem to come here at the beginning of an index use.                   */
 /****************************************************************************/
 int ha_connect::index_init(uint idx, bool sorted)
 {
@@ -6152,7 +6151,7 @@ int ha_connect::create(const char *name, TABLE *table_arg,
   for (field= table_arg->field; *field; field++) {
     fp= *field;
 
-    if (fp->vcol_info && !fp->stored_in_db)
+    if (!fp->stored_in_db())
       continue;            // This is a virtual column
 
     if (fp->flags & AUTO_INCREMENT_FLAG) {

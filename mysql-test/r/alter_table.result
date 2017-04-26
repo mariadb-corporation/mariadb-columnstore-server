@@ -292,7 +292,7 @@ t2	CREATE TABLE `t2` (
 ) ENGINE=MRG_MyISAM DEFAULT CHARSET=latin1 UNION=(`t1`)
 drop table if exists t1, t2;
 create table t1 (a int, b int, c int, d int, e int, f int, g int, h int,i int, primary key (a,b,c,d,e,f,g,i,h)) engine=MyISAM;
-insert into t1 (a) values(1);
+insert ignore into t1 (a) values(1);
 Warnings:
 Warning	1364	Field 'b' doesn't have a default value
 Warning	1364	Field 'c' doesn't have a default value
@@ -311,7 +311,7 @@ Name	Engine	Version	Row_format	Rows	Avg_row_length	Data_length	Max_data_length	I
 t1	MyISAM	10	Fixed	1	37	X	X	X	X	X	X	X	X	latin1_swedish_ci	NULL		
 drop table t1;
 create table t1 (a int not null, b int not null, c int not null, d int not null, e int not null, f int not null, g int not null, h int not null,i int not null, primary key (a,b,c,d,e,f,g,i,h)) engine=MyISAM;
-insert into t1 (a) values(1);
+insert ignore into t1 (a) values(1);
 Warnings:
 Warning	1364	Field 'b' doesn't have a default value
 Warning	1364	Field 'c' doesn't have a default value
@@ -393,15 +393,15 @@ default charset latin1 collate latin1_general_cs;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `myblob` longblob,
-  `mytext` longtext COLLATE latin1_general_cs
+  `myblob` longblob DEFAULT NULL,
+  `mytext` longtext COLLATE latin1_general_cs DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_general_cs
 alter table t1 character set latin2;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `myblob` longblob,
-  `mytext` longtext CHARACTER SET latin1 COLLATE latin1_general_cs
+  `myblob` longblob DEFAULT NULL,
+  `mytext` longtext CHARACTER SET latin1 COLLATE latin1_general_cs DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin2
 drop table t1;
 CREATE TABLE t1 (a int PRIMARY KEY, b INT UNIQUE);
@@ -414,12 +414,12 @@ t1	CREATE TABLE `t1` (
   UNIQUE KEY `b` (`b`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 ALTER TABLE t1 DROP PRIMARY KEY;
-ERROR 42000: Can't DROP 'PRIMARY'; check that column/key exists
+ERROR 42000: Can't DROP INDEX `PRIMARY`; check that it exists
 DROP TABLE t1;
 create table t1 (a int, b int, key(a));
 insert into t1 values (1,1), (2,2);
 alter table t1 drop key no_such_key;
-ERROR 42000: Can't DROP 'no_such_key'; check that column/key exists
+ERROR 42000: Can't DROP INDEX `no_such_key`; check that it exists
 alter table t1 drop key a;
 drop table t1;
 CREATE TABLE T12207(a int) ENGINE=MYISAM;
@@ -900,7 +900,7 @@ alter table t1 convert to character set utf8;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` text
+  `a` text DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8
 drop table t1;
 create table t1 (a mediumtext character set latin1);
@@ -908,7 +908,7 @@ alter table t1 convert to character set utf8;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` longtext
+  `a` longtext DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8
 drop table t1;
 End of 5.0 tests
@@ -1374,7 +1374,7 @@ Note	1060	Duplicate column name 'lol'
 ALTER TABLE t1 DROP COLUMN IF EXISTS lol;
 ALTER TABLE t1 DROP COLUMN IF EXISTS lol;
 Warnings:
-Note	1091	Can't DROP 'lol'; check that column/key exists
+Note	1091	Can't DROP COLUMN `lol`; check that it exists
 ALTER TABLE t1 ADD KEY IF NOT EXISTS x_param(x_param);
 ALTER TABLE t1 ADD KEY IF NOT EXISTS x_param(x_param);
 Warnings:
@@ -1385,7 +1385,7 @@ Note	1054	Unknown column 'lol' in 't1'
 DROP INDEX IF EXISTS x_param ON t1;
 DROP INDEX IF EXISTS x_param ON t1;
 Warnings:
-Note	1091	Can't DROP 'x_param'; check that column/key exists
+Note	1091	Can't DROP INDEX `x_param`; check that it exists
 CREATE INDEX IF NOT EXISTS x_param1 ON t1(x_param);
 CREATE INDEX IF NOT EXISTS x_param1 ON t1(x_param);
 Warnings:
@@ -1416,7 +1416,7 @@ Note	1060	Duplicate column name 'lol'
 ALTER TABLE t1 DROP COLUMN IF EXISTS lol;
 ALTER TABLE t1 DROP COLUMN IF EXISTS lol;
 Warnings:
-Note	1091	Can't DROP 'lol'; check that column/key exists
+Note	1091	Can't DROP COLUMN `lol`; check that it exists
 ALTER TABLE t1 ADD KEY IF NOT EXISTS x_param(x_param);
 ALTER TABLE t1 ADD KEY IF NOT EXISTS x_param(x_param);
 Warnings:
@@ -1427,7 +1427,7 @@ Note	1054	Unknown column 'lol' in 't1'
 DROP INDEX IF EXISTS x_param ON t1;
 DROP INDEX IF EXISTS x_param ON t1;
 Warnings:
-Note	1091	Can't DROP 'x_param'; check that column/key exists
+Note	1091	Can't DROP INDEX `x_param`; check that it exists
 CREATE INDEX IF NOT EXISTS x_param1 ON t1(x_param);
 CREATE INDEX IF NOT EXISTS x_param1 ON t1(x_param);
 Warnings:
@@ -1447,7 +1447,7 @@ Note	1061	Duplicate key name 'fk'
 ALTER TABLE t2 DROP FOREIGN KEY IF EXISTS fk;
 ALTER TABLE t2 DROP FOREIGN KEY IF EXISTS fk;
 Warnings:
-Note	1091	Can't DROP 'fk'; check that column/key exists
+Note	1091	Can't DROP FOREIGN KEY `fk`; check that it exists
 SHOW CREATE TABLE t2;
 Table	Create Table
 t2	CREATE TABLE `t2` (
@@ -1461,7 +1461,7 @@ Note	1061	Duplicate key name 't2_ibfk_1'
 ALTER TABLE t2 DROP FOREIGN KEY IF EXISTS t2_ibfk_1;
 ALTER TABLE t2 DROP FOREIGN KEY IF EXISTS t2_ibfk_1;
 Warnings:
-Note	1091	Can't DROP 't2_ibfk_1'; check that column/key exists
+Note	1091	Can't DROP FOREIGN KEY `t2_ibfk_1`; check that it exists
 SHOW CREATE TABLE t2;
 Table	Create Table
 t2	CREATE TABLE `t2` (
@@ -1486,10 +1486,10 @@ t2	CREATE TABLE `t2` (
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 ALTER TABLE t2 DROP KEY k_id, DROP KEY IF EXISTS k_id;
 Warnings:
-Note	1091	Can't DROP 'k_id'; check that column/key exists
+Note	1091	Can't DROP INDEX `k_id`; check that it exists
 ALTER TABLE t2 DROP COLUMN a, DROP COLUMN IF EXISTS a;
 Warnings:
-Note	1091	Can't DROP 'a'; check that column/key exists
+Note	1091	Can't DROP COLUMN `a`; check that it exists
 SHOW CREATE TABLE t2;
 Table	Create Table
 t2	CREATE TABLE `t2` (
@@ -1504,7 +1504,7 @@ ALTER TABLE t1 DROP KEY IF EXISTS transaction_id, ADD PRIMARY KEY IF NOT EXISTS 
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `transaction_id` int(11) NOT NULL DEFAULT '0',
+  `transaction_id` int(11) NOT NULL DEFAULT 0,
   PRIMARY KEY (`transaction_id`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 DROP TABLE t1;
@@ -1544,17 +1544,17 @@ ALTER TABLE t1 ADD INDEX i2(b), ALGORITHM= DEFAULT;
 affected rows: 0
 info: Records: 0  Duplicates: 0  Warnings: 1
 Warnings:
-Note	1831	Duplicate index `i2`. This is deprecated and will be disallowed in a future release.
+Note	1831	Duplicate index `i2`. This is deprecated and will be disallowed in a future release
 ALTER TABLE t1 ADD INDEX i3(b), ALGORITHM= COPY;
 affected rows: 2
 info: Records: 2  Duplicates: 0  Warnings: 1
 Warnings:
-Note	1831	Duplicate index `i3`. This is deprecated and will be disallowed in a future release.
+Note	1831	Duplicate index `i3`. This is deprecated and will be disallowed in a future release
 ALTER TABLE t1 ADD INDEX i4(b), ALGORITHM= INPLACE;
 affected rows: 0
 info: Records: 0  Duplicates: 0  Warnings: 1
 Warnings:
-Note	1831	Duplicate index `i4`. This is deprecated and will be disallowed in a future release.
+Note	1831	Duplicate index `i4`. This is deprecated and will be disallowed in a future release
 ALTER TABLE t1 ADD INDEX i5(b), ALGORITHM= INVALID;
 ERROR HY000: Unknown ALGORITHM 'INVALID'
 ALTER TABLE m1 ENABLE KEYS;
@@ -1579,17 +1579,17 @@ ALTER TABLE t1 ADD INDEX i2(b), ALGORITHM= DEFAULT;
 affected rows: 2
 info: Records: 2  Duplicates: 0  Warnings: 1
 Warnings:
-Note	1831	Duplicate index `i2`. This is deprecated and will be disallowed in a future release.
+Note	1831	Duplicate index `i2`. This is deprecated and will be disallowed in a future release
 ALTER TABLE t1 ADD INDEX i3(b), ALGORITHM= COPY;
 affected rows: 2
 info: Records: 2  Duplicates: 0  Warnings: 1
 Warnings:
-Note	1831	Duplicate index `i3`. This is deprecated and will be disallowed in a future release.
+Note	1831	Duplicate index `i3`. This is deprecated and will be disallowed in a future release
 ALTER TABLE t1 ADD INDEX i4(b), ALGORITHM= INPLACE;
 affected rows: 0
 info: Records: 0  Duplicates: 0  Warnings: 1
 Warnings:
-Note	1831	Duplicate index `i4`. This is deprecated and will be disallowed in a future release.
+Note	1831	Duplicate index `i4`. This is deprecated and will be disallowed in a future release
 SET SESSION old_alter_table= 0;
 affected rows: 0
 ALTER TABLE t1 DROP INDEX i1, DROP INDEX i2, DROP INDEX i3, DROP INDEX i4;
@@ -1611,24 +1611,24 @@ ALTER TABLE t1 ADD INDEX i2(b), LOCK= NONE;
 affected rows: 0
 info: Records: 0  Duplicates: 0  Warnings: 1
 Warnings:
-Note	1831	Duplicate index `i2`. This is deprecated and will be disallowed in a future release.
+Note	1831	Duplicate index `i2`. This is deprecated and will be disallowed in a future release
 ALTER TABLE t1 ADD INDEX i3(b), LOCK= SHARED;
 affected rows: 0
 info: Records: 0  Duplicates: 0  Warnings: 1
 Warnings:
-Note	1831	Duplicate index `i3`. This is deprecated and will be disallowed in a future release.
+Note	1831	Duplicate index `i3`. This is deprecated and will be disallowed in a future release
 ALTER TABLE t1 ADD INDEX i4(b), LOCK= EXCLUSIVE;
 affected rows: 0
 info: Records: 0  Duplicates: 0  Warnings: 1
 Warnings:
-Note	1831	Duplicate index `i4`. This is deprecated and will be disallowed in a future release.
+Note	1831	Duplicate index `i4`. This is deprecated and will be disallowed in a future release
 ALTER TABLE t1 ADD INDEX i5(b), LOCK= INVALID;
 ERROR HY000: Unknown LOCK type 'INVALID'
 ALTER TABLE m1 ENABLE KEYS, LOCK= DEFAULT;
 ALTER TABLE m1 ENABLE KEYS, LOCK= NONE;
-ERROR 0A000: LOCK=NONE/SHARED is not supported for this operation. Try LOCK=EXCLUSIVE.
+ERROR 0A000: LOCK=NONE/SHARED is not supported for this operation. Try LOCK=EXCLUSIVE
 ALTER TABLE m1 ENABLE KEYS, LOCK= SHARED;
-ERROR 0A000: LOCK=NONE/SHARED is not supported for this operation. Try LOCK=EXCLUSIVE.
+ERROR 0A000: LOCK=NONE/SHARED is not supported for this operation. Try LOCK=EXCLUSIVE
 ALTER TABLE m1 ENABLE KEYS, LOCK= EXCLUSIVE;
 ALTER TABLE t1 DROP INDEX i1, DROP INDEX i2, DROP INDEX i3, DROP INDEX i4;
 #
@@ -1641,32 +1641,34 @@ ALTER TABLE t1 ADD INDEX i2(b), ALGORITHM= INPLACE, LOCK= SHARED;
 affected rows: 0
 info: Records: 0  Duplicates: 0  Warnings: 1
 Warnings:
-Note	1831	Duplicate index `i2`. This is deprecated and will be disallowed in a future release.
+Note	1831	Duplicate index `i2`. This is deprecated and will be disallowed in a future release
 ALTER TABLE t1 ADD INDEX i3(b), ALGORITHM= INPLACE, LOCK= EXCLUSIVE;
 affected rows: 0
 info: Records: 0  Duplicates: 0  Warnings: 1
 Warnings:
-Note	1831	Duplicate index `i3`. This is deprecated and will be disallowed in a future release.
+Note	1831	Duplicate index `i3`. This is deprecated and will be disallowed in a future release
 ALTER TABLE t1 ADD INDEX i4(b), ALGORITHM= COPY, LOCK= NONE;
-ERROR 0A000: LOCK=NONE is not supported. Reason: COPY algorithm requires a lock. Try LOCK=SHARED.
+ERROR 0A000: LOCK=NONE is not supported. Reason: COPY algorithm requires a lock. Try LOCK=SHARED
 ALTER TABLE t1 ADD INDEX i5(b), ALGORITHM= COPY, LOCK= SHARED;
 affected rows: 2
 info: Records: 2  Duplicates: 0  Warnings: 1
 Warnings:
-Note	1831	Duplicate index `i5`. This is deprecated and will be disallowed in a future release.
+Note	1831	Duplicate index `i5`. This is deprecated and will be disallowed in a future release
 ALTER TABLE t1 ADD INDEX i6(b), ALGORITHM= COPY, LOCK= EXCLUSIVE;
 affected rows: 2
 info: Records: 2  Duplicates: 0  Warnings: 1
 Warnings:
-Note	1831	Duplicate index `i6`. This is deprecated and will be disallowed in a future release.
+Note	1831	Duplicate index `i6`. This is deprecated and will be disallowed in a future release
 ALTER TABLE m1 ENABLE KEYS, ALGORITHM= INPLACE, LOCK= NONE;
-ERROR 0A000: LOCK=NONE/SHARED is not supported for this operation. Try LOCK=EXCLUSIVE.
+ERROR 0A000: LOCK=NONE/SHARED is not supported for this operation. Try LOCK=EXCLUSIVE
 ALTER TABLE m1 ENABLE KEYS, ALGORITHM= INPLACE, LOCK= SHARED;
-ERROR 0A000: LOCK=NONE/SHARED is not supported for this operation. Try LOCK=EXCLUSIVE.
+ERROR 0A000: LOCK=NONE/SHARED is not supported for this operation. Try LOCK=EXCLUSIVE
 ALTER TABLE m1 ENABLE KEYS, ALGORITHM= INPLACE, LOCK= EXCLUSIVE;
 affected rows: 0
 ALTER TABLE m1 ENABLE KEYS, ALGORITHM= COPY, LOCK= NONE;
-ERROR 0A000: LOCK=NONE is not supported. Reason: COPY algorithm requires a lock. Try LOCK=SHARED.
+ERROR 0A000: LOCK=NONE is not supported. Reason: COPY algorithm requires a lock. Try LOCK=SHARED
+ALTER ONLINE TABLE m1 ADD COLUMN c int;
+ERROR 0A000: LOCK=NONE is not supported for this operation. Try LOCK=SHARED
 ALTER TABLE m1 ENABLE KEYS, ALGORITHM= COPY, LOCK= SHARED;
 affected rows: 2
 info: Records: 2  Duplicates: 0  Warnings: 0
@@ -1681,16 +1683,17 @@ CREATE TABLE t1(a INT PRIMARY KEY, b INT);
 INSERT INTO t1 VALUES (1,1), (2,2);
 START TRANSACTION;
 INSERT INTO t1 VALUES (3,3);
-# Connection con1
+connect  con1, localhost, root;
 # Sending:
 ALTER TABLE t1 DISABLE KEYS;
-# Connection default
+connection default;
 # Waiting until ALTER TABLE is blocked.
 UPDATE t1 SET b = 4;
 COMMIT;
-# Connection con1
+connection con1;
 # Reaping: ALTER TABLE t1 DISABLE KEYS
-# Connection default
+disconnect con1;
+connection default;
 DROP TABLE t1;
 #
 # 7: Which operations require copy and which can be done in-place?
@@ -1768,7 +1771,7 @@ ALTER TABLE tm1 ADD FULLTEXT INDEX im4 (d2);
 affected rows: 2
 info: Records: 2  Duplicates: 0  Warnings: 0
 ALTER TABLE ti1 ADD PRIMARY KEY(a), ALGORITHM=INPLACE;
-ERROR 0A000: ALGORITHM=INPLACE is not supported. Reason: InnoDB presently supports one FULLTEXT index creation at a time. Try ALGORITHM=COPY.
+ERROR 0A000: ALGORITHM=INPLACE is not supported. Reason: InnoDB presently supports one FULLTEXT index creation at a time. Try ALGORITHM=COPY
 ALTER TABLE ti1 ADD PRIMARY KEY(a);
 affected rows: 2
 info: Records: 2  Duplicates: 0  Warnings: 0
@@ -1857,8 +1860,8 @@ ALTER TABLE tm1 MODIFY COLUMN c INT NULL;
 affected rows: 2
 info: Records: 2  Duplicates: 0  Warnings: 0
 ALTER TABLE ti1 MODIFY COLUMN h VARCHAR(30);
-affected rows: 2
-info: Records: 2  Duplicates: 0  Warnings: 0
+affected rows: 0
+info: Records: 0  Duplicates: 0  Warnings: 0
 ALTER TABLE tm1 MODIFY COLUMN h VARCHAR(30);
 affected rows: 2
 info: Records: 2  Duplicates: 0  Warnings: 0
@@ -2060,7 +2063,7 @@ tab1	CREATE TABLE `tab1` (
   `field6` varchar(32) NOT NULL,
   `field7` varchar(32) NOT NULL,
   `field8` varchar(32) NOT NULL,
-  `field9` int(11) NOT NULL DEFAULT '1',
+  `field9` int(11) NOT NULL DEFAULT 1,
   `field10` varchar(16) NOT NULL,
   `field11` enum('option1','option2','option3') NOT NULL DEFAULT 'option1',
   `v_col` varchar(128) DEFAULT NULL,
@@ -2078,10 +2081,10 @@ tab1	CREATE TABLE `tab1` (
   `field6` varchar(32) NOT NULL,
   `field7` varchar(32) NOT NULL,
   `field8` varchar(32) NOT NULL,
-  `field9` int(11) NOT NULL DEFAULT '1',
+  `field9` int(11) NOT NULL DEFAULT 1,
   `field10` varchar(16) NOT NULL,
   `field11` enum('option1','option2','option3') NOT NULL DEFAULT 'option1',
-  `v_col` varchar(128) AS (IF(field11='option1',CONCAT_WS(":","field1",field2,field3,field4,field5,field6,field7,field8,field9,field10), CONCAT_WS(":","field1",field11,field2,field3,field4,field5,field6,field7,field8,field9,field10))) PERSISTENT,
+  `v_col` varchar(128) GENERATED ALWAYS AS (if(`field11` = 'option1',concat_ws(':','field1',`field2`,`field3`,`field4`,`field5`,`field6`,`field7`,`field8`,`field9`,`field10`),concat_ws(':','field1',`field11`,`field2`,`field3`,`field4`,`field5`,`field6`,`field7`,`field8`,`field9`,`field10`))) STORED,
   PRIMARY KEY (`id`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 DROP TABLE `tab1`;
@@ -2124,3 +2127,26 @@ t1	CREATE TABLE `t1` (
   KEY `i1` (`a`) COMMENT 'comment2'
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 DROP TABLE t1;
+#
+# MDEV-10421 duplicate CHECK CONSTRAINTs
+#
+CREATE TABLE t1 (a INT, b INT) engine=myisam;
+ALTER TABLE t1 ADD CONSTRAINT IF NOT EXISTS `min` CHECK (a+b > 100);
+ALTER TABLE t1 ADD CONSTRAINT `min` CHECK (a+b > 100);
+ERROR HY000: Duplicate CHECK constraint name 'min'
+ALTER TABLE t1 ADD CONSTRAINT IF NOT EXISTS `min` CHECK (a+b > 100);
+Warnings:
+Note	1826	Duplicate CHECK constraint name 'min'
+ALTER TABLE t1 ADD CONSTRAINT `mini` CHECK (a+b > 100);
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` int(11) DEFAULT NULL,
+  `b` int(11) DEFAULT NULL,
+  CONSTRAINT `min` CHECK (`a` + `b` > 100),
+  CONSTRAINT `mini` CHECK (`a` + `b` > 100)
+) ENGINE=MyISAM DEFAULT CHARSET=latin1
+DROP TABLE t1;
+CREATE TABLE t1(a INT, b INT, CONSTRAINT min check (a>5),
+CONSTRAINT min check (b>5));
+ERROR HY000: Duplicate CHECK constraint name 'min'

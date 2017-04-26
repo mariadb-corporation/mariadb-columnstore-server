@@ -264,7 +264,7 @@ rollback;
 select * from t2;
 a
 insert into t2 (a) values (1026);
-load data infile "../../std_data/words.dat" into table t1 (a) set a:=f2(26);
+load data infile "../../std_data/words.dat" ignore into table t1 (a) set a:=f2(26);
 ERROR 23000: Duplicate entry '26' for key 'a'
 select * from t2;
 a
@@ -419,11 +419,11 @@ SUCCESS
 # 4. Read-write statement: UPDATE, update 0 rows, 1 row matches WHERE 
 #
 update t1 set a=2;
-call p_verify_status_increment(2, 2, 1, 0);
+call p_verify_status_increment(2, 0, 1, 0);
 SUCCESS
 
 commit;
-call p_verify_status_increment(2, 2, 1, 0);
+call p_verify_status_increment(2, 0, 1, 0);
 SUCCESS
 
 # 5. Read-write statement: UPDATE, update 0 rows, 0 rows match WHERE 

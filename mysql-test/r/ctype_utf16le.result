@@ -82,7 +82,7 @@ CREATE TABLE t1 (a VARCHAR(10), pad INT, b VARCHAR(10)) CHARACTER SET utf16le;
 INSERT INTO t1 VALUES (_ucs2 X'0420', 10, _ucs2 X'0421');
 INSERT INTO t1 VALUES (_ucs2 X'0420', 10, _ucs2 X'04210422');
 INSERT INTO t1 VALUES (_ucs2 X'0420', 10, _ucs2 X'042104220423');
-INSERT INTO t1 VALUES (_ucs2 X'0420042104220423042404250426042704280429042A042B',10,_ucs2 X'042104220423');
+INSERT IGNORE INTO t1 VALUES (_ucs2 X'0420042104220423042404250426042704280429042A042B',10,_ucs2 X'042104220423');
 Warnings:
 Warning	1265	Data truncated for column 'a' at row 1
 INSERT INTO t1 VALUES (_utf32 X'010000', 10, _ucs2 X'0421');
@@ -102,8 +102,8 @@ RPAD(_utf16le X'2004',10,_utf16le X'2104') r;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `l` varchar(10) CHARACTER SET utf16le NOT NULL,
-  `r` varchar(10) CHARACTER SET utf16le NOT NULL
+  `l` varchar(10) CHARACTER SET utf16le DEFAULT NULL,
+  `r` varchar(10) CHARACTER SET utf16le DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 SELECT HEX(l), HEX(r) FROM t1;
 HEX(l)	HEX(r)
@@ -798,7 +798,7 @@ CREATE TABLE t1 AS SELECT REPEAT('a',1) AS a LIMIT 0;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` varchar(1) CHARACTER SET utf16le COLLATE utf16le_bin NOT NULL
+  `a` varchar(1) CHARACTER SET utf16le COLLATE utf16le_bin DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 INSERT INTO t1 VALUES (_utf8mb4 0xEFBE9D),(_utf8mb4 0xF0908E84);
 INSERT INTO t1 VALUES (_utf8mb4 0xCE85),(_utf8mb4 0xF4808080);
@@ -1121,6 +1121,7 @@ DROP TABLE t1;
 #
 CREATE TABLE t1 (s1 VARCHAR(50) CHARACTER SET ucs2);
 INSERT INTO t1 VALUES (0xDF84);
+SET STATEMENT sql_mode = 'NO_ENGINE_SUBSTITUTION' FOR
 ALTER TABLE t1 MODIFY column s1 VARCHAR(50) CHARACTER SET utf16le;
 Warnings:
 Warning	1366	Incorrect string value: '\xDF\x84' for column 's1' at row 1
@@ -1133,7 +1134,7 @@ DROP TABLE t1;
 #
 CREATE TABLE t1 (s1 VARCHAR(5) CHARACTER SET ucs2, s2 VARCHAR(5) CHARACTER SET utf16le);
 INSERT INTO t1 (s1) VALUES (0xdf84);
-UPDATE t1 set s2 = s1;
+UPDATE IGNORE t1 set s2 = s1;
 Warnings:
 Warning	1366	Incorrect string value: '\xDF\x84' for column 's2' at row 1
 SELECT HEX(s2) FROM t1;
@@ -1470,7 +1471,7 @@ Warning	1292	Truncated incorrect INTEGER value: '123456789123456789123x'
 #
 CREATE TABLE t1 (a int);
 INSERT INTO t1 VALUES ('-1234.1e2');
-INSERT INTO t1 VALUES ('-1234.1e2xxxx');
+INSERT IGNORE INTO t1 VALUES ('-1234.1e2xxxx');
 Warnings:
 Warning	1265	Data truncated for column 'a' at row 1
 INSERT INTO t1 VALUES ('-1234.1e2    ');
@@ -1524,7 +1525,7 @@ CREATE TABLE t1 (a int);
 INSERT INTO t1 VALUES ('1 ');
 Warnings:
 Note	1265	Data truncated for column 'a' at row 1
-INSERT INTO t1 VALUES ('1 x');
+INSERT IGNORE INTO t1 VALUES ('1 x');
 Warnings:
 Warning	1265	Data truncated for column 'a' at row 1
 SELECT * FROM t1;
@@ -1535,13 +1536,14 @@ DROP TABLE t1;
 #
 # Testing auto-conversion to TEXT
 #
+SET STATEMENT sql_mode = 'NO_ENGINE_SUBSTITUTION' FOR
 CREATE TABLE t1 (a VARCHAR(17000) CHARACTER SET utf16le);
 Warnings:
 Note	1246	Converting column 'a' from VARCHAR to TEXT
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` mediumtext CHARACTER SET utf16le
+  `a` mediumtext CHARACTER SET utf16le DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 DROP TABLE t1;
 #
@@ -1690,7 +1692,7 @@ CREATE TABLE t1 AS SELECT REPEAT('a', 64) AS a LIMIT 0;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` varchar(64) CHARACTER SET utf16le NOT NULL
+  `a` varchar(64) CHARACTER SET utf16le DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 INSERT INTO t1 VALUES ('');
 SELECT CHARSET(CONCAT(a,'2001-01-08 00:00:00' - INTERVAL 7 DAY)) FROM t1;
@@ -1741,7 +1743,7 @@ CREATE TABLE t1 AS SELECT REPEAT('a',2) as s1 LIMIT 0;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `s1` varchar(2) CHARACTER SET utf16le NOT NULL
+  `s1` varchar(2) CHARACTER SET utf16le DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 INSERT INTO t1 VALUES ('ab'),('AE'),('ab'),('AE');
 SELECT * FROM t1 ORDER BY s1;
@@ -1854,7 +1856,7 @@ CREATE TABLE t1 AS SELECT REPEAT('a',5) AS a;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` varchar(5) CHARACTER SET utf16le NOT NULL
+  `a` varchar(5) CHARACTER SET utf16le DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 CREATE TABLE t2 AS SELECT WEIGHT_STRING(a) AS ws FROM t1;
 SHOW CREATE TABLE t2;
@@ -2104,7 +2106,7 @@ CREATE TABLE t1 AS SELECT REPEAT('a',5) AS a;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` varchar(5) CHARACTER SET utf16le COLLATE utf16le_bin NOT NULL
+  `a` varchar(5) CHARACTER SET utf16le COLLATE utf16le_bin DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 CREATE TABLE t2 AS SELECT WEIGHT_STRING(a) AS ws FROM t1;
 SHOW CREATE TABLE t2;
@@ -2392,4 +2394,568 @@ Warnings:
 Warning	1292	Truncated incorrect INTEGER value: '1Ĳ3'
 #
 # End of 10.1 tests
+#
+#
+# Start of 10.2 tests
+#
+#
+# MDEV-9711 NO PAD Collatons
+#
+SET character_set_connection=utf16le;
+SET STORAGE_ENGINE=MyISAM;
+#
+# Start of ctype_pad.inc
+#
+#
+# Unique indexes
+#
+CREATE TABLE t1 (a VARCHAR(10) PRIMARY KEY) COLLATE 'utf16le_general_nopad_ci';
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` varchar(10) COLLATE utf16le_general_nopad_ci NOT NULL,
+  PRIMARY KEY (`a`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf16le COLLATE=utf16le_general_nopad_ci
+INSERT INTO t1 VALUES ('abc'),('abc  '),(' a'),(' a '),('a   ');
+SELECT HEX(a), a FROM t1 ORDER BY a;
+HEX(a)	a
+20006100	 a
+200061002000	 a 
+6100200020002000	a   
+610062006300	abc
+61006200630020002000	abc  
+SELECT HEX(a), a FROM t1 IGNORE INDEX(PRIMARY) ORDER BY a;
+HEX(a)	a
+20006100	 a
+200061002000	 a 
+6100200020002000	a   
+610062006300	abc
+61006200630020002000	abc  
+SELECT HEX(a), a FROM t1 IGNORE INDEX(PRIMARY) ORDER BY a DESC;
+HEX(a)	a
+61006200630020002000	abc  
+610062006300	abc
+6100200020002000	a   
+200061002000	 a 
+20006100	 a
+#
+# UNION
+#
+CREATE TABLE t2 (a VARCHAR(10)) COLLATE 'utf16le_general_nopad_ci';
+INSERT INTO t2 VALUES ('abc '),('abc  '),(' a'),('a ');
+SELECT HEX(a),a FROM (SELECT * FROM t1 UNION SELECT * FROM t2 ORDER BY a) td;
+HEX(a)	a
+20006100	 a
+200061002000	 a 
+61002000	a 
+6100200020002000	a   
+610062006300	abc
+6100620063002000	abc 
+61006200630020002000	abc  
+DROP TABLE t1;
+DROP TABLE t2;
+#
+# DISTINCT, COUNT, MAX
+#
+CREATE TABLE t1 (a VARCHAR(10)) COLLATE 'utf16le_general_nopad_ci';
+INSERT INTO t1 VALUES ('a'),('a  '),(' a'),(' a '),('a   ');
+SELECT HEX(a), a FROM (SELECT DISTINCT a FROM t1 ORDER BY a) td;
+HEX(a)	a
+20006100	 a
+200061002000	 a 
+6100	a
+610020002000	a  
+6100200020002000	a   
+SELECT COUNT(DISTINCT a) FROM t1 ORDER BY a;
+COUNT(DISTINCT a)
+5
+SELECT HEX(MAX(a)), MAX(a) FROM t1;
+HEX(MAX(a))	MAX(a)
+6100200020002000	a   
+#
+# GROUP BY
+#
+CREATE TABLE t2 (a VARCHAR(10), b int, c varchar(10)) COLLATE 'utf16le_general_nopad_ci';
+INSERT t2 values('ab', 12, 'cd'), ('ab', 2, 'ed'), ('aa', 20, 'er'), ('aa  ', 0, 'er ');
+SELECT HEX(a), cnt FROM (SELECT a, COUNT(a) AS cnt FROM t2 GROUP BY a ORDER BY a) AS td;
+HEX(a)	cnt
+61006100	1
+6100610020002000	1
+61006200	2
+DROP TABLE t2;
+#
+# Weights
+#
+SELECT HEX(WEIGHT_STRING(a AS CHAR(10))) FROM t1;
+HEX(WEIGHT_STRING(a AS CHAR(10)))
+0041000000000000000000000000000000000000
+0041002000200000000000000000000000000000
+0020004100000000000000000000000000000000
+0020004100200000000000000000000000000000
+0041002000200020000000000000000000000000
+DROP TABLE t1;
+#
+# IF, CASE, LEAST
+#
+SELECT IF('abc' COLLATE 'utf16le_general_nopad_ci' = 'abc ', 'pad', 'nopad');
+IF('abc' COLLATE 'utf16le_general_nopad_ci' = 'abc ', 'pad', 'nopad')
+nopad
+SELECT CASE 'abc' COLLATE 'utf16le_general_nopad_ci' WHEN 'abc ' THEN 'pad' ELSE 'nopad' END;
+CASE 'abc' COLLATE 'utf16le_general_nopad_ci' WHEN 'abc ' THEN 'pad' ELSE 'nopad' END
+nopad
+SELECT CASE WHEN 'abc' COLLATE 'utf16le_general_nopad_ci' = 'abc ' THEN 'pad' ELSE 'nopad' END;
+CASE WHEN 'abc' COLLATE 'utf16le_general_nopad_ci' = 'abc ' THEN 'pad' ELSE 'nopad' END
+nopad
+SELECT HEX(LEAST('abc ' COLLATE 'utf16le_general_nopad_ci', 'abc  '));
+HEX(LEAST('abc ' COLLATE 'utf16le_general_nopad_ci', 'abc  '))
+6100620063002000
+SELECT HEX(GREATEST('abc ' COLLATE 'utf16le_general_nopad_ci', 'abc  '));
+HEX(GREATEST('abc ' COLLATE 'utf16le_general_nopad_ci', 'abc  '))
+61006200630020002000
+#
+# Collation mix
+#
+CREATE TABLE t1 (a VARCHAR(10)) COLLATE 'utf16le_general_ci';
+INSERT INTO t1 VALUES ('a'),('a ');
+SELECT COUNT(*) FROM t1 WHERE a='a';
+COUNT(*)
+2
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'utf16le_general_ci';
+COUNT(*)
+2
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'utf16le_general_nopad_ci';
+COUNT(*)
+1
+ALTER TABLE t1 MODIFY a VARCHAR(10) COLLATE 'utf16le_general_nopad_ci';
+SELECT COUNT(*) FROM t1 WHERE a='a';
+COUNT(*)
+1
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'utf16le_general_ci';
+COUNT(*)
+2
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'utf16le_general_nopad_ci';
+COUNT(*)
+1
+DROP TABLE t1;
+#
+# End of ctype_pad.inc
+#
+SET STORAGE_ENGINE=HEAP;
+#
+# Start of ctype_pad.inc
+#
+#
+# Unique indexes
+#
+CREATE TABLE t1 (a VARCHAR(10) PRIMARY KEY) COLLATE 'utf16le_general_nopad_ci';
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` varchar(10) COLLATE utf16le_general_nopad_ci NOT NULL,
+  PRIMARY KEY (`a`)
+) ENGINE=MEMORY DEFAULT CHARSET=utf16le COLLATE=utf16le_general_nopad_ci
+INSERT INTO t1 VALUES ('abc'),('abc  '),(' a'),(' a '),('a   ');
+SELECT HEX(a), a FROM t1 ORDER BY a;
+HEX(a)	a
+20006100	 a
+200061002000	 a 
+6100200020002000	a   
+610062006300	abc
+61006200630020002000	abc  
+SELECT HEX(a), a FROM t1 IGNORE INDEX(PRIMARY) ORDER BY a;
+HEX(a)	a
+20006100	 a
+200061002000	 a 
+6100200020002000	a   
+610062006300	abc
+61006200630020002000	abc  
+SELECT HEX(a), a FROM t1 IGNORE INDEX(PRIMARY) ORDER BY a DESC;
+HEX(a)	a
+61006200630020002000	abc  
+610062006300	abc
+6100200020002000	a   
+200061002000	 a 
+20006100	 a
+#
+# UNION
+#
+CREATE TABLE t2 (a VARCHAR(10)) COLLATE 'utf16le_general_nopad_ci';
+INSERT INTO t2 VALUES ('abc '),('abc  '),(' a'),('a ');
+SELECT HEX(a),a FROM (SELECT * FROM t1 UNION SELECT * FROM t2 ORDER BY a) td;
+HEX(a)	a
+20006100	 a
+200061002000	 a 
+61002000	a 
+6100200020002000	a   
+610062006300	abc
+6100620063002000	abc 
+61006200630020002000	abc  
+DROP TABLE t1;
+DROP TABLE t2;
+#
+# DISTINCT, COUNT, MAX
+#
+CREATE TABLE t1 (a VARCHAR(10)) COLLATE 'utf16le_general_nopad_ci';
+INSERT INTO t1 VALUES ('a'),('a  '),(' a'),(' a '),('a   ');
+SELECT HEX(a), a FROM (SELECT DISTINCT a FROM t1 ORDER BY a) td;
+HEX(a)	a
+20006100	 a
+200061002000	 a 
+6100	a
+610020002000	a  
+6100200020002000	a   
+SELECT COUNT(DISTINCT a) FROM t1 ORDER BY a;
+COUNT(DISTINCT a)
+5
+SELECT HEX(MAX(a)), MAX(a) FROM t1;
+HEX(MAX(a))	MAX(a)
+6100200020002000	a   
+#
+# GROUP BY
+#
+CREATE TABLE t2 (a VARCHAR(10), b int, c varchar(10)) COLLATE 'utf16le_general_nopad_ci';
+INSERT t2 values('ab', 12, 'cd'), ('ab', 2, 'ed'), ('aa', 20, 'er'), ('aa  ', 0, 'er ');
+SELECT HEX(a), cnt FROM (SELECT a, COUNT(a) AS cnt FROM t2 GROUP BY a ORDER BY a) AS td;
+HEX(a)	cnt
+61006100	1
+6100610020002000	1
+61006200	2
+DROP TABLE t2;
+#
+# Weights
+#
+SELECT HEX(WEIGHT_STRING(a AS CHAR(10))) FROM t1;
+HEX(WEIGHT_STRING(a AS CHAR(10)))
+0041000000000000000000000000000000000000
+0041002000200000000000000000000000000000
+0020004100000000000000000000000000000000
+0020004100200000000000000000000000000000
+0041002000200020000000000000000000000000
+DROP TABLE t1;
+#
+# IF, CASE, LEAST
+#
+SELECT IF('abc' COLLATE 'utf16le_general_nopad_ci' = 'abc ', 'pad', 'nopad');
+IF('abc' COLLATE 'utf16le_general_nopad_ci' = 'abc ', 'pad', 'nopad')
+nopad
+SELECT CASE 'abc' COLLATE 'utf16le_general_nopad_ci' WHEN 'abc ' THEN 'pad' ELSE 'nopad' END;
+CASE 'abc' COLLATE 'utf16le_general_nopad_ci' WHEN 'abc ' THEN 'pad' ELSE 'nopad' END
+nopad
+SELECT CASE WHEN 'abc' COLLATE 'utf16le_general_nopad_ci' = 'abc ' THEN 'pad' ELSE 'nopad' END;
+CASE WHEN 'abc' COLLATE 'utf16le_general_nopad_ci' = 'abc ' THEN 'pad' ELSE 'nopad' END
+nopad
+SELECT HEX(LEAST('abc ' COLLATE 'utf16le_general_nopad_ci', 'abc  '));
+HEX(LEAST('abc ' COLLATE 'utf16le_general_nopad_ci', 'abc  '))
+6100620063002000
+SELECT HEX(GREATEST('abc ' COLLATE 'utf16le_general_nopad_ci', 'abc  '));
+HEX(GREATEST('abc ' COLLATE 'utf16le_general_nopad_ci', 'abc  '))
+61006200630020002000
+#
+# Collation mix
+#
+CREATE TABLE t1 (a VARCHAR(10)) COLLATE 'utf16le_general_ci';
+INSERT INTO t1 VALUES ('a'),('a ');
+SELECT COUNT(*) FROM t1 WHERE a='a';
+COUNT(*)
+2
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'utf16le_general_ci';
+COUNT(*)
+2
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'utf16le_general_nopad_ci';
+COUNT(*)
+1
+ALTER TABLE t1 MODIFY a VARCHAR(10) COLLATE 'utf16le_general_nopad_ci';
+SELECT COUNT(*) FROM t1 WHERE a='a';
+COUNT(*)
+1
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'utf16le_general_ci';
+COUNT(*)
+2
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'utf16le_general_nopad_ci';
+COUNT(*)
+1
+DROP TABLE t1;
+#
+# End of ctype_pad.inc
+#
+SET STORAGE_ENGINE=Default;
+SET STORAGE_ENGINE=MyISAM;
+#
+# Start of ctype_pad.inc
+#
+#
+# Unique indexes
+#
+CREATE TABLE t1 (a VARCHAR(10) PRIMARY KEY) COLLATE 'utf16le_nopad_bin';
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` varchar(10) COLLATE utf16le_nopad_bin NOT NULL,
+  PRIMARY KEY (`a`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf16le COLLATE=utf16le_nopad_bin
+INSERT INTO t1 VALUES ('abc'),('abc  '),(' a'),(' a '),('a   ');
+SELECT HEX(a), a FROM t1 ORDER BY a;
+HEX(a)	a
+20006100	 a
+200061002000	 a 
+6100200020002000	a   
+610062006300	abc
+61006200630020002000	abc  
+SELECT HEX(a), a FROM t1 IGNORE INDEX(PRIMARY) ORDER BY a;
+HEX(a)	a
+20006100	 a
+200061002000	 a 
+6100200020002000	a   
+610062006300	abc
+61006200630020002000	abc  
+SELECT HEX(a), a FROM t1 IGNORE INDEX(PRIMARY) ORDER BY a DESC;
+HEX(a)	a
+61006200630020002000	abc  
+610062006300	abc
+6100200020002000	a   
+200061002000	 a 
+20006100	 a
+#
+# UNION
+#
+CREATE TABLE t2 (a VARCHAR(10)) COLLATE 'utf16le_nopad_bin';
+INSERT INTO t2 VALUES ('abc '),('abc  '),(' a'),('a ');
+SELECT HEX(a),a FROM (SELECT * FROM t1 UNION SELECT * FROM t2 ORDER BY a) td;
+HEX(a)	a
+20006100	 a
+200061002000	 a 
+61002000	a 
+6100200020002000	a   
+610062006300	abc
+6100620063002000	abc 
+61006200630020002000	abc  
+DROP TABLE t1;
+DROP TABLE t2;
+#
+# DISTINCT, COUNT, MAX
+#
+CREATE TABLE t1 (a VARCHAR(10)) COLLATE 'utf16le_nopad_bin';
+INSERT INTO t1 VALUES ('a'),('a  '),(' a'),(' a '),('a   ');
+SELECT HEX(a), a FROM (SELECT DISTINCT a FROM t1 ORDER BY a) td;
+HEX(a)	a
+20006100	 a
+200061002000	 a 
+6100	a
+610020002000	a  
+6100200020002000	a   
+SELECT COUNT(DISTINCT a) FROM t1 ORDER BY a;
+COUNT(DISTINCT a)
+5
+SELECT HEX(MAX(a)), MAX(a) FROM t1;
+HEX(MAX(a))	MAX(a)
+6100200020002000	a   
+#
+# GROUP BY
+#
+CREATE TABLE t2 (a VARCHAR(10), b int, c varchar(10)) COLLATE 'utf16le_nopad_bin';
+INSERT t2 values('ab', 12, 'cd'), ('ab', 2, 'ed'), ('aa', 20, 'er'), ('aa  ', 0, 'er ');
+SELECT HEX(a), cnt FROM (SELECT a, COUNT(a) AS cnt FROM t2 GROUP BY a ORDER BY a) AS td;
+HEX(a)	cnt
+61006100	1
+6100610020002000	1
+61006200	2
+DROP TABLE t2;
+#
+# Weights
+#
+SELECT HEX(WEIGHT_STRING(a AS CHAR(10))) FROM t1;
+HEX(WEIGHT_STRING(a AS CHAR(10)))
+000061000000000000000000000000000000000000000000000000000000
+000061000020000020000000000000000000000000000000000000000000
+000020000061000000000000000000000000000000000000000000000000
+000020000061000020000000000000000000000000000000000000000000
+000061000020000020000020000000000000000000000000000000000000
+DROP TABLE t1;
+#
+# IF, CASE, LEAST
+#
+SELECT IF('abc' COLLATE 'utf16le_nopad_bin' = 'abc ', 'pad', 'nopad');
+IF('abc' COLLATE 'utf16le_nopad_bin' = 'abc ', 'pad', 'nopad')
+nopad
+SELECT CASE 'abc' COLLATE 'utf16le_nopad_bin' WHEN 'abc ' THEN 'pad' ELSE 'nopad' END;
+CASE 'abc' COLLATE 'utf16le_nopad_bin' WHEN 'abc ' THEN 'pad' ELSE 'nopad' END
+nopad
+SELECT CASE WHEN 'abc' COLLATE 'utf16le_nopad_bin' = 'abc ' THEN 'pad' ELSE 'nopad' END;
+CASE WHEN 'abc' COLLATE 'utf16le_nopad_bin' = 'abc ' THEN 'pad' ELSE 'nopad' END
+nopad
+SELECT HEX(LEAST('abc ' COLLATE 'utf16le_nopad_bin', 'abc  '));
+HEX(LEAST('abc ' COLLATE 'utf16le_nopad_bin', 'abc  '))
+6100620063002000
+SELECT HEX(GREATEST('abc ' COLLATE 'utf16le_nopad_bin', 'abc  '));
+HEX(GREATEST('abc ' COLLATE 'utf16le_nopad_bin', 'abc  '))
+61006200630020002000
+#
+# Collation mix
+#
+CREATE TABLE t1 (a VARCHAR(10)) COLLATE 'utf16le_bin';
+INSERT INTO t1 VALUES ('a'),('a ');
+SELECT COUNT(*) FROM t1 WHERE a='a';
+COUNT(*)
+2
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'utf16le_bin';
+COUNT(*)
+2
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'utf16le_nopad_bin';
+COUNT(*)
+1
+ALTER TABLE t1 MODIFY a VARCHAR(10) COLLATE 'utf16le_nopad_bin';
+SELECT COUNT(*) FROM t1 WHERE a='a';
+COUNT(*)
+1
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'utf16le_bin';
+COUNT(*)
+2
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'utf16le_nopad_bin';
+COUNT(*)
+1
+DROP TABLE t1;
+#
+# End of ctype_pad.inc
+#
+SET STORAGE_ENGINE=HEAP;
+#
+# Start of ctype_pad.inc
+#
+#
+# Unique indexes
+#
+CREATE TABLE t1 (a VARCHAR(10) PRIMARY KEY) COLLATE 'utf16le_nopad_bin';
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` varchar(10) COLLATE utf16le_nopad_bin NOT NULL,
+  PRIMARY KEY (`a`)
+) ENGINE=MEMORY DEFAULT CHARSET=utf16le COLLATE=utf16le_nopad_bin
+INSERT INTO t1 VALUES ('abc'),('abc  '),(' a'),(' a '),('a   ');
+SELECT HEX(a), a FROM t1 ORDER BY a;
+HEX(a)	a
+20006100	 a
+200061002000	 a 
+6100200020002000	a   
+610062006300	abc
+61006200630020002000	abc  
+SELECT HEX(a), a FROM t1 IGNORE INDEX(PRIMARY) ORDER BY a;
+HEX(a)	a
+20006100	 a
+200061002000	 a 
+6100200020002000	a   
+610062006300	abc
+61006200630020002000	abc  
+SELECT HEX(a), a FROM t1 IGNORE INDEX(PRIMARY) ORDER BY a DESC;
+HEX(a)	a
+61006200630020002000	abc  
+610062006300	abc
+6100200020002000	a   
+200061002000	 a 
+20006100	 a
+#
+# UNION
+#
+CREATE TABLE t2 (a VARCHAR(10)) COLLATE 'utf16le_nopad_bin';
+INSERT INTO t2 VALUES ('abc '),('abc  '),(' a'),('a ');
+SELECT HEX(a),a FROM (SELECT * FROM t1 UNION SELECT * FROM t2 ORDER BY a) td;
+HEX(a)	a
+20006100	 a
+200061002000	 a 
+61002000	a 
+6100200020002000	a   
+610062006300	abc
+6100620063002000	abc 
+61006200630020002000	abc  
+DROP TABLE t1;
+DROP TABLE t2;
+#
+# DISTINCT, COUNT, MAX
+#
+CREATE TABLE t1 (a VARCHAR(10)) COLLATE 'utf16le_nopad_bin';
+INSERT INTO t1 VALUES ('a'),('a  '),(' a'),(' a '),('a   ');
+SELECT HEX(a), a FROM (SELECT DISTINCT a FROM t1 ORDER BY a) td;
+HEX(a)	a
+20006100	 a
+200061002000	 a 
+6100	a
+610020002000	a  
+6100200020002000	a   
+SELECT COUNT(DISTINCT a) FROM t1 ORDER BY a;
+COUNT(DISTINCT a)
+5
+SELECT HEX(MAX(a)), MAX(a) FROM t1;
+HEX(MAX(a))	MAX(a)
+6100200020002000	a   
+#
+# GROUP BY
+#
+CREATE TABLE t2 (a VARCHAR(10), b int, c varchar(10)) COLLATE 'utf16le_nopad_bin';
+INSERT t2 values('ab', 12, 'cd'), ('ab', 2, 'ed'), ('aa', 20, 'er'), ('aa  ', 0, 'er ');
+SELECT HEX(a), cnt FROM (SELECT a, COUNT(a) AS cnt FROM t2 GROUP BY a ORDER BY a) AS td;
+HEX(a)	cnt
+61006100	1
+6100610020002000	1
+61006200	2
+DROP TABLE t2;
+#
+# Weights
+#
+SELECT HEX(WEIGHT_STRING(a AS CHAR(10))) FROM t1;
+HEX(WEIGHT_STRING(a AS CHAR(10)))
+000061000000000000000000000000000000000000000000000000000000
+000061000020000020000000000000000000000000000000000000000000
+000020000061000000000000000000000000000000000000000000000000
+000020000061000020000000000000000000000000000000000000000000
+000061000020000020000020000000000000000000000000000000000000
+DROP TABLE t1;
+#
+# IF, CASE, LEAST
+#
+SELECT IF('abc' COLLATE 'utf16le_nopad_bin' = 'abc ', 'pad', 'nopad');
+IF('abc' COLLATE 'utf16le_nopad_bin' = 'abc ', 'pad', 'nopad')
+nopad
+SELECT CASE 'abc' COLLATE 'utf16le_nopad_bin' WHEN 'abc ' THEN 'pad' ELSE 'nopad' END;
+CASE 'abc' COLLATE 'utf16le_nopad_bin' WHEN 'abc ' THEN 'pad' ELSE 'nopad' END
+nopad
+SELECT CASE WHEN 'abc' COLLATE 'utf16le_nopad_bin' = 'abc ' THEN 'pad' ELSE 'nopad' END;
+CASE WHEN 'abc' COLLATE 'utf16le_nopad_bin' = 'abc ' THEN 'pad' ELSE 'nopad' END
+nopad
+SELECT HEX(LEAST('abc ' COLLATE 'utf16le_nopad_bin', 'abc  '));
+HEX(LEAST('abc ' COLLATE 'utf16le_nopad_bin', 'abc  '))
+6100620063002000
+SELECT HEX(GREATEST('abc ' COLLATE 'utf16le_nopad_bin', 'abc  '));
+HEX(GREATEST('abc ' COLLATE 'utf16le_nopad_bin', 'abc  '))
+61006200630020002000
+#
+# Collation mix
+#
+CREATE TABLE t1 (a VARCHAR(10)) COLLATE 'utf16le_bin';
+INSERT INTO t1 VALUES ('a'),('a ');
+SELECT COUNT(*) FROM t1 WHERE a='a';
+COUNT(*)
+2
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'utf16le_bin';
+COUNT(*)
+2
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'utf16le_nopad_bin';
+COUNT(*)
+1
+ALTER TABLE t1 MODIFY a VARCHAR(10) COLLATE 'utf16le_nopad_bin';
+SELECT COUNT(*) FROM t1 WHERE a='a';
+COUNT(*)
+1
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'utf16le_bin';
+COUNT(*)
+2
+SELECT COUNT(*) FROM t1 WHERE a='a' COLLATE 'utf16le_nopad_bin';
+COUNT(*)
+1
+DROP TABLE t1;
+#
+# End of ctype_pad.inc
+#
+SET STORAGE_ENGINE=Default;
+#
+# End of 10.2 tests
 #

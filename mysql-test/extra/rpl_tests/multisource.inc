@@ -234,8 +234,8 @@ flush logs;
 
 --connection master1
 purge binary logs to 'master-bin.000002';
-# Additional events: 39 (Gtid_list) + 2 x 40 (Binlog_checkpoint) = 119
-let filesize=`select $binlog_start_pos+119`;
+# Additional events: 43 (Gtid_list) + 2 x 44 (Binlog_checkpoint) = 131
+let filesize=`select $binlog_start_pos+131`;
 --replace_result $filesize filesize
 show binary logs;
 insert into t1 (f1) values ('four');

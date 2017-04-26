@@ -50,6 +50,7 @@ extern struct charset_info_st my_charset_ucs2_vietnamese_ci;
 extern struct charset_info_st my_charset_ucs2_croatian_uca_ci;
 extern struct charset_info_st my_charset_ucs2_myanmar_uca_ci;
 extern struct charset_info_st my_charset_ucs2_thai_520_w2;
+extern struct charset_info_st my_charset_ucs2_unicode_520_nopad_ci;
 #endif
 
 
@@ -80,6 +81,7 @@ extern struct charset_info_st my_charset_utf32_vietnamese_ci;
 extern struct charset_info_st my_charset_utf32_croatian_uca_ci;
 extern struct charset_info_st my_charset_utf32_myanmar_uca_ci;
 extern struct charset_info_st my_charset_utf32_thai_520_w2;
+extern struct charset_info_st my_charset_utf32_unicode_520_nopad_ci;
 #endif /* HAVE_CHARSET_utf32 */
 
 
@@ -110,6 +112,7 @@ extern struct charset_info_st my_charset_utf16_vietnamese_ci;
 extern struct charset_info_st my_charset_utf16_croatian_uca_ci;
 extern struct charset_info_st my_charset_utf16_myanmar_uca_ci;
 extern struct charset_info_st my_charset_utf16_thai_520_w2;
+extern struct charset_info_st my_charset_utf16_unicode_520_nopad_ci;
 #endif  /* HAVE_CHARSET_utf16 */
 
 
@@ -143,6 +146,7 @@ extern struct charset_info_st my_charset_utf8_thai_520_w2;
 #ifdef HAVE_UTF8_GENERAL_CS
 extern struct charset_info_st my_charset_utf8_general_cs;
 #endif
+extern struct charset_info_st my_charset_utf8_unicode_520_nopad_ci;
 #endif
 
 #ifdef HAVE_CHARSET_utf8mb4
@@ -172,6 +176,7 @@ extern struct charset_info_st my_charset_utf8mb4_vietnamese_ci;
 extern struct charset_info_st my_charset_utf8mb4_croatian_uca_ci;
 extern struct charset_info_st my_charset_utf8mb4_myanmar_uca_ci;
 extern struct charset_info_st my_charset_utf8mb4_thai_520_w2;
+extern struct charset_info_st my_charset_utf8mb4_unicode_520_nopad_ci;
 #endif /* HAVE_CHARSET_utf8mb4 */
 
 #endif /* HAVE_UCA_COLLATIONS */
@@ -184,12 +189,16 @@ my_bool init_compiled_charsets(myf flags __attribute__((unused)))
   add_compiled_collation(&my_charset_filename);
   
   add_compiled_collation(&my_charset_latin1);
+  add_compiled_collation(&my_charset_latin1_nopad);
   add_compiled_collation(&my_charset_latin1_bin);
+  add_compiled_collation(&my_charset_latin1_nopad_bin);
   add_compiled_collation(&my_charset_latin1_german2_ci);
 
 #ifdef HAVE_CHARSET_big5
   add_compiled_collation(&my_charset_big5_chinese_ci);
   add_compiled_collation(&my_charset_big5_bin);
+  add_compiled_collation(&my_charset_big5_chinese_nopad_ci);
+  add_compiled_collation(&my_charset_big5_nopad_bin);
 #endif
 
 #ifdef HAVE_CHARSET_cp1250
@@ -199,6 +208,8 @@ my_bool init_compiled_charsets(myf flags __attribute__((unused)))
 #ifdef HAVE_CHARSET_cp932
   add_compiled_collation(&my_charset_cp932_japanese_ci);
   add_compiled_collation(&my_charset_cp932_bin);
+  add_compiled_collation(&my_charset_cp932_japanese_nopad_ci);
+  add_compiled_collation(&my_charset_cp932_nopad_bin);
 #endif
 
 #ifdef HAVE_CHARSET_latin2
@@ -208,36 +219,50 @@ my_bool init_compiled_charsets(myf flags __attribute__((unused)))
 #ifdef HAVE_CHARSET_eucjpms
   add_compiled_collation(&my_charset_eucjpms_japanese_ci);
   add_compiled_collation(&my_charset_eucjpms_bin);
+  add_compiled_collation(&my_charset_eucjpms_japanese_nopad_ci);
+  add_compiled_collation(&my_charset_eucjpms_nopad_bin);
 #endif
 
 #ifdef HAVE_CHARSET_euckr
   add_compiled_collation(&my_charset_euckr_korean_ci);
   add_compiled_collation(&my_charset_euckr_bin);
+  add_compiled_collation(&my_charset_euckr_korean_nopad_ci);
+  add_compiled_collation(&my_charset_euckr_nopad_bin);
 #endif
 
 #ifdef HAVE_CHARSET_gb2312
   add_compiled_collation(&my_charset_gb2312_chinese_ci);
   add_compiled_collation(&my_charset_gb2312_bin);
+  add_compiled_collation(&my_charset_gb2312_chinese_nopad_ci);
+  add_compiled_collation(&my_charset_gb2312_nopad_bin);
 #endif
 
 #ifdef HAVE_CHARSET_gbk
   add_compiled_collation(&my_charset_gbk_chinese_ci);
   add_compiled_collation(&my_charset_gbk_bin);
+  add_compiled_collation(&my_charset_gbk_chinese_nopad_ci);
+  add_compiled_collation(&my_charset_gbk_nopad_bin);
 #endif
 
 #ifdef HAVE_CHARSET_sjis
   add_compiled_collation(&my_charset_sjis_japanese_ci);
   add_compiled_collation(&my_charset_sjis_bin);
+  add_compiled_collation(&my_charset_sjis_japanese_nopad_ci);
+  add_compiled_collation(&my_charset_sjis_nopad_bin);
 #endif
 
 #ifdef HAVE_CHARSET_tis620
   add_compiled_collation(&my_charset_tis620_thai_ci);
   add_compiled_collation(&my_charset_tis620_bin);
+  add_compiled_collation(&my_charset_tis620_thai_nopad_ci);
+  add_compiled_collation(&my_charset_tis620_nopad_bin);
 #endif
 
 #ifdef HAVE_CHARSET_ucs2
   add_compiled_collation(&my_charset_ucs2_general_ci);
   add_compiled_collation(&my_charset_ucs2_bin);
+  add_compiled_collation(&my_charset_ucs2_general_nopad_ci);
+  add_compiled_collation(&my_charset_ucs2_nopad_bin);
   add_compiled_collation(&my_charset_ucs2_general_mysql500_ci);
 #ifdef HAVE_UCA_COLLATIONS
   add_compiled_collation(&my_charset_ucs2_unicode_ci);
@@ -267,17 +292,23 @@ my_bool init_compiled_charsets(myf flags __attribute__((unused)))
   add_compiled_collation(&my_charset_ucs2_croatian_uca_ci);
   add_compiled_collation(&my_charset_ucs2_myanmar_uca_ci);
   add_compiled_collation(&my_charset_ucs2_thai_520_w2);
+  add_compiled_collation(&my_charset_ucs2_unicode_nopad_ci);
+  add_compiled_collation(&my_charset_ucs2_unicode_520_nopad_ci);
 #endif
 #endif
 
 #ifdef HAVE_CHARSET_ujis
   add_compiled_collation(&my_charset_ujis_japanese_ci);
   add_compiled_collation(&my_charset_ujis_bin);
+  add_compiled_collation(&my_charset_ujis_japanese_nopad_ci);
+  add_compiled_collation(&my_charset_ujis_nopad_bin);
 #endif
 
 #ifdef HAVE_CHARSET_utf8
   add_compiled_collation(&my_charset_utf8_general_ci);
+  add_compiled_collation(&my_charset_utf8_general_nopad_ci);
   add_compiled_collation(&my_charset_utf8_bin);
+  add_compiled_collation(&my_charset_utf8_nopad_bin);
   add_compiled_collation(&my_charset_utf8_general_mysql500_ci);
 #ifdef HAVE_UTF8_GENERAL_CS
   add_compiled_collation(&my_charset_utf8_general_cs);
@@ -310,6 +341,8 @@ my_bool init_compiled_charsets(myf flags __attribute__((unused)))
   add_compiled_collation(&my_charset_utf8_croatian_uca_ci);
   add_compiled_collation(&my_charset_utf8_myanmar_uca_ci);
   add_compiled_collation(&my_charset_utf8_thai_520_w2);
+  add_compiled_collation(&my_charset_utf8_unicode_nopad_ci);
+  add_compiled_collation(&my_charset_utf8_unicode_520_nopad_ci);
 #endif
 #endif /* HAVE_CHARSET_utf8 */
 
@@ -317,6 +350,8 @@ my_bool init_compiled_charsets(myf flags __attribute__((unused)))
 #ifdef HAVE_CHARSET_utf8mb4
   add_compiled_collation(&my_charset_utf8mb4_general_ci);
   add_compiled_collation(&my_charset_utf8mb4_bin);
+  add_compiled_collation(&my_charset_utf8mb4_general_nopad_ci);
+  add_compiled_collation(&my_charset_utf8mb4_nopad_bin);
 #ifdef HAVE_UCA_COLLATIONS
   add_compiled_collation(&my_charset_utf8mb4_unicode_ci);
   add_compiled_collation(&my_charset_utf8mb4_german2_uca_ci);
@@ -345,6 +380,8 @@ my_bool init_compiled_charsets(myf flags __attribute__((unused)))
   add_compiled_collation(&my_charset_utf8mb4_croatian_uca_ci);
   add_compiled_collation(&my_charset_utf8mb4_myanmar_uca_ci);
   add_compiled_collation(&my_charset_utf8mb4_thai_520_w2);
+  add_compiled_collation(&my_charset_utf8mb4_unicode_nopad_ci);
+  add_compiled_collation(&my_charset_utf8mb4_unicode_520_nopad_ci);
 #endif /* HAVE_UCA_COLLATIONS  */
 #endif /* HAVE_CHARSET_utf8mb4 */
 
@@ -354,6 +391,10 @@ my_bool init_compiled_charsets(myf flags __attribute__((unused)))
   add_compiled_collation(&my_charset_utf16_bin);
   add_compiled_collation(&my_charset_utf16le_general_ci);
   add_compiled_collation(&my_charset_utf16le_bin);
+  add_compiled_collation(&my_charset_utf16_general_nopad_ci);
+  add_compiled_collation(&my_charset_utf16_nopad_bin);
+  add_compiled_collation(&my_charset_utf16le_general_nopad_ci);
+  add_compiled_collation(&my_charset_utf16le_nopad_bin);
 #ifdef HAVE_UCA_COLLATIONS
   add_compiled_collation(&my_charset_utf16_unicode_ci);
   add_compiled_collation(&my_charset_utf16_german2_uca_ci);
@@ -382,6 +423,8 @@ my_bool init_compiled_charsets(myf flags __attribute__((unused)))
   add_compiled_collation(&my_charset_utf16_croatian_uca_ci);
   add_compiled_collation(&my_charset_utf16_myanmar_uca_ci);
   add_compiled_collation(&my_charset_utf16_thai_520_w2);
+  add_compiled_collation(&my_charset_utf16_unicode_nopad_ci);
+  add_compiled_collation(&my_charset_utf16_unicode_520_nopad_ci);
 #endif /* HAVE_UCA_COLLATIONS */
 #endif /* HAVE_CHARSET_utf16 */
 
@@ -389,6 +432,8 @@ my_bool init_compiled_charsets(myf flags __attribute__((unused)))
 #ifdef HAVE_CHARSET_utf32
   add_compiled_collation(&my_charset_utf32_general_ci);
   add_compiled_collation(&my_charset_utf32_bin);
+  add_compiled_collation(&my_charset_utf32_general_nopad_ci);
+  add_compiled_collation(&my_charset_utf32_nopad_bin);
 #ifdef HAVE_UCA_COLLATIONS
   add_compiled_collation(&my_charset_utf32_unicode_ci);
   add_compiled_collation(&my_charset_utf32_german2_uca_ci);
@@ -417,6 +462,8 @@ my_bool init_compiled_charsets(myf flags __attribute__((unused)))
   add_compiled_collation(&my_charset_utf32_croatian_uca_ci);
   add_compiled_collation(&my_charset_utf32_myanmar_uca_ci);
   add_compiled_collation(&my_charset_utf32_thai_520_w2);
+  add_compiled_collation(&my_charset_utf32_unicode_nopad_ci);
+  add_compiled_collation(&my_charset_utf32_unicode_520_nopad_ci);
 #endif /* HAVE_UCA_COLLATIONS */
 #endif /* HAVE_CHARSET_utf32 */
 

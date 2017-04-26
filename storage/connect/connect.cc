@@ -31,7 +31,6 @@
 /*  global.h     is header containing all global declarations.         */
 /*  plgdbsem.h   is header containing the DB applic. declarations.     */
 /***********************************************************************/
-#include <my_global.h>
 #define DONT_DEFINE_VOID
 #include "handler.h"
 #undef  OFFSET

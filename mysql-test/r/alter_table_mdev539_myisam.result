@@ -3,6 +3,7 @@ set @@storage_engine= MyISAM;
 #
 # mdev-539: fast build of unique/primary indexes for MyISAM/Aria
 #
+call mtr.add_suppression("Can't find record in '.*'");
 DROP DATABASE IF EXISTS dbt3_s001;
 CREATE DATABASE dbt3_s001;
 use dbt3_s001;
@@ -10,10 +11,10 @@ drop index `primary` on lineitem;
 show create table lineitem;
 Table	Create Table
 lineitem	CREATE TABLE `lineitem` (
-  `l_orderkey` int(11) NOT NULL DEFAULT '0',
+  `l_orderkey` int(11) NOT NULL DEFAULT 0,
   `l_partkey` int(11) DEFAULT NULL,
   `l_suppkey` int(11) DEFAULT NULL,
-  `l_linenumber` int(11) NOT NULL DEFAULT '0',
+  `l_linenumber` int(11) NOT NULL DEFAULT 0,
   `l_quantity` double DEFAULT NULL,
   `l_extendedprice` double DEFAULT NULL,
   `l_discount` double DEFAULT NULL,
@@ -39,10 +40,10 @@ alter table lineitem add primary key (l_orderkey, l_linenumber);
 show create table lineitem;
 Table	Create Table
 lineitem	CREATE TABLE `lineitem` (
-  `l_orderkey` int(11) NOT NULL DEFAULT '0',
+  `l_orderkey` int(11) NOT NULL DEFAULT 0,
   `l_partkey` int(11) DEFAULT NULL,
   `l_suppkey` int(11) DEFAULT NULL,
-  `l_linenumber` int(11) NOT NULL DEFAULT '0',
+  `l_linenumber` int(11) NOT NULL DEFAULT 0,
   `l_quantity` double DEFAULT NULL,
   `l_extendedprice` double DEFAULT NULL,
   `l_discount` double DEFAULT NULL,
@@ -80,10 +81,10 @@ ERROR 23000: Duplicate entry '1-2' for key 'PRIMARY'
 show create table lineitem;
 Table	Create Table
 lineitem	CREATE TABLE `lineitem` (
-  `l_orderkey` int(11) NOT NULL DEFAULT '0',
+  `l_orderkey` int(11) NOT NULL DEFAULT 0,
   `l_partkey` int(11) DEFAULT NULL,
   `l_suppkey` int(11) DEFAULT NULL,
-  `l_linenumber` int(11) NOT NULL DEFAULT '0',
+  `l_linenumber` int(11) NOT NULL DEFAULT 0,
   `l_quantity` double DEFAULT NULL,
   `l_extendedprice` double DEFAULT NULL,
   `l_discount` double DEFAULT NULL,
@@ -114,10 +115,10 @@ alter table lineitem add primary key (l_orderkey, l_linenumber);
 show create table lineitem;
 Table	Create Table
 lineitem	CREATE TABLE `lineitem` (
-  `l_orderkey` int(11) NOT NULL DEFAULT '0',
+  `l_orderkey` int(11) NOT NULL DEFAULT 0,
   `l_partkey` int(11) DEFAULT NULL,
   `l_suppkey` int(11) DEFAULT NULL,
-  `l_linenumber` int(11) NOT NULL DEFAULT '0',
+  `l_linenumber` int(11) NOT NULL DEFAULT 0,
   `l_quantity` double DEFAULT NULL,
   `l_extendedprice` double DEFAULT NULL,
   `l_discount` double DEFAULT NULL,

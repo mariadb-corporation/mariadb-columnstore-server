@@ -1,4 +1,5 @@
 /* Copyright (c) 2000, 2013, Oracle and/or its affiliates.
+   Copyright (c) 2016, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -136,7 +137,7 @@ bool String::set_real(double num,uint decimals, CHARSET_INFO *cs)
   size_t len;
 
   str_charset=cs;
-  if (decimals >= NOT_FIXED_DEC)
+  if (decimals >= FLOATING_POINT_DECIMALS)
   {
     len= my_gcvt(num, MY_GCVT_ARG_DOUBLE, sizeof(buff) - 1, buff, NULL);
     return copy(buff, len, &my_charset_latin1, cs, &dummy_errors);
@@ -732,7 +733,7 @@ void String::qs_append(int i)
 void String::qs_append(ulonglong i)
 {
   char *buff= Ptr + str_length;
-  char *end= longlong10_to_str(i, buff,10);
+  char *end= longlong10_to_str(i, buff, 10);
   str_length+= (int) (end-buff);
 }
 
@@ -759,7 +760,7 @@ int sortcmp(const String *s,const String *t, CHARSET_INFO *cs)
 {
  return cs->coll->strnncollsp(cs,
                               (uchar *) s->ptr(),s->length(),
-                              (uchar *) t->ptr(),t->length(), 0);
+                              (uchar *) t->ptr(),t->length());
 }
 
 
@@ -1017,10 +1018,10 @@ String_copier::well_formed_copy(CHARSET_INFO *to_cs,
   {
     m_cannot_convert_error_pos= NULL;
     return to_cs->cset->copy_fix(to_cs, to, to_length, from, from_length,
-                                 nchars, &m_native_copy_status);
+                                 nchars, this);
   }
   return my_convert_fix(to_cs, to, to_length, from_cs, from, from_length,
-                        nchars, this);
+                        nchars, this, this);
 }
 
 

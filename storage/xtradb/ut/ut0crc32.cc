@@ -97,13 +97,13 @@ have support for it */
 static ib_uint32_t	ut_crc32_slice8_table[8][256];
 static ibool		ut_crc32_slice8_table_initialized = FALSE;
 
-/* Flag that tells whether the CPU supports CRC32 or not */
-UNIV_INTERN bool	ut_crc32_sse2_enabled = false;
-UNIV_INTERN bool	ut_crc32_power8_enabled = false;
+/** Text description of CRC32 implementation */
+const char *ut_crc32_implementation = NULL;
 
 /********************************************************************//**
 Initializes the table that is used to generate the CRC32 if the CPU does
 not have support for it. */
+#ifndef HAVE_CRC32_VPMSUM
 static
 void
 ut_crc32_slice8_table_init()
@@ -133,6 +133,7 @@ ut_crc32_slice8_table_init()
 
 	ut_crc32_slice8_table_initialized = TRUE;
 }
+#endif
 
 #if defined(__GNUC__) && defined(__x86_64__)
 /********************************************************************//**
@@ -181,27 +182,22 @@ for RHEL4 support (GCC 3 doesn't support this instruction) */
 	len -= 8, buf += 8
 #endif /* defined(__GNUC__) && defined(__x86_64__) */
 
-#if defined(__powerpc__)
+
+#ifdef HAVE_CRC32_VPMSUM
 extern "C" {
-unsigned int crc32_vpmsum(unsigned int crc, const unsigned char *p, unsigned long len);
+unsigned int crc32c_vpmsum(unsigned int crc, const unsigned char *p, unsigned long len);
 };
-#endif /* __powerpc__ */
 
 UNIV_INLINE
 ib_uint32_t
 ut_crc32_power8(
 /*===========*/
 		 const byte*		 buf,		 /*!< in: data over which to calculate CRC32 */
-		 ulint		 		 len)		 /*!< in: data length */
+		 ulint			 len)		 /*!< in: data length */
 {
-#if defined(__powerpc__) && !defined(WORDS_BIGENDIAN)
-  return crc32_vpmsum(0, buf, len);
-#else
-		 ut_error;
-		 /* silence compiler warning about unused parameters */
-		 return((ib_uint32_t) buf[len]);
-#endif /* __powerpc__ */
+  return crc32c_vpmsum(0, buf, len);
 }
+#endif
 
 /********************************************************************//**
 Calculates CRC32 using CPU instructions.
@@ -215,8 +211,6 @@ ut_crc32_sse42(
 {
 #if defined(__GNUC__) && defined(__x86_64__)
 	ib_uint64_t	crc = (ib_uint32_t) (-1);
-
-	ut_a(ut_crc32_sse2_enabled);
 
 	while (len && ((ulint) buf & 7)) {
 		ut_crc32_sse42_byte;
@@ -305,6 +299,10 @@ void
 ut_crc32_init()
 /*===========*/
 {
+	ut_crc32_slice8_table_init();
+	ut_crc32 = ut_crc32_slice8;
+	ut_crc32_implementation = "Using generic crc32 instructions";
+
 #if defined(__GNUC__) && defined(__x86_64__)
 	ib_uint32_t	vend[3];
 	ib_uint32_t	model;
@@ -332,24 +330,13 @@ ut_crc32_init()
 	probably kill your program.
 
 	*/
-#ifndef UNIV_DEBUG_VALGRIND
-	ut_crc32_sse2_enabled = (features_ecx >> 20) & 1;
-#endif /* UNIV_DEBUG_VALGRIND */
-
-#endif /* defined(__GNUC__) && defined(__x86_64__) */
-
-#if defined(__linux__) && defined(__powerpc__) && defined(AT_HWCAP2) \
-        && !defined(WORDS_BIGENDIAN)
-	if (getauxval(AT_HWCAP2) & PPC_FEATURE2_ARCH_2_07)
-		 ut_crc32_power8_enabled = true;
-#endif /* defined(__linux__) && defined(__powerpc__) */
-
-	if (ut_crc32_sse2_enabled) {
+	if ((features_ecx >> 20) & 1) {
 		ut_crc32 = ut_crc32_sse42;
-	} else if (ut_crc32_power8_enabled) {
-		ut_crc32 = ut_crc32_power8;
-	} else {
-		ut_crc32_slice8_table_init();
-		ut_crc32 = ut_crc32_slice8;
+		ut_crc32_implementation = "Using SSE2 crc32 instructions";
 	}
+
+#elif defined(HAVE_CRC32_VPMSUM)
+	ut_crc32 = ut_crc32_power8;
+	ut_crc32_implementation = "Using POWER8 crc32 instructions";
+#endif
 }

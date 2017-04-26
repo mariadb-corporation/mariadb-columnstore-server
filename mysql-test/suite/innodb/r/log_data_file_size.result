@@ -1,5 +1,4 @@
 SET GLOBAL innodb_file_per_table=0;
-SET GLOBAL innodb_file_format=barracuda;
 CREATE TABLE t(a INT)ENGINE=InnoDB;
 SET GLOBAL innodb_file_per_table=1;
 CREATE TABLE ibd4(a INT UNIQUE)ENGINE=InnoDB;

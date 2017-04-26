@@ -511,11 +511,11 @@ int fill_extra_persistent_columns(TABLE *table, int master_cols)
   for (vfield_ptr= table->vfield; *vfield_ptr; ++vfield_ptr)
   {
     vfield= *vfield_ptr;
-    if (vfield->field_index >= master_cols && vfield->stored_in_db)
+    if (vfield->field_index >= master_cols && vfield->stored_in_db())
     {
       /*Set bitmap for writing*/
       bitmap_set_bit(table->vcol_set, vfield->field_index);
-      error= vfield->vcol_info->expr_item->save_in_field(vfield,0);
+      error= vfield->vcol_info->expr->save_in_field(vfield,0);
       bitmap_clear_bit(table->vcol_set, vfield->field_index);
     }
   }

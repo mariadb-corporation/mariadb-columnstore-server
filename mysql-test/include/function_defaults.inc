@@ -4,51 +4,43 @@ SET TIME_ZONE = "+00:00";
 --echo # Test of errors for column data types that dont support function
 --echo # defaults.
 --echo #
---error ER_INVALID_DEFAULT
-eval CREATE TABLE t1( a BIT DEFAULT $current_timestamp );
---error ER_INVALID_DEFAULT
-eval CREATE TABLE t1( a TINYINT DEFAULT $current_timestamp );
---error ER_INVALID_DEFAULT
-eval CREATE TABLE t1( a SMALLINT DEFAULT $current_timestamp );
---error ER_INVALID_DEFAULT
-eval CREATE TABLE t1( a MEDIUMINT DEFAULT $current_timestamp );
---error ER_INVALID_DEFAULT
-eval CREATE TABLE t1( a INT DEFAULT $current_timestamp );
---error ER_INVALID_DEFAULT
-eval CREATE TABLE t1( a BIGINT DEFAULT $current_timestamp );
---error ER_INVALID_DEFAULT
-eval CREATE TABLE t1( a FLOAT DEFAULT $current_timestamp );
---error ER_INVALID_DEFAULT
-eval CREATE TABLE t1( a DECIMAL DEFAULT $current_timestamp );
---error ER_INVALID_DEFAULT
-eval CREATE TABLE t1( a DATE DEFAULT $current_timestamp );
---error ER_INVALID_DEFAULT
-eval CREATE TABLE t1( a TIME DEFAULT $current_timestamp );
---error ER_INVALID_DEFAULT
-eval CREATE TABLE t1( a YEAR DEFAULT $current_timestamp );
+
+eval CREATE OR REPLACE TABLE t1( a BIT DEFAULT $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a TINYINT DEFAULT $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a SMALLINT DEFAULT $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a MEDIUMINT DEFAULT $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a INT DEFAULT $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a BIGINT DEFAULT $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a FLOAT DEFAULT $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a DECIMAL DEFAULT $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a DATE DEFAULT $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a TIME DEFAULT $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a YEAR DEFAULT $current_timestamp );
 
 --error ER_INVALID_ON_UPDATE
-eval CREATE TABLE t1( a BIT ON UPDATE $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a BIT ON UPDATE $current_timestamp );
 --error ER_INVALID_ON_UPDATE
-eval CREATE TABLE t1( a TINYINT ON UPDATE $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a TINYINT ON UPDATE $current_timestamp );
 --error ER_INVALID_ON_UPDATE
-eval CREATE TABLE t1( a SMALLINT ON UPDATE $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a SMALLINT ON UPDATE $current_timestamp );
 --error ER_INVALID_ON_UPDATE
-eval CREATE TABLE t1( a MEDIUMINT ON UPDATE $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a MEDIUMINT ON UPDATE $current_timestamp );
 --error ER_INVALID_ON_UPDATE
-eval CREATE TABLE t1( a INT ON UPDATE $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a INT ON UPDATE $current_timestamp );
 --error ER_INVALID_ON_UPDATE
-eval CREATE TABLE t1( a BIGINT ON UPDATE $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a BIGINT ON UPDATE $current_timestamp );
 --error ER_INVALID_ON_UPDATE
-eval CREATE TABLE t1( a FLOAT ON UPDATE $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a FLOAT ON UPDATE $current_timestamp );
 --error ER_INVALID_ON_UPDATE
-eval CREATE TABLE t1( a DECIMAL ON UPDATE $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a DECIMAL ON UPDATE $current_timestamp );
 --error ER_INVALID_ON_UPDATE
-eval CREATE TABLE t1( a DATE ON UPDATE $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a DATE ON UPDATE $current_timestamp );
 --error ER_INVALID_ON_UPDATE
-eval CREATE TABLE t1( a TIME ON UPDATE $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a TIME ON UPDATE $current_timestamp );
 --error ER_INVALID_ON_UPDATE
-eval CREATE TABLE t1( a YEAR ON UPDATE $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a YEAR ON UPDATE $current_timestamp );
+
+drop table if exists t1;
 
 --echo #
 --echo # Test that the default clause behaves like NOW() regarding time zones.
@@ -843,10 +835,10 @@ SELECT 1, 2 INTO OUTFILE 't5.dat' FROM dual;
 --echo # Mon Aug 1 15:11:19 2011 UTC
 SET TIMESTAMP = 1312211479.918273;
 
-LOAD DATA INFILE 't3.dat' INTO TABLE t1;
+LOAD DATA INFILE 't3.dat' IGNORE INTO TABLE t1;
 --query_vertical SELECT * FROM t1
 
-LOAD DATA INFILE 't4.dat' INTO TABLE t2;
+LOAD DATA INFILE 't4.dat' IGNORE INTO TABLE t2;
 SELECT a FROM t2;
 SELECT b FROM t2;
 SELECT c FROM t2;
@@ -874,7 +866,7 @@ DELETE FROM t2;
 --echo # (read_fixed_length()) than under the LOAD ... INTO TABLE t1 command
 --echo # above. The code in this path is copy-pasted code from the path taken
 --echo # under the syntax used in the previous LOAD command.
-LOAD DATA INFILE 't3.dat' INTO TABLE t1
+LOAD DATA INFILE 't3.dat' IGNORE INTO TABLE t1
 FIELDS TERMINATED BY '' ENCLOSED BY '';
 
 SELECT b FROM t1;
@@ -962,7 +954,7 @@ CREATE TABLE t1 (
 --echo # There is no promotion
 SHOW CREATE TABLE t1;
 
-LOAD DATA INFILE "file1.dat" INTO table t1;
+LOAD DATA INFILE "file1.dat" IGNORE INTO table t1;
 
 --echo # It is strange that "like_b" gets NULL when "b" gets 0. But
 --echo # this is consistent with how "a" gets NULL when "b" gets 0,
@@ -979,7 +971,7 @@ modify f TIMESTAMP NULL default CURRENT_TIMESTAMP;
 --echo # There is no promotion
 SHOW CREATE TABLE t1;
 
-LOAD DATA INFILE "file1.dat" INTO table t1;
+LOAD DATA INFILE "file1.dat" IGNORE INTO table t1;
 
 --query_vertical SELECT * FROM t1
 delete from t1;
@@ -1015,7 +1007,7 @@ CREATE TABLE t1 (
 --echo # There is no promotion
 SHOW CREATE TABLE t1;
 
-LOAD DATA INFILE "file2.dat" INTO table t1;
+LOAD DATA INFILE "file2.dat" IGNORE INTO table t1;
 
 --query_vertical SELECT * FROM t1
 delete from t1;
@@ -1026,7 +1018,7 @@ modify f TIMESTAMP NULL default CURRENT_TIMESTAMP;
 --echo # There is no promotion
 SHOW CREATE TABLE t1;
 
-LOAD DATA INFILE "file2.dat" INTO table t1;
+LOAD DATA INFILE "file2.dat" IGNORE INTO table t1;
 
 --query_vertical SELECT * FROM t1
 delete from t1;

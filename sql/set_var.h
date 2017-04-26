@@ -48,6 +48,7 @@ struct sys_var_chain
 int mysql_add_sys_var_chain(sys_var *chain);
 int mysql_del_sys_var_chain(sys_var *chain);
 
+
 /**
   A class representing one system variable - that is something
   that can be accessed as @@global.variable_name or @@session.variable_name,
@@ -60,6 +61,7 @@ class sys_var: protected Value_source // for double_from_string_with_check
 public:
   sys_var *next;
   LEX_CSTRING name;
+  bool *test_load;
   enum flag_enum { GLOBAL, SESSION, ONLY_SESSION, SCOPE_MASK=1023,
                    READONLY=1024, ALLOCATED=2048, PARSE_EARLY=4096,
                    NO_SET_STATEMENT=8192, AUTO_SET=16384};
@@ -240,6 +242,9 @@ protected:
 
   uchar *global_var_ptr()
   { return ((uchar*)&global_system_variables) + offset; }
+
+  friend class Session_sysvars_tracker;
+  friend class Session_tracker;
 };
 
 #include "sql_plugin.h"                    /* SHOW_HA_ROWS, SHOW_MY_BOOL */
@@ -385,7 +390,7 @@ extern SHOW_COMP_OPTION have_openssl;
 SHOW_VAR* enumerate_sys_vars(THD *thd, bool sorted, enum enum_var_type type);
 int fill_sysvars(THD *thd, TABLE_LIST *tables, COND *cond);
 
-sys_var *find_sys_var(THD *thd, const char *str, uint length=0);
+sys_var *find_sys_var(THD *thd, const char *str, size_t length=0);
 int sql_set_variables(THD *thd, List<set_var_base> *var_list, bool free);
 
 #define SYSVAR_AUTOSIZE(VAR,VAL)                        \
@@ -405,8 +410,8 @@ inline bool IS_SYSVAR_AUTOSIZE(void *ptr)
 
 bool fix_delay_key_write(sys_var *self, THD *thd, enum_var_type type);
 
-ulonglong expand_sql_mode(ulonglong sql_mode);
-bool sql_mode_string_representation(THD *thd, ulonglong sql_mode, LEX_STRING *ls);
+sql_mode_t expand_sql_mode(sql_mode_t sql_mode);
+bool sql_mode_string_representation(THD *thd, sql_mode_t sql_mode, LEX_STRING *ls);
 int default_regex_flags_pcre(const THD *thd);
 
 extern sys_var *Sys_autocommit_ptr;
@@ -414,6 +419,7 @@ extern sys_var *Sys_autocommit_ptr;
 CHARSET_INFO *get_old_charset_by_name(const char *old_name);
 
 int sys_var_init();
+uint sys_var_elements();
 int sys_var_add_options(DYNAMIC_ARRAY *long_options, int parse_flags);
 void sys_var_end(void);
 

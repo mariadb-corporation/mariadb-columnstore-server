@@ -20,7 +20,6 @@ mysqld_ld_preload=
 mysqld_ld_library_path=
 flush_caches=0
 numa_interleave=0
-unsafe_my_cnf=0
 wsrep_on=0
 dry_run=0
 
@@ -291,13 +290,6 @@ wsrep_recover_position() {
   return $ret
 }
 
-check_executable_location() {
-  if test "$unsafe_my_cnf" = 1 -a "$unrecognized_handling" != collect; then
-    log_error "Cannot accept $1 from a config file, when my.cnf is in the datadir"
-    exit 1
-  fi
-}
-
 parse_arguments() {
   for arg do
     val=`echo "$arg" | sed -e "s;--[^=]*=;;"`
@@ -328,14 +320,13 @@ parse_arguments() {
 
       # mysqld_safe-specific options - must be set in my.cnf ([mysqld_safe])!
       --core[-_]file[-_]size=*) core_file_size="$val" ;;
-      --ledir=*) check_executable_location "$arg" ; ledir="$val" ;;
-      --malloc[-_]lib=*) check_executable_location "$arg"; set_malloc_lib "$val" ;;
-      --crash[-_]script=*) check_executable_location "$arg"; crash_script="$val" ;;
-      --mysqld=*) check_executable_location "$arg"; MYSQLD="$val" ;;
+      --ledir=*) ledir="$val" ;;
+      --malloc[-_]lib=*) set_malloc_lib "$val" ;;
+      --crash[-_]script=*) crash_script="$val" ;;
+      --mysqld=*) MYSQLD="$val" ;;
       --mysqld[-_]version=*)
         if test -n "$val"
         then
-          check_executable_location "$arg"
           MYSQLD="mysqld-$val"
           PLUGIN_VARIANT="/$val"
         else
@@ -566,10 +557,6 @@ print_defaults=`find_in_bin my_print_defaults`
 if test -d $MY_BASEDIR_VERSION/data/mysql
 then
   DATADIR=$MY_BASEDIR_VERSION/data
-  if test -z "$defaults" -a -r "$DATADIR/my.cnf"
-  then
-    defaults="--defaults-extra-file=$DATADIR/my.cnf"
-  fi
 # Next try where the source installs put it
 elif test -d $MY_BASEDIR_VERSION/var/mysql
 then
@@ -581,24 +568,13 @@ fi
 
 if test -z "$MYSQL_HOME"
 then 
-  if test -r "$MY_BASEDIR_VERSION/my.cnf" && test -r "$DATADIR/my.cnf"
-  then
-    log_error "WARNING: Found two instances of my.cnf -
-$MY_BASEDIR_VERSION/my.cnf and
-$DATADIR/my.cnf
-IGNORING $DATADIR/my.cnf"
-
-    MYSQL_HOME=$MY_BASEDIR_VERSION
-  elif test -r "$DATADIR/my.cnf"
+  if test -r "$DATADIR/my.cnf"
   then
     log_error "WARNING: Found $DATADIR/my.cnf
-The data directory is a deprecated location for my.cnf, please move it to
+The data directory is not a valid location for my.cnf, please move it to
 $MY_BASEDIR_VERSION/my.cnf"
-    unsafe_my_cnf=1
-    MYSQL_HOME=$DATADIR
-  else
-    MYSQL_HOME=$MY_BASEDIR_VERSION
   fi
+  MYSQL_HOME=$MY_BASEDIR_VERSION
 fi
 export MYSQL_HOME
 
@@ -1106,4 +1082,3 @@ do
 done
 
 log_notice "mysqld from pid file $pid_file ended"
-

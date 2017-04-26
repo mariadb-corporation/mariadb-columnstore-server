@@ -1,7 +1,6 @@
 /* -*- C++ -*- */
 /*
    Copyright (c) 2002, 2011, Oracle and/or its affiliates.
-Copyright (c) 2016, MariaDB Corporation
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -45,9 +44,6 @@ Copyright (c) 2016, MariaDB Corporation
 // in the CREATE TABLE command.
 //#define TYPE_ENUM_FUNCTION  1 #define TYPE_ENUM_PROCEDURE 2 #define
 //TYPE_ENUM_TRIGGER   3 #define TYPE_ENUM_PROXY     4
-
-Item_result
-sp_map_result_type(enum enum_field_types type);
 
 Item::Type
 sp_map_item_type(enum enum_field_types type);
@@ -182,11 +178,11 @@ public:
   stored_procedure_type m_type;
   uint m_flags;                 // Boolean attributes of a stored routine
 
-  Create_field m_return_field_def; /**< This is used for FUNCTIONs only. */
+  Column_definition m_return_field_def; /**< This is used for FUNCTIONs only. */
 
   const char *m_tmp_query;	///< Temporary pointer to sub query string
   st_sp_chistics *m_chistics;
-  ulonglong m_sql_mode;		///< For SHOW CREATE and execution
+  sql_mode_t m_sql_mode;		///< For SHOW CREATE and execution
   LEX_STRING m_qname;		///< db.name
   bool m_explicit_name;         ///< Prepend the db name? */
   LEX_STRING m_db;
@@ -390,7 +386,7 @@ public:
 
   /// Put the instruction on the backpatch list, associated with the label.
   int
-  push_backpatch(sp_instr *, sp_label *);
+  push_backpatch(THD *thd, sp_instr *, sp_label *);
 
   /// Update all instruction with this label in the backpatch list to
   /// the current position.
@@ -422,11 +418,10 @@ public:
                              TABLE *table);
 
   bool fill_field_definition(THD *thd, LEX *lex,
-                             enum enum_field_types field_type,
-                             Create_field *field_def);
+                             Column_definition *field_def);
 
   void set_info(longlong created, longlong modified,
-		st_sp_chistics *chistics, ulonglong sql_mode);
+		st_sp_chistics *chistics, sql_mode_t sql_mode);
 
   void set_definer(const char *definer, uint definerlen);
   void set_definer(const LEX_STRING *user_name, const LEX_STRING *host_name);

@@ -15,7 +15,7 @@ CREATE USER user_name_to_encrypt;
 GRANT ALL ON database_name_to_encrypt.* TO user_name_to_encrypt;
 SET PASSWORD FOR user_name_to_encrypt = PASSWORD('password_to_encrypt');
 CREATE TABLE innodb_table_name_to_encrypt (
-int_column_name_to_encrypt INT AUTO_INCREMENT PRIMARY KEY,
+int_column_name_to_encrypt INT PRIMARY KEY,
 timestamp_column_name_to_encrypt TIMESTAMP(6) NULL,
 blob_column_name_to_encrypt BLOB,
 virt_column_name_to_encrypt INT AS (int_column_name_to_encrypt % 10) VIRTUAL,
@@ -110,8 +110,9 @@ BEGIN NOT ATOMIC
 DECLARE counter_name_to_encrypt INT DEFAULT 0;
 START TRANSACTION;
 WHILE counter_name_to_encrypt<12 DO
+SELECT COUNT(*) INTO @cnt FROM innodb_table_name_to_encrypt;
 INSERT INTO innodb_table_name_to_encrypt 
-SELECT NULL, NOW(6), blob_column_name_to_encrypt, NULL, NULL
+SELECT int_column_name_to_encrypt+@cnt, NOW(6), blob_column_name_to_encrypt, NULL, NULL
 FROM innodb_table_name_to_encrypt
 ORDER BY int_column_name_to_encrypt;
 SET counter_name_to_encrypt = counter_name_to_encrypt+1;

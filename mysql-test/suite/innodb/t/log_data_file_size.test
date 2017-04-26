@@ -6,7 +6,6 @@ let MYSQLD_DATADIR=`select @@datadir`;
 let MYSQLD_IS_DEBUG=`select version() like '%debug%'`;
 --source include/no_checkpoint_start.inc
 SET GLOBAL innodb_file_per_table=0;
-SET GLOBAL innodb_file_format=barracuda;
 CREATE TABLE t(a INT)ENGINE=InnoDB;
 let INNODB_ROOT_PAGE= `SELECT page_no FROM INFORMATION_SCHEMA.INNODB_SYS_INDEXES WHERE name='GEN_CLUST_INDEX'`;
 SET GLOBAL innodb_file_per_table=1;

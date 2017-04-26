@@ -27,7 +27,6 @@
 #include "sql_table.h"                         // write_bin_log
 #include "sql_view.h"             // mysql_frm_type, mysql_rename_view
 #include "sql_trigger.h"
-#include "lock.h"       // MYSQL_OPEN_SKIP_TEMPORARY
 #include "sql_base.h"   // tdc_remove_table, lock_table_names,
 #include "sql_handler.h"                        // mysql_ha_rm_tables
 #include "sql_statistics.h" 
@@ -229,7 +228,7 @@ do_rename_temporary(THD *thd, TABLE_LIST *ren_table, TABLE_LIST *new_table,
   }
 
 
-  DBUG_RETURN(rename_temporary_table(thd, ren_table->table,
+  DBUG_RETURN(thd->rename_temporary_table(ren_table->table,
               new_table->db, new_alias));
 }
 
