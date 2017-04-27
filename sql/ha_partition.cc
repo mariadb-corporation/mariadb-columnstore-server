@@ -1281,8 +1281,8 @@ static bool print_admin_msg(THD* thd, uint len,
   length=(uint) (strxmov(name, db_name, ".", table_name.c_ptr_safe(), NullS) - name);
   /*
      TODO: switch from protocol to push_warning here. The main reason we didn't
-     it yet is parallel repair. Due to following trace:
-     mi_check_print_msg/push_warning/sql_alloc/my_pthread_getspecific_ptr.
+     it yet is parallel repair, which threads have no THD object accessible via
+     current_thd.
 
      Also we likely need to lock mutex here (in both cases with protocol and
      push_warning).
@@ -3434,7 +3434,7 @@ int ha_partition::open(const char *name, int mode, uint test_if_locked)
   }
   m_start_key.length= 0;
   m_rec0= table->record[0];
-  m_rec_length= table_share->stored_rec_length;
+  m_rec_length= table_share->reclength;
   if (!m_part_ids_sorted_by_num_of_records)
   {
     if (!(m_part_ids_sorted_by_num_of_records=
@@ -3793,6 +3793,8 @@ int ha_partition::external_lock(THD *thd, int lock_type)
       (void) (*file)->ha_external_lock(thd, lock_type);
     } while (*(++file));
   }
+  if (lock_type == F_WRLCK && m_part_info->part_expr)
+    m_part_info->part_expr->walk(&Item::register_field_in_read_map, 1, 0);
   DBUG_RETURN(0);
 
 err_handler:
@@ -3927,6 +3929,8 @@ int ha_partition::start_stmt(THD *thd, thr_lock_type lock_type)
     /* Add partition to be called in reset(). */
     bitmap_set_bit(&m_partitions_to_reset, i);
   }
+  if (lock_type == F_WRLCK && m_part_info->part_expr)
+    m_part_info->part_expr->walk(&Item::register_field_in_read_map, 1, 0);
   DBUG_RETURN(error);
 }
 
@@ -7271,6 +7275,7 @@ int ha_partition::reset(void)
       result= tmp;
   }
   bitmap_clear_all(&m_partitions_to_reset);
+  m_extra_prepare_for_update= FALSE;
   DBUG_RETURN(result);
 }
 
@@ -7955,7 +7960,7 @@ void ha_partition::append_row_to_str(String &str)
   {
     Field **field_ptr;
     if (!is_rec0)
-      set_field_ptr(m_part_info->full_part_field_array, rec,
+      table->move_fields(m_part_info->full_part_field_array, rec,
                     table->record[0]);
     /* No primary key, use full partition field array. */
     for (field_ptr= m_part_info->full_part_field_array;
@@ -7969,7 +7974,7 @@ void ha_partition::append_row_to_str(String &str)
       field_unpack(&str, field, rec, 0, false);
     }
     if (!is_rec0)
-      set_field_ptr(m_part_info->full_part_field_array, table->record[0],
+      table->move_fields(m_part_info->full_part_field_array, table->record[0],
                     rec);
   }
 }
@@ -8436,18 +8441,6 @@ uint ha_partition::max_supported_keys() const
 }
 
 
-uint ha_partition::extra_rec_buf_length() const
-{
-  handler **file;
-  uint max= (*m_file)->extra_rec_buf_length();
-
-  for (file= m_file, file++; *file; file++)
-    if (max < (*file)->extra_rec_buf_length())
-      max= (*file)->extra_rec_buf_length();
-  return max;
-}
-
-
 uint ha_partition::min_record_length(uint options) const
 {
   handler **file;
@@ -8458,7 +8451,6 @@ uint ha_partition::min_record_length(uint options) const
       max= (*file)->min_record_length(options);
   return max;
 }
-
 
 /****************************************************************************
                 MODULE compare records
@@ -9058,7 +9050,7 @@ int ha_partition::check_for_upgrade(HA_CHECK_OPT *check_opt)
           }
           m_part_info->key_algorithm= partition_info::KEY_ALGORITHM_51;
           if (skip_generation ||
-              !(part_buf= generate_partition_syntax(m_part_info,
+              !(part_buf= generate_partition_syntax(thd, m_part_info,
                                                     &part_buf_len,
                                                     true,
                                                     true,

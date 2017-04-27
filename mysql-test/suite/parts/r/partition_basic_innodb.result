@@ -67,14 +67,14 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY HASH (f_int1)
-PARTITIONS 2 */
+ PARTITION BY HASH (f_int1)
+PARTITIONS 2
 
 unified filelist
 t1#P#p0.ibd
@@ -524,14 +524,14 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY KEY (f_int1)
-PARTITIONS 5 */
+ PARTITION BY KEY (f_int1)
+PARTITIONS 5
 
 unified filelist
 t1#P#p0.ibd
@@ -992,13 +992,13 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (MOD(f_int1,4))
+ PARTITION BY LIST (MOD(f_int1,4))
 (PARTITION part_3 VALUES IN (-3) ENGINE = InnoDB,
  PARTITION part_2 VALUES IN (-2) ENGINE = InnoDB,
  PARTITION part_1 VALUES IN (-1) ENGINE = InnoDB,
@@ -1006,7 +1006,7 @@ t1	CREATE TABLE `t1` (
  PARTITION part0 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part1 VALUES IN (1) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (2) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (3) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (3) ENGINE = InnoDB)
 
 unified filelist
 t1#P#part0.ibd
@@ -1468,19 +1468,19 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
  PARTITION partd VALUES LESS THAN (15) ENGINE = InnoDB,
  PARTITION parte VALUES LESS THAN (20) ENGINE = InnoDB,
- PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 unified filelist
 t1#P#parta.ibd
@@ -1936,19 +1936,19 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1 DIV 2)
+ PARTITION BY RANGE (f_int1 DIV 2)
 SUBPARTITION BY HASH (f_int1)
 SUBPARTITIONS 2
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
- PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 unified filelist
 t1#P#parta#SP#partasp0.ibd
@@ -2412,13 +2412,13 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY KEY (f_int1)
 (PARTITION part1 VALUES LESS THAN (0)
  (SUBPARTITION subpart11 ENGINE = InnoDB,
@@ -2431,7 +2431,7 @@ SUBPARTITION BY KEY (f_int1)
   SUBPARTITION subpart32 ENGINE = InnoDB),
  PARTITION part4 VALUES LESS THAN (2147483646)
  (SUBPARTITION subpart41 ENGINE = InnoDB,
-  SUBPARTITION subpart42 ENGINE = InnoDB)) */
+  SUBPARTITION subpart42 ENGINE = InnoDB))
 
 unified filelist
 t1#P#part1#SP#subpart11.ibd
@@ -2897,13 +2897,13 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,3)))
+ PARTITION BY LIST (ABS(MOD(f_int1,3)))
 SUBPARTITION BY HASH (f_int1 + 1)
 (PARTITION part1 VALUES IN (0)
  (SUBPARTITION sp11 ENGINE = InnoDB,
@@ -2916,7 +2916,7 @@ SUBPARTITION BY HASH (f_int1 + 1)
   SUBPARTITION sp32 ENGINE = InnoDB),
  PARTITION part4 VALUES IN (NULL)
  (SUBPARTITION sp41 ENGINE = InnoDB,
-  SUBPARTITION sp42 ENGINE = InnoDB)) */
+  SUBPARTITION sp42 ENGINE = InnoDB))
 
 unified filelist
 t1#P#part1#SP#sp11.ibd
@@ -3376,18 +3376,18 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,2)))
+ PARTITION BY LIST (ABS(MOD(f_int1,2)))
 SUBPARTITION BY KEY (f_int1)
 SUBPARTITIONS 3
 (PARTITION part1 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (1) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB)
 
 unified filelist
 t1#P#part1#SP#part1sp0.ibd
@@ -3846,14 +3846,14 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY HASH (f_int1 + f_int2)
-PARTITIONS 2 */
+ PARTITION BY HASH (f_int1 + f_int2)
+PARTITIONS 2
 
 unified filelist
 t1#P#p0.ibd
@@ -4303,14 +4303,14 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY KEY (f_int1,f_int2)
-PARTITIONS 5 */
+ PARTITION BY KEY (f_int1,f_int2)
+PARTITIONS 5
 
 unified filelist
 t1#P#p0.ibd
@@ -4771,13 +4771,13 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (MOD(f_int1 + f_int2,4))
+ PARTITION BY LIST (MOD(f_int1 + f_int2,4))
 (PARTITION part_3 VALUES IN (-3) ENGINE = InnoDB,
  PARTITION part_2 VALUES IN (-2) ENGINE = InnoDB,
  PARTITION part_1 VALUES IN (-1) ENGINE = InnoDB,
@@ -4785,7 +4785,7 @@ t1	CREATE TABLE `t1` (
  PARTITION part0 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part1 VALUES IN (1) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (2) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (3) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (3) ENGINE = InnoDB)
 
 unified filelist
 t1#P#part0.ibd
@@ -5247,19 +5247,19 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE ((f_int1 + f_int2) DIV 2)
+ PARTITION BY RANGE ((f_int1 + f_int2) DIV 2)
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
  PARTITION partd VALUES LESS THAN (15) ENGINE = InnoDB,
  PARTITION parte VALUES LESS THAN (20) ENGINE = InnoDB,
- PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 unified filelist
 t1#P#parta.ibd
@@ -5715,19 +5715,19 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY HASH (f_int2)
 SUBPARTITIONS 2
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
- PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 unified filelist
 t1#P#parta#SP#partasp0.ibd
@@ -6189,13 +6189,13 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY KEY (f_int2)
 (PARTITION part1 VALUES LESS THAN (0)
  (SUBPARTITION subpart11 ENGINE = InnoDB,
@@ -6208,7 +6208,7 @@ SUBPARTITION BY KEY (f_int2)
   SUBPARTITION subpart32 ENGINE = InnoDB),
  PARTITION part4 VALUES LESS THAN (2147483646)
  (SUBPARTITION subpart41 ENGINE = InnoDB,
-  SUBPARTITION subpart42 ENGINE = InnoDB)) */
+  SUBPARTITION subpart42 ENGINE = InnoDB))
 
 unified filelist
 t1#P#part1#SP#subpart11.ibd
@@ -6670,13 +6670,13 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,3)))
+ PARTITION BY LIST (ABS(MOD(f_int1,3)))
 SUBPARTITION BY HASH (f_int2 + 1)
 (PARTITION part1 VALUES IN (0)
  (SUBPARTITION sp11 ENGINE = InnoDB,
@@ -6689,7 +6689,7 @@ SUBPARTITION BY HASH (f_int2 + 1)
   SUBPARTITION sp32 ENGINE = InnoDB),
  PARTITION part4 VALUES IN (NULL)
  (SUBPARTITION sp41 ENGINE = InnoDB,
-  SUBPARTITION sp42 ENGINE = InnoDB)) */
+  SUBPARTITION sp42 ENGINE = InnoDB))
 
 unified filelist
 t1#P#part1#SP#sp11.ibd
@@ -7149,18 +7149,18 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,2)))
+ PARTITION BY LIST (ABS(MOD(f_int1,2)))
 SUBPARTITION BY KEY (f_int2)
 SUBPARTITIONS 3
 (PARTITION part1 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (1) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB)
 
 unified filelist
 t1#P#part1#SP#part1sp0.ibd
@@ -7623,16 +7623,16 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int2`,`f_int1`),
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY HASH (f_int1)
-PARTITIONS 2 */
+ PARTITION BY HASH (f_int1)
+PARTITIONS 2
 
 unified filelist
 t1#P#p0.ibd
@@ -8117,16 +8117,16 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int2`,`f_int1`),
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY KEY (f_int1)
-PARTITIONS 5 */
+ PARTITION BY KEY (f_int1)
+PARTITIONS 5
 
 unified filelist
 t1#P#p0.ibd
@@ -8622,15 +8622,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int2`,`f_int1`),
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (MOD(f_int1,4))
+ PARTITION BY LIST (MOD(f_int1,4))
 (PARTITION part_3 VALUES IN (-3) ENGINE = InnoDB,
  PARTITION part_2 VALUES IN (-2) ENGINE = InnoDB,
  PARTITION part_1 VALUES IN (-1) ENGINE = InnoDB,
@@ -8638,7 +8638,7 @@ t1	CREATE TABLE `t1` (
  PARTITION part0 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part1 VALUES IN (1) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (2) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (3) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (3) ENGINE = InnoDB)
 
 unified filelist
 t1#P#part0.ibd
@@ -9135,21 +9135,21 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int2`,`f_int1`),
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
  PARTITION partd VALUES LESS THAN (15) ENGINE = InnoDB,
  PARTITION parte VALUES LESS THAN (20) ENGINE = InnoDB,
- PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 unified filelist
 t1#P#parta.ibd
@@ -9640,21 +9640,21 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int2`,`f_int1`),
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1 DIV 2)
+ PARTITION BY RANGE (f_int1 DIV 2)
 SUBPARTITION BY HASH (f_int1)
 SUBPARTITIONS 2
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
- PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 unified filelist
 t1#P#parta#SP#partasp0.ibd
@@ -10153,15 +10153,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int2`,`f_int1`),
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY KEY (f_int1)
 (PARTITION part1 VALUES LESS THAN (0)
  (SUBPARTITION subpart11 ENGINE = InnoDB,
@@ -10174,7 +10174,7 @@ SUBPARTITION BY KEY (f_int1)
   SUBPARTITION subpart32 ENGINE = InnoDB),
  PARTITION part4 VALUES LESS THAN (2147483646)
  (SUBPARTITION subpart41 ENGINE = InnoDB,
-  SUBPARTITION subpart42 ENGINE = InnoDB)) */
+  SUBPARTITION subpart42 ENGINE = InnoDB))
 
 unified filelist
 t1#P#part1#SP#subpart11.ibd
@@ -10675,15 +10675,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int2`,`f_int1`),
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,3)))
+ PARTITION BY LIST (ABS(MOD(f_int1,3)))
 SUBPARTITION BY HASH (f_int1 + 1)
 (PARTITION part1 VALUES IN (0)
  (SUBPARTITION sp11 ENGINE = InnoDB,
@@ -10696,7 +10696,7 @@ SUBPARTITION BY HASH (f_int1 + 1)
   SUBPARTITION sp32 ENGINE = InnoDB),
  PARTITION part4 VALUES IN (NULL)
  (SUBPARTITION sp41 ENGINE = InnoDB,
-  SUBPARTITION sp42 ENGINE = InnoDB)) */
+  SUBPARTITION sp42 ENGINE = InnoDB))
 
 unified filelist
 t1#P#part1#SP#sp11.ibd
@@ -11191,20 +11191,20 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int2`,`f_int1`),
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,2)))
+ PARTITION BY LIST (ABS(MOD(f_int1,2)))
 SUBPARTITION BY KEY (f_int1)
 SUBPARTITIONS 3
 (PARTITION part1 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (1) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB)
 
 unified filelist
 t1#P#part1#SP#part1sp0.ibd
@@ -11697,16 +11697,16 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx1` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY HASH (f_int1)
-PARTITIONS 2 */
+ PARTITION BY HASH (f_int1)
+PARTITIONS 2
 
 unified filelist
 t1#P#p0.ibd
@@ -12191,16 +12191,16 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx1` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY KEY (f_int1)
-PARTITIONS 5 */
+ PARTITION BY KEY (f_int1)
+PARTITIONS 5
 
 unified filelist
 t1#P#p0.ibd
@@ -12696,15 +12696,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx1` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (MOD(f_int1,4))
+ PARTITION BY LIST (MOD(f_int1,4))
 (PARTITION part_3 VALUES IN (-3) ENGINE = InnoDB,
  PARTITION part_2 VALUES IN (-2) ENGINE = InnoDB,
  PARTITION part_1 VALUES IN (-1) ENGINE = InnoDB,
@@ -12712,7 +12712,7 @@ t1	CREATE TABLE `t1` (
  PARTITION part0 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part1 VALUES IN (1) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (2) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (3) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (3) ENGINE = InnoDB)
 
 unified filelist
 t1#P#part0.ibd
@@ -13209,21 +13209,21 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx1` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
  PARTITION partd VALUES LESS THAN (15) ENGINE = InnoDB,
  PARTITION parte VALUES LESS THAN (20) ENGINE = InnoDB,
- PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 unified filelist
 t1#P#parta.ibd
@@ -13714,21 +13714,21 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx1` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1 DIV 2)
+ PARTITION BY RANGE (f_int1 DIV 2)
 SUBPARTITION BY HASH (f_int1)
 SUBPARTITIONS 2
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
- PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 unified filelist
 t1#P#parta#SP#partasp0.ibd
@@ -14227,15 +14227,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx1` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY KEY (f_int1)
 (PARTITION part1 VALUES LESS THAN (0)
  (SUBPARTITION subpart11 ENGINE = InnoDB,
@@ -14248,7 +14248,7 @@ SUBPARTITION BY KEY (f_int1)
   SUBPARTITION subpart32 ENGINE = InnoDB),
  PARTITION part4 VALUES LESS THAN (2147483646)
  (SUBPARTITION subpart41 ENGINE = InnoDB,
-  SUBPARTITION subpart42 ENGINE = InnoDB)) */
+  SUBPARTITION subpart42 ENGINE = InnoDB))
 
 unified filelist
 t1#P#part1#SP#subpart11.ibd
@@ -14749,15 +14749,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx1` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,3)))
+ PARTITION BY LIST (ABS(MOD(f_int1,3)))
 SUBPARTITION BY HASH (f_int1 + 1)
 (PARTITION part1 VALUES IN (0)
  (SUBPARTITION sp11 ENGINE = InnoDB,
@@ -14770,7 +14770,7 @@ SUBPARTITION BY HASH (f_int1 + 1)
   SUBPARTITION sp32 ENGINE = InnoDB),
  PARTITION part4 VALUES IN (NULL)
  (SUBPARTITION sp41 ENGINE = InnoDB,
-  SUBPARTITION sp42 ENGINE = InnoDB)) */
+  SUBPARTITION sp42 ENGINE = InnoDB))
 
 unified filelist
 t1#P#part1#SP#sp11.ibd
@@ -15265,20 +15265,20 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx1` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,2)))
+ PARTITION BY LIST (ABS(MOD(f_int1,2)))
 SUBPARTITION BY KEY (f_int1)
 SUBPARTITIONS 3
 (PARTITION part1 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (1) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB)
 
 unified filelist
 t1#P#part1#SP#part1sp0.ibd
@@ -15771,16 +15771,16 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY HASH (f_int1)
-PARTITIONS 2 */
+ PARTITION BY HASH (f_int1)
+PARTITIONS 2
 
 unified filelist
 t1#P#p0.ibd
@@ -16281,16 +16281,16 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY KEY (f_int1)
-PARTITIONS 5 */
+ PARTITION BY KEY (f_int1)
+PARTITIONS 5
 
 unified filelist
 t1#P#p0.ibd
@@ -16802,15 +16802,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (MOD(f_int1,4))
+ PARTITION BY LIST (MOD(f_int1,4))
 (PARTITION part_3 VALUES IN (-3) ENGINE = InnoDB,
  PARTITION part_2 VALUES IN (-2) ENGINE = InnoDB,
  PARTITION part_1 VALUES IN (-1) ENGINE = InnoDB,
@@ -16818,7 +16818,7 @@ t1	CREATE TABLE `t1` (
  PARTITION part0 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part1 VALUES IN (1) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (2) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (3) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (3) ENGINE = InnoDB)
 
 unified filelist
 t1#P#part0.ibd
@@ -17331,21 +17331,21 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
  PARTITION partd VALUES LESS THAN (15) ENGINE = InnoDB,
  PARTITION parte VALUES LESS THAN (20) ENGINE = InnoDB,
- PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 unified filelist
 t1#P#parta.ibd
@@ -17852,21 +17852,21 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1 DIV 2)
+ PARTITION BY RANGE (f_int1 DIV 2)
 SUBPARTITION BY HASH (f_int1)
 SUBPARTITIONS 2
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
- PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 unified filelist
 t1#P#parta#SP#partasp0.ibd
@@ -18381,15 +18381,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY KEY (f_int1)
 (PARTITION part1 VALUES LESS THAN (0)
  (SUBPARTITION subpart11 ENGINE = InnoDB,
@@ -18402,7 +18402,7 @@ SUBPARTITION BY KEY (f_int1)
   SUBPARTITION subpart32 ENGINE = InnoDB),
  PARTITION part4 VALUES LESS THAN (2147483646)
  (SUBPARTITION subpart41 ENGINE = InnoDB,
-  SUBPARTITION subpart42 ENGINE = InnoDB)) */
+  SUBPARTITION subpart42 ENGINE = InnoDB))
 
 unified filelist
 t1#P#part1#SP#subpart11.ibd
@@ -18919,15 +18919,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,3)))
+ PARTITION BY LIST (ABS(MOD(f_int1,3)))
 SUBPARTITION BY HASH (f_int1 + 1)
 (PARTITION part1 VALUES IN (0)
  (SUBPARTITION sp11 ENGINE = InnoDB,
@@ -18940,7 +18940,7 @@ SUBPARTITION BY HASH (f_int1 + 1)
   SUBPARTITION sp32 ENGINE = InnoDB),
  PARTITION part4 VALUES IN (NULL)
  (SUBPARTITION sp41 ENGINE = InnoDB,
-  SUBPARTITION sp42 ENGINE = InnoDB)) */
+  SUBPARTITION sp42 ENGINE = InnoDB))
 
 unified filelist
 t1#P#part1#SP#sp11.ibd
@@ -19451,20 +19451,20 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,2)))
+ PARTITION BY LIST (ABS(MOD(f_int1,2)))
 SUBPARTITION BY KEY (f_int1)
 SUBPARTITIONS 3
 (PARTITION part1 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (1) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB)
 
 unified filelist
 t1#P#part1#SP#part1sp0.ibd
@@ -19978,16 +19978,16 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int2`,`f_int1`),
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY HASH (f_int1 + f_int2)
-PARTITIONS 2 */
+ PARTITION BY HASH (f_int1 + f_int2)
+PARTITIONS 2
 
 unified filelist
 t1#P#p0.ibd
@@ -20472,16 +20472,16 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int2`,`f_int1`),
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY KEY (f_int1,f_int2)
-PARTITIONS 5 */
+ PARTITION BY KEY (f_int1,f_int2)
+PARTITIONS 5
 
 unified filelist
 t1#P#p0.ibd
@@ -20977,15 +20977,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int2`,`f_int1`),
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (MOD(f_int1 + f_int2,4))
+ PARTITION BY LIST (MOD(f_int1 + f_int2,4))
 (PARTITION part_3 VALUES IN (-3) ENGINE = InnoDB,
  PARTITION part_2 VALUES IN (-2) ENGINE = InnoDB,
  PARTITION part_1 VALUES IN (-1) ENGINE = InnoDB,
@@ -20993,7 +20993,7 @@ t1	CREATE TABLE `t1` (
  PARTITION part0 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part1 VALUES IN (1) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (2) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (3) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (3) ENGINE = InnoDB)
 
 unified filelist
 t1#P#part0.ibd
@@ -21490,21 +21490,21 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int2`,`f_int1`),
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE ((f_int1 + f_int2) DIV 2)
+ PARTITION BY RANGE ((f_int1 + f_int2) DIV 2)
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
  PARTITION partd VALUES LESS THAN (15) ENGINE = InnoDB,
  PARTITION parte VALUES LESS THAN (20) ENGINE = InnoDB,
- PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 unified filelist
 t1#P#parta.ibd
@@ -21995,21 +21995,21 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int2`,`f_int1`),
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY HASH (f_int2)
 SUBPARTITIONS 2
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
- PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 unified filelist
 t1#P#parta#SP#partasp0.ibd
@@ -22506,15 +22506,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int2`,`f_int1`),
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY KEY (f_int2)
 (PARTITION part1 VALUES LESS THAN (0)
  (SUBPARTITION subpart11 ENGINE = InnoDB,
@@ -22527,7 +22527,7 @@ SUBPARTITION BY KEY (f_int2)
   SUBPARTITION subpart32 ENGINE = InnoDB),
  PARTITION part4 VALUES LESS THAN (2147483646)
  (SUBPARTITION subpart41 ENGINE = InnoDB,
-  SUBPARTITION subpart42 ENGINE = InnoDB)) */
+  SUBPARTITION subpart42 ENGINE = InnoDB))
 
 unified filelist
 t1#P#part1#SP#subpart11.ibd
@@ -23024,15 +23024,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int2`,`f_int1`),
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,3)))
+ PARTITION BY LIST (ABS(MOD(f_int1,3)))
 SUBPARTITION BY HASH (f_int2 + 1)
 (PARTITION part1 VALUES IN (0)
  (SUBPARTITION sp11 ENGINE = InnoDB,
@@ -23045,7 +23045,7 @@ SUBPARTITION BY HASH (f_int2 + 1)
   SUBPARTITION sp32 ENGINE = InnoDB),
  PARTITION part4 VALUES IN (NULL)
  (SUBPARTITION sp41 ENGINE = InnoDB,
-  SUBPARTITION sp42 ENGINE = InnoDB)) */
+  SUBPARTITION sp42 ENGINE = InnoDB))
 
 unified filelist
 t1#P#part1#SP#sp11.ibd
@@ -23540,20 +23540,20 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int2`,`f_int1`),
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,2)))
+ PARTITION BY LIST (ABS(MOD(f_int1,2)))
 SUBPARTITION BY KEY (f_int2)
 SUBPARTITIONS 3
 (PARTITION part1 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (1) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB)
 
 unified filelist
 t1#P#part1#SP#part1sp0.ibd
@@ -24046,16 +24046,16 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx1` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY HASH (f_int1 + f_int2)
-PARTITIONS 2 */
+ PARTITION BY HASH (f_int1 + f_int2)
+PARTITIONS 2
 
 unified filelist
 t1#P#p0.ibd
@@ -24540,16 +24540,16 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx1` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY KEY (f_int1,f_int2)
-PARTITIONS 5 */
+ PARTITION BY KEY (f_int1,f_int2)
+PARTITIONS 5
 
 unified filelist
 t1#P#p0.ibd
@@ -25045,15 +25045,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx1` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (MOD(f_int1 + f_int2,4))
+ PARTITION BY LIST (MOD(f_int1 + f_int2,4))
 (PARTITION part_3 VALUES IN (-3) ENGINE = InnoDB,
  PARTITION part_2 VALUES IN (-2) ENGINE = InnoDB,
  PARTITION part_1 VALUES IN (-1) ENGINE = InnoDB,
@@ -25061,7 +25061,7 @@ t1	CREATE TABLE `t1` (
  PARTITION part0 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part1 VALUES IN (1) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (2) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (3) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (3) ENGINE = InnoDB)
 
 unified filelist
 t1#P#part0.ibd
@@ -25558,21 +25558,21 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx1` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE ((f_int1 + f_int2) DIV 2)
+ PARTITION BY RANGE ((f_int1 + f_int2) DIV 2)
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
  PARTITION partd VALUES LESS THAN (15) ENGINE = InnoDB,
  PARTITION parte VALUES LESS THAN (20) ENGINE = InnoDB,
- PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 unified filelist
 t1#P#parta.ibd
@@ -26063,21 +26063,21 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx1` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY HASH (f_int2)
 SUBPARTITIONS 2
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
- PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 unified filelist
 t1#P#parta#SP#partasp0.ibd
@@ -26574,15 +26574,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx1` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY KEY (f_int2)
 (PARTITION part1 VALUES LESS THAN (0)
  (SUBPARTITION subpart11 ENGINE = InnoDB,
@@ -26595,7 +26595,7 @@ SUBPARTITION BY KEY (f_int2)
   SUBPARTITION subpart32 ENGINE = InnoDB),
  PARTITION part4 VALUES LESS THAN (2147483646)
  (SUBPARTITION subpart41 ENGINE = InnoDB,
-  SUBPARTITION subpart42 ENGINE = InnoDB)) */
+  SUBPARTITION subpart42 ENGINE = InnoDB))
 
 unified filelist
 t1#P#part1#SP#subpart11.ibd
@@ -27092,15 +27092,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx1` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,3)))
+ PARTITION BY LIST (ABS(MOD(f_int1,3)))
 SUBPARTITION BY HASH (f_int2 + 1)
 (PARTITION part1 VALUES IN (0)
  (SUBPARTITION sp11 ENGINE = InnoDB,
@@ -27113,7 +27113,7 @@ SUBPARTITION BY HASH (f_int2 + 1)
   SUBPARTITION sp32 ENGINE = InnoDB),
  PARTITION part4 VALUES IN (NULL)
  (SUBPARTITION sp41 ENGINE = InnoDB,
-  SUBPARTITION sp42 ENGINE = InnoDB)) */
+  SUBPARTITION sp42 ENGINE = InnoDB))
 
 unified filelist
 t1#P#part1#SP#sp11.ibd
@@ -27608,20 +27608,20 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) NOT NULL DEFAULT '0',
-  `f_int2` int(11) NOT NULL DEFAULT '0',
+  `f_int1` int(11) NOT NULL DEFAULT 0,
+  `f_int2` int(11) NOT NULL DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx1` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,2)))
+ PARTITION BY LIST (ABS(MOD(f_int1,2)))
 SUBPARTITION BY KEY (f_int2)
 SUBPARTITIONS 3
 (PARTITION part1 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (1) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB)
 
 unified filelist
 t1#P#part1#SP#part1sp0.ibd
@@ -28114,16 +28114,16 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY HASH (f_int1 + f_int2)
-PARTITIONS 2 */
+ PARTITION BY HASH (f_int1 + f_int2)
+PARTITIONS 2
 
 unified filelist
 t1#P#p0.ibd
@@ -28624,16 +28624,16 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY KEY (f_int1,f_int2)
-PARTITIONS 5 */
+ PARTITION BY KEY (f_int1,f_int2)
+PARTITIONS 5
 
 unified filelist
 t1#P#p0.ibd
@@ -29145,15 +29145,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (MOD(f_int1 + f_int2,4))
+ PARTITION BY LIST (MOD(f_int1 + f_int2,4))
 (PARTITION part_3 VALUES IN (-3) ENGINE = InnoDB,
  PARTITION part_2 VALUES IN (-2) ENGINE = InnoDB,
  PARTITION part_1 VALUES IN (-1) ENGINE = InnoDB,
@@ -29161,7 +29161,7 @@ t1	CREATE TABLE `t1` (
  PARTITION part0 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part1 VALUES IN (1) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (2) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (3) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (3) ENGINE = InnoDB)
 
 unified filelist
 t1#P#part0.ibd
@@ -29674,21 +29674,21 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE ((f_int1 + f_int2) DIV 2)
+ PARTITION BY RANGE ((f_int1 + f_int2) DIV 2)
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
  PARTITION partd VALUES LESS THAN (15) ENGINE = InnoDB,
  PARTITION parte VALUES LESS THAN (20) ENGINE = InnoDB,
- PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 unified filelist
 t1#P#parta.ibd
@@ -30195,21 +30195,21 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY HASH (f_int2)
 SUBPARTITIONS 2
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
- PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 unified filelist
 t1#P#parta#SP#partasp0.ibd
@@ -30722,15 +30722,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY KEY (f_int2)
 (PARTITION part1 VALUES LESS THAN (0)
  (SUBPARTITION subpart11 ENGINE = InnoDB,
@@ -30743,7 +30743,7 @@ SUBPARTITION BY KEY (f_int2)
   SUBPARTITION subpart32 ENGINE = InnoDB),
  PARTITION part4 VALUES LESS THAN (2147483646)
  (SUBPARTITION subpart41 ENGINE = InnoDB,
-  SUBPARTITION subpart42 ENGINE = InnoDB)) */
+  SUBPARTITION subpart42 ENGINE = InnoDB))
 
 unified filelist
 t1#P#part1#SP#subpart11.ibd
@@ -31256,15 +31256,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,3)))
+ PARTITION BY LIST (ABS(MOD(f_int1,3)))
 SUBPARTITION BY HASH (f_int2 + 1)
 (PARTITION part1 VALUES IN (0)
  (SUBPARTITION sp11 ENGINE = InnoDB,
@@ -31277,7 +31277,7 @@ SUBPARTITION BY HASH (f_int2 + 1)
   SUBPARTITION sp32 ENGINE = InnoDB),
  PARTITION part4 VALUES IN (NULL)
  (SUBPARTITION sp41 ENGINE = InnoDB,
-  SUBPARTITION sp42 ENGINE = InnoDB)) */
+  SUBPARTITION sp42 ENGINE = InnoDB))
 
 unified filelist
 t1#P#part1#SP#sp11.ibd
@@ -31788,20 +31788,20 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT '0',
-  `f_int2` int(11) DEFAULT '0',
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,2)))
+ PARTITION BY LIST (ABS(MOD(f_int1,2)))
 SUBPARTITION BY KEY (f_int2)
 SUBPARTITIONS 3
 (PARTITION part1 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (1) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB)
 
 unified filelist
 t1#P#part1#SP#part1sp0.ibd

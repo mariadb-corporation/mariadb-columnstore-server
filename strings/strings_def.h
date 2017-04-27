@@ -13,7 +13,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111-1301 USA */
 
 /* This file is to be include first in all files in the string directory */
 
@@ -31,6 +31,8 @@
 #undef DBUG_ASSERT
 #define DBUG_ASSERT(A) assert(A)
 #endif
+
+#define MY_NOPAD_ID(x)  ((x)+0x400)
 
 /* SPACE_INT is a word that contains only spaces */
 #if SIZEOF_INT == 4
@@ -100,6 +102,11 @@ static inline const uchar *skip_trailing_space(const uchar *ptr,size_t len)
     end--;
   return (end);
 }
+
+
+uint my_8bit_charset_flags_from_data(CHARSET_INFO *cs);
+uint my_8bit_collation_flags_from_data(CHARSET_INFO *cs);
+
 
 /* Macros for hashing characters */
 

@@ -21,12 +21,11 @@
 #include <my_sys.h>
 
 int ha_compare_text(CHARSET_INFO *charset_info, const uchar *a, uint a_length,
-		    const uchar *b, uint b_length, my_bool part_key,
-		    my_bool skip_end_space)
+		    const uchar *b, uint b_length, my_bool part_key)
 {
   if (!part_key)
     return charset_info->coll->strnncollsp(charset_info, a, a_length,
-                                           b, b_length, (my_bool)!skip_end_space);
+                                                         b, b_length);
   return charset_info->coll->strnncoll(charset_info, a, a_length,
                                        b, b_length, part_key);
 }
@@ -99,12 +98,12 @@ static int compare_bin(const uchar *a, uint a_length,
    Example1: if the function is called for tuples
      ('aaa','bbb') and ('eee','fff'), then
      diff_pos[0] = 1 (as 'aaa' != 'eee')
-     diff_pos[1] = 0 (offset from beggining of tuple b to 'eee' keypart).
+     diff_pos[1] = 0 (offset from beginning of tuple b to 'eee' keypart).
 
    Example2: if the index function is called for tuples
      ('aaa','bbb') and ('aaa','fff'),
      diff_pos[0] = 2 (as 'aaa' != 'eee')
-     diff_pos[1] = 3 (offset from beggining of tuple b to 'fff' keypart,
+     diff_pos[1] = 3 (offset from beginning of tuple b to 'fff' keypart,
                       here we assume that first key part is CHAR(3) NOT NULL)
 
   NOTES
@@ -186,8 +185,7 @@ int ha_key_cmp(HA_KEYSEG *keyseg, const uchar *a,
         if (piks &&
             (flag=ha_compare_text(keyseg->charset,a,a_length,b,b_length,
 				  (my_bool) ((nextflag & SEARCH_PREFIX) &&
-					     next_key_length <= 0),
-				  (my_bool)!(nextflag & SEARCH_PREFIX))))
+					     next_key_length <= 0))))
           return ((keyseg->flag & HA_REVERSE_SORT) ? -flag : flag);
         a+=a_length;
         b+=b_length;
@@ -199,8 +197,7 @@ int ha_key_cmp(HA_KEYSEG *keyseg, const uchar *a,
         if (piks &&
             (flag= ha_compare_text(keyseg->charset, a, a_length, b, b_length,
 				   (my_bool) ((nextflag & SEARCH_PREFIX) &&
-					      next_key_length <= 0),
-				   (my_bool)!(nextflag & SEARCH_PREFIX))))
+					      next_key_length <= 0))))
           return ((keyseg->flag & HA_REVERSE_SORT) ? -flag : flag);
         a=end;
         b+=length;
@@ -247,12 +244,7 @@ int ha_key_cmp(HA_KEYSEG *keyseg, const uchar *a,
         if (piks &&
 	    (flag= ha_compare_text(keyseg->charset,a,a_length,b,b_length,
                                    (my_bool) ((nextflag & SEARCH_PREFIX) &&
-                                              next_key_length <= 0),
-				   (my_bool) ((nextflag & (SEARCH_FIND |
-							   SEARCH_UPDATE)) ==
-					      SEARCH_FIND &&
-                                              ! (keyseg->flag &
-                                                 HA_END_SPACE_ARE_EQUAL)))))
+                                              next_key_length <= 0))))
           return ((keyseg->flag & HA_REVERSE_SORT) ? -flag : flag);
         a+= a_length;
         b+= b_length;

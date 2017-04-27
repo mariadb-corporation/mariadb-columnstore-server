@@ -12,7 +12,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111-1301 USA */
 
 /* Write a row to a MARIA table */
 
@@ -880,7 +880,7 @@ ChangeSet@1.2562, 2008-04-09 07:41:40+02:00, serg@janus.mylan +9 -0
       DBUG_ASSERT(info->ft1_to_ft2==0);
       if (alen == blen &&
           ha_compare_text(keyinfo->seg->charset, a, alen,
-                          b, blen, 0, 0) == 0)
+                          b, blen, 0) == 0)
       {
         /* Yup. converting */
         info->ft1_to_ft2=(DYNAMIC_ARRAY *)

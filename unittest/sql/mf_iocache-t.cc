@@ -11,7 +11,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111-1301 USA */
 
 #include <my_sys.h>
 #include <my_crypt.h>
@@ -93,7 +93,7 @@ IO_CACHE info;
 #define CACHE_SIZE 16384
 
 #define INFO_TAIL ", pos_in_file = %llu, pos_in_mem = %lu", \
-                info.pos_in_file, (*info.current_pos - info.request_pos)
+    info.pos_in_file, (ulong) (*info.current_pos - info.request_pos)
 
 #define FILL 0x5A
 

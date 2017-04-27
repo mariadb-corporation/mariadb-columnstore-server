@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 2007, 2011, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2007, 2016, Oracle and/or its affiliates. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -25,15 +25,11 @@ its own storage, avoiding duplicates.
 Created September 22, 2007 Vasil Dimov
 *******************************************************/
 
-#include "univ.i"
+#include "ha_prototypes.h"
 #include "ha0storage.h"
 #include "hash0hash.h"
 #include "mem0mem.h"
 #include "ut0rnd.h"
-
-#ifdef UNIV_NONINL
-#include "ha0storage.ic"
-#endif
 
 /*******************************************************************//**
 Retrieves a data from a storage. If it is present, a pointer to the
@@ -83,7 +79,6 @@ data_len bytes need to be allocated) and the size of storage is going to
 become more than "memlim" then "data" is not added and NULL is returned.
 To disable this behavior "memlim" can be set to 0, which stands for
 "no limit". */
-UNIV_INTERN
 const void*
 ha_storage_put_memlim(
 /*==================*/
@@ -169,14 +164,13 @@ test_ha_storage()
 		p = ha_storage_put(storage, buf, sizeof(buf));
 
 		if (p != stored[i]) {
-
-			fprintf(stderr, "ha_storage_put() returned %p "
-				"instead of %p, i=%d\n", p, stored[i], i);
+			ib::warn() << "ha_storage_put() returned " << p
+				<< " instead of " << stored[i] << ", i=" << i;
 			return;
 		}
 	}
 
-	fprintf(stderr, "all ok\n");
+	ib::info() << "all ok";
 
 	ha_storage_free(storage);
 }

@@ -1,5 +1,5 @@
 /* Copyright (c) 2000, 2012, Oracle and/or its affiliates.
-   Copyright (c) 2012 Monty Program Ab
+   Copyright (c) 2012, 2017, MariaDB Corporation.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -51,9 +51,9 @@ enum enum_vio_io_event
   VIO_IO_EVENT_CONNECT
 };
 
-#define VIO_LOCALHOST 1                         /* a localhost connection */
-#define VIO_BUFFERED_READ 2                     /* use buffered read */
-#define VIO_READ_BUFFER_SIZE 16384              /* size of read buffer */
+#define VIO_LOCALHOST 1U                        /* a localhost connection */
+#define VIO_BUFFERED_READ 2U                    /* use buffered read */
+#define VIO_READ_BUFFER_SIZE 16384U             /* size of read buffer */
 #define VIO_DESCRIPTION_SIZE 30                 /* size of description */
 
 Vio* vio_new(my_socket sd, enum enum_vio_type type, uint flags);
@@ -211,14 +211,6 @@ void vio_end(void);
 #define SHUT_RD SD_RECEIVE
 #endif
 
-/*
-  Set thread id for io cancellation (required on Windows XP only,
-  and should to be removed if XP is no more supported)
-*/
-
-#define vio_set_thread_id(vio, tid) if(vio) vio->thread_id= tid
-#else
-#define vio_set_thread_id(vio, tid)
 #endif
 
 /* This enumerator is used in parser - should be always visible */
@@ -288,7 +280,6 @@ struct st_vio
 #ifdef _WIN32
   HANDLE hPipe;
   OVERLAPPED overlapped;
-  DWORD thread_id; /* Used on XP only by vio_shutdown() */
   DWORD read_timeout_ms;
   DWORD write_timeout_ms;
 #endif

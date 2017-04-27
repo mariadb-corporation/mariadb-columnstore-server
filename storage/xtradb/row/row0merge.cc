@@ -98,7 +98,7 @@ row_merge_encrypt_buf(
 
 	key_version =  encryption_key_get_latest_version(crypt_data->key_id);
 
-	/* Store key_version at the begining of the input buffer */
+	/* Store key_version at the beginning of the input buffer */
 	mach_write_to_4((byte *)crypted_buf, key_version);
 
 	int rc = encryption_scheme_encrypt(input_buf+ROW_MERGE_RESERVE_SIZE,
@@ -110,11 +110,10 @@ row_merge_encrypt_buf(
 	if (! ((rc == MY_AES_OK) && ((ulint)dstlen == srv_sort_buf_size-ROW_MERGE_RESERVE_SIZE))) {
 		ib_logf(IB_LOG_LEVEL_FATAL,
 			"Unable to encrypt data-block "
-			" src: %p srclen: %lu buf: %p buflen: %d."
+			" src: %p srclen: %lu buf: %p buflen: %u."
 			" return-code: %d. Can't continue!\n",
-			input_buf, (size_t)srv_sort_buf_size,
+			input_buf, srv_sort_buf_size,
 			crypted_buf, dstlen, rc);
-		ut_error;
 	}
 }
 
@@ -135,7 +134,7 @@ row_merge_decrypt_buf(
 	uint dstlen=0;
 	os_offset_t ofs = (os_offset_t)srv_sort_buf_size * (os_offset_t)offset;
 
-	/* Read key_version from begining of the buffer */
+	/* Read key_version from beginning of the buffer */
 	key_version = mach_read_from_4((byte *)input_buf);
 
 	if (key_version == 0) {
@@ -154,9 +153,8 @@ row_merge_decrypt_buf(
 			"Unable to encrypt data-block "
 			" src: %p srclen: %lu buf: %p buflen: %d."
 			" return-code: %d. Can't continue!\n",
-			input_buf, (size_t)srv_sort_buf_size,
+			input_buf, srv_sort_buf_size,
 			crypted_buf, dstlen, rc);
-		ut_error;
 	}
 
 	return (true);
@@ -1073,14 +1071,8 @@ row_merge_read_rec(
 	ulint	data_size;
 	ulint	avail_size;
 
-	ut_ad(block);
-	ut_ad(buf);
 	ut_ad(b >= &block[0]);
 	ut_ad(b < &block[srv_sort_buf_size]);
-	ut_ad(index);
-	ut_ad(foffs);
-	ut_ad(mrec);
-	ut_ad(offsets);
 
 	ut_ad(*offsets == 1 + REC_OFFS_HEADER_SIZE
 	      + dict_index_get_n_fields(index));
@@ -2080,7 +2072,7 @@ write_buffers:
 					pct_cost : 
 				((pct_cost * read_rows) / table_total_rows);
 			/* presenting 10.12% as 1012 integer */
-			onlineddl_pct_progress = curr_progress * 100;
+			onlineddl_pct_progress = (ulint) (curr_progress * 100);
 		}
 	}
 
@@ -2617,7 +2609,7 @@ row_merge_sort(
 
 	/* Find the number N which 2^N is greater or equal than num_runs */
 	/* N is merge sort running count */
-	total_merge_sort_count = ceil(my_log2f(num_runs));
+	total_merge_sort_count = (ulint) ceil(my_log2f(num_runs));
 	if(total_merge_sort_count <= 0) {
 		total_merge_sort_count=1;
 	}
@@ -2664,7 +2656,7 @@ row_merge_sort(
 				pct_cost :
 				((pct_cost * merge_count) / total_merge_sort_count);
 			/* presenting 10.12% as 1012 integer */;
-			onlineddl_pct_progress = (pct_progress + curr_progress) * 100;
+			onlineddl_pct_progress = (ulint) ((pct_progress + curr_progress) * 100);
 		}
 
 		if (error != DB_SUCCESS) {
@@ -2947,7 +2939,7 @@ row_merge_insert_index_tuples(
 					((pct_cost * inserted_rows) / table_total_rows);
 
 				/* presenting 10.12% as 1012 integer */;
-				onlineddl_pct_progress = (pct_progress + curr_progress) * 100;
+				onlineddl_pct_progress = (ulint) ((pct_progress + curr_progress) * 100);
 			}
 		}
 	}
@@ -3959,7 +3951,7 @@ row_merge_build_indexes(
 {
 	merge_file_t*		merge_files;
 	row_merge_block_t*	block;
-	row_merge_block_t*	crypt_block;
+	row_merge_block_t*	crypt_block = NULL;
 	ulint			block_size;
 	ulint			i;
 	ulint			j;
@@ -3995,9 +3987,15 @@ row_merge_build_indexes(
 		DBUG_RETURN(DB_OUT_OF_MEMORY);
 	}
 
-	/* Get crypt data from tablespace if present. */
-	crypt_data = fil_space_get_crypt_data(new_table->space);
-	crypt_block = NULL;
+	/* Get crypt data from tablespace if present. We should be protected
+	from concurrent DDL (e.g. drop table) by MDL-locks. */
+	fil_space_t* space = fil_space_acquire(new_table->space);
+
+	if (space) {
+		crypt_data = space->crypt_data;
+	} else {
+		DBUG_RETURN(DB_TABLESPACE_NOT_FOUND);
+	}
 
 	/* If tablespace is encrypted, allocate additional buffer for
 	encryption/decryption. */
@@ -4172,8 +4170,8 @@ wait_again:
 					for (j = 0; j < FTS_NUM_AUX_INDEX;
 					     j++) {
 
-					    os_thread_join(merge_info[j]
-							   .thread_hdl);
+						os_thread_join(merge_info[j]
+							       .thread_hdl);
 					}
 				}
 			} else {
@@ -4359,6 +4357,10 @@ func_exit:
 					MONITOR_BACKGROUND_DROP_INDEX);
 			}
 		}
+	}
+
+	if (space) {
+		fil_space_release(space);
 	}
 
 	DBUG_RETURN(error);

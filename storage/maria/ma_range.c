@@ -11,7 +11,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111-1301 USA */
 
 /*
   Gives a approximated number of how many records there is between two keys.
@@ -163,7 +163,7 @@ static ha_rows _ma_record_pos(MARIA_HA *info, const uchar *key_data,
     operations with a comment like "Not real duplicates", whatever this
     means. From the condition above we can see that 'skip_end_space' is
     always false for these operations. The result is that trailing space
-    counts in key comparison and hence, emtpy strings ('', string length
+    counts in key comparison and hence, empty strings ('', string length
     zero, but not NULL) compare less that strings starting with control
     characters and these in turn compare less than strings starting with
     blanks.

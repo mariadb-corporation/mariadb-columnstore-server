@@ -80,7 +80,7 @@ const char field_separator=',';
 
   NOTE: to avoid 256*256 table, gap in table types numeration is skiped
   following #defines describe that gap and how to canculate number of fields
-  and index of field in thia array.
+  and index of field in this array.
 */
 #define FIELDTYPE_TEAR_FROM (MYSQL_TYPE_BIT + 1)
 #define FIELDTYPE_TEAR_TO   (MYSQL_TYPE_NEWDECIMAL - 1)
@@ -1224,7 +1224,8 @@ bool Field::test_if_equality_guarantees_uniqueness(const Item *item) const
     for temporal columns, so the query:
       WHERE temporal_column='string'
     cannot return multiple distinct temporal values.
-    QQ: perhaps we could allow INT/DECIMAL/DOUBLE types for temporal items.
+
+    TODO: perhaps we could allow INT/DECIMAL/DOUBLE types for temporal items.
   */
   return result_type() == item->result_type();
 }
@@ -1319,6 +1320,31 @@ bool Field::can_optimize_range(const Item_bool_func *cond,
   DBUG_ASSERT(cmp_type() != TIME_RESULT);   // Handled in Field_temporal
   DBUG_ASSERT(cmp_type() != STRING_RESULT); // Handled in Field_longstr
   return item->cmp_type() != TIME_RESULT;
+}
+
+
+int Field::store_hex_hybrid(const char *str, uint length)
+{
+  DBUG_ASSERT(result_type() != STRING_RESULT);
+  ulonglong nr;
+
+  if (length > 8)
+  {
+    nr= flags & UNSIGNED_FLAG ? ULONGLONG_MAX : LONGLONG_MAX;
+    goto warn;
+  }
+  nr= (ulonglong) longlong_from_hex_hybrid(str, length);
+  if ((length == 8) && !(flags & UNSIGNED_FLAG) && (nr > LONGLONG_MAX))
+  {
+    nr= LONGLONG_MAX;
+    goto warn;
+  }
+  return store((longlong) nr, true);  // Assume hex numbers are unsigned
+
+warn:
+  if (!store((longlong) nr, true))
+    set_warning(Sql_condition::WARN_LEVEL_WARN, ER_WARN_DATA_OUT_OF_RANGE, 1);
+  return 1;
 }
 
 
@@ -1664,9 +1690,8 @@ Field::Field(uchar *ptr_arg,uint32 length_arg,uchar *null_ptr_arg,
   part_of_key_not_clustered(0), part_of_sortkey(0),
   unireg_check(unireg_check_arg), field_length(length_arg),
   null_bit(null_bit_arg), is_created_from_null_item(FALSE),
-  read_stats(NULL), collected_stats(0),
-  vcol_info(0),
-  stored_in_db(TRUE)
+  read_stats(NULL), collected_stats(0), vcol_info(0), check_constraint(0),
+  default_value(0)
 {
   flags=null_ptr ? 0: NOT_NULL_FLAG;
   comment.str= (char*) "";
@@ -2281,6 +2306,25 @@ Field *Field::clone(MEM_ROOT *root, my_ptrdiff_t diff)
     tmp->move_field_offset(diff);
   }
   return tmp;
+}
+
+void Field::set_default()
+{
+  if (default_value)
+  {
+    Query_arena backup_arena;
+    table->in_use->set_n_backup_active_arena(table->expr_arena, &backup_arena);
+    (void) default_value->expr->save_in_field(this, 0);
+    table->in_use->restore_active_arena(table->expr_arena, &backup_arena);
+    return;
+  }
+  /* Copy constant value stored in s->default_values */
+  my_ptrdiff_t l_offset= (my_ptrdiff_t) (table->s->default_values -
+                                        table->record[0]);
+  memcpy(ptr, ptr + l_offset, pack_length());
+  if (maybe_null_in_table())
+    *null_ptr= ((*null_ptr & (uchar) ~null_bit) |
+                (null_ptr[l_offset] & null_bit));
 }
 
 
@@ -4248,16 +4292,13 @@ int Field_longlong::store(const char *from,uint len,CHARSET_INFO *cs)
 int Field_longlong::store(double nr)
 {
   ASSERT_COLUMN_MARKED_FOR_WRITE_OR_COMPUTED;
-  bool error;
-  longlong res;
+  Converter_double_to_longlong conv(nr, unsigned_flag);
 
-  res= double_to_longlong(nr, unsigned_flag, &error);
-
-  if (error)
+  if (conv.error())
     set_warning(ER_WARN_DATA_OUT_OF_RANGE, 1);
 
-  int8store(ptr,res);
-  return error;
+  int8store(ptr, conv.result());
+  return conv.error();
 }
 
 
@@ -4452,13 +4493,13 @@ String *Field_float::val_str(String *val_buffer,
   char *to=(char*) val_buffer->ptr();
   size_t len;
 
-  if (dec >= NOT_FIXED_DEC)
+  if (dec >= FLOATING_POINT_DECIMALS)
     len= my_gcvt(nr, MY_GCVT_ARG_FLOAT, to_length - 1, to, NULL);
   else
   {
     /*
       We are safe here because the buffer length is 70, and
-      fabs(float) < 10^39, dec < NOT_FIXED_DEC. So the resulting string
+      fabs(float) < 10^39, dec < FLOATING_POINT_DECIMALS. So the resulting string
       will be not longer than 69 chars + terminating '\0'.
     */
     len= my_fcvt(nr, dec, to, NULL);
@@ -4542,7 +4583,7 @@ int Field_float::do_save_field_metadata(uchar *metadata_ptr)
 
 void Field_float::sql_type(String &res) const
 {
-  if (dec == NOT_FIXED_DEC)
+  if (dec >= FLOATING_POINT_DECIMALS)
   {
     res.set_ascii(STRING_WITH_LEN("float"));
   }
@@ -4623,7 +4664,7 @@ int truncate_double(double *nr, uint field_length, uint dec,
     return 1;
   }
 
-  if (dec < NOT_FIXED_DEC)
+  if (dec < FLOATING_POINT_DECIMALS)
   {
     uint order= field_length - dec;
     uint step= array_elements(log_10) - 1;
@@ -4658,53 +4699,61 @@ int truncate_double(double *nr, uint field_length, uint dec,
 
 /*
   Convert double to longlong / ulonglong.
-  If double is outside of range, adjust return value and set error.
+  If double is outside of the supported range,
+  adjust m_result and set m_error.
 
-  SYNOPSIS
-  double_to_longlong()
-  nr	  	 Number to convert
-  unsigned_flag  1 if result is unsigned
-  error		 Will be set to 1 in case of overflow.
+  @param nr             Number to convert
+  @param unsigned_flag  true if result is unsigned
 */
 
-longlong double_to_longlong(double nr, bool unsigned_flag, bool *error)
+Value_source::
+Converter_double_to_longlong::Converter_double_to_longlong(double nr,
+                                                           bool unsigned_flag)
+  :m_error(false)
 {
-  longlong res;
-
-  *error= 0;
-
   nr= rint(nr);
   if (unsigned_flag)
   {
     if (nr < 0)
     {
-      res= 0;
-      *error= 1;
+      m_result= 0;
+      m_error= true;
     }
     else if (nr >= (double) ULONGLONG_MAX)
     {
-      res= ~(longlong) 0;
-      *error= 1;
+      m_result= ~(longlong) 0;
+      m_error= true;
     }
     else
-      res= (longlong) double2ulonglong(nr);
+      m_result= (longlong) double2ulonglong(nr);
   }
   else
   {
     if (nr <= (double) LONGLONG_MIN)
     {
-      res= LONGLONG_MIN;
-      *error= (nr < (double) LONGLONG_MIN);
+      m_result= LONGLONG_MIN;
+      m_error= (nr < (double) LONGLONG_MIN);
     }
     else if (nr >= (double) (ulonglong) LONGLONG_MAX)
     {
-      res= LONGLONG_MAX;
-      *error= (nr > (double) LONGLONG_MAX);
+      m_result= LONGLONG_MAX;
+      m_error= (nr > (double) LONGLONG_MAX);
     }
     else
-      res= (longlong) nr;
+      m_result= (longlong) nr;
   }
-  return res;
+}
+
+
+void Value_source::
+Converter_double_to_longlong::push_warning(THD *thd,
+                                           double nr,
+                                           bool unsigned_flag)
+{
+  push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
+                      ER_DATA_OVERFLOW, ER_THD(thd, ER_DATA_OVERFLOW),
+                      ErrConvDouble(nr).ptr(),
+                      unsigned_flag ? "UNSIGNED INT" : "INT");
 }
 
 
@@ -4727,27 +4776,6 @@ double Field_double::val_real(void)
   double j;
   float8get(j,ptr);
   return j;
-}
-
-longlong Field_double::val_int(void)
-{
-  ASSERT_COLUMN_MARKED_FOR_READ;
-  double j;
-  longlong res;
-  bool error;
-  float8get(j,ptr);
-
-  res= double_to_longlong(j, 0, &error);
-  if (error)
-  {
-    THD *thd= get_thd();
-    ErrConvDouble err(j);
-    push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
-                        ER_TRUNCATED_WRONG_VALUE,
-                        ER_THD(thd, ER_TRUNCATED_WRONG_VALUE), "INTEGER",
-                        err.ptr());
-  }
-  return res;
 }
 
 
@@ -4805,7 +4833,7 @@ String *Field_double::val_str(String *val_buffer,
   char *to=(char*) val_buffer->ptr();
   size_t len;
 
-  if (dec >= NOT_FIXED_DEC)
+  if (dec >= FLOATING_POINT_DECIMALS)
     len= my_gcvt(nr, MY_GCVT_ARG_DOUBLE, to_length - 1, to, NULL);
   else
     len= my_fcvt(nr, dec, to, NULL);
@@ -4864,7 +4892,7 @@ int Field_double::do_save_field_metadata(uchar *metadata_ptr)
 void Field_double::sql_type(String &res) const
 {
   CHARSET_INFO *cs=res.charset();
-  if (dec == NOT_FIXED_DEC)
+  if (dec >= FLOATING_POINT_DECIMALS)
   {
     res.set_ascii(STRING_WITH_LEN("double"));
   }
@@ -4896,12 +4924,12 @@ void Field_double::sql_type(String &res) const
     field has NOW() as default and is updated when row changes, else it is 
     field which has 0 as default value and is not automatically updated.
   TIMESTAMP_DN_FIELD - field with NOW() as default but not set on update
-    automatically (TIMESTAMP DEFAULT NOW())
+    automatically (TIMESTAMP DEFAULT NOW()), not used in Field since 10.2.2
   TIMESTAMP_UN_FIELD - field which is set on update automatically but has not 
     NOW() as default (but it may has 0 or some other const timestamp as 
     default) (TIMESTAMP ON UPDATE NOW()).
   TIMESTAMP_DNUN_FIELD - field which has now() as default and is auto-set on 
-    update. (TIMESTAMP DEFAULT NOW() ON UPDATE NOW())
+    update. (TIMESTAMP DEFAULT NOW() ON UPDATE NOW()), not used in Field since 10.2.2
   NONE - field which is not auto-set on update with some other than NOW() 
     default value (TIMESTAMP DEFAULT 0).
 
@@ -5236,6 +5264,7 @@ int Field_timestamp::set_time()
   Mark the field as having an explicit default value.
 
   @param value  if available, the value that the field is being set to
+  @returns whether the explicit default bit was set
 
   @note
     Fields that have an explicit default value should not be updated
@@ -5251,13 +5280,14 @@ int Field_timestamp::set_time()
       This is how MySQL has worked since it's start.
 */
 
-void Field_timestamp::set_explicit_default(Item *value)
+bool Field_timestamp::set_explicit_default(Item *value)
 {
   if (((value->type() == Item::DEFAULT_VALUE_ITEM &&
         !((Item_default_value*)value)->arg) ||
        (!maybe_null() && value->null_value)))
-    return;
+    return false;
   set_has_explicit_value();
+  return true;
 }
 
 #ifdef NOT_USED
@@ -7154,8 +7184,7 @@ int Field_string::cmp(const uchar *a_ptr, const uchar *b_ptr)
   */
   return field_charset->coll->strnncollsp(field_charset,
                                           a_ptr, a_len,
-                                          b_ptr, b_len,
-                                          0);
+                                          b_ptr, b_len);
 }
 
 
@@ -7529,7 +7558,7 @@ int Field_varstring::cmp_max(const uchar *a_ptr, const uchar *b_ptr,
                                          a_length,
                                          b_ptr+
                                          length_bytes,
-                                         b_length,0);
+                                         b_length);
   return diff;
 }
 
@@ -7552,7 +7581,7 @@ int Field_varstring::key_cmp(const uchar *key_ptr, uint max_key_length)
                                           length,
                                           key_ptr+
                                           HA_KEY_BLOB_LENGTH,
-                                          uint2korr(key_ptr), 0);
+                                          uint2korr(key_ptr));
 }
 
 
@@ -7570,8 +7599,7 @@ int Field_varstring::key_cmp(const uchar *a,const uchar *b)
                                           a + HA_KEY_BLOB_LENGTH,
                                           uint2korr(a),
                                           b + HA_KEY_BLOB_LENGTH,
-                                          uint2korr(b),
-                                          0);
+                                          uint2korr(b));
 }
 
 
@@ -7861,7 +7889,7 @@ void Field_blob::store_length(uchar *i_ptr, uint i_packlength, uint32 i_number)
 }
 
 
-uint32 Field_blob::get_length(const uchar *pos, uint packlength_arg)
+uint32 Field_blob::get_length(const uchar *pos, uint packlength_arg) const
 {
   return (uint32)read_lowendian(pos, packlength_arg);
 }
@@ -7876,16 +7904,12 @@ int Field_blob::copy_value(Field_blob *from)
   DBUG_ASSERT(field_charset == from->charset());
   int rc= 0;
   uint32 length= from->get_length();
-  uchar *data;
-  from->get_ptr(&data);
+  uchar *data= from->get_ptr();
   if (packlength < from->packlength)
   {
-    int well_formed_errors;
     set_if_smaller(length, Field_blob::max_data_length());
-    length= field_charset->cset->well_formed_len(field_charset,
-                                                 (const char *) data,
-                                                 (const char *) data + length,
-                                                 length, &well_formed_errors);
+    length= (uint32) Well_formed_prefix(field_charset,
+                                        (const char *) data, length).length();
     rc= report_if_important_data((const char *) data + length,
                                  (const char *) data + from->get_length(),
                                  true);
@@ -7921,9 +7945,8 @@ int Field_blob::store(const char *from,uint length,CHARSET_INFO *cs)
     copy_length= table->in_use->variables.group_concat_max_len;
     if (new_length > copy_length)
     {
-      int well_formed_error;
-      new_length= cs->cset->well_formed_len(cs, from, from + copy_length,
-                                            new_length, &well_formed_error);
+      new_length= Well_formed_prefix(cs,
+                                     from, copy_length, new_length).length();
       table->blob_storage->set_truncated_value(true);
     }
     if (!(tmp= table->blob_storage->store(from, new_length)))
@@ -8071,8 +8094,7 @@ int Field_blob::cmp(const uchar *a,uint32 a_length, const uchar *b,
 		    uint32 b_length)
 {
   return field_charset->coll->strnncollsp(field_charset, 
-                                          a, a_length, b, b_length,
-                                          0);
+                                          a, a_length, b, b_length);
 }
 
 
@@ -8129,7 +8151,7 @@ uint Field_blob::get_key_image(uchar *buff,uint length, imagetype type_arg)
       bzero(buff, image_length);
       return image_length;
     }
-    get_ptr(&blob);
+    blob= get_ptr();
     gobj= Geometry::construct(&buffer, (char*) blob, blob_length);
     if (!gobj || gobj->get_mbr(&mbr, &dummy))
       bzero(buff, image_length);
@@ -8144,7 +8166,7 @@ uint Field_blob::get_key_image(uchar *buff,uint length, imagetype type_arg)
   }
 #endif /*HAVE_SPATIAL*/
 
-  get_ptr(&blob);
+  blob= get_ptr();
   uint local_char_length= length / field_charset->mbmaxlen;
   local_char_length= my_charpos(field_charset, blob, blob + blob_length,
                           local_char_length);
@@ -8238,7 +8260,7 @@ void Field_blob::sort_string(uchar *to,uint length)
   uchar *blob;
   uint blob_length=get_length();
 
-  if (!blob_length)
+  if (!blob_length && field_charset->pad_char == 0)
     bzero(to,length);
   else
   {
@@ -8303,7 +8325,7 @@ uchar *Field_blob::pack(uchar *to, const uchar *from, uint max_length)
    */
   if (length > 0)
   {
-    get_ptr((uchar**) &from);
+    from= get_ptr();
     memcpy(to+packlength, from,length);
   }
   ptr=save;					// Restore org row pointer
@@ -8549,14 +8571,12 @@ int Field_geom::store(const char *from, uint length, CHARSET_INFO *cs)
         geom_type != Field::GEOM_GEOMETRYCOLLECTION &&
         (uint32) geom_type != wkb_type)
     {
-      my_printf_error(ER_TRUNCATED_WRONG_VALUE_FOR_FIELD, 
-                      ER_THD(get_thd(), ER_TRUNCATED_WRONG_VALUE_FOR_FIELD),
-                      MYF(0),
-                      Geometry::ci_collection[geom_type]->m_name.str,
-                      Geometry::ci_collection[wkb_type]->m_name.str,
-                      field_name,
-                      (ulong) table->in_use->get_stmt_da()->
-                      current_row_for_warning());
+      my_error(ER_TRUNCATED_WRONG_VALUE_FOR_FIELD, MYF(0),
+               Geometry::ci_collection[geom_type]->m_name.str,
+               Geometry::ci_collection[wkb_type]->m_name.str,
+               field_name,
+               (ulong) table->in_use->get_stmt_da()->
+               current_row_for_warning());
       goto err_exit;
     }
 
@@ -8946,7 +8966,7 @@ void Field_set::sql_type(String &res) const
     0  if the fields are unequally defined
 */
 
-bool Field::eq_def(Field *field)
+bool Field::eq_def(const Field *field) const
 {
   if (real_type() != field->real_type() || charset() != field->charset() ||
       pack_length() != field->pack_length())
@@ -8978,7 +8998,7 @@ static bool compare_type_names(CHARSET_INFO *charset, TYPELIB *t1, TYPELIB *t2)
   returns 1 if the fields are equally defined
 */
 
-bool Field_enum::eq_def(Field *field)
+bool Field_enum::eq_def(const Field *field) const
 {
   TYPELIB *values;
 
@@ -9055,7 +9075,7 @@ const uchar *Field_enum::unpack(uchar *to, const uchar *from,
   @return
   returns 1 if the fields are equally defined
 */
-bool Field_num::eq_def(Field *field)
+bool Field_num::eq_def(const Field *field) const
 {
   if (!Field::eq_def(field))
     return 0;
@@ -9711,7 +9731,7 @@ void Field_bit_as_char::sql_type(String &res) const
   Convert create_field::length from number of characters to number of bytes.
 */
 
-void Create_field::create_length_to_internal_length(void)
+void Column_definition::create_length_to_internal_length(void)
 {
   switch (sql_type) {
   case MYSQL_TYPE_TINY_BLOB:
@@ -9759,233 +9779,122 @@ void Create_field::create_length_to_internal_length(void)
 }
 
 
-/**
-  Init for a tmp table field. To be extended if need be.
-*/
-void Create_field::init_for_tmp_table(enum_field_types sql_type_arg,
-                                      uint32 length_arg, uint32 decimals_arg,
-                                      bool maybe_null, bool is_unsigned,
-                                      uint pack_length_arg)
+bool check_expression(Virtual_column_info *vcol, const char *name,
+                      enum_vcol_info_type type)
+
 {
-  DBUG_ENTER("Create_field::init_for_tmp_table");
+  bool ret;
+  Item::vcol_func_processor_result res;
 
-  field_name= "";
-  sql_type= sql_type_arg;
-  char_length= length= length_arg;;
-  unireg_check= Field::NONE;
-  interval= 0;
-  charset= &my_charset_bin;
-  geom_type= Field::GEOM_GEOMETRY;
-
-  DBUG_PRINT("enter", ("sql_type: %d, length: %u, pack_length: %u",
-                       sql_type_arg, length_arg, pack_length_arg));
+  if (!vcol->name.length)
+    vcol->name.str= const_cast<char*>(name);
 
   /*
-    These pack flags are crafted to get it correctly through the
-    branches of make_field().
-   */
-  switch (sql_type_arg)
+    Walk through the Item tree checking if all items are valid
+    to be part of the virtual column
+  */
+  res.errors= 0;
+  ret= vcol->expr->walk(&Item::check_vcol_func_processor, 0, &res);
+  vcol->flags= res.errors;
+
+  uint filter= VCOL_IMPOSSIBLE;
+  if (type != VCOL_GENERATED_VIRTUAL && type != VCOL_DEFAULT)
+    filter|= VCOL_NOT_STRICTLY_DETERMINISTIC;
+
+  if (ret || (res.errors & filter))
   {
-  case MYSQL_TYPE_VARCHAR:
-  case MYSQL_TYPE_VAR_STRING:
-  case MYSQL_TYPE_STRING:
-  case MYSQL_TYPE_SET:
-    pack_flag= 0;
-    break;
-
-  case MYSQL_TYPE_GEOMETRY:
-    pack_flag= FIELDFLAG_GEOM;
-    break;
-
-  case MYSQL_TYPE_ENUM:
-    pack_flag= FIELDFLAG_INTERVAL;
-    break;
-
-  case MYSQL_TYPE_NEWDECIMAL:
-    DBUG_ASSERT(decimals_arg <= DECIMAL_MAX_SCALE);
-  case MYSQL_TYPE_DECIMAL:
-  case MYSQL_TYPE_FLOAT:
-  case MYSQL_TYPE_DOUBLE:
-    pack_flag= FIELDFLAG_NUMBER |
-      (decimals_arg & FIELDFLAG_MAX_DEC) << FIELDFLAG_DEC_SHIFT;
-    break;
-
-  case MYSQL_TYPE_TINY_BLOB:
-  case MYSQL_TYPE_MEDIUM_BLOB:
-  case MYSQL_TYPE_LONG_BLOB:
-  case MYSQL_TYPE_BLOB:
-    pack_flag= FIELDFLAG_BLOB;
-    break;
-
-  case MYSQL_TYPE_BIT:
-    pack_flag= FIELDFLAG_NUMBER | FIELDFLAG_TREAT_BIT_AS_CHAR;
-    break;
-
-  default:
-    pack_flag= FIELDFLAG_NUMBER;
-    break;
+    my_error(ER_GENERATED_COLUMN_FUNCTION_IS_NOT_ALLOWED, MYF(0), res.name,
+             vcol_type_name(type), name);
+    return TRUE;
   }
-
   /*
-    Set the pack flag correctly for the blob-like types. This sets the
-    packtype to something that make_field can use. If the pack type is
-    not set correctly, the packlength will be reeeeally wierd (like
-    129 or so).
-   */
-  switch (sql_type_arg)
-  {
-  case MYSQL_TYPE_ENUM:
-  case MYSQL_TYPE_SET:
-  case MYSQL_TYPE_TINY_BLOB:
-  case MYSQL_TYPE_MEDIUM_BLOB:
-  case MYSQL_TYPE_LONG_BLOB:
-  case MYSQL_TYPE_BLOB:
-  case MYSQL_TYPE_GEOMETRY:
-    // If you are going to use the above types, you have to pass a
-    // pack_length as parameter. Assert that is really done.
-    DBUG_ASSERT(pack_length_arg != ~0U);
-    pack_flag|= pack_length_to_packflag(pack_length_arg);
-    break;
-  default:
-    /* Nothing */
-    break;
-  }
-
-  pack_flag|=
-    (maybe_null ? FIELDFLAG_MAYBE_NULL : 0) |
-    (is_unsigned ? 0 : FIELDFLAG_DECIMAL);
-
-  DBUG_PRINT("debug", ("pack_flag: %s%s%s%s%s%s, pack_type: %d",
-                       FLAGSTR(pack_flag, FIELDFLAG_BINARY),
-                       FLAGSTR(pack_flag, FIELDFLAG_NUMBER),
-                       FLAGSTR(pack_flag, FIELDFLAG_INTERVAL),
-                       FLAGSTR(pack_flag, FIELDFLAG_GEOM),
-                       FLAGSTR(pack_flag, FIELDFLAG_BLOB),
-                       FLAGSTR(pack_flag, FIELDFLAG_DECIMAL),
-                       f_packtype(pack_flag)));
-  vcol_info= 0;
-  create_if_not_exists= FALSE;
-  stored_in_db= TRUE;
-
-  DBUG_VOID_RETURN;
+    Safe to call before fix_fields as long as vcol's don't include sub
+    queries (which is now checked in check_vcol_func_processor)
+  */
+  if (vcol->expr->check_cols(1))
+    return TRUE;
+  return FALSE;
 }
 
 
-static inline bool is_item_func(Item* x)
-{
-  return x != NULL && x->type() == Item::FUNC_ITEM;
-}
-
-
-bool Create_field::check(THD *thd)
+bool Column_definition::check(THD *thd)
 {
   const uint conditional_type_modifiers= AUTO_INCREMENT_FLAG;
   uint sign_len, allowed_type_modifier= 0;
   ulong max_field_charlength= MAX_FIELD_CHARLENGTH;
-  DBUG_ENTER("Create_field::check");
-
-  if (vcol_info)
-  {
-    vcol_info->set_field_type(sql_type);
-    sql_type= (enum enum_field_types)MYSQL_TYPE_VIRTUAL;
-  }
-
-  if (length > MAX_FIELD_BLOBLENGTH)
-  {
-    my_error(ER_TOO_BIG_DISPLAYWIDTH, MYF(0), field_name, MAX_FIELD_BLOBLENGTH);
-    DBUG_RETURN(1);
-  }
-
-  if (decimals >= NOT_FIXED_DEC)
-  {
-    my_error(ER_TOO_BIG_SCALE, MYF(0), static_cast<ulonglong>(decimals),
-             field_name, static_cast<ulong>(NOT_FIXED_DEC - 1));
-    DBUG_RETURN(TRUE);
-  }
-
-  if (def)
-  {
-    /*
-      Default value should be literal => basic constants =>
-      no need fix_fields()
-
-      We allow only one function as part of default value -
-      NOW() as default for TIMESTAMP and DATETIME type.
-    */
-    if (def->type() == Item::FUNC_ITEM &&
-        (static_cast<Item_func*>(def)->functype() != Item_func::NOW_FUNC ||
-         (mysql_type_to_time_type(sql_type) != MYSQL_TIMESTAMP_DATETIME) ||
-         def->decimals < length))
-    {
-      my_error(ER_INVALID_DEFAULT, MYF(0), field_name);
-      DBUG_RETURN(1);
-    }
-    else if (def->type() == Item::NULL_ITEM)
-    {
-      def= 0;
-      if ((flags & (NOT_NULL_FLAG | AUTO_INCREMENT_FLAG)) == NOT_NULL_FLAG)
-      {
-	my_error(ER_INVALID_DEFAULT, MYF(0), field_name);
-	DBUG_RETURN(1);
-      }
-    }
-    else if (flags & AUTO_INCREMENT_FLAG)
-    {
-      my_error(ER_INVALID_DEFAULT, MYF(0), field_name);
-      DBUG_RETURN(1);
-    }
-  }
-
-  if (is_item_func(def))
-  {
-    /* There is a function default for insertions. */
-    def= NULL;
-    unireg_check= (is_item_func(on_update) ?
-                   Field::TIMESTAMP_DNUN_FIELD : // for insertions and for updates.
-                   Field::TIMESTAMP_DN_FIELD);   // only for insertions.
-  }
-  else
-  {
-    /* No function default for insertions. Either NULL or a constant. */
-    if (is_item_func(on_update))
-      unireg_check= Field::TIMESTAMP_UN_FIELD; // function default for updates
-    else
-      unireg_check= ((flags & AUTO_INCREMENT_FLAG) ?
-                     Field::NEXT_NUMBER : // Automatic increment.
-                     Field::NONE);
-  }
-
-  if (on_update &&
-      (mysql_type_to_time_type(sql_type) != MYSQL_TIMESTAMP_DATETIME ||
-       on_update->decimals < length))
-  {
-    my_error(ER_INVALID_ON_UPDATE, MYF(0), field_name);
-    DBUG_RETURN(1);
-  }
+  DBUG_ENTER("Column_definition::check");
 
   /* Initialize data for a computed field */
-  if (sql_type == MYSQL_TYPE_VIRTUAL)
+  if (vcol_info)
   {
-    DBUG_ASSERT(vcol_info && vcol_info->expr_item);
-    stored_in_db= vcol_info->is_stored();
-    /*
-      Walk through the Item tree checking if all items are valid
-      to be part of the virtual column
-    */
-    if (vcol_info->expr_item->walk(&Item::check_vcol_func_processor, 0, NULL))
+    DBUG_ASSERT(vcol_info->expr);
+    vcol_info->set_field_type(sql_type);
+    if (check_expression(vcol_info, field_name, vcol_info->stored_in_db
+                         ? VCOL_GENERATED_STORED : VCOL_GENERATED_VIRTUAL))
+      DBUG_RETURN(TRUE);
+  }
+
+  if (check_constraint &&
+      check_expression(check_constraint, field_name, VCOL_CHECK_FIELD))
+      DBUG_RETURN(1);
+
+  if (default_value)
+  {
+    Item *def_expr= default_value->expr;
+    if (check_expression(default_value, field_name, VCOL_DEFAULT))
+      DBUG_RETURN(TRUE);
+
+    /* Constant's are stored in the 'empty_record', except for blobs */
+    if (def_expr->basic_const_item())
     {
-      my_error(ER_VIRTUAL_COLUMN_FUNCTION_IS_NOT_ALLOWED, MYF(0), field_name);
+      if (def_expr->type() == Item::NULL_ITEM)
+      {
+        default_value= 0;
+        if ((flags & (NOT_NULL_FLAG | AUTO_INCREMENT_FLAG)) == NOT_NULL_FLAG)
+        {
+          my_error(ER_INVALID_DEFAULT, MYF(0), field_name);
+          DBUG_RETURN(1);
+        }
+      }
+    }
+  }
+
+  if (default_value && (flags & AUTO_INCREMENT_FLAG))
+  {
+    my_error(ER_INVALID_DEFAULT, MYF(0), field_name);
+    DBUG_RETURN(1);
+  }
+
+  if (default_value && !default_value->expr->basic_const_item() &&
+      mysql_type_to_time_type(sql_type) == MYSQL_TIMESTAMP_DATETIME &&
+      default_value->expr->type() == Item::FUNC_ITEM)
+  {
+    /*
+      Special case: NOW() for TIMESTAMP and DATETIME fields are handled
+      as in MariaDB 10.1 by marking them in unireg_check.
+    */
+    Item_func *fn= static_cast<Item_func*>(default_value->expr);
+    if (fn->functype() == Item_func::NOW_FUNC &&
+        (fn->decimals == 0 || fn->decimals >= length))
+    {
+      default_value= 0;
+      unireg_check= Field::TIMESTAMP_DN_FIELD;
+    }
+  }
+
+  if (on_update)
+  {
+    if (mysql_type_to_time_type(sql_type) != MYSQL_TIMESTAMP_DATETIME ||
+        on_update->decimals < length)
+    {
+      my_error(ER_INVALID_ON_UPDATE, MYF(0), field_name);
       DBUG_RETURN(TRUE);
     }
-
-    /*
-      Make a field created for the real type.
-      Note that regular and computed fields differ from each other only by
-      Field::vcol_info. It is is always NULL for a column that is not
-      computed.
-    */
-    sql_type= vcol_info->get_real_type();
+    unireg_check= unireg_check == Field::NONE ? Field::TIMESTAMP_UN_FIELD
+                                              : Field::TIMESTAMP_DNUN_FIELD;
   }
+  else if (flags & AUTO_INCREMENT_FLAG)
+    unireg_check= Field::NEXT_NUMBER;
 
   sign_len= flags & UNSIGNED_FLAG ? 0 : 1;
 
@@ -10018,6 +9927,12 @@ bool Create_field::check(THD *thd)
   case MYSQL_TYPE_NULL:
     break;
   case MYSQL_TYPE_NEWDECIMAL:
+    if (decimals >= NOT_FIXED_DEC)
+    {
+      my_error(ER_TOO_BIG_SCALE, MYF(0), static_cast<ulonglong>(decimals),
+               field_name, static_cast<ulong>(NOT_FIXED_DEC - 1));
+      DBUG_RETURN(TRUE);
+    }
     my_decimal_trim(&length, &decimals);
     if (length > DECIMAL_MAX_PRECISION)
     {
@@ -10049,33 +9964,6 @@ bool Create_field::check(THD *thd)
   case MYSQL_TYPE_LONG_BLOB:
   case MYSQL_TYPE_MEDIUM_BLOB:
   case MYSQL_TYPE_GEOMETRY:
-    if (def)
-    {
-      /* Allow empty as default value. */
-      String str,*res;
-      res= def->val_str(&str);
-      /*
-        A default other than '' is always an error, and any non-NULL
-        specified default is an error in strict mode.
-      */
-      if (res->length() || thd->is_strict_mode())
-      {
-        my_error(ER_BLOB_CANT_HAVE_DEFAULT, MYF(0),
-                 field_name); /* purecov: inspected */
-        DBUG_RETURN(TRUE);
-      }
-      else
-      {
-        /*
-          Otherwise a default of '' is just a warning.
-        */
-        push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
-                            ER_BLOB_CANT_HAVE_DEFAULT,
-                            ER_THD(thd, ER_BLOB_CANT_HAVE_DEFAULT),
-                            field_name);
-      }
-      def= 0;
-    }
     flags|= BLOB_FLAG;
     break;
   case MYSQL_TYPE_YEAR:
@@ -10097,6 +9985,12 @@ bool Create_field::check(THD *thd)
       my_error(ER_M_BIGGER_THAN_D, MYF(0), field_name);
       DBUG_RETURN(TRUE);
     }
+    if (decimals != NOT_FIXED_DEC && decimals >= FLOATING_POINT_DECIMALS)
+    {
+      my_error(ER_TOO_BIG_SCALE, MYF(0), static_cast<ulonglong>(decimals),
+               field_name, static_cast<ulong>(FLOATING_POINT_DECIMALS-1));
+      DBUG_RETURN(TRUE);
+    }
     break;
   case MYSQL_TYPE_DOUBLE:
     allowed_type_modifier= AUTO_INCREMENT_FLAG;
@@ -10109,6 +10003,12 @@ bool Create_field::check(THD *thd)
         decimals != NOT_FIXED_DEC)
     {
       my_error(ER_M_BIGGER_THAN_D, MYF(0), field_name);
+      DBUG_RETURN(TRUE);
+    }
+    if (decimals != NOT_FIXED_DEC && decimals >= FLOATING_POINT_DECIMALS)
+    {
+      my_error(ER_TOO_BIG_SCALE, MYF(0), static_cast<ulonglong>(decimals),
+               field_name, static_cast<ulong>(FLOATING_POINT_DECIMALS-1));
       DBUG_RETURN(TRUE);
     }
     break;
@@ -10185,7 +10085,7 @@ bool Create_field::check(THD *thd)
     We need to do this check here and in mysql_create_prepare_table() as
     sp_head::fill_field_definition() calls this function.
   */
-  if (!def && unireg_check == Field::NONE && (flags & NOT_NULL_FLAG))
+  if (!default_value && unireg_check == Field::NONE && (flags & NOT_NULL_FLAG))
   {
     /*
       TIMESTAMP columns get implicit DEFAULT value when
@@ -10200,7 +10100,7 @@ bool Create_field::check(THD *thd)
 
   if (!(flags & BLOB_FLAG) &&
       ((length > max_field_charlength &&
-        (sql_type != MYSQL_TYPE_VARCHAR || def)) ||
+        sql_type != MYSQL_TYPE_VARCHAR) ||
        (length == 0 &&
         sql_type != MYSQL_TYPE_ENUM && sql_type != MYSQL_TYPE_SET &&
         sql_type != MYSQL_TYPE_STRING && sql_type != MYSQL_TYPE_VARCHAR &&
@@ -10214,6 +10114,12 @@ bool Create_field::check(THD *thd)
               field_name, max_field_charlength); /* purecov: inspected */
     DBUG_RETURN(TRUE);
   }
+  else if (length > MAX_FIELD_BLOBLENGTH)
+  {
+    my_error(ER_TOO_BIG_DISPLAYWIDTH, MYF(0), field_name, MAX_FIELD_BLOBLENGTH);
+    DBUG_RETURN(1);
+  }
+
   if ((~allowed_type_modifier) & flags & conditional_type_modifiers)
   {
     my_error(ER_WRONG_FIELD_SPEC, MYF(0), field_name);
@@ -10425,19 +10331,29 @@ Field *make_field(TABLE_SHARE *share,
                         f_is_zerofill(pack_flag) != 0,
                         f_is_dec(pack_flag) == 0);
   case MYSQL_TYPE_FLOAT:
+  {
+    int decimals= f_decimals(pack_flag);
+    if (decimals == FLOATING_POINT_DECIMALS)
+      decimals= NOT_FIXED_DEC;
     return new (mem_root)
       Field_float(ptr,field_length,null_pos,null_bit,
                   unireg_check, field_name,
-                  f_decimals(pack_flag),
+                  decimals,
                   f_is_zerofill(pack_flag) != 0,
                   f_is_dec(pack_flag)== 0);
+  }
   case MYSQL_TYPE_DOUBLE:
+  {
+    int decimals= f_decimals(pack_flag);
+    if (decimals == FLOATING_POINT_DECIMALS)
+      decimals= NOT_FIXED_DEC;
     return new (mem_root)
       Field_double(ptr,field_length,null_pos,null_bit,
                    unireg_check, field_name,
-                   f_decimals(pack_flag),
+                   decimals,
                    f_is_zerofill(pack_flag) != 0,
                    f_is_dec(pack_flag)== 0);
+  }
   case MYSQL_TYPE_TINY:
     return new (mem_root)
       Field_tiny(ptr,field_length,null_pos,null_bit,
@@ -10547,10 +10463,10 @@ Field *make_field(TABLE_SHARE *share,
 
 /** Create a field suitable for create of table. */
 
-Create_field::Create_field(THD *thd, Field *old_field, Field *orig_field)
+Column_definition::Column_definition(THD *thd, Field *old_field,
+                                               Field *orig_field)
 {
-  field=      old_field;
-  field_name=change=old_field->field_name;
+  field_name= old_field->field_name;
   length=     old_field->field_length;
   flags=      old_field->flags;
   unireg_check=old_field->unireg_check;
@@ -10561,10 +10477,9 @@ Create_field::Create_field(THD *thd, Field *old_field, Field *orig_field)
   comment=    old_field->comment;
   decimals=   old_field->decimals();
   vcol_info=  old_field->vcol_info;
-  create_if_not_exists= FALSE;
-  stored_in_db= old_field->stored_in_db;
+  default_value= orig_field ? orig_field->default_value : 0;
+  check_constraint= orig_field ? orig_field->check_constraint : 0;
   option_list= old_field->option_list;
-  option_struct= old_field->option_struct;
 
   switch (sql_type) {
   case MYSQL_TYPE_BLOB:
@@ -10607,6 +10522,15 @@ Create_field::Create_field(THD *thd, Field *old_field, Field *orig_field)
                           buff, "YEAR(4)");
     }
     break;
+  case MYSQL_TYPE_FLOAT:
+  case MYSQL_TYPE_DOUBLE:
+    /*
+      Floating points are stored with FLOATING_POINT_DECIMALS but internally
+      in MariaDB used with NOT_FIXED_DEC, which is >= FLOATING_POINT_DECIMALS.
+    */
+    if (decimals >= FLOATING_POINT_DECIMALS)
+      decimals= NOT_FIXED_DEC;
+    break;
   default:
     break;
   }
@@ -10615,7 +10539,6 @@ Create_field::Create_field(THD *thd, Field *old_field, Field *orig_field)
     interval= ((Field_enum*) old_field)->typelib;
   else
     interval=0;
-  def=0;
   char_length= length;
 
   /*
@@ -10624,40 +10547,31 @@ Create_field::Create_field(THD *thd, Field *old_field, Field *orig_field)
 
     - The column allows a default.
 
-    - The column type is not a BLOB type.
+    - The column type is not a BLOB type (as BLOB's doesn't have constant
+      defaults)
 
     - The original column (old_field) was properly initialized with a record
       buffer pointer.
+
+    - The column didn't have a default expression
   */
   if (!(flags & (NO_DEFAULT_VALUE_FLAG | BLOB_FLAG)) &&
-      old_field->ptr != NULL &&
-      orig_field != NULL)
+      old_field->ptr != NULL && orig_field != NULL)
   {
-    bool default_now= false;
-    if (real_type_with_now_as_default(sql_type))
-    {
-      // The SQL type of the new field allows a function default:
-      default_now= orig_field->has_insert_default_function();
-      bool update_now= orig_field->has_update_default_function();
+    if (orig_field->unireg_check != Field::NEXT_NUMBER)
+      unireg_check= orig_field->unireg_check;
 
-      if (default_now && update_now)
-        unireg_check= Field::TIMESTAMP_DNUN_FIELD;
-      else if (default_now)
-        unireg_check= Field::TIMESTAMP_DN_FIELD;
-      else if (update_now)
-        unireg_check= Field::TIMESTAMP_UN_FIELD;
-    }
-    if (!default_now)                           // Give a constant default
+    /* Get the value from default_values */
+    const uchar *dv= orig_field->table->s->default_values;
+    if (!default_value && !orig_field->is_null_in_record(dv))
     {
-      /* Get the value from default_values */
-      const uchar *dv= orig_field->table->s->default_values;
-      if (!orig_field->is_null_in_record(dv))
-      {
-        StringBuffer<MAX_FIELD_WIDTH> tmp(charset);
-        String *res= orig_field->val_str(&tmp, orig_field->ptr_in_record(dv));
-        char *pos= (char*) sql_strmake(res->ptr(), res->length());
-        def= new (thd->mem_root) Item_string(thd, pos, res->length(), charset);
-      }
+      StringBuffer<MAX_FIELD_WIDTH> tmp(charset);
+      String *res= orig_field->val_str(&tmp, orig_field->ptr_in_record(dv));
+      char *pos= (char*) thd->strmake(res->ptr(), res->length());
+      default_value= new (thd->mem_root) Virtual_column_info();
+      default_value->expr=
+        new (thd->mem_root) Item_string(thd, pos, res->length(), charset);
+      default_value->utf8= 0;
     }
   }
 }
@@ -10677,7 +10591,7 @@ Create_field::Create_field(THD *thd, Field *old_field, Field *orig_field)
     length
 */
 
-uint32 Field_blob::char_length()
+uint32 Field_blob::char_length() const
 {
   switch (packlength)
   {
@@ -10708,6 +10622,20 @@ Create_field *Create_field::clone(MEM_ROOT *mem_root) const
   return res;
 }
 
+/**
+   Return true if default is an expression that must be saved explicitely
+
+   This is:
+     - Not basic constants
+     - If field is a BLOB (Which doesn't support normal DEFAULT)
+*/
+
+bool Column_definition::has_default_expression()
+{
+  return (default_value &&
+          (!default_value->expr->basic_const_item() ||
+           (flags & BLOB_FLAG)));
+}
 
 /**
   maximum possible display length for blob.
@@ -10864,12 +10792,13 @@ key_map Field::get_possible_keys()
     analyzed to check if it really should count as a value.
 */
 
-void Field::set_explicit_default(Item *value)
+bool Field::set_explicit_default(Item *value)
 {
   if (value->type() == Item::DEFAULT_VALUE_ITEM &&
       !((Item_default_value*)value)->arg)
-    return;
+    return false;
   set_has_explicit_value();
+  return true;
 }
 
 
@@ -10889,4 +10818,67 @@ bool Field::validate_value_in_record_with_warn(THD *thd, const uchar *record)
   }
   dbug_tmp_restore_column_map(table->read_set, old_map);
   return rc;
+}
+
+
+bool Field::save_in_field_default_value(bool view_error_processing)
+{
+  THD *thd= table->in_use;
+
+  if (flags & NO_DEFAULT_VALUE_FLAG &&
+      real_type() != MYSQL_TYPE_ENUM)
+  {
+    if (reset())
+    {
+      my_message(ER_CANT_CREATE_GEOMETRY_OBJECT,
+                 ER_THD(thd, ER_CANT_CREATE_GEOMETRY_OBJECT), MYF(0));
+      return -1;
+    }
+
+    if (view_error_processing)
+    {
+      TABLE_LIST *view= table->pos_in_table_list->top_table();
+      push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
+                          ER_NO_DEFAULT_FOR_VIEW_FIELD,
+                          ER_THD(thd, ER_NO_DEFAULT_FOR_VIEW_FIELD),
+                          view->view_db.str,
+                          view->view_name.str);
+    }
+    else
+    {
+      push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
+                          ER_NO_DEFAULT_FOR_FIELD,
+                          ER_THD(thd, ER_NO_DEFAULT_FOR_FIELD),
+                          field_name);
+    }
+    return 1;
+  }
+  set_default();
+  return
+    !is_null() &&
+    validate_value_in_record_with_warn(thd, table->record[0]) &&
+    thd->is_error() ? -1 : 0;
+}
+
+
+bool Field::save_in_field_ignore_value(bool view_error_processing)
+{
+  enum_sql_command com= table->in_use->lex->sql_command;
+  // All insert-like commands
+  if (com == SQLCOM_INSERT || com == SQLCOM_REPLACE ||
+      com == SQLCOM_INSERT_SELECT || com == SQLCOM_REPLACE_SELECT ||
+      com == SQLCOM_LOAD)
+    return save_in_field_default_value(view_error_processing);
+  return 0; // ignore
+}
+
+
+void Field::register_field_in_read_map()
+{
+  if (vcol_info)
+  {
+    Item *vcol_item= vcol_info->expr;
+    vcol_item->walk(&Item::register_field_in_read_map, 1, 0);
+  }
+  bitmap_set_bit(table->read_set, field_index);
 }

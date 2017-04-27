@@ -1,7 +1,6 @@
 /*****************************************************************************
 
 Copyright (c) 2007, 2016, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2016, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -27,10 +26,16 @@ Created 2007/03/16/03 Sunny Bains
 #ifndef INNOBASE_FST0AST_H
 #define INNOBASE_FST0AST_H
 
-#include "mem0mem.h"
 #include "ha_prototypes.h"
+#include "mem0mem.h"
 
-#define exit(x) abort()
+#ifdef UNIV_PFS_MEMORY
+
+#define malloc(A)	ut_malloc_nokey(A)
+#define free(A)		ut_free(A)
+#define realloc(P, A)	ut_realloc(P, A)
+
+#endif /* UNIV_PFS_MEMORY */
 
 /* The type of AST Node */
 enum fts_ast_type_t {
@@ -38,6 +43,10 @@ enum fts_ast_type_t {
 	FTS_AST_NUMB,				/*!< Number */
 	FTS_AST_TERM,				/*!< Term (or word) */
 	FTS_AST_TEXT,				/*!< Text string */
+	FTS_AST_PARSER_PHRASE_LIST,		/*!< Phase for plugin parser
+						The difference from text type
+						is that we tokenize text into
+						term list */
 	FTS_AST_LIST,				/*!< Expression list */
 	FTS_AST_SUBEXP_LIST			/*!< Sub-Expression list */
 };
@@ -142,9 +151,8 @@ fts_ast_term_set_wildcard(
 	fts_ast_node_t*	node);			/*!< in: term to change */
 /********************************************************************
 Set the proximity attribute of a text node. */
-
 void
-fts_ast_term_set_distance(
+fts_ast_text_set_distance(
 /*======================*/
 	fts_ast_node_t*	node,			/*!< in/out: text node */
 	ulint		distance);		/*!< in: the text proximity
@@ -152,7 +160,6 @@ fts_ast_term_set_distance(
 /********************************************************************//**
 Free a fts_ast_node_t instance.
 @return next node to free */
-UNIV_INTERN
 fts_ast_node_t*
 fts_ast_free_node(
 /*==============*/
@@ -173,14 +180,6 @@ fts_ast_node_print(
 /*===============*/
 	fts_ast_node_t*	node);			/*!< in: ast node to print */
 /********************************************************************
-For tracking node allocations, in case there is an during parsing.*/
-extern
-void
-fts_ast_state_add_node(
-/*===================*/
-	fts_ast_state_t*state,			/*!< in: ast state instance */
-	fts_ast_node_t*	node);			/*!< in: node to add to state */
-/********************************************************************
 Free node and expr allocations.*/
 extern
 void
@@ -188,10 +187,16 @@ fts_ast_state_free(
 /*===============*/
 	fts_ast_state_t*state);			/*!< in: state instance
 						to free */
+/** Check only union operation involved in the node
+@param[in]	node	ast node to check
+@return true if the node contains only union else false. */
+bool
+fts_ast_node_check_union(
+	fts_ast_node_t*	node);
+
 /******************************************************************//**
 Traverse the AST - in-order traversal.
 @return DB_SUCCESS if all went well */
-UNIV_INTERN
 dberr_t
 fts_ast_visit(
 /*==========*/
@@ -204,22 +209,8 @@ fts_ast_visit(
 						operator, currently we only
 						ignore FTS_IGNORE operator */
 	MY_ATTRIBUTE((nonnull, warn_unused_result));
-/*****************************************************************//**
-Process (nested) sub-expression, create a new result set to store the
-sub-expression result by processing nodes under current sub-expression
-list. Merge the sub-expression result with that of parent expression list.
-@return DB_SUCCESS if all went well */
-UNIV_INTERN
-dberr_t
-fts_ast_visit_sub_exp(
-/*==================*/
-	fts_ast_node_t*		node,		/*!< in: instance to traverse*/
-	fts_ast_callback	visitor,	/*!< in: callback */
-	void*			arg)		/*!< in: callback arg */
-	MY_ATTRIBUTE((nonnull, warn_unused_result));
 /********************************************************************
 Create a lex instance.*/
-UNIV_INTERN
 fts_lexer_t*
 fts_lexer_create(
 /*=============*/
@@ -229,7 +220,6 @@ fts_lexer_create(
 	MY_ATTRIBUTE((nonnull, malloc, warn_unused_result));
 /********************************************************************
 Free an fts_lexer_t instance.*/
-UNIV_INTERN
 void
 fts_lexer_free(
 /*===========*/
@@ -243,7 +233,6 @@ has one more byte than len
 @param[in] str		pointer to string
 @param[in] len		length of the string
 @return ast string with NUL-terminator */
-UNIV_INTERN
 fts_ast_string_t*
 fts_ast_string_create(
 	const byte*	str,
@@ -252,7 +241,6 @@ fts_ast_string_create(
 /**
 Free an ast string instance
 @param[in,out] ast_str		string to free */
-UNIV_INTERN
 void
 fts_ast_string_free(
 	fts_ast_string_t*	ast_str);
@@ -262,19 +250,10 @@ Translate ast string of type FTS_AST_NUMB to unsigned long by strtoul
 @param[in] str		string to translate
 @param[in] base		the base
 @return translated number */
-UNIV_INTERN
 ulint
 fts_ast_string_to_ul(
 	const fts_ast_string_t*	ast_str,
 	int			base);
-
-/**
-Print the ast string
-@param[in] str		string to print */
-UNIV_INTERN
-void
-fts_ast_string_print(
-	const fts_ast_string_t*	ast_str);
 
 /* String of length len.
 We always store the string of length len with a terminating '\0',
@@ -317,6 +296,9 @@ struct fts_ast_node_t {
 	fts_ast_node_t*	next_alloc;		/*!< For tracking allocations */
 	bool		visited;		/*!< whether this node is
 						already processed */
+	/* Used by plugin parser */
+	fts_ast_node_t* up_node;		/*!< Direct up node */
+	bool		go_up;			/*!< Flag if go one level up */
 };
 
 /* To track state during parsing */
@@ -330,11 +312,33 @@ struct fts_ast_state_t {
 	fts_lexer_t*	lexer;			/*!< Lexer callback + arg */
 	CHARSET_INFO*	charset;		/*!< charset used for
 						tokenization */
+	/* Used by plugin parser */
+	fts_ast_node_t*	cur_node;		/*!< Current node into which
+						 we add new node */
+	int		depth;			/*!< Depth of parsing state */
 };
 
+/******************************************************************//**
+Create an AST term node, makes a copy of ptr for plugin parser
+@return node */
+extern
+fts_ast_node_t*
+fts_ast_create_node_term_for_parser(
+/*==========i=====================*/
+	void*		arg,			/*!< in: ast state */
+	const char*	ptr,			/*!< in: term string */
+	const ulint	len);			/*!< in: term string length */
+
+/******************************************************************//**
+Create an AST phrase list node for plugin parser
+@return node */
+extern
+fts_ast_node_t*
+fts_ast_create_node_phrase_list(
+/*============================*/
+	void*		arg);			/*!< in: ast state */
+
 #ifdef UNIV_DEBUG
-const char*
-fts_ast_oper_name_get(fts_ast_oper_t	oper);
 const char*
 fts_ast_node_type_get(fts_ast_type_t	type);
 #endif /* UNIV_DEBUG */

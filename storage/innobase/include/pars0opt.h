@@ -1,6 +1,7 @@
 /*****************************************************************************
 
-Copyright (c) 1997, 2009, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1997, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -37,7 +38,6 @@ Created 12/21/1997 Heikki Tuuri
 Optimizes a select. Decides which indexes to tables to use. The tables
 are accessed in the order that they were written to the FROM part in the
 select statement. */
-UNIV_INTERN
 void
 opt_search_plan(
 /*============*/
@@ -49,7 +49,6 @@ already exist in the list. If the column is already in the list, puts a value
 indirection to point to the occurrence in the column list, except if the
 column occurrence we are looking at is in the column list, in which case
 nothing is done. */
-UNIV_INTERN
 void
 opt_find_all_cols(
 /*==============*/
@@ -60,16 +59,13 @@ opt_find_all_cols(
 					to add new found columns */
 	plan_t*		plan,		/*!< in: plan or NULL */
 	que_node_t*	exp);		/*!< in: expression or condition */
+#ifdef UNIV_SQL_DEBUG
 /********************************************************************//**
 Prints info of a query plan. */
-UNIV_INTERN
 void
 opt_print_query_plan(
 /*=================*/
 	sel_node_t*	sel_node);	/*!< in: select node */
-
-#ifndef UNIV_NONINL
-#include "pars0opt.ic"
-#endif
+#endif /* UNIV_SQL_DEBUG */
 
 #endif

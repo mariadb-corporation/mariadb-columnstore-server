@@ -1,6 +1,7 @@
 /*****************************************************************************
 
-Copyright (c) 1996, 2011, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1996, 2015, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -23,28 +24,22 @@ Data types
 Created 1/16/1996 Heikki Tuuri
 *******************************************************/
 
+#include "ha_prototypes.h"
+
 #include "data0type.h"
-
-#ifdef UNIV_NONINL
-#include "data0type.ic"
-#endif
-
-#ifndef UNIV_HOTBACKUP
-# include "ha_prototypes.h"
 
 /* At the database startup we store the default-charset collation number of
 this MySQL installation to this global variable. If we have < 4.1.2 format
 column definitions, or records in the insert buffer, we use this
 charset-collation code for them. */
 
-UNIV_INTERN ulint	data_mysql_default_charset_coll;
+ulint	data_mysql_default_charset_coll;
 
 /*********************************************************************//**
 Determine how many bytes the first n characters of the given string occupy.
 If the string is shorter than n characters, returns the number of bytes
 the characters in the string occupy.
-@return	length of the prefix, in bytes */
-UNIV_INTERN
+@return length of the prefix, in bytes */
 ulint
 dtype_get_at_most_n_mbchars(
 /*========================*/
@@ -79,13 +74,11 @@ dtype_get_at_most_n_mbchars(
 
 	return(data_len);
 }
-#endif /* UNIV_HOTBACKUP */
 
 /*********************************************************************//**
 Checks if a data main type is a string type. Also a BLOB is considered a
 string type.
-@return	TRUE if string type */
-UNIV_INTERN
+@return TRUE if string type */
 ibool
 dtype_is_string_type(
 /*=================*/
@@ -105,8 +98,7 @@ dtype_is_string_type(
 Checks if a type is a binary string type. Note that for tables created with
 < 4.0.14, we do not know if a DATA_BLOB column is a BLOB or a TEXT column. For
 those DATA_BLOB columns this function currently returns FALSE.
-@return	TRUE if binary string type */
-UNIV_INTERN
+@return TRUE if binary string type */
 ibool
 dtype_is_binary_string_type(
 /*========================*/
@@ -128,8 +120,7 @@ Checks if a type is a non-binary string type. That is, dtype_is_string_type is
 TRUE and dtype_is_binary_string_type is FALSE. Note that for tables created
 with < 4.0.14, we do not know if a DATA_BLOB column is a BLOB or a TEXT column.
 For those DATA_BLOB columns this function currently returns TRUE.
-@return	TRUE if non-binary string type */
-UNIV_INTERN
+@return TRUE if non-binary string type */
 ibool
 dtype_is_non_binary_string_type(
 /*============================*/
@@ -146,27 +137,8 @@ dtype_is_non_binary_string_type(
 }
 
 /*********************************************************************//**
-Forms a precise type from the < 4.1.2 format precise type plus the
-charset-collation code.
-@return precise type, including the charset-collation code */
-UNIV_INTERN
-ulint
-dtype_form_prtype(
-/*==============*/
-	ulint	old_prtype,	/*!< in: the MySQL type code and the flags
-				DATA_BINARY_TYPE etc. */
-	ulint	charset_coll)	/*!< in: MySQL charset-collation code */
-{
-	ut_a(old_prtype < 256 * 256);
-	ut_a(charset_coll <= MAX_CHAR_COLL_NUM);
-
-	return(old_prtype + (charset_coll << 16));
-}
-
-/*********************************************************************//**
 Validates a data type structure.
-@return	TRUE if ok */
-UNIV_INTERN
+@return TRUE if ok */
 ibool
 dtype_validate(
 /*===========*/
@@ -174,27 +146,22 @@ dtype_validate(
 {
 	ut_a(type);
 	ut_a(type->mtype >= DATA_VARCHAR);
-	ut_a(type->mtype <= DATA_MYSQL);
+	ut_a(type->mtype <= DATA_MTYPE_MAX);
 
 	if (type->mtype == DATA_SYS) {
 		ut_a((type->prtype & DATA_MYSQL_TYPE_MASK) < DATA_N_SYS_COLS);
 	}
 
-#ifndef UNIV_HOTBACKUP
 	ut_a(dtype_get_mbminlen(type) <= dtype_get_mbmaxlen(type));
-#endif /* !UNIV_HOTBACKUP */
 
 	return(TRUE);
 }
 
-#ifndef UNIV_HOTBACKUP
-/*********************************************************************//**
-Prints a data type structure. */
-UNIV_INTERN
+#ifdef UNIV_DEBUG
+/** Print a data type structure.
+@param[in]	type	data type */
 void
-dtype_print(
-/*========*/
-	const dtype_t*	type)	/*!< in: type */
+dtype_print(const dtype_t* type)
 {
 	ulint	mtype;
 	ulint	prtype;
@@ -224,6 +191,17 @@ dtype_print(
 
 	case DATA_BLOB:
 		fputs("DATA_BLOB", stderr);
+		break;
+
+	case DATA_POINT:
+		fputs("DATA_POINT", stderr);
+		break;
+
+	case DATA_VAR_POINT:
+		fputs("DATA_VAR_POINT", stderr);
+
+	case DATA_GEOMETRY:
+		fputs("DATA_GEOMETRY", stderr);
 		break;
 
 	case DATA_INT:
@@ -295,4 +273,4 @@ dtype_print(
 
 	fprintf(stderr, " len %lu", (ulong) len);
 }
-#endif /* !UNIV_HOTBACKUP */
+#endif /* UNIV_DEBUG */

@@ -3,9 +3,7 @@
 
 /*
    Copyright (c) 2000, 2011, Oracle and/or its affiliates.
-Copyright (c) 2016, MariaDB Corporation
    Copyright (c) 2009, 2015, MariaDB
-Copyright (c) 2016, MariaDB Corporation
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -67,6 +65,7 @@ public:
   double val_real();
   my_decimal *val_decimal(my_decimal *);
   enum Item_result result_type () const { return STRING_RESULT; }
+  enum_field_types field_type() const { return string_field_type(); }
   void left_right_max_length();
   bool fix_fields(THD *thd, Item **ref);
   void update_null_value()
@@ -152,6 +151,8 @@ public:
     fix_length_and_charset(32, default_charset());
   }
   const char *func_name() const { return "md5"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_md5>(thd, mem_root, this); }
 };
 
 
@@ -161,7 +162,9 @@ public:
   Item_func_sha(THD *thd, Item *a): Item_str_ascii_checksum_func(thd, a) {}
   String *val_str_ascii(String *);    
   void fix_length_and_dec();      
-  const char *func_name() const { return "sha"; }	
+  const char *func_name() const { return "sha"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_sha>(thd, mem_root, this); }
 };
 
 class Item_func_sha2 :public Item_str_ascii_checksum_func
@@ -172,6 +175,8 @@ public:
   String *val_str_ascii(String *);
   void fix_length_and_dec();
   const char *func_name() const { return "sha2"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_sha2>(thd, mem_root, this); }
 };
 
 class Item_func_to_base64 :public Item_str_ascii_checksum_func
@@ -183,6 +188,8 @@ public:
   String *val_str_ascii(String *);
   void fix_length_and_dec();
   const char *func_name() const { return "to_base64"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_to_base64>(thd, mem_root, this); }
 };
 
 class Item_func_from_base64 :public Item_str_binary_checksum_func
@@ -194,6 +201,8 @@ public:
   String *val_str(String *);
   void fix_length_and_dec();
   const char *func_name() const { return "from_base64"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_from_base64>(thd, mem_root, this); }
 };
 
 #include <my_crypt.h>
@@ -218,6 +227,8 @@ public:
     Item_aes_crypt(thd, a, b) {}
   void fix_length_and_dec();
   const char *func_name() const { return "aes_encrypt"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_aes_encrypt>(thd, mem_root, this); }
 };
 
 class Item_func_aes_decrypt :public Item_aes_crypt
@@ -227,6 +238,8 @@ public:
     Item_aes_crypt(thd, a, b) {}
   void fix_length_and_dec();
   const char *func_name() const { return "aes_decrypt"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_aes_decrypt>(thd, mem_root, this); }
 };
 
 
@@ -239,6 +252,8 @@ public:
   String *val_str(String *);
   void fix_length_and_dec();
   const char *func_name() const { return "concat"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_concat>(thd, mem_root, this); }
 };
 
 class Item_func_decode_histogram :public Item_str_func
@@ -255,6 +270,8 @@ public:
     maybe_null= 1;
   }
   const char *func_name() const { return "decode_histogram"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_decode_histogram>(thd, mem_root, this); }
 };
 
 class Item_func_concat_ws :public Item_str_func
@@ -266,6 +283,8 @@ public:
   void fix_length_and_dec();
   const char *func_name() const { return "concat_ws"; }
   table_map not_null_tables() const { return 0; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_concat_ws>(thd, mem_root, this); }
 };
 
 class Item_func_reverse :public Item_str_func
@@ -276,6 +295,8 @@ public:
   String *val_str(String *);
   void fix_length_and_dec();
   const char *func_name() const { return "reverse"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_reverse>(thd, mem_root, this); }
 };
 
 
@@ -288,6 +309,8 @@ public:
   String *val_str(String *);
   void fix_length_and_dec();
   const char *func_name() const { return "replace"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_replace>(thd, mem_root, this); }
 };
 
 
@@ -311,6 +334,8 @@ public:
   String *val_str(String *str);
   void fix_length_and_dec();
   const char *func_name() const { return "regexp_replace"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_regexp_replace>(thd, mem_root, this); }
 };
 
 
@@ -331,6 +356,8 @@ public:
   String *val_str(String *str);
   void fix_length_and_dec();
   const char *func_name() const { return "regexp_substr"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_regexp_substr>(thd, mem_root, this); }
 };
 
 
@@ -344,6 +371,8 @@ public:
   String *val_str(String *);
   void fix_length_and_dec();
   const char *func_name() const { return "insert"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_insert>(thd, mem_root, this); }
 };
 
 
@@ -365,6 +394,8 @@ public:
   Item_func_lcase(THD *thd, Item *item): Item_str_conv(thd, item) {}
   const char *func_name() const { return "lcase"; }
   void fix_length_and_dec();
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_lcase>(thd, mem_root, this); }
 };
 
 class Item_func_ucase :public Item_str_conv
@@ -373,6 +404,8 @@ public:
   Item_func_ucase(THD *thd, Item *item): Item_str_conv(thd, item) {}
   const char *func_name() const { return "ucase"; }
   void fix_length_and_dec();
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_ucase>(thd, mem_root, this); }
 };
 
 
@@ -384,6 +417,8 @@ public:
   String *val_str(String *);
   void fix_length_and_dec();
   const char *func_name() const { return "left"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_left>(thd, mem_root, this); }
 };
 
 
@@ -395,6 +430,8 @@ public:
   String *val_str(String *);
   void fix_length_and_dec();
   const char *func_name() const { return "right"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_right>(thd, mem_root, this); }
 };
 
 
@@ -407,6 +444,8 @@ public:
   String *val_str(String *);
   void fix_length_and_dec();
   const char *func_name() const { return "substr"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_substr>(thd, mem_root, this); }
 };
 
 
@@ -419,6 +458,9 @@ public:
   String *val_str(String *);
   void fix_length_and_dec();
   const char *func_name() const { return "substring_index"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_substr_index>(thd, mem_root, this); }
+
 };
 
 
@@ -450,6 +492,8 @@ public:
   const char *func_name() const { return "trim"; }
   virtual void print(String *str, enum_query_type query_type);
   virtual const char *mode_name() const { return "both"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_trim>(thd, mem_root, this); }
 };
 
 
@@ -461,6 +505,8 @@ public:
   String *val_str(String *);
   const char *func_name() const { return "ltrim"; }
   const char *mode_name() const { return "leading"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_ltrim>(thd, mem_root, this); }
 };
 
 
@@ -472,6 +518,8 @@ public:
   String *val_str(String *);
   const char *func_name() const { return "rtrim"; }
   const char *mode_name() const { return "trailing"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_rtrim>(thd, mem_root, this); }
 };
 
 
@@ -509,6 +557,8 @@ public:
                                           "password" : "old_password"); }
   static char *alloc(THD *thd, const char *password, size_t pass_len,
                      enum PW_Alg al);
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_password>(thd, mem_root, this); }
 };
 
 
@@ -529,6 +579,8 @@ public:
     max_length = args[0]->max_length + 9;
   }
   const char *func_name() const { return "des_encrypt"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_des_encrypt>(thd, mem_root, this); }
 };
 
 class Item_func_des_decrypt :public Item_str_binary_checksum_func
@@ -549,6 +601,8 @@ public:
       max_length-= 9U;
   }
   const char *func_name() const { return "des_decrypt"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_des_decrypt>(thd, mem_root, this); }
 };
 
 
@@ -579,10 +633,12 @@ public:
   String *val_str(String *);
   void fix_length_and_dec() { maybe_null=1; max_length = 13; }
   const char *func_name() const { return "encrypt"; }
-  bool check_vcol_func_processor(uchar *int_arg) 
+  bool check_vcol_func_processor(void *arg)
   {
-    return trace_unsupported_by_check_vcol_func_processor(func_name());
+    return FALSE;
   }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_encrypt>(thd, mem_root, this); }
 };
 
 #include "sql_crypt.h"
@@ -601,6 +657,8 @@ public:
   String *val_str(String *);
   void fix_length_and_dec();
   const char *func_name() const { return "encode"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_encode>(thd, mem_root, this); }
 protected:
   virtual void crypto_transform(String *);
 private:
@@ -614,6 +672,8 @@ class Item_func_decode :public Item_func_encode
 public:
   Item_func_decode(THD *thd, Item *a, Item *seed_arg): Item_func_encode(thd, a, seed_arg) {}
   const char *func_name() const { return "decode"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_decode>(thd, mem_root, this); }
 protected:
   void crypto_transform(String *);
 };
@@ -634,10 +694,10 @@ public:
     call
   */
   virtual const char *fully_qualified_func_name() const = 0;
-  bool check_vcol_func_processor(uchar *int_arg) 
+  bool check_vcol_func_processor(void *arg)
   {
-    return trace_unsupported_by_check_vcol_func_processor(
-                                           fully_qualified_func_name());
+    return mark_unsupported_function(fully_qualified_func_name(), arg,
+                                     VCOL_SESSION_FUNC);
   }
 };
 
@@ -654,6 +714,8 @@ public:
   }
   const char *func_name() const { return "database"; }
   const char *fully_qualified_func_name() const { return "database()"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_database>(thd, mem_root, this); }
 };
 
 
@@ -684,6 +746,8 @@ public:
   {
     return save_str_value_in_field(field, &str_value);
   }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_user>(thd, mem_root, this); }
 };
 
 
@@ -697,6 +761,12 @@ public:
   bool fix_fields(THD *thd, Item **ref);
   const char *func_name() const { return "current_user"; }
   const char *fully_qualified_func_name() const { return "current_user()"; }
+  bool check_vcol_func_processor(void *arg)
+  {
+    context= 0;
+    return mark_unsupported_function(fully_qualified_func_name(), arg,
+                                     VCOL_SESSION_FUNC);
+  }
 };
 
 
@@ -719,6 +789,15 @@ public:
     DBUG_ASSERT(fixed == 1);
     return (null_value ? 0 : &str_value);
   }
+  bool check_vcol_func_processor(void *arg)
+  {
+
+    context= 0;
+    return mark_unsupported_function(fully_qualified_func_name(), arg,
+                                     VCOL_SESSION_FUNC);
+  }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_current_role>(thd, mem_root, this); }
 };
 
 
@@ -730,6 +809,8 @@ public:
   String *val_str(String *);
   void fix_length_and_dec();
   const char *func_name() const { return "soundex"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_soundex>(thd, mem_root, this); }
 };
 
 
@@ -742,6 +823,8 @@ public:
   String *val_str(String *str);
   void fix_length_and_dec();
   const char *func_name() const { return "elt"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_elt>(thd, mem_root, this); }
 };
 
 
@@ -754,6 +837,8 @@ public:
   String *val_str(String *str);
   void fix_length_and_dec();
   const char *func_name() const { return "make_set"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_make_set>(thd, mem_root, this); }
 };
 
 
@@ -772,6 +857,8 @@ public:
   void fix_length_and_dec();
   const char *func_name() const { return "format"; }
   virtual void print(String *str, enum_query_type query_type);
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_format>(thd, mem_root, this); }
 };
 
 
@@ -784,11 +871,13 @@ public:
     Item_str_func(thd, list)
   { collation.set(cs); }
   String *val_str(String *);
-  void fix_length_and_dec() 
+  void fix_length_and_dec()
   {
     max_length= arg_count * 4;
   }
   const char *func_name() const { return "char"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_char>(thd, mem_root, this); }
 };
 
 
@@ -801,6 +890,8 @@ public:
   String *val_str(String *);
   void fix_length_and_dec();
   const char *func_name() const { return "repeat"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_repeat>(thd, mem_root, this); }
 };
 
 
@@ -811,6 +902,8 @@ public:
   String *val_str(String *);
   void fix_length_and_dec();
   const char *func_name() const { return "space"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_space>(thd, mem_root, this); }
 };
 
 
@@ -823,6 +916,13 @@ public:
   String *val_str(String *);
   void fix_length_and_dec();
   const char *func_name() const { return "binlog_gtid_pos"; }
+  bool check_vcol_func_processor(void *arg)
+  {
+
+    return mark_unsupported_function(func_name(), "()", arg, VCOL_IMPOSSIBLE);
+  }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_binlog_gtid_pos>(thd, mem_root, this); }
 };
 
 
@@ -835,6 +935,8 @@ public:
   String *val_str(String *);
   void fix_length_and_dec();
   const char *func_name() const { return "rpad"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_rpad>(thd, mem_root, this); }
 };
 
 
@@ -847,6 +949,8 @@ public:
   String *val_str(String *);
   void fix_length_and_dec();
   const char *func_name() const { return "lpad"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_lpad>(thd, mem_root, this); }
 };
 
 
@@ -863,6 +967,8 @@ public:
     max_length=64;
     maybe_null= 1;
   }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_conv>(thd, mem_root, this); }
 };
 
 
@@ -879,6 +985,7 @@ public:
     collation.set(default_charset());
     decimals=0;
     // InfiniDB fix max length to be 16 for numeric argument
+    // @InfiniDB TODO can we remove this when we get compatible DECIMAL type?
     if (args[0]->result_type() == DECIMAL_RESULT ||
     	   args[0]->result_type() == REAL_RESULT ||
     	   args[0]->result_type() == INT_RESULT)
@@ -890,6 +997,8 @@ public:
 		fix_char_length(args[0]->max_length * 2);
 	}
   }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_hex>(thd, mem_root, this); }
 };
 
 class Item_func_unhex :public Item_str_func
@@ -909,6 +1018,8 @@ public:
     decimals=0;
     max_length=(1+args[0]->max_length)/2;
   }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_unhex>(thd, mem_root, this); }
 };
 
 
@@ -939,6 +1050,8 @@ public:
   Item_func_like_range_min(THD *thd, Item *a, Item *b):
     Item_func_like_range(thd, a, b, true) { }
   const char *func_name() const { return "like_range_min"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_like_range_min>(thd, mem_root, this); }
 };
 
 
@@ -948,6 +1061,8 @@ public:
   Item_func_like_range_max(THD *thd, Item *a, Item *b):
     Item_func_like_range(thd, a, b, false) { }
   const char *func_name() const { return "like_range_max"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_like_range_max>(thd, mem_root, this); }
 };
 #endif
 
@@ -972,6 +1087,9 @@ public:
   }
   virtual void print(String *str, enum_query_type query_type);
   const char *func_name() const { return "cast_as_binary"; }
+  bool need_parentheses_in_default() { return true; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_binary>(thd, mem_root, this); }
 };
 
 
@@ -988,10 +1106,12 @@ public:
     maybe_null=1;
     max_length=MAX_BLOB_WIDTH;
   }
-  bool check_vcol_func_processor(uchar *int_arg) 
+  bool check_vcol_func_processor(void *arg)
   {
-    return trace_unsupported_by_check_vcol_func_processor(func_name());
+    return mark_unsupported_function(func_name(), "()", arg, VCOL_IMPOSSIBLE);
   }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_load_file>(thd, mem_root, this); }
 };
 
 
@@ -1007,6 +1127,8 @@ class Item_func_export_set: public Item_str_func
   String  *val_str(String *str);
   void fix_length_and_dec();
   const char *func_name() const { return "export_set"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_export_set>(thd, mem_root, this); }
 };
 
 
@@ -1024,6 +1146,8 @@ public:
                                   2 * collation.collation->mbmaxlen;
     max_length= (uint32) MY_MIN(max_result_length, MAX_BLOB_WIDTH);
   }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_quote>(thd, mem_root, this); }
 };
 
 class Item_func_conv_charset :public Item_str_func
@@ -1106,6 +1230,8 @@ public:
   void fix_length_and_dec();
   const char *func_name() const { return "convert"; }
   virtual void print(String *str, enum_query_type query_type);
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_conv_charset>(thd, mem_root, this); }
 };
 
 class Item_func_set_collation :public Item_str_func
@@ -1117,6 +1243,7 @@ public:
   void fix_length_and_dec();
   bool eq(const Item *item, bool binary_cmp) const;
   const char *func_name() const { return "collate"; }
+  enum precedence precedence() const { return COLLATE_PRECEDENCE; }
   enum Functype functype() const { return COLLATE_FUNC; }
   virtual void print(String *str, enum_query_type query_type);
   Item_field *field_for_view_update()
@@ -1124,6 +1251,9 @@ public:
     /* this function is transparent for view updating */
     return args[0]->field_for_view_update();
   }
+  bool need_parentheses_in_default() { return true; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_set_collation>(thd, mem_root, this); }
 };
 
 
@@ -1151,6 +1281,8 @@ public:
     :Item_func_expr_str_metadata(thd, a) { }
   String *val_str(String *);
   const char *func_name() const { return "charset"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_charset>(thd, mem_root, this); }
 };
 
 
@@ -1161,6 +1293,8 @@ public:
     :Item_func_expr_str_metadata(thd, a) {}
   String *val_str(String *);
   const char *func_name() const { return "collation"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_collation>(thd, mem_root, this); }
 };
 
 
@@ -1193,6 +1327,9 @@ public:
   }
   Item* propagate_equal_fields(THD *thd, const Context &ctx, COND_EQUAL *cond)
   { return this; }
+  void print(String *str, enum_query_type query_type);
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_weight_string>(thd, mem_root, this); }
 };
 
 class Item_func_crc32 :public Item_int_func
@@ -1204,6 +1341,8 @@ public:
   const char *func_name() const { return "crc32"; }
   void fix_length_and_dec() { max_length=10; }
   longlong val_int();
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_crc32>(thd, mem_root, this); }
 };
 
 class Item_func_uncompressed_length : public Item_int_func
@@ -1214,6 +1353,8 @@ public:
   const char *func_name() const{return "uncompressed_length";}
   void fix_length_and_dec() { max_length=10; maybe_null= true; }
   longlong val_int();
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_uncompressed_length>(thd, mem_root, this); }
 };
 
 #ifdef HAVE_COMPRESS
@@ -1231,6 +1372,8 @@ public:
   void fix_length_and_dec(){max_length= (args[0]->max_length*120)/100+12;}
   const char *func_name() const{return "compress";}
   String *val_str(String *) ZLIB_DEPENDED_FUNCTION
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_compress>(thd, mem_root, this); }
 };
 
 class Item_func_uncompress: public Item_str_binary_checksum_func
@@ -1242,6 +1385,8 @@ public:
   void fix_length_and_dec(){ maybe_null= 1; max_length= MAX_BLOB_WIDTH; }
   const char *func_name() const{return "uncompress";}
   String *val_str(String *) ZLIB_DEPENDED_FUNCTION
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_uncompress>(thd, mem_root, this); }
 };
 
 
@@ -1257,10 +1402,12 @@ public:
   }
   const char *func_name() const{ return "uuid"; }
   String *val_str(String *);
-  bool check_vcol_func_processor(uchar *int_arg) 
+  bool check_vcol_func_processor(void *arg)
   {
-    return trace_unsupported_by_check_vcol_func_processor(func_name());
+    return mark_unsupported_function(func_name(), "()", arg, VCOL_NON_DETERMINISTIC);
   }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_uuid>(thd, mem_root, this); }
 };
 
 
@@ -1272,7 +1419,7 @@ protected:
   uint *keys_num;
   LEX_STRING *keys_str;
   bool names, force_names;
-  bool prepare_arguments(bool force_names);
+  bool prepare_arguments(THD *thd, bool force_names);
   void print_arguments(String *str, enum_query_type query_type);
 public:
   Item_func_dyncol_create(THD *thd, List<Item> &args, DYNCALL_CREATE_DEF *dfs);
@@ -1282,6 +1429,8 @@ public:
   String *val_str(String *);
   virtual void print(String *str, enum_query_type query_type);
   virtual enum Functype functype() const   { return DYNCOL_FUNC; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_dyncol_create>(thd, mem_root, this); }
 };
 
 
@@ -1294,6 +1443,8 @@ public:
   const char *func_name() const{ return "column_add"; }
   String *val_str(String *);
   virtual void print(String *str, enum_query_type query_type);
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_dyncol_add>(thd, mem_root, this); }
 };
 
 class Item_func_dyncol_json: public Item_str_func
@@ -1309,6 +1460,8 @@ public:
     collation.set(&my_charset_bin);
     decimals= 0;
   }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_dyncol_json>(thd, mem_root, this); }
 };
 
 /*
@@ -1328,11 +1481,29 @@ public:
   const char *func_name() const { return "column_get"; }
   String *val_str(String *);
   longlong val_int();
+  longlong val_int_signed_typecast()
+  {
+    unsigned_flag= false;   // Mark that we want to have a signed value
+    longlong value= val_int(); // val_int() can change unsigned_flag
+    if (!null_value && unsigned_flag && value < 0)
+      push_note_converted_to_negative_complement(current_thd);
+    return value;
+  }
+  longlong val_int_unsigned_typecast()
+  {
+    unsigned_flag= true; // Mark that we want to have an unsigned value
+    longlong value= val_int(); // val_int() can change unsigned_flag
+    if (!null_value && unsigned_flag == 0 && value < 0)
+      push_note_converted_to_positive_complement(current_thd);
+    return value;
+  }
   double val_real();
   my_decimal *val_decimal(my_decimal *);
-  bool get_dyn_value(DYNAMIC_COLUMN_VALUE *val, String *tmp);
+  bool get_dyn_value(THD *thd, DYNAMIC_COLUMN_VALUE *val, String *tmp);
   bool get_date(MYSQL_TIME *ltime, ulonglong fuzzydate);
   void print(String *str, enum_query_type query_type);
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_dyncol_get>(thd, mem_root, this); }
 };
 
 
@@ -1343,6 +1514,8 @@ public:
   void fix_length_and_dec() { maybe_null= 1; max_length= MAX_BLOB_WIDTH; };
   const char *func_name() const{ return "column_list"; }
   String *val_str(String *);
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_dyncol_list>(thd, mem_root, this); }
 };
 
 #endif /* ITEM_STRFUNC_INCLUDED */

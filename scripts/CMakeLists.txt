@@ -73,6 +73,23 @@ IF(UNIX)
 )
 ENDIF()
 
+# Configure two scripts from one 'in' file.
+# The maria_add_gis_sp.sql - to be sent to 'mysql' tool
+# and the maria_add_gis_sp_bootstrap.sql, that can be sent to
+# the server as a bootstrap command.
+
+SET(ADD_GIS_SP_SET_DELIMITER "delimiter |")
+SET(ADD_GIS_SP_RESET_DELIMITER "delimiter ;")
+SET(ADD_GIS_SP_EOL "|")
+CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/maria_add_gis_sp.sql.in
+  ${CMAKE_CURRENT_BINARY_DIR}/maria_add_gis_sp.sql ESCAPE_QUOTES @ONLY)
+
+SET(ADD_GIS_SP_SET_DELIMITER "")
+SET(ADD_GIS_SP_RESET_DELIMITER "")
+SET(ADD_GIS_SP_EOL ";")
+CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/maria_add_gis_sp.sql.in
+  ${CMAKE_CURRENT_BINARY_DIR}/maria_add_gis_sp_bootstrap.sql ESCAPE_QUOTES @ONLY)
+
 INSTALL(FILES 
   ${CMAKE_CURRENT_SOURCE_DIR}/mysql_system_tables.sql 
   ${CMAKE_CURRENT_SOURCE_DIR}/mysql_system_tables_data.sql
@@ -80,6 +97,8 @@ INSTALL(FILES
   ${CMAKE_CURRENT_SOURCE_DIR}/fill_help_tables.sql
   ${CMAKE_CURRENT_SOURCE_DIR}/mysql_test_data_timezone.sql
   ${CMAKE_CURRENT_SOURCE_DIR}/mysql_to_mariadb.sql
+  ${CMAKE_CURRENT_BINARY_DIR}/maria_add_gis_sp.sql
+  ${CMAKE_CURRENT_BINARY_DIR}/maria_add_gis_sp_bootstrap.sql
   ${FIX_PRIVILEGES_SQL}
   DESTINATION ${INSTALL_MYSQLSHAREDIR} COMPONENT Server
 )
@@ -134,42 +153,6 @@ ENDIF()
 
 SET(HOSTNAME "hostname")
 SET(MYSQLD_USER "mysql")
-
-# Required for mysqlbug until autotools are deprecated, once done remove these
-# and expand default cmake variables
-SET(CC ${CMAKE_C_COMPILER})
-SET(CXX ${CMAKE_CXX_COMPILER})
-SET(SAVE_CC ${CMAKE_C_COMPILER})
-SET(SAVE_CXX ${CMAKE_CXX_COMPILER})
-SET(SAVE_CFLAGS ${CFLAGS})
-SET(SAVE_CXXFLAGS ${CXXFLAGS})
-# XXX no cmake equivalent for this, just make one up
-SET(CONFIGURE_LINE "Built using CMake")
-
-# Also required for mysqlbug, autoconf only supports --version so for now we
-# just explicitly require GNU
-EXECUTE_PROCESS(
-  COMMAND ${CMAKE_C_COMPILER} ${CMAKE_C_COMPILER_ARG1} --version
-  COMMAND sed 1q
-  ERROR_QUIET
-  OUTPUT_VARIABLE CC_VERSION)
-EXECUTE_PROCESS(
-  COMMAND ${CMAKE_CXX_COMPILER} ${CMAKE_CXX_COMPILER_ARG1} --version
-  COMMAND sed 1q
-  ERROR_QUIET
-  OUTPUT_VARIABLE CXX_VERSION)
-
-CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/mysqlbug.sh
-  ${CMAKE_CURRENT_BINARY_DIR}/mysqlbug ESCAPE_QUOTES @ONLY)
-  EXECUTE_PROCESS(
-  COMMAND chmod +x ${CMAKE_CURRENT_BINARY_DIR}/mysqlbug
-  )
-
-INSTALL_SCRIPT(${CMAKE_CURRENT_BINARY_DIR}/mysqlbug
-  DESTINATION ${INSTALL_BINDIR}
-  COMPONENT Server
-  )
-
 ENDIF(UNIX)
 
 # Really ugly, one script, "mysql_install_db", needs prefix set to ".",
@@ -270,18 +253,19 @@ IF(WIN32)
   ENDFOREACH()
 ELSE()
   IF(WITH_WSREP)
-    SET(WSREP_BINARIES
-      wsrep_sst_common
+    SET(WSREP_SCRIPTS
       wsrep_sst_mysqldump
+      wsrep_sst_common
       wsrep_sst_rsync
       wsrep_sst_xtrabackup
       wsrep_sst_xtrabackup-v2
     )
+    INSTALL(FILES ${CMAKE_CURRENT_SOURCE_DIR}/wsrep_sst_common
+            DESTINATION ${INSTALL_BINDIR} COMPONENT Server)
   ENDIF()
   IF (NOT WITHOUT_SERVER)
     SET(SERVER_SCRIPTS
       mysql_fix_extensions
-      mysql_zap
       mysqld_multi
       mysqld_safe
       mysqldumpslow
@@ -302,7 +286,7 @@ ELSE()
     mytop
     mysqlhotcopy
     ${SERVER_SCRIPTS}
-    ${WSREP_BINARIES}
+    ${WSREP_SCRIPTS}
     ${SYSTEMD_SCRIPTS}
   )
   FOREACH(file ${BIN_SCRIPTS})
@@ -327,29 +311,6 @@ ELSE()
      )
   ENDFOREACH()
 ENDIF()
-
-# Configure two scripts from one 'in' file.
-# The maria_add_gis_sp.sql - to be sent to 'mysql' tool
-# and the maria_add_gis_sp_bootstrap.sql, that can be sent to
-# the server as a bootstrap command.
-
-SET(ADD_GIS_SP_SET_DELIMITER "delimiter |")
-SET(ADD_GIS_SP_RESET_DELIMITER "delimiter ;")
-SET(ADD_GIS_SP_EOL "|")
-CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/maria_add_gis_sp.sql.in
-  ${CMAKE_CURRENT_BINARY_DIR}/maria_add_gis_sp.sql ESCAPE_QUOTES @ONLY)
-
-SET(ADD_GIS_SP_SET_DELIMITER "")
-SET(ADD_GIS_SP_RESET_DELIMITER "")
-SET(ADD_GIS_SP_EOL ";")
-CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/maria_add_gis_sp.sql.in
-  ${CMAKE_CURRENT_BINARY_DIR}/maria_add_gis_sp_bootstrap.sql ESCAPE_QUOTES @ONLY)
-
-INSTALL_SCRIPT(${CMAKE_CURRENT_BINARY_DIR}/maria_add_gis_sp.sql
-               ${CMAKE_CURRENT_BINARY_DIR}/maria_add_gis_sp_bootstrap.sql
-  DESTINATION ${INSTALL_MYSQLSHAREDIR}
-  COMPONENT Server
-  )
 
 # Install libgcc as  mylibgcc.a
 IF(CMAKE_COMPILER_IS_GNUCXX AND CMAKE_CXX_FLAGS MATCHES "-static")

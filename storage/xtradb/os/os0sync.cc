@@ -67,32 +67,6 @@ UNIV_INTERN mysql_pfs_key_t	event_os_mutex_key;
 UNIV_INTERN mysql_pfs_key_t	os_mutex_key;
 #endif
 
-/* On Windows (Vista and later), load function pointers for condition
-variable handling. Those functions are not available in prior versions,
-so we have to use them via runtime loading, as long as we support XP. */
-static void os_cond_module_init(void);
-
-#ifdef __WIN__
-/* Prototypes and function pointers for condition variable functions */
-typedef VOID (WINAPI* InitializeConditionVariableProc)
-	     (PCONDITION_VARIABLE ConditionVariable);
-static InitializeConditionVariableProc initialize_condition_variable;
-
-typedef BOOL (WINAPI* SleepConditionVariableCSProc)
-	     (PCONDITION_VARIABLE ConditionVariable,
-	      PCRITICAL_SECTION CriticalSection,
-	      DWORD dwMilliseconds);
-static SleepConditionVariableCSProc sleep_condition_variable;
-
-typedef VOID (WINAPI* WakeAllConditionVariableProc)
-	     (PCONDITION_VARIABLE ConditionVariable);
-static WakeAllConditionVariableProc wake_all_condition_variable;
-
-typedef VOID (WINAPI* WakeConditionVariableProc)
-	     (PCONDITION_VARIABLE ConditionVariable);
-static WakeConditionVariableProc wake_condition_variable;
-#endif
-
 /*********************************************************//**
 Initialitze condition variable */
 UNIV_INLINE
@@ -104,8 +78,7 @@ os_cond_init(
 	ut_a(cond);
 
 #ifdef __WIN__
-	ut_a(initialize_condition_variable != NULL);
-	initialize_condition_variable(cond);
+	InitializeConditionVariable(cond);
 #else
 	ut_a(pthread_cond_init(cond, NULL) == 0);
 #endif
@@ -133,9 +106,8 @@ os_cond_wait_timed(
 	BOOL	ret;
 	DWORD	err;
 
-	ut_a(sleep_condition_variable != NULL);
 
-	ret = sleep_condition_variable(cond, mutex, time_in_ms);
+	ret = SleepConditionVariableCS(cond, mutex, time_in_ms);
 
 	if (!ret) {
 		err = GetLastError();
@@ -190,8 +162,7 @@ os_cond_wait(
 	ut_a(mutex);
 
 #ifdef __WIN__
-	ut_a(sleep_condition_variable != NULL);
-	ut_a(sleep_condition_variable(cond, mutex, INFINITE));
+	ut_a(SleepConditionVariableCS(cond, mutex, INFINITE));
 #else
 	ut_a(pthread_cond_wait(cond, mutex) == 0);
 #endif
@@ -208,8 +179,7 @@ os_cond_broadcast(
 	ut_a(cond);
 
 #ifdef __WIN__
-	ut_a(wake_all_condition_variable != NULL);
-	wake_all_condition_variable(cond);
+	WakeAllConditionVariable(cond);
 #else
 	ut_a(pthread_cond_broadcast(cond) == 0);
 #endif
@@ -231,48 +201,12 @@ os_cond_destroy(
 }
 
 /*********************************************************//**
-On Windows (Vista and later), load function pointers for condition variable
-handling. Those functions are not available in prior versions, so we have to
-use them via runtime loading, as long as we support XP. */
-static
-void
-os_cond_module_init(void)
-/*=====================*/
-{
-#ifdef __WIN__
-	HMODULE		h_dll;
-
-	if (!srv_use_native_conditions)
-		return;
-
-	h_dll = GetModuleHandle("kernel32");
-
-	initialize_condition_variable = (InitializeConditionVariableProc)
-			 GetProcAddress(h_dll, "InitializeConditionVariable");
-	sleep_condition_variable = (SleepConditionVariableCSProc)
-			  GetProcAddress(h_dll, "SleepConditionVariableCS");
-	wake_all_condition_variable = (WakeAllConditionVariableProc)
-			     GetProcAddress(h_dll, "WakeAllConditionVariable");
-	wake_condition_variable = (WakeConditionVariableProc)
-			 GetProcAddress(h_dll, "WakeConditionVariable");
-
-	/* When using native condition variables, check function pointers */
-	ut_a(initialize_condition_variable);
-	ut_a(sleep_condition_variable);
-	ut_a(wake_all_condition_variable);
-	ut_a(wake_condition_variable);
-#endif
-}
-
-/*********************************************************//**
 Initializes global event and OS 'slow' mutex lists. */
 UNIV_INTERN
 void
 os_sync_init(void)
 /*==============*/
 {
-	/* Now for Windows only */
-	os_cond_module_init();
 }
 
 /** Create an event semaphore, i.e., a semaphore which may just have two
@@ -283,29 +217,15 @@ UNIV_INTERN
 void
 os_event_create(os_event_t event)
 {
-#ifdef __WIN__
-	if(!srv_use_native_conditions) {
-
-		event->handle = CreateEvent(NULL, TRUE, FALSE, NULL);
-		if (!event->handle) {
-			fprintf(stderr,
-				"InnoDB: Could not create a Windows event"
-				" semaphore; Windows error %lu\n",
-				(ulong) GetLastError());
-		}
-	} else /* Windows with condition variables */
-#endif
-	{
 #ifndef PFS_SKIP_EVENT_MUTEX
-		os_fast_mutex_init(event_os_mutex_key, &event->os_mutex);
+	os_fast_mutex_init(event_os_mutex_key, &event->os_mutex);
 #else
-		os_fast_mutex_init(PFS_NOT_INSTRUMENTED, &event->os_mutex);
+	os_fast_mutex_init(PFS_NOT_INSTRUMENTED, &event->os_mutex);
 #endif
 
-		os_cond_init(&(event->cond_var));
+	os_cond_init(&(event->cond_var));
 
 		event->init_count_and_set();
-	}
 
 	os_atomic_increment_ulint(&os_event_count, 1);
 }
@@ -338,13 +258,6 @@ os_event_set(
 {
 	ut_a(event);
 
-#ifdef __WIN__
-	if (!srv_use_native_conditions) {
-		ut_a(SetEvent(event->handle));
-		return;
-	}
-#endif
-
 	os_fast_mutex_lock(&(event->os_mutex));
 
 	if (UNIV_UNLIKELY(event->is_set())) {
@@ -376,13 +289,6 @@ os_event_reset(
 
 	ut_a(event);
 
-#ifdef __WIN__
-	if(!srv_use_native_conditions) {
-		ut_a(ResetEvent(event->handle));
-		return(0);
-	}
-#endif
-
 	os_fast_mutex_lock(&(event->os_mutex));
 
 	if (UNIV_UNLIKELY(!event->is_set())) {
@@ -408,16 +314,10 @@ os_event_free(
 
 {
 	ut_a(event);
-#ifdef __WIN__
-	if(!srv_use_native_conditions){
-		ut_a(CloseHandle(event->handle));
-	} else /*Windows with condition variables */
-#endif
-	{
-		os_fast_mutex_free(&(event->os_mutex));
 
-		os_cond_destroy(&(event->cond_var));
-	}
+	os_fast_mutex_free(&(event->os_mutex));
+
+	os_cond_destroy(&(event->cond_var));
 
 	os_atomic_decrement_ulint(&os_event_count, 1);
 
@@ -451,21 +351,6 @@ os_event_wait_low(
 					returned by previous call of
 					os_event_reset(). */
 {
-#ifdef __WIN__
-	if(!srv_use_native_conditions) {
-		DWORD	err;
-
-		ut_a(event);
-
-		UT_NOT_USED(reset_sig_count);
-
-		/* Specify an infinite wait */
-		err = WaitForSingleObject(event->handle, INFINITE);
-
-		ut_a(err == WAIT_OBJECT_0);
-		return;
-	}
-#endif
 
 	os_fast_mutex_lock(&event->os_mutex);
 
@@ -504,36 +389,10 @@ os_event_wait_time_low(
 
 #ifdef __WIN__
 	DWORD		time_in_ms;
-
-	if (!srv_use_native_conditions) {
-		DWORD	err;
-
-		ut_a(event);
-
-		if (time_in_usec != OS_SYNC_INFINITE_TIME) {
-			time_in_ms = static_cast<DWORD>(time_in_usec / 1000);
-			err = WaitForSingleObject(event->handle, time_in_ms);
-		} else {
-			err = WaitForSingleObject(event->handle, INFINITE);
-		}
-
-		if (err == WAIT_OBJECT_0) {
-			return(0);
-		} else if ((err == WAIT_TIMEOUT) || (err == ERROR_TIMEOUT)) {
-			return(OS_SYNC_TIME_EXCEEDED);
-		}
-
-		ut_error;
-		/* Dummy value to eliminate compiler warning. */
-		return(42);
+	if (time_in_usec != OS_SYNC_INFINITE_TIME) {
+		time_in_ms = static_cast<DWORD>(time_in_usec / 1000);
 	} else {
-		ut_a(sleep_condition_variable != NULL);
-
-		if (time_in_usec != OS_SYNC_INFINITE_TIME) {
-			time_in_ms = static_cast<DWORD>(time_in_usec / 1000);
-		} else {
-			time_in_ms = INFINITE;
-		}
+		time_in_ms = INFINITE;
 	}
 #else
 	struct timespec	abstime;

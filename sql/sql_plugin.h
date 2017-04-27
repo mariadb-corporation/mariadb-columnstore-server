@@ -1,5 +1,5 @@
 /* Copyright (c) 2005, 2012, Oracle and/or its affiliates.
-   Copyright (c) 2009, 2012, Monty Program Ab
+   Copyright (c) 2009, 2017, MariaDB Corporation.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -53,9 +53,9 @@ extern ulong dlopen_count;
 /*
   the following flags are valid for plugin_init()
 */
-#define PLUGIN_INIT_SKIP_DYNAMIC_LOADING 1
-#define PLUGIN_INIT_SKIP_PLUGIN_TABLE    2
-#define PLUGIN_INIT_SKIP_INITIALIZATION  4
+#define PLUGIN_INIT_SKIP_DYNAMIC_LOADING 1U
+#define PLUGIN_INIT_SKIP_PLUGIN_TABLE    2U
+#define PLUGIN_INIT_SKIP_INITIALIZATION  4U
 
 #define INITIAL_LEX_PLUGIN_LIST_SIZE    16
 
@@ -71,12 +71,12 @@ typedef struct st_mysql_show_var SHOW_VAR;
   It's a bitmap, because it makes it easier to test
   "whether the state is one of those..."
 */
-#define PLUGIN_IS_FREED         1
-#define PLUGIN_IS_DELETED       2
-#define PLUGIN_IS_UNINITIALIZED 4
-#define PLUGIN_IS_READY         8
-#define PLUGIN_IS_DYING         16
-#define PLUGIN_IS_DISABLED      32
+#define PLUGIN_IS_FREED         1U
+#define PLUGIN_IS_DELETED       2U
+#define PLUGIN_IS_UNINITIALIZED 4U
+#define PLUGIN_IS_READY         8U
+#define PLUGIN_IS_DYING         16U
+#define PLUGIN_IS_DISABLED      32U
 
 struct st_ptr_backup {
   void **ptr;
@@ -119,6 +119,8 @@ struct st_plugin_int
   enum enum_plugin_load_option load_option; /* OFF, ON, FORCE, F+PERMANENT */
 };
 
+
+extern mysql_mutex_t LOCK_plugin;
 
 /*
   See intern_plugin_lock() for the explanation for the
@@ -192,6 +194,9 @@ extern void sync_dynamic_session_variables(THD* thd, bool global_lock);
 
 extern bool plugin_dl_foreach(THD *thd, const LEX_STRING *dl,
                               plugin_foreach_func *func, void *arg);
+
+sys_var *find_sys_var_ex(THD *thd, const char *str, size_t length,
+                         bool throw_error, bool locked);
 
 extern void sync_dynamic_session_variables(THD* thd, bool global_lock);
 #endif

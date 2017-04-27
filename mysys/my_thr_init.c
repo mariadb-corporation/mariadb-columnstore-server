@@ -44,6 +44,8 @@ static uint get_thread_lib(void);
 
 /** True if @c my_thread_global_init() has been called. */
 static my_bool my_thread_global_init_done= 0;
+/* True if THR_KEY_mysys is created */
+my_bool my_thr_key_mysys_exists= 0;
 
 
 /*
@@ -167,11 +169,20 @@ my_bool my_thread_global_init(void)
     return 0;
   my_thread_global_init_done= 1;
 
-  if ((pth_ret= pthread_key_create(&THR_KEY_mysys, NULL)) != 0)
+  /*
+    THR_KEY_mysys is deleted in my_end() as DBUG libraries are using it even
+    after my_thread_global_end() is called.
+    my_thr_key_mysys_exist is used to protect against application like QT
+    that calls my_thread_global_init() + my_thread_global_end() multiple times
+    without calling my_init() + my_end().
+  */
+  if (!my_thr_key_mysys_exists &&
+      (pth_ret= pthread_key_create(&THR_KEY_mysys, NULL)) != 0)
   {
     fprintf(stderr, "Can't initialize threads: error %d\n", pth_ret);
     return 1;
   }
+  my_thr_key_mysys_exists= 1;
 
   /* Mutex used by my_thread_init() and after my_thread_destroy_mutex() */
   my_thread_init_internal_mutex();
@@ -262,7 +273,7 @@ my_bool my_thread_init(void)
   my_bool error=0;
 
   if (!my_thread_global_init_done)
-    return 1; /* cannot proceed with unintialized library */
+    return 1; /* cannot proceed with uninitialized library */
 
 #ifdef EXTRA_DEBUG_THREADS
   fprintf(stderr,"my_thread_init(): pthread_self: %p\n", pthread_self());
@@ -294,7 +305,7 @@ my_bool my_thread_init(void)
                          STACK_DIRECTION * (long)my_thread_stack_size;
 
   mysql_mutex_lock(&THR_LOCK_threads);
-  tmp->id= ++thread_id;
+  tmp->id= tmp->dbug_id= ++thread_id;
   ++THR_thread_count;
   mysql_mutex_unlock(&THR_LOCK_threads);
   tmp->init= 1;
@@ -400,7 +411,7 @@ my_thread_id my_thread_dbug_id()
     my_thread_init().
   */
   struct st_my_thread_var *tmp= my_thread_var;
-  return tmp ? tmp->id : 0;
+  return tmp ? tmp->dbug_id : 0;
 }
 
 #ifdef DBUG_OFF

@@ -1,56 +1,61 @@
-#MariaDB ColumnStore Server (version 1.1)
-This is the server part of MariaDB ColumnStore 1.1.0.
-MariaDB ColumnStore 1.1.0 is the development version of MariaDB ColumnStore. 
-It is built by porting InfiniDB 4.6.7 on MariaDB 10.1.21 and adding entirely 
-new features not found anywhere else.
+## MariaDB: drop-in replacement for MySQL
 
-##MariaDB ColumnStore Engine (version 1.1)
-MariaDB ColumnStore also requires the matching engine version. This can be found at https://github.com/mariadb-corporation/mariadb-columnstore-engine.
+MariaDB is designed as a drop-in replacement of MySQL(R) with more
+features, new storage engines, fewer bugs, and better performance.
 
-Always match the server engine / git branch with the engine git branch.
+MariaDB is brought to you by the MariaDB Foundation.
+Please read the CREDITS file for details about the MariaDB Foundation,
+and who is developing MariaDB.
 
-##Release notice
-MariaDB ColumnStore 1.1.0 is a pre-alpha. Use at your own risk!
+MariaDB is developed by many of the original developers of MySQL who
+now work for the MariadB Foundation and the MariaDB Corporation, and by many people in
+the community.
 
-Currently building has only been certified on CentOS 6 and 7, Ubuntu 16.04, and Debain 8.. 
-Building on other platforms will be certified in a later release.
+MySQL, which is the base of MariaDB, is a product and trademark of Oracle
+Corporation, Inc. For a list of developers and other contributors,
+see the Credits appendix.  You can also run 'SHOW authors' to get a
+list of active contributors.
 
-A few things to notice:
-- Do not use pre-alpha releases on production systems.
+A description of the MariaDB project and a manual can be found at:
+http://mariadb.org/
+https://mariadb.com/kb/en/
+https://mariadb.com/kb/en/mariadb-vs-mysql-features/
+https://mariadb.com/kb/en/mariadb-versus-mysql-features/
+https://mariadb.com/kb/en/mariadb-versus-mysql-compatibility/
 
-Additional features and product enhancements will be pushed in future releases. 
+As MariaDB is a full replacement of MySQL, the MySQL manual at
+http://dev.mysql.com/doc is generally applicable.
 
-##Issue tracking
-Issue tracking of MariaDB ColumnStore happens in JIRA, https://jira.mariadb.org/browse/MCOL
+Help:
+-----
 
-###The structure of this repository is:
-* Branch "master" - this is the latest released version of the source code.  Each major release is tagged.
-* Branch "develop-1.0" - this is the 1.0 mainline development branch.
-* Branch "develop" - this is the 1.1 unstable development branch.
-* Branch "mcol-xxx" - these are specific bug and feature branches. These are merged into development which is merged to master.
+More help is available from the Maria Discuss mailing list
+https://launchpad.net/~maria-discuss
+and the #maria IRC channel on Freenode.
 
-MariaDB ColumnStore server and the engine are in separate repositories.
 
-##Contributing
+License:
+--------
 
-To contribute to ColumnStore please see the [Contributions Documentation](CONTRIBUTING.md).
+***************************************************************************
 
-##Build dependencies
+NOTE: 
 
-### Boost Libraries
-MariaDB ColumnStore requires that the boost package of 1.53 or newer is installed for both building and executing
+MariaDB is specifically available only under version 2 of the GNU
+General Public License (GPLv2). (I.e. Without the "any later version"
+clause.) This is inherited from MySQL. Please see the README file in
+the MySQL distribution for more information.
 
-For CentOS 7, Ubuntu 16, Debian 8 and other newer OS's, you can just install the boost packages via yum or apt-get.
+License information can be found in the COPYING, COPYING.LESSER,
+and COPYING.thirdparty files.
 
-```bash
-yum install boost-devel
-```
+***************************************************************************
 
-or
+Bug Reports:
+------------
 
-```bash
-apt-get install libboost-dev-all
-```
+Bug and/or error reports regarding MariaDB should be submitted at
+http://mariadb.org/jira
 
 For CentOS 6, you can either download and install the MariaDB Columnstore Centos 6 boost library package or install the boost source of 1.55 and build it to generate the required libraries. That means both the build and the install machines require this.
 
@@ -58,17 +63,15 @@ Downloading and installing the MariaDB Columnstore Centos 6 boost library packag
 
 https://mariadb.com/kb/en/mariadb/preparing-for-columnstore-installation/#boost-libraries
 
+Bugs in the MySQL code can also be submitted at http://bugs.mysql.com
+
+The code for MariaDB, including all revision history, can be found at:
+https://github.com/MariaDB/server
+
+***************************************************************************
+
 Downloading and build the boost libraries:
-
-
-
-NOTE: This means that the "Development Tools" group install be done prior to this.
-
-```bash
-yum groupinstall "Development Tools"
-yum install cmake
-yum install bzip2-devel
-```
+------------------------------------------
 
 Here is the procedure to download and build the boost source:
 
@@ -246,4 +249,9 @@ cd /usr/local/mariadb/columnstore/bin/
 ./post-install
 ./postConfigure
 ```
+=======
+Code status:
+------------
+>>>>>>> MCOL-597
 
+* [![tests status](https://secure.travis-ci.org/MariaDB/server.png?branch=10.2)](https://travis-ci.org/MariaDB/server) travis-ci.org (10.2 branch)

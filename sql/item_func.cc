@@ -1,6 +1,5 @@
 /* Copyright (c) 2000, 2015, Oracle and/or its affiliates.
    Copyright (c) 2009, 2015, MariaDB
-Copyright (c) 2016, MariaDB Corporation
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -133,6 +132,7 @@ void Item_func::sync_with_sum_func_and_with_field(List<Item> &list)
   while ((item= li++))
   {
     with_sum_func|= item->with_sum_func;
+    with_window_func|= item->with_window_func;
     with_field|= item->with_field;
   }
 }
@@ -227,6 +227,7 @@ Item_func::fix_fields(THD *thd, Item **ref)
 	maybe_null=1;
 
       with_sum_func= with_sum_func || item->with_sum_func;
+      with_window_func= with_window_func || item->with_window_func;
       with_field= with_field || item->with_field;
       used_tables_and_const_cache_join(item);
       with_subselect|=        item->has_subquery();
@@ -264,7 +265,7 @@ Item_func::quick_fix_field()
 
 
 bool
-Item_func::eval_not_null_tables(uchar *opt_arg)
+Item_func::eval_not_null_tables(void *opt_arg)
 {
   Item **arg,**arg_end;
   not_null_tables_cache= 0;
@@ -440,7 +441,7 @@ void Item_args::propagate_equal_fields(THD *thd,
   See comments in Item_cond::split_sum_func()
 */
 
-void Item_func::split_sum_func(THD *thd, Item **ref_pointer_array,
+void Item_func::split_sum_func(THD *thd,  Ref_ptr_array ref_pointer_array,
                                List<Item> &fields, uint flags)
 {
   Item **arg, **arg_end;
@@ -478,16 +479,14 @@ void Item_func::print_args(String *str, uint from, enum_query_type query_type)
 
 void Item_func::print_op(String *str, enum_query_type query_type)
 {
-  str->append('(');
   for (uint i=0 ; i < arg_count-1 ; i++)
   {
-    args[i]->print(str, query_type);
+    args[i]->print_parenthesised(str, query_type, precedence());
     str->append(' ');
     str->append(func_name());
     str->append(' ');
   }
-  args[arg_count-1]->print(str, query_type);
-  str->append(')');
+  args[arg_count-1]->print_parenthesised(str, query_type, precedence());
 }
 
 
@@ -653,14 +652,15 @@ void Item_func::count_real_length(Item **items, uint nitems)
   unsigned_flag= false;
   for (uint i=0 ; i < nitems ; i++)
   {
-    if (decimals != NOT_FIXED_DEC)
+    if (decimals < FLOATING_POINT_DECIMALS)
     {
       set_if_bigger(decimals, items[i]->decimals);
+      /* Will be ignored if items[i]->decimals >= FLOATING_POINT_DECIMALS */
       set_if_bigger(length, (items[i]->max_length - items[i]->decimals));
     }
     set_if_bigger(max_length, items[i]->max_length);
   }
-  if (decimals != NOT_FIXED_DEC)
+  if (decimals < FLOATING_POINT_DECIMALS)
   {
     max_length= length;
     length+= decimals;
@@ -1079,7 +1079,7 @@ void Item_func_signed::print(String *str, enum_query_type query_type)
 }
 
 
-longlong Item_func_signed::val_int_from_str(int *error)
+longlong Item::val_int_from_str(int *error)
 {
   char buff[MAX_FIELD_WIDTH];
   String tmp(buff,sizeof(buff), &my_charset_bin), *res;
@@ -1089,13 +1089,11 @@ longlong Item_func_signed::val_int_from_str(int *error)
     to a longlong
   */
 
-  if (!(res= args[0]->val_str(&tmp)))
+  if (!(res= val_str(&tmp)))
   {
-    null_value= 1;
     *error= 0;
     return 0;
   }
-  null_value= 0;
   Converter_strtoll10_with_warn cnv(NULL, Warn_filter_all(),
                                     res->charset(), res->ptr(), res->length());
   *error= cnv.error();
@@ -1103,37 +1101,15 @@ longlong Item_func_signed::val_int_from_str(int *error)
 }
 
 
-longlong Item_func_signed::val_int()
+longlong Item::val_int_signed_typecast()
 {
-  longlong value;
+  if (cast_to_int_type() != STRING_RESULT)
+    return val_int();
+
   int error;
-
-  if (args[0]->cast_to_int_type() != STRING_RESULT)
-  {
-    value= args[0]->val_int();
-    null_value= args[0]->null_value; 
-    return value;
-  }
-  else if (args[0]->dynamic_result())
-  {
-    /* We come here when argument has an unknown type */
-    args[0]->unsigned_flag= 0;   // Mark that we want to have a signed value
-    value= args[0]->val_int();
-    null_value= args[0]->null_value; 
-    if (!null_value && args[0]->unsigned_flag && value < 0)
-      goto err;                                 // Warn about overflow
-    return value;
-  }
-
-  value= val_int_from_str(&error);
-  if (value < 0 && error == 0)
-    goto err;
-  return value;
-
-err:
-  push_warning(current_thd, Sql_condition::WARN_LEVEL_NOTE, ER_UNKNOWN_ERROR,
-               "Cast to signed converted positive out-of-range integer to "
-               "it's negative complement");
+  longlong value= val_int_from_str(&error);
+  if (!null_value && value < 0 && error == 0)
+    push_note_converted_to_negative_complement(current_thd);
   return value;
 }
 
@@ -1147,49 +1123,30 @@ void Item_func_unsigned::print(String *str, enum_query_type query_type)
 }
 
 
-longlong Item_func_unsigned::val_int()
+longlong Item::val_int_unsigned_typecast()
 {
-  longlong value;
-  int error;
-
-  if (args[0]->cast_to_int_type() == DECIMAL_RESULT)
+  if (cast_to_int_type() == DECIMAL_RESULT)
   {
-    my_decimal tmp, *dec= args[0]->val_decimal(&tmp);
-    if (!(null_value= args[0]->null_value))
+    longlong value;
+    my_decimal tmp, *dec= val_decimal(&tmp);
+    if (!null_value)
       my_decimal2int(E_DEC_FATAL_ERROR, dec, 1, &value);
     else
       value= 0;
     return value;
   }
-  else if (args[0]->dynamic_result())
+  else if (cast_to_int_type() != STRING_RESULT)
   {
-    /* We come here when argument has an unknown type */
-    args[0]->unsigned_flag= 1;   // Mark that we want to have an unsigned value
-    value= args[0]->val_int();
-    null_value= args[0]->null_value; 
-    if (!null_value && args[0]->unsigned_flag == 0 && value < 0)
-      goto err;                                 // Warn about overflow
-    return value;
-  }
-  else if (args[0]->cast_to_int_type() != STRING_RESULT)
-  {
-    value= args[0]->val_int();
-    null_value= args[0]->null_value; 
-    if (!null_value && args[0]->unsigned_flag == 0 && value < 0)
-      goto err;                                 // Warn about overflow
+    longlong value= val_int();
+    if (!null_value && unsigned_flag == 0 && value < 0)
+      push_note_converted_to_positive_complement(current_thd);
     return value;
   }
 
-  value= val_int_from_str(&error);
-  if (error < 0)
-    goto err;
-
-  return value;
-
-err:
-  push_warning(current_thd, Sql_condition::WARN_LEVEL_NOTE, ER_UNKNOWN_ERROR,
-               "Cast to unsigned converted negative integer to it's "
-               "positive complement");
+  int error;
+  longlong value= val_int_from_str(&error);
+  if (!null_value && error < 0)
+    push_note_converted_to_positive_complement(current_thd);
   return value;
 }
 
@@ -3518,7 +3475,7 @@ udf_handler::fix_fields(THD *thd, Item_func_or_sum *func,
       func->used_tables_and_const_cache_join(item);
       f_args.arg_type[i]=item->result_type();
     }
-    //TODO: why all following memory is not allocated with 1 call of sql_alloc?
+    //TODO: why all following memory is not allocated with 1 thd->alloc() call?
     if (!(buffers=new String[arg_count]) ||
 	!(f_args.args= (char**) thd->alloc(arg_count * sizeof(char *))) ||
 	!(f_args.lengths= (ulong*) thd->alloc(arg_count * sizeof(long))) ||
@@ -3944,12 +3901,7 @@ longlong Item_master_pos_wait::val_int()
   else
     connection_name= thd->variables.default_master_connection;
 
-  mysql_mutex_lock(&LOCK_active_mi);
-  if (master_info_index)  // master_info_index is set to NULL on shutdown.
-    mi= master_info_index->get_master_info(&connection_name,
-                                           Sql_condition::WARN_LEVEL_WARN);
-  mysql_mutex_unlock(&LOCK_active_mi);
-  if (!mi)
+  if (!(mi= get_master_info(&connection_name, Sql_condition::WARN_LEVEL_WARN)))
     goto err;
 
   if ((event_count = mi->rli.wait_for_pos(thd, log_name, pos, timeout)) == -2)
@@ -3957,6 +3909,7 @@ longlong Item_master_pos_wait::val_int()
     null_value = 1;
     event_count=0;
   }
+  mi->release();
 #endif
   return event_count;
 
@@ -4178,7 +4131,7 @@ public:
 
   bool handle_condition(THD * /* thd */, uint sql_errno,
                         const char * /* sqlstate */,
-                        Sql_condition::enum_warning_level /* level */,
+                        Sql_condition::enum_warning_level* /* level */,
                         const char *message,
                         Sql_condition ** /* cond_hdl */);
 };
@@ -4187,7 +4140,7 @@ bool
 Lock_wait_timeout_handler::
 handle_condition(THD *thd, uint sql_errno,
                  const char * /* sqlstate */,
-                 Sql_condition::enum_warning_level /* level */,
+                 Sql_condition::enum_warning_level* /* level */,
                  const char *message,
                  Sql_condition ** /* cond_hdl */)
 {
@@ -4353,7 +4306,8 @@ longlong Item_func_release_lock::val_int()
 
   User_level_lock *ull;
 
-  if (!(ull=
+  if (!my_hash_inited(&thd->ull_hash) ||
+      !(ull=
         (User_level_lock*) my_hash_search(&thd->ull_hash,
                                           ull_key.ptr(), ull_key.length())))
   {
@@ -4628,6 +4582,11 @@ longlong Item_func_sleep::val_int()
 }
 
 
+bool Item_func_user_var::check_vcol_func_processor(void *arg)
+{
+  return mark_unsupported_function("@", name.str, arg, VCOL_NON_DETERMINISTIC);
+}
+
 #define extra_size sizeof(double)
 
 user_var_entry *get_variable(HASH *hash, LEX_STRING &name,
@@ -4750,7 +4709,10 @@ bool Item_func_set_user_var::fix_fields(THD *thd, Item **ref)
     for (derived= unit->derived;
          derived;
          derived= derived->select_lex->master_unit()->derived)
+    {
       derived->set_materialized_derived();
+      derived->prohibit_cond_pushdown= true;
+    }
   }
 
   return FALSE;
@@ -4782,7 +4744,7 @@ Item_func_set_user_var::fix_length_and_dec()
     column read set or to register used fields in a view
 */
 
-bool Item_func_set_user_var::register_field_in_read_map(uchar *arg)
+bool Item_func_set_user_var::register_field_in_read_map(void *arg)
 {
   if (result_field)
   {
@@ -4791,7 +4753,7 @@ bool Item_func_set_user_var::register_field_in_read_map(uchar *arg)
       bitmap_set_bit(result_field->table->read_set, result_field->field_index);
     if (result_field->vcol_info)
       return result_field->vcol_info->
-               expr_item->walk(&Item::register_field_in_read_map, 1, arg);
+               expr->walk(&Item::register_field_in_read_map, 1, arg);
   }
   return 0;
 }
@@ -4801,7 +4763,7 @@ bool Item_func_set_user_var::register_field_in_read_map(uchar *arg)
 
 */
 
-bool Item_func_set_user_var::register_field_in_bitmap(uchar *arg)
+bool Item_func_set_user_var::register_field_in_bitmap(void *arg)
 {
   MY_BITMAP *bitmap = (MY_BITMAP *) arg;
   DBUG_ASSERT(bitmap);
@@ -4902,12 +4864,19 @@ Item_func_set_user_var::update_hash(void *ptr, uint length,
                                     bool unsigned_arg)
 {
   /*
-    If we set a variable explicitely to NULL then keep the old
+    If we set a variable explicitly to NULL then keep the old
     result type of the variable
   */
-  if ((null_value= args[0]->null_value) && null_item)
+  if (args[0]->type() == Item::FIELD_ITEM)
+  {
+    /* args[0]->null_value may be outdated */
+    null_value= ((Item_field*)args[0])->field->is_null();
+  }
+  else
+    null_value= args[0]->null_value;
+  if (null_value && null_item)
     res_type= m_var_entry->type;                 // Don't change type of item
-  if (::update_hash(m_var_entry, (null_value= args[0]->null_value),
+  if (::update_hash(m_var_entry, null_value,
                     ptr, length, res_type, cs, unsigned_arg))
   {
     null_value= 1;
@@ -5282,11 +5251,10 @@ bool Item_func_set_user_var::is_null_result()
 
 void Item_func_set_user_var::print(String *str, enum_query_type query_type)
 {
-  str->append(STRING_WITH_LEN("(@"));
+  str->append(STRING_WITH_LEN("@"));
   str->append(name.str, name.length);
   str->append(STRING_WITH_LEN(":="));
-  args[0]->print(str, query_type);
-  str->append(')');
+  args[0]->print_parenthesised(str, query_type, precedence());
 }
 
 
@@ -5296,8 +5264,7 @@ void Item_func_set_user_var::print_as_stmt(String *str,
   str->append(STRING_WITH_LEN("set @"));
   str->append(name.str, name.length);
   str->append(STRING_WITH_LEN(":="));
-  args[0]->print(str, query_type);
-  str->append(')');
+  args[0]->print_parenthesised(str, query_type, precedence());
 }
 
 bool Item_func_set_user_var::send(Protocol *protocol, String *str_arg)
@@ -5311,7 +5278,7 @@ bool Item_func_set_user_var::send(Protocol *protocol, String *str_arg)
   return Item::send(protocol, str_arg);
 }
 
-void Item_func_set_user_var::make_field(Send_field *tmp_field)
+void Item_func_set_user_var::make_field(THD *thd, Send_field *tmp_field)
 {
   if (result_field)
   {
@@ -5321,7 +5288,7 @@ void Item_func_set_user_var::make_field(Send_field *tmp_field)
       tmp_field->col_name=Item::name;               // Use user supplied name
   }
   else
-    Item::make_field(tmp_field);
+    Item::make_field(thd, tmp_field);
 }
 
 
@@ -5666,9 +5633,8 @@ bool Item_func_get_user_var::const_item() const
 
 void Item_func_get_user_var::print(String *str, enum_query_type query_type)
 {
-  str->append(STRING_WITH_LEN("(@"));
+  str->append(STRING_WITH_LEN("@"));
   append_identifier(current_thd, str, name.str, name.length);
-  str->append(')');
 }
 
 
@@ -5777,7 +5743,7 @@ Item_func_get_system_var(THD *thd, sys_var *var_arg, enum_var_type var_type_arg,
   orig_var_type(var_type_arg), component(*component_arg), cache_present(0)
 {
   /* set_name() will allocate the name */
-  set_name(name_arg, (uint) name_len_arg, system_charset_info);
+  set_name(thd, name_arg, (uint) name_len_arg, system_charset_info);
 }
 
 
@@ -5878,9 +5844,28 @@ void Item_func_get_system_var::fix_length_and_dec()
 
 void Item_func_get_system_var::print(String *str, enum_query_type query_type)
 {
-  str->append(name, name_length);
+  if (name_length)
+    str->append(name, name_length);
+  else
+  {
+    str->append(STRING_WITH_LEN("@@"));
+    if (component.length)
+    {
+      str->append(&component);
+      str->append('.');
+    }
+    else if (var_type == SHOW_OPT_GLOBAL && var->scope() != sys_var::GLOBAL)
+    {
+      str->append(STRING_WITH_LEN("global."));
+    }
+    str->append(&var->name);
+  }
 }
 
+bool Item_func_get_system_var::check_vcol_func_processor(void *arg)
+{
+  return mark_unsupported_function("@@", var->name.str, arg, VCOL_SESSION_FUNC);
+}
 
 enum Item_result Item_func_get_system_var::result_type() const
 {
@@ -6735,7 +6720,7 @@ error:
 
 
 void
-Item_func_sp::make_field(Send_field *tmp_field)
+Item_func_sp::make_field(THD *thd, Send_field *tmp_field)
 {
   DBUG_ENTER("Item_func_sp::make_field");
   DBUG_ASSERT(sp_result_field);
@@ -6887,6 +6872,10 @@ void Item_func_sp::update_used_tables()
   }
 }
 
+bool Item_func_sp::check_vcol_func_processor(void *arg)
+{
+  return mark_unsupported_function(func_name(), "()", arg, VCOL_IMPOSSIBLE);
+}
 
 /*
   uuid_short handling.
@@ -6979,3 +6968,6 @@ void Item_func_last_value::fix_length_and_dec()
   Type_std_attributes::set(last_value);
   maybe_null=          last_value->maybe_null;
 }
+
+
+

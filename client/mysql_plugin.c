@@ -20,6 +20,7 @@
 #include <mysql.h>
 #include <my_getopt.h>
 #include <my_dir.h>
+#include <mysql_version.h>
 
 #define SHOW_VERSION "1.0.0"
 #define PRINT_VERSION do { printf("%s  Ver %s Distrib %s\n",    \
@@ -1002,7 +1003,7 @@ found:
 
 static int find_plugin(char *tp_path)
 {
-  /* Check for existance of plugin */
+  /* Check for existence of plugin */
   fn_format(tp_path, plugin_data.so_name, opt_plugin_dir, "", MYF(0));
   if (!file_exists(tp_path))
   {

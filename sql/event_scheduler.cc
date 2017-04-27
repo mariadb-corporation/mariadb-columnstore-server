@@ -133,12 +133,6 @@ post_init_event_thread(THD *thd)
     thd->cleanup();
     return TRUE;
   }
-
-  thread_safe_increment32(&thread_count);
-  mysql_mutex_lock(&LOCK_thread_count);
-  threads.append(thd);
-  mysql_mutex_unlock(&LOCK_thread_count);
-  inc_thread_running();
   return FALSE;
 }
 
@@ -156,8 +150,8 @@ deinit_event_thread(THD *thd)
 {
   thd->proc_info= "Clearing";
   DBUG_PRINT("exit", ("Event thread finishing"));
-
-  delete_running_thd(thd);
+  unlink_not_visible_thd(thd);
+  delete thd;
 }
 
 
@@ -191,9 +185,7 @@ pre_init_event_thread(THD* thd)
   thd->net.read_timeout= slave_net_timeout;
   thd->variables.option_bits|= OPTION_AUTO_IS_NULL;
   thd->client_capabilities|= CLIENT_MULTI_RESULTS;
-  mysql_mutex_lock(&LOCK_thread_count);
-  thd->thread_id= thd->variables.pseudo_thread_id= thread_id++;
-  mysql_mutex_unlock(&LOCK_thread_count);
+  add_to_active_threads(thd);
 
   /*
     Guarantees that we will see the thread in SHOW PROCESSLIST though its
@@ -240,13 +232,8 @@ event_scheduler_thread(void *arg)
   my_free(arg);
   if (!res)
     scheduler->run(thd);
-  else
-  {
-    thd->proc_info= "Clearing";
-    net_end(&thd->net);
-    delete thd;
-  }
 
+  deinit_event_thread(thd);
   DBUG_LEAVE;                               // Against gcc warnings
   my_thread_end();
   return 0;
@@ -310,6 +297,7 @@ Event_worker_thread::run(THD *thd, Event_queue_element_for_exec *event)
   DBUG_ENTER("Event_worker_thread::run");
   DBUG_PRINT("info", ("Time is %ld, THD: 0x%lx", (long) my_time(0), (long) thd));
 
+  inc_thread_running();
   if (res)
     goto end;
 
@@ -338,6 +326,7 @@ end:
              event->name.str));
 
   delete event;
+  dec_thread_running();
   deinit_event_thread(thd);
 
   DBUG_VOID_RETURN;
@@ -400,7 +389,7 @@ Event_scheduler::start(int *err_no)
   if (state > INITIALIZED)
     goto end;
 
-  if (!(new_thd= new THD))
+  if (!(new_thd= new THD(next_thread_id())))
   {
     sql_print_error("Event Scheduler: Cannot initialize the scheduler thread");
     ret= true;
@@ -442,13 +431,9 @@ Event_scheduler::start(int *err_no)
                     " Can not create thread for event scheduler (errno=%d)",
                     *err_no);
 
-    new_thd->proc_info= "Clearing";
-    DBUG_ASSERT(new_thd->net.buff != 0);
-    net_end(&new_thd->net);
-
     state= INITIALIZED;
     scheduler_thd= NULL;
-    delete new_thd;
+    deinit_event_thread(new_thd);
 
     delete scheduler_param_value;
     ret= true;
@@ -479,7 +464,7 @@ Event_scheduler::run(THD *thd)
   DBUG_ENTER("Event_scheduler::run");
 
   sql_print_information("Event Scheduler: scheduler thread started with id %lu",
-                        thd->thread_id);
+                        (ulong) thd->thread_id);
   /*
     Recalculate the values in the queue because there could have been stops
     in executions of the scheduler and some times could have passed by.
@@ -515,7 +500,6 @@ Event_scheduler::run(THD *thd)
   }
 
   LOCK_DATA();
-  deinit_event_thread(thd);
   scheduler_thd= NULL;
   state= INITIALIZED;
   DBUG_PRINT("info", ("Broadcasting COND_state back to the stoppers"));
@@ -546,7 +530,7 @@ Event_scheduler::execute_top(Event_queue_element_for_exec *event_name)
   int res= 0;
   DBUG_ENTER("Event_scheduler::execute_top");
 
-  if (!(new_thd= new THD()))
+  if (!(new_thd= new THD(next_thread_id())))
     goto error;
 
   pre_init_event_thread(new_thd);
@@ -575,10 +559,7 @@ Event_scheduler::execute_top(Event_queue_element_for_exec *event_name)
     sql_print_error("Event_scheduler::execute_top: Can not create event worker"
                     " thread (errno=%d). Stopping event scheduler", res);
 
-    new_thd->proc_info= "Clearing";
-    DBUG_ASSERT(new_thd->net.buff != 0);
-    net_end(&new_thd->net);
-
+    deinit_event_thread(new_thd);
     goto error;
   }
 
@@ -590,9 +571,6 @@ Event_scheduler::execute_top(Event_queue_element_for_exec *event_name)
 
 error:
   DBUG_PRINT("error", ("Event_scheduler::execute_top() res: %d", res));
-  if (new_thd)
-    delete new_thd;
-
   delete event_name;
   DBUG_RETURN(TRUE);
 }
@@ -669,13 +647,13 @@ Event_scheduler::stop()
 
     state= STOPPING;
     DBUG_PRINT("info", ("Scheduler thread has id %lu",
-                        scheduler_thd->thread_id));
+                        (ulong) scheduler_thd->thread_id));
     /* Lock from delete */
     mysql_mutex_lock(&scheduler_thd->LOCK_thd_data);
     /* This will wake up the thread if it waits on Queue's conditional */
     sql_print_information("Event Scheduler: Killing the scheduler thread, "
                           "thread id %lu",
-                          scheduler_thd->thread_id);
+                          (ulong) scheduler_thd->thread_id);
     scheduler_thd->awake(KILL_CONNECTION);
     mysql_mutex_unlock(&scheduler_thd->LOCK_thd_data);
 
@@ -832,7 +810,8 @@ Event_scheduler::dump_internal_status()
   puts("");
   puts("Event scheduler status:");
   printf("State      : %s\n", scheduler_states_names[state].str);
-  printf("Thread id  : %lu\n", scheduler_thd? scheduler_thd->thread_id : 0);
+  printf("Thread id  : %lu\n", scheduler_thd ?
+         (ulong) scheduler_thd->thread_id : (ulong) 0);
   printf("LLA        : %s:%u\n", mutex_last_locked_in_func,
                                  mutex_last_locked_at_line);
   printf("LUA        : %s:%u\n", mutex_last_unlocked_in_func,

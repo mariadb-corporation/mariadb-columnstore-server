@@ -70,28 +70,6 @@ static void reset_start_time_for_sp(THD *thd)
     thd->set_start_time();
 }
 
-Item_result
-sp_map_result_type(enum enum_field_types type)
-{
-  switch (type) {
-  case MYSQL_TYPE_BIT:
-  case MYSQL_TYPE_TINY:
-  case MYSQL_TYPE_SHORT:
-  case MYSQL_TYPE_LONG:
-  case MYSQL_TYPE_LONGLONG:
-  case MYSQL_TYPE_INT24:
-    return INT_RESULT;
-  case MYSQL_TYPE_DECIMAL:
-  case MYSQL_TYPE_NEWDECIMAL:
-    return DECIMAL_RESULT;
-  case MYSQL_TYPE_FLOAT:
-  case MYSQL_TYPE_DOUBLE:
-    return REAL_RESULT;
-  default:
-    return STRING_RESULT;
-  }
-}
-
 
 Item::Type
 sp_map_item_type(enum enum_field_types type)
@@ -238,6 +216,7 @@ sp_get_flags_for_command(LEX *lex)
   case SQLCOM_SHOW_CREATE_PROC:
   case SQLCOM_SHOW_CREATE_EVENT:
   case SQLCOM_SHOW_CREATE_TRIGGER:
+  case SQLCOM_SHOW_CREATE_USER:
   case SQLCOM_SHOW_DATABASES:
   case SQLCOM_SHOW_ERRORS:
   case SQLCOM_SHOW_EXPLAIN:
@@ -274,6 +253,7 @@ sp_get_flags_for_command(LEX *lex)
     statement within an IF condition.
   */
   case SQLCOM_EXECUTE:
+  case SQLCOM_EXECUTE_IMMEDIATE:
     flags= sp_head::MULTI_RESULTS | sp_head::CONTAINS_DYNAMIC_SQL;
     break;
   case SQLCOM_PREPARE:
@@ -305,6 +285,7 @@ sp_get_flags_for_command(LEX *lex)
   case SQLCOM_CREATE_USER:
   case SQLCOM_CREATE_ROLE:
   case SQLCOM_ALTER_TABLE:
+  case SQLCOM_ALTER_USER:
   case SQLCOM_GRANT:
   case SQLCOM_GRANT_ROLE:
   case SQLCOM_REVOKE:
@@ -723,6 +704,7 @@ sp_head::set_stmt_end(THD *thd)
 {
   Lex_input_stream *lip= & thd->m_parser_state->m_lip; /* shortcut */
   const char *end_ptr= lip->get_cpp_ptr(); /* shortcut */
+  uint not_used;
 
   /* Make the string of parameters. */
 
@@ -740,7 +722,7 @@ sp_head::set_stmt_end(THD *thd)
 
   m_body.length= end_ptr - m_body_begin;
   m_body.str= thd->strmake(m_body_begin, m_body.length);
-  trim_whitespace(thd->charset(), & m_body);
+  trim_whitespace(thd->charset(), &m_body, &not_used);
 
   /* Make the string of UTF-body. */
 
@@ -748,7 +730,7 @@ sp_head::set_stmt_end(THD *thd)
 
   m_body_utf8.length= lip->get_body_utf8_length();
   m_body_utf8.str= thd->strmake(lip->get_body_utf8_str(), m_body_utf8.length);
-  trim_whitespace(thd->charset(), & m_body_utf8);
+  trim_whitespace(thd->charset(), &m_body_utf8, &not_used);
 
   /*
     Make the string of whole stored-program-definition query (in the
@@ -757,12 +739,12 @@ sp_head::set_stmt_end(THD *thd)
 
   m_defstr.length= end_ptr - lip->get_cpp_buf();
   m_defstr.str= thd->strmake(lip->get_cpp_buf(), m_defstr.length);
-  trim_whitespace(thd->charset(), & m_defstr);
+  trim_whitespace(thd->charset(), &m_defstr, &not_used);
 }
 
 
 static TYPELIB *
-create_typelib(MEM_ROOT *mem_root, Create_field *field_def, List<String> *src)
+create_typelib(MEM_ROOT *mem_root, Column_definition *field_def, List<String> *src)
 {
   TYPELIB *result= NULL;
   CHARSET_INFO *cs= field_def->charset;
@@ -861,30 +843,56 @@ Field *
 sp_head::create_result_field(uint field_max_length, const char *field_name,
                              TABLE *table)
 {
-  uint field_length;
   Field *field;
 
   DBUG_ENTER("sp_head::create_result_field");
 
-  field_length= !m_return_field_def.length ?
-                field_max_length : m_return_field_def.length;
+  /*
+    m_return_field_def.length is always set to the field length calculated
+    by the parser, according to the RETURNS clause. See prepare_create_field()
+    in sql_table.cc. Value examples, depending on data type:
+    - 11 for INT                          (character representation length)
+    - 20 for BIGINT                       (character representation length)
+    - 22 for DOUBLE                       (character representation length)
+    - N for CHAR(N) CHARACTER SET latin1  (octet length)
+    - 3*N for CHAR(N) CHARACTER SET utf8  (octet length)
+    - 8 for blob-alike data types         (packed length !!!)
 
-  field= ::make_field(table->s,                     /* TABLE_SHARE ptr */
-                      table->in_use->mem_root,
-                      (uchar*) 0,                   /* field ptr */
-                      field_length,                 /* field [max] length */
-                      (uchar*) "",                  /* null ptr */
-                      0,                            /* null bit */
-                      m_return_field_def.pack_flag,
-                      m_return_field_def.sql_type,
-                      m_return_field_def.charset,
-                      m_return_field_def.geom_type, m_return_field_def.srid,
-                      Field::NONE,                  /* unreg check */
-                      m_return_field_def.interval,
-                      field_name ? field_name : (const char *) m_name.str);
+    field_max_length is also set according to the data type in the RETURNS
+    clause but can have different values depending on the execution stage:
+
+    1. During direct execution:
+    field_max_length is 0, because Item_func_sp::fix_length_and_dec() has
+    not been called yet, so Item_func_sp::max_length is 0 by default.
+
+    2a. During PREPARE:
+    field_max_length is 0, because Item_func_sp::fix_length_and_dec()
+    has not been called yet. It's called after create_result_field().
+
+    2b. During EXEC:
+    field_max_length is set to the maximum possible octet length of the
+    RETURNS data type.
+    - N for CHAR(N) CHARACTER SET latin1  (octet length)
+    - 3*N for CHAR(N) CHARACTER SET utf8  (octet length)
+    - 255 for TINYBLOB                    (octet length, not packed length !!!)
+
+    Perhaps we should refactor prepare_create_field() to set
+    Create_field::length to maximum octet length for BLOBs,
+    instead of packed length).
+  */
+  DBUG_ASSERT(field_max_length <= m_return_field_def.length ||
+              (current_thd->stmt_arena->is_stmt_execute() &&
+               m_return_field_def.length == 8 &&
+               (m_return_field_def.pack_flag &
+                (FIELDFLAG_BLOB|FIELDFLAG_GEOM))));
+
+  field= m_return_field_def.make_field(table->s, /* TABLE_SHARE ptr */
+                                       table->in_use->mem_root,
+                                       field_name ?
+                                       field_name :
+                                       (const char *) m_name.str);
 
   field->vcol_info= m_return_field_def.vcol_info;
-  field->stored_in_db= m_return_field_def.stored_in_db;
   if (field)
     field->init(table);
 
@@ -1183,7 +1191,7 @@ sp_head::execute(THD *thd, bool merge_da_on_success)
 
   /*
     Switch query context. This has to be done early as this is sometimes
-    allocated trough sql_alloc
+    allocated on THD::mem_root
   */
   if (m_creation_ctx)
     saved_creation_ctx= m_creation_ctx->set_n_backup(thd);
@@ -2038,6 +2046,8 @@ sp_head::execute_procedure(THD *thd, List<Item> *args)
           break;
         }
       }
+
+      TRANSACT_TRACKER(add_trx_state_from_thd(thd));
     }
 
     /*
@@ -2147,7 +2157,7 @@ sp_head::execute_procedure(THD *thd, List<Item> *args)
       }
 
       Send_field *out_param_info= new (thd->mem_root) Send_field();
-      nctx->get_item(i)->make_field(out_param_info);
+      nctx->get_item(i)->make_field(thd, out_param_info);
       out_param_info->db_name= m_db.str;
       out_param_info->table_name= m_name.str;
       out_param_info->org_table_name= m_name.str;
@@ -2290,9 +2300,9 @@ sp_head::restore_lex(THD *thd)
   Put the instruction on the backpatch list, associated with the label.
 */
 int
-sp_head::push_backpatch(sp_instr *i, sp_label *lab)
+sp_head::push_backpatch(THD *thd, sp_instr *i, sp_label *lab)
 {
-  bp_t *bp= (bp_t *)sql_alloc(sizeof(bp_t));
+  bp_t *bp= (bp_t *) thd->alloc(sizeof(bp_t));
 
   if (!bp)
     return 1;
@@ -2326,12 +2336,11 @@ sp_head::backpatch(sp_label *lab)
 }
 
 /**
-  Prepare an instance of Create_field for field creation (fill all necessary
-  attributes).
+  Prepare an instance of Column_definition for field creation
+  (fill all necessary attributes).
 
   @param[in]  thd          Thread handle
   @param[in]  lex          Yacc parsing context
-  @param[in]  field_type   Field type
   @param[out] field_def    An instance of create_field to be filled
 
   @retval
@@ -2342,8 +2351,7 @@ sp_head::backpatch(sp_label *lab)
 
 bool
 sp_head::fill_field_definition(THD *thd, LEX *lex,
-                               enum enum_field_types field_type,
-                               Create_field *field_def)
+                               Column_definition *field_def)
 {
   uint unused1= 0;
 
@@ -2402,7 +2410,7 @@ sp_head::do_cont_backpatch()
 
 void
 sp_head::set_info(longlong created, longlong modified,
-                  st_sp_chistics *chistics, ulonglong sql_mode)
+                  st_sp_chistics *chistics, sql_mode_t sql_mode)
 {
   m_created= created;
   m_modified= modified;
@@ -2969,6 +2977,18 @@ sp_lex_keeper::reset_lex_and_exec_core(THD *thd, uint *nextp,
 
   reinit_stmt_before_use(thd, m_lex);
 
+#ifndef EMBEDDED_LIBRARY
+  /*
+    If there was instruction which changed tracking state,
+    the result of changed tracking state send to client in OK packed.
+    So it changes result sent to client and probably can be different
+    independent on query text. So we can't cache such results.
+  */
+  if ((thd->client_capabilities & CLIENT_SESSION_TRACK) &&
+      (thd->server_status & SERVER_SESSION_STATE_CHANGED))
+    thd->lex->safe_to_cache_query= 0;
+#endif
+
   if (open_tables)
     res= instr->exec_open_and_lock_tables(thd, m_lex->query_tables);
 
@@ -3045,6 +3065,9 @@ sp_lex_keeper::reset_lex_and_exec_core(THD *thd, uint *nextp,
     what is needed from the substatement gained
   */
   thd->transaction.stmt.modified_non_trans_table |= parent_modified_non_trans_table;
+
+  TRANSACT_TRACKER(add_trx_state_from_thd(thd));
+
   /*
     Unlike for PS we should not call Item's destructors for newly created
     items after execution of each instruction in stored routine. This is
@@ -3071,7 +3094,7 @@ int sp_instr::exec_open_and_lock_tables(THD *thd, TABLE_LIST *tables)
     Check whenever we have access to tables for this statement
     and open and lock them before executing instructions core function.
   */
-  if (open_temporary_tables(thd, tables) ||
+  if (thd->open_temporary_tables(tables) ||
       check_table_access(thd, SELECT_ACL, tables, FALSE, UINT_MAX, FALSE)
       || open_and_lock_tables(thd, tables, TRUE, 0))
     result= -1;
@@ -4229,7 +4252,7 @@ sp_head::add_used_tables_to_table_list(THD *thd,
     if (stab->temp)
       continue;
 
-    if (!(tab_buff= (char *)thd->calloc(ALIGN_SIZE(sizeof(TABLE_LIST)) *
+    if (!(tab_buff= (char *)thd->alloc(ALIGN_SIZE(sizeof(TABLE_LIST)) *
                                         stab->lock_count)) ||
         !(key_buff= (char*)thd->memdup(stab->qname.str,
                                        stab->qname.length)))
@@ -4238,32 +4261,11 @@ sp_head::add_used_tables_to_table_list(THD *thd,
     for (uint j= 0; j < stab->lock_count; j++)
     {
       table= (TABLE_LIST *)tab_buff;
-
-      table->db= key_buff;
-      table->db_length= stab->db_length;
-      table->table_name= table->db + table->db_length + 1;
-      table->table_name_length= stab->table_name_length;
-      table->alias= table->table_name + table->table_name_length + 1;
-      table->lock_type= stab->lock_type;
-      table->cacheable_table= 1;
-      table->prelocking_placeholder= 1;
-      table->belong_to_view= belong_to_view;
-      table->trg_event_map= stab->trg_event_map;
-      /*
-        Since we don't allow DDL on base tables in prelocked mode it
-        is safe to infer the type of metadata lock from the type of
-        table lock.
-      */
-      table->mdl_request.init(MDL_key::TABLE, table->db, table->table_name,
-                              table->lock_type >= TL_WRITE_ALLOW_WRITE ?
-                              MDL_SHARED_WRITE : MDL_SHARED_READ,
-                              MDL_TRANSACTION);
-
-      /* Everyting else should be zeroed */
-
-      **query_tables_last_ptr= table;
-      table->prev_global= *query_tables_last_ptr;
-      *query_tables_last_ptr= &table->next_global;
+      table->init_one_table_for_prelocking(key_buff, stab->db_length,
+           key_buff + stab->db_length + 1, stab->table_name_length,
+           key_buff + stab->db_length + stab->table_name_length + 2,
+           stab->lock_type, true, belong_to_view, stab->trg_event_map,
+           query_tables_last_ptr);
 
       tab_buff+= ALIGN_SIZE(sizeof(TABLE_LIST));
       result= TRUE;

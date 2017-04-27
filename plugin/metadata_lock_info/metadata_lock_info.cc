@@ -11,7 +11,7 @@
 
   You should have received a copy of the GNU General Public License
   along with this program; if not, write to the Free Software
-  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
+  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111-1301 USA */
 
 #define MYSQL_SERVER 1
 #include "my_config.h"
@@ -39,6 +39,7 @@ static const LEX_STRING metadata_lock_info_lock_mode[] = {
   { C_STRING_WITH_LEN("MDL_SHARED_READ") },
   { C_STRING_WITH_LEN("MDL_SHARED_WRITE") },
   { C_STRING_WITH_LEN("MDL_SHARED_UPGRADABLE") },
+  { C_STRING_WITH_LEN("MDL_SHARED_READ_ONLY") },
   { C_STRING_WITH_LEN("MDL_SHARED_NO_WRITE") },
   { C_STRING_WITH_LEN("MDL_SHARED_NO_READ_WRITE") },
   { C_STRING_WITH_LEN("MDL_EXCLUSIVE") },

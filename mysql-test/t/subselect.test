@@ -12,6 +12,8 @@ drop table if exists t1,t2,t3,t4,t5,t6,t7,t8,t11,t12;
 drop view if exists v2;
 --enable_warnings
 
+call mtr.add_suppression("Sort aborted.*");
+
 set @subselect_tmp=@@optimizer_switch;
 set @@optimizer_switch=ifnull(@optimizer_switch_for_subselect_test,
                               "semijoin=on,firstmatch=on,loosescan=on,semijoin_with_cache=on,partial_match_rowid_merge=off,partial_match_table_scan=off");
@@ -51,7 +53,7 @@ SELECT * FROM (SELECT 1 as id) b WHERE id IN (SELECT * FROM (SELECT 1 as id) c O
 SELECT * FROM (SELECT 1) a  WHERE 1 IN (SELECT 1,1);
 SELECT 1 IN (SELECT 1);
 SELECT 1 FROM (SELECT 1 as a) b WHERE 1 IN (SELECT (SELECT a));
--- error ER_WRONG_USAGE
+-- error ER_PARSE_ERROR
 select (SELECT 1 FROM (SELECT 1) a PROCEDURE ANALYSE(1));
 -- error ER_PARSE_ERROR
 SELECT 1 FROM (SELECT 1) a PROCEDURE ANALYSE((SELECT 1));
@@ -569,7 +571,7 @@ drop table t1, t2;
 create table t1 (a float);
 -- error ER_NOT_SUPPORTED_YET
 select 10.5 IN (SELECT * from t1 LIMIT 1);
--- error ER_WRONG_USAGE
+-- error ER_PARSE_ERROR
 select 10.5 IN (SELECT * from t1 LIMIT 1 UNION SELECT 1.5);
 -- error ER_NOT_SUPPORTED_YET
 select 10.5 IN (SELECT * from t1 UNION SELECT 1.5 LIMIT 1);
@@ -676,9 +678,9 @@ CREATE TABLE `t3` (
   PRIMARY KEY  (`numeropost`),
   UNIQUE KEY `maxnumrep` (`maxnumrep`)
 ) ENGINE=MyISAM CHARSET=latin1;
-INSERT INTO t1 VALUES ('joce','1','','joce'),('test','2','','test');
+INSERT IGNORE INTO t1 VALUES ('joce','1','','joce'),('test','2','','test');
 
-INSERT INTO t2 VALUES ('joce','1','','joce'),('test','2','','test');
+INSERT IGNORE INTO t2 VALUES ('joce','1','','joce'),('test','2','','test');
 
 INSERT INTO t3 VALUES (1,1);
 
@@ -3339,7 +3341,7 @@ create table t1(f11 int, f12 int);
 create table t2(f21 int unsigned not null, f22 int, f23 varchar(10));
 insert into t1 values(1,1),(2,2), (3, 3);
 --disable_warnings
-insert into t2
+insert ignore into t2
 select -1 , (@a:=(A.a + 10 * (B.a + 10 * (C.a+10*D.a))))/5000 + 1, @a
 from t0 A, t0 B, t0 C, t0 D;
 --enable_warnings
@@ -5029,6 +5031,7 @@ EXPLAIN
 SELECT table1.f1, table2.f1_key FROM t1 AS table1, t2 AS table2
   WHERE EXISTS (SELECT DISTINCT f1_key FROM t2 
                   WHERE f1_key != table2.f1_key AND f1_key >= table1.f1);
+--sorted_result
 SELECT table1.f1, table2.f1_key FROM t1 AS table1, t2 AS table2
   WHERE EXISTS (SELECT DISTINCT f1_key FROM t2 
                   WHERE f1_key != table2.f1_key AND f1_key >= table1.f1);
@@ -5328,6 +5331,7 @@ SELECT DISTINCT f1_key
 FROM t2 
 WHERE f1_key != table2.f1_key AND f1_key >= table1.f1 );
 
+--sorted_result
 eval $query;
 eval explain $query;
 
@@ -6052,3 +6056,20 @@ DROP TABLE t1, t2;
 SET NAMES default;
 
 --echo End of 10.1 tests
+
+--echo #
+--echo # MDEV-12564: IN TO EXISTS transformation for rows after 
+--echo #             conversion an outer join to inner join
+--echo #
+
+CREATE TABLE t (
+pk int PRIMARY KEY, i int NOT NULL, c varchar(8), KEY(c)
+) ENGINE=MyISAM;
+INSERT INTO t VALUES (1,10,'foo'),(2,20,'bar');
+ 
+SELECT * FROM t t1 RIGHT JOIN t t2 ON (t2.pk = t1.pk)
+  WHERE (t2.i, t2.pk) NOT IN ( SELECT t3.i, t3.i FROM t t3, t t4 ) AND t1.c = 'foo';
+
+DROP TABLE t;
+
+--echo End of 10.2 tests

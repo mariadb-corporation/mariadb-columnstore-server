@@ -13,7 +13,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111-1301 USA */
 
 /* mysql command tool
  * Commands compatible with mSQL by David J. Hughes
@@ -1144,6 +1144,9 @@ int main(int argc,char *argv[])
 
   outfile[0]=0;			// no (default) outfile
   strmov(pager, "stdout");	// the default, if --pager wasn't given
+
+  mysql_init(&mysql);
+
   {
     char *tmp=getenv("PAGER");
     if (tmp && strlen(tmp))
@@ -1204,7 +1207,6 @@ int main(int argc,char *argv[])
   glob_buffer.realloc(512);
   completion_hash_init(&ht, 128);
   init_alloc_root(&hash_mem_root, 16384, 0, MYF(0));
-  bzero((char*) &mysql, sizeof(mysql));
   if (sql_connect(current_host,current_db,current_user,opt_password,
 		  opt_silent))
   {
@@ -1962,7 +1964,7 @@ static int get_options(int argc, char **argv)
     connect_flag|= CLIENT_IGNORE_SPACE;
 
   if (opt_progress_reports)
-    connect_flag|= CLIENT_PROGRESS;
+    connect_flag|= CLIENT_PROGRESS_OBSOLETE;
 
   return(0);
 }
@@ -3493,7 +3495,6 @@ static char *fieldflags2str(uint f) {
   ff2s_check_flag(NUM);
   ff2s_check_flag(PART_KEY);
   ff2s_check_flag(GROUP);
-  ff2s_check_flag(UNIQUE);
   ff2s_check_flag(BINCMP);
   ff2s_check_flag(ON_UPDATE_NOW);
 #undef ff2s_check_flag
@@ -4646,21 +4647,25 @@ sql_real_connect(char *host,char *database,char *user,char *password,
     }
     return -1;					// Retryable
   }
-  
-  charset_info= mysql.charset;
+
+  charset_info= get_charset_by_name(mysql.charset->name, MYF(0));
+
   
   connected=1;
 #ifndef EMBEDDED_LIBRARY
-  mysql.reconnect= debug_info_flag; // We want to know if this happens
+  mysql_options(&mysql, MYSQL_OPT_RECONNECT, &debug_info_flag);
 
   /*
-    CLIENT_PROGRESS is set only if we requsted it in mysql_real_connect()
-    and the server also supports it
+    CLIENT_PROGRESS_OBSOLETE is set only if we requested it in
+    mysql_real_connect() and the server also supports it
   */
-  if (mysql.client_flag & CLIENT_PROGRESS)
+  if (mysql.client_flag & CLIENT_PROGRESS_OBSOLETE)
     mysql_options(&mysql, MYSQL_PROGRESS_CALLBACK, (void*) report_progress);
 #else
-  mysql.reconnect= 1;
+  {
+    my_bool reconnect= 1;
+    mysql_options(&mysql, MYSQL_OPT_RECONNECT, &reconnect);
+  }
 #endif
 #ifdef HAVE_READLINE
   build_completion_hash(opt_rehash, 1);
@@ -5124,17 +5129,31 @@ static const char *construct_prompt()
           processed_prompt.append("unknown");
         break;
       case 'h':
+      case 'H':
       {
-	const char *prompt;
-	prompt= connected ? mysql_get_host_info(&mysql) : "not_connected";
-	if (strstr(prompt, "Localhost"))
-	  processed_prompt.append("localhost");
-	else
-	{
-	  const char *end=strcend(prompt,' ');
-	  processed_prompt.append(prompt, (uint) (end-prompt));
-	}
-	break;
+        const char *prompt;
+        prompt= connected ? mysql_get_host_info(&mysql) : "not_connected";
+        if (strstr(prompt, "Localhost") || strstr(prompt, "localhost "))
+        {
+          if (*c == 'h')
+            processed_prompt.append("localhost");
+          else
+          {
+            static char hostname[FN_REFLEN];
+            if (hostname[0])
+              processed_prompt.append(hostname);
+            else if (gethostname(hostname, sizeof(hostname)) == 0)
+              processed_prompt.append(hostname);
+            else
+              processed_prompt.append("gethostname(2) failed");
+          }
+        }
+        else
+        {
+          const char *end=strcend(prompt,' ');
+          processed_prompt.append(prompt, (uint) (end-prompt));
+        }
+        break;
       }
       case 'p':
       {

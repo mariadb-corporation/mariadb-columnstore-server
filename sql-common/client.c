@@ -1,5 +1,5 @@
 /* Copyright (c) 2003, 2016, Oracle and/or its affiliates.
-   Copyright (c) 2009, 2016, MariaDB
+   Copyright (c) 2009, 2017, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -569,21 +569,27 @@ err:
                            Error message is set.
   @retval  
 */
-
 ulong
 cli_safe_read(MYSQL *mysql)
+{
+  ulong reallen = 0;
+  return cli_safe_read_reallen(mysql, &reallen);
+}
+
+ulong
+cli_safe_read_reallen(MYSQL *mysql, ulong* reallen)
 {
   NET *net= &mysql->net;
   ulong len=0;
 
 restart:
   if (net->vio != 0)
-    len= my_net_read_packet(net, 0);
+    len= my_net_read_packet_reallen(net, 0, reallen);
 
   if (len == packet_error || len == 0)
   {
     DBUG_PRINT("error",("Wrong connection or packet. fd: %s  len: %lu",
-			vio_description(net->vio),len));
+			net->vio ? vio_description(net->vio) : NULL, len));
 #ifdef MYSQL_SERVER
     if (net->vio && (net->last_errno == ER_NET_READ_INTERRUPTED))
       return (packet_error);
@@ -601,7 +607,7 @@ restart:
       uint last_errno=uint2korr(pos);
 
       if (last_errno == 65535 &&
-          (mysql->server_capabilities & CLIENT_PROGRESS))
+          (mysql->server_capabilities & CLIENT_PROGRESS_OBSOLETE))
       {
         if (cli_report_progress(mysql, pos+2, (uint) (len-3)))
         {
@@ -1004,11 +1010,6 @@ enum option_id {
 
 static TYPELIB option_types={array_elements(default_options)-1,
 			     "options",default_options, NULL};
-
-const char *sql_protocol_names_lib[] =
-{ "TCP", "SOCKET", "PIPE", "MEMORY", NullS };
-TYPELIB sql_protocol_typelib = {array_elements(sql_protocol_names_lib)-1,"",
-				sql_protocol_names_lib, NULL};
 
 static int add_init_command(struct st_mysql_options *options, const char *cmd)
 {
@@ -1642,10 +1643,10 @@ mysql_init(MYSQL *mysql)
     How this change impacts existing apps:
     - existing apps which relyed on the default will see a behaviour change;
     they will have to set reconnect=1 after mysql_real_connect().
-    - existing apps which explicitely asked for reconnection (the only way they
+    - existing apps which explicitly asked for reconnection (the only way they
     could do it was by setting mysql.reconnect to 1 after mysql_real_connect())
     will not see a behaviour change.
-    - existing apps which explicitely asked for no reconnection
+    - existing apps which explicitly asked for no reconnection
     (mysql.reconnect=0) will not see a behaviour change.
   */
   mysql->reconnect= 0;
@@ -3118,7 +3119,6 @@ CLI_MYSQL_REAL_CONNECT(MYSQL *mysql,const char *host, const char *user,
     DBUG_RETURN(0);
 
   mysql->methods= &client_methods;
-  net->vio = 0;				/* If something goes wrong */
   mysql->client_flag=0;			/* For handshake */
 
   /* use default options */
@@ -3866,8 +3866,6 @@ static void mysql_close_free(MYSQL *mysql)
 static void mysql_prune_stmt_list(MYSQL *mysql)
 {
   LIST *element= mysql->stmts;
-  LIST *pruned_list= 0;
-
   for (; element; element= element->next)
   {
     MYSQL_STMT *stmt= (MYSQL_STMT *) element->data;
@@ -3877,14 +3875,9 @@ static void mysql_prune_stmt_list(MYSQL *mysql)
       stmt->last_errno= CR_SERVER_LOST;
       strmov(stmt->last_error, ER(CR_SERVER_LOST));
       strmov(stmt->sqlstate, unknown_sqlstate);
-    }
-    else
-    {
-      pruned_list= list_add(pruned_list, element);
+      mysql->stmts= list_delete(mysql->stmts, element);
     }
   }
-
-  mysql->stmts= pruned_list;
 }
 
 
@@ -4776,4 +4769,12 @@ mysql_get_socket(const MYSQL *mysql)
   if (mysql->net.vio)
     return vio_fd(mysql->net.vio);
   return INVALID_SOCKET;
+}
+
+
+int STDCALL mysql_cancel(MYSQL *mysql)
+{
+  if (mysql->net.vio)
+	return vio_shutdown(mysql->net.vio, SHUT_RDWR);
+  return -1;
 }

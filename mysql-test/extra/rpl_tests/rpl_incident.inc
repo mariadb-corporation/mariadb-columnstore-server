@@ -4,8 +4,15 @@
 # Please check all dependent tests after modifying it
 #
 
---source include/master-slave.inc
 --source include/have_debug.inc
+--source include/master-slave.inc
+
+SET @old_binlog_checksum=@@binlog_checksum;
+SET GLOBAL BINLOG_CHECKSUM=none;
+connection slave;
+SET @old_binlog_checksum=@@binlog_checksum;
+SET GLOBAL BINLOG_CHECKSUM=none;
+connection master;
 
 --echo **** On Master ****
 CREATE TABLE t1 (a INT);
@@ -49,6 +56,8 @@ SELECT * FROM t1;
 source include/check_slave_is_running.inc;
 
 connection master;
+SET GLOBAL BINLOG_CHECKSUM=@old_binlog_checksum;
 DROP TABLE t1;
 --sync_slave_with_master
+SET GLOBAL BINLOG_CHECKSUM=@old_binlog_checksum;
 --source include/rpl_end.inc

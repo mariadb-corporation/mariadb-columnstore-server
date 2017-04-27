@@ -4,12 +4,17 @@ CREATE TABLE t3 (c INT) ENGINE=InnoDB;
 CREATE TRIGGER tr BEFORE INSERT ON t3 FOR EACH ROW BEGIN SAVEPOINT sv; INSERT INTO t2 VALUES (0); END $$
 START TRANSACTION;
 DELETE FROM t1;
+connect  con1,localhost,root,,test;
 START TRANSACTION;
 INSERT INTO t2 VALUES (2);
 UPDATE t2 SET b = b+1;
 INSERT INTO t1 VALUES (1);
+connection default;
 COMMIT;
+connection con1;
 COMMIT;
+disconnect con1;
+connection default;
 SELECT * FROM t1;
 a
 1

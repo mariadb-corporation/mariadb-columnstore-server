@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (C) 2013, 2016, MariaDB Corporation. All Rights Reserved.
+Copyright (C) 2013, 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -48,15 +48,9 @@ Updated 14/02/2015
 #include "trx0sys.h"
 #include "row0mysql.h"
 #include "ha_prototypes.h"  // IB_LOG_
-#ifndef UNIV_HOTBACKUP
-# include "buf0lru.h"
-# include "ibuf0ibuf.h"
-# include "sync0sync.h"
-# include "os0sync.h"
-#else /* !UNIV_HOTBACKUP */
-# include "srv0srv.h"
-static ulint srv_data_read, srv_data_written;
-#endif /* !UNIV_HOTBACKUP */
+#include "buf0lru.h"
+#include "ibuf0ibuf.h"
+#include "sync0sync.h"
 #include "zlib.h"
 #ifdef __linux__
 #include <linux/fs.h>
@@ -91,8 +85,7 @@ UNIV_INTERN
 byte*
 fil_compress_page(
 /*==============*/
-	ulint	space_id,	/*!< in: tablespace id of the
-				table. */
+	fil_space_t*	space,	/*!< in,out: tablespace (NULL during IMPORT) */
 	byte*	buf,		/*!< in: buffer from which to write; in aio
 				this must be appropriately aligned */
 	byte*	out_buf,	/*!< out: compressed buffer */
@@ -105,13 +98,16 @@ fil_compress_page(
 	byte*	lzo_mem)	/*!< in: temporal memory used by LZO */
 {
 	int err = Z_OK;
-	int comp_level = level;
+	int comp_level = int(level);
 	ulint header_len = FIL_PAGE_DATA + FIL_PAGE_COMPRESSED_SIZE;
 	ulint write_size=0;
 	/* Cache to avoid change during function execution */
 	ulint comp_method = innodb_compression_algorithm;
-	ulint orig_page_type;
 	bool allocated=false;
+
+	/* page_compression does not apply to tables or tablespaces
+	that use ROW_FORMAT=COMPRESSED */
+	ut_ad(!space || !page_size_t(space->flags).is_compressed());
 
 	if (encrypted) {
 		header_len += FIL_PAGE_COMPRESSION_METHOD_SIZE;
@@ -119,10 +115,10 @@ fil_compress_page(
 
 	if (!out_buf) {
 		allocated = true;
-		out_buf = static_cast<byte *>(ut_malloc(UNIV_PAGE_SIZE));
+		out_buf = static_cast<byte *>(ut_malloc_nokey(UNIV_PAGE_SIZE));
 #ifdef HAVE_LZO
 		if (comp_method == PAGE_LZO_ALGORITHM) {
-			lzo_mem = static_cast<byte *>(ut_malloc(LZO1X_1_15_MEM_COMPRESS));
+			lzo_mem = static_cast<byte *>(ut_malloc_nokey(LZO1X_1_15_MEM_COMPRESS));
 			memset(lzo_mem, 0, LZO1X_1_15_MEM_COMPRESS);
 		}
 #endif
@@ -133,19 +129,13 @@ fil_compress_page(
 	ut_ad(len);
 	ut_ad(out_len);
 
-	/* read original page type */
-	orig_page_type = mach_read_from_2(buf + FIL_PAGE_TYPE);
-
-	fil_system_enter();
-	fil_space_t* space = fil_space_get_by_id(space_id);
-	fil_system_exit();
-
 	/* Let's not compress file space header or
 	extent descriptor */
-	if (orig_page_type == 0 ||
-	    orig_page_type == FIL_PAGE_TYPE_FSP_HDR ||
-	    orig_page_type == FIL_PAGE_TYPE_XDES ||
-		orig_page_type == FIL_PAGE_PAGE_COMPRESSED) {
+	switch (fil_page_get_type(buf)) {
+	case 0:
+	case FIL_PAGE_TYPE_FSP_HDR:
+	case FIL_PAGE_TYPE_XDES:
+	case FIL_PAGE_PAGE_COMPRESSED:
 		*out_len = len;
 
 		goto err_exit;
@@ -157,36 +147,26 @@ fil_compress_page(
 		comp_level = page_zip_level;
 	}
 
-#ifdef UNIV_PAGECOMPRESS_DEBUG
-	ib_logf(IB_LOG_LEVEL_INFO,
-		"Preparing for compress for space %lu name %s len %lu.",
-		space_id, fil_space_name(space), len);
-#endif /* UNIV_PAGECOMPRESS_DEBUG */
+	DBUG_LOG("compress", "Preparing for space "
+		 << (space ? space->id : 0) << " '"
+		 << (space ? space->name : "(import)") << "' len " << len);
 
 	write_size = UNIV_PAGE_SIZE - header_len;
 
 	switch(comp_method) {
 #ifdef HAVE_LZ4
 	case PAGE_LZ4_ALGORITHM:
+
+#ifdef HAVE_LZ4_COMPRESS_DEFAULT
+		err = LZ4_compress_default((const char *)buf,
+			(char *)out_buf+header_len, len, write_size);
+#else
 		err = LZ4_compress_limitedOutput((const char *)buf,
 			(char *)out_buf+header_len, len, write_size);
+#endif /* HAVE_LZ4_COMPRESS_DEFAULT */
 		write_size = err;
 
 		if (err == 0) {
-			/* If error we leave the actual page as it was */
-
-#ifndef UNIV_PAGECOMPRESS_DEBUG
-			if (space->printed_compression_failure == false) {
-#endif
-				ib_logf(IB_LOG_LEVEL_WARN,
-					"Compression failed for space %lu name %s len %lu rt %d write %lu.",
-					space_id, fil_space_name(space), len, err, write_size);
-				space->printed_compression_failure = true;
-#ifndef UNIV_PAGECOMPRESS_DEBUG
-			}
-#endif
-			srv_stats.pages_page_compression_error.inc();
-			*out_len = len;
 			goto err_exit;
 		}
 		break;
@@ -197,15 +177,6 @@ fil_compress_page(
 			buf, len, out_buf+header_len, &write_size, lzo_mem);
 
 		if (err != LZO_E_OK || write_size > UNIV_PAGE_SIZE-header_len) {
-			if (space->printed_compression_failure == false) {
-				ib_logf(IB_LOG_LEVEL_WARN,
-					"Compression failed for space %lu name %s len %lu err %d write_size %lu.",
-					space_id, fil_space_name(space), len, err, write_size);
-				space->printed_compression_failure = true;
-			}
-
-			srv_stats.pages_page_compression_error.inc();
-			*out_len = len;
 			goto err_exit;
 		}
 
@@ -226,15 +197,7 @@ fil_compress_page(
 			(size_t)write_size);
 
 		if (err != LZMA_OK || out_pos > UNIV_PAGE_SIZE-header_len) {
-			if (space->printed_compression_failure == false) {
-				ib_logf(IB_LOG_LEVEL_WARN,
-					"Compression failed for space %lu name %s len %lu err %d write_size %lu",
-					space_id, fil_space_name(space), len, err, out_pos);
-				space->printed_compression_failure = true;
-			}
-
-			srv_stats.pages_page_compression_error.inc();
-			*out_len = len;
+			write_size = out_pos;
 			goto err_exit;
 		}
 
@@ -257,15 +220,6 @@ fil_compress_page(
 			0);
 
 		if (err != BZ_OK || write_size > UNIV_PAGE_SIZE-header_len) {
-			if (space->printed_compression_failure == false) {
-				ib_logf(IB_LOG_LEVEL_WARN,
-					"Compression failed for space %lu name %s len %lu err %d write_size %lu.",
-					space_id, fil_space_name(space), len, err, write_size);
-				space->printed_compression_failure = true;
-			}
-
-			srv_stats.pages_page_compression_error.inc();
-			*out_len = len;
 			goto err_exit;
 		}
 		break;
@@ -284,15 +238,7 @@ fil_compress_page(
 			(size_t*)&write_size);
 
 		if (cstatus != SNAPPY_OK || write_size > UNIV_PAGE_SIZE-header_len) {
-			if (space->printed_compression_failure == false) {
-				ib_logf(IB_LOG_LEVEL_WARN,
-					"Compression failed for space %lu name %s len %lu err %d write_size %lu.",
-					space_id, fil_space_name(space), len, (int)cstatus, write_size);
-				space->printed_compression_failure = true;
-			}
-
-			srv_stats.pages_page_compression_error.inc();
-			*out_len = len;
+			err = (int)cstatus;
 			goto err_exit;
 		}
 		break;
@@ -300,20 +246,10 @@ fil_compress_page(
 #endif /* HAVE_SNAPPY */
 
 	case PAGE_ZLIB_ALGORITHM:
-		err = compress2(out_buf+header_len, (ulong*)&write_size, buf, len, comp_level);
+		err = compress2(out_buf+header_len, (ulong*)&write_size, buf,
+				uLong(len), comp_level);
 
 		if (err != Z_OK) {
-			/* If error we leave the actual page as it was */
-
-			if (space->printed_compression_failure == false) {
-				ib_logf(IB_LOG_LEVEL_WARN,
-					"Compression failed for space %lu name %s len %lu rt %d write %lu.",
-					space_id, fil_space_name(space), len, err, write_size);
-				space->printed_compression_failure = true;
-			}
-
-			srv_stats.pages_page_compression_error.inc();
-			*out_len = len;
 			goto err_exit;
 		}
 		break;
@@ -360,15 +296,15 @@ fil_compress_page(
 		byte *comp_page;
 		byte *uncomp_page;
 
-		comp_page = static_cast<byte *>(ut_malloc(UNIV_PAGE_SIZE));
-		uncomp_page = static_cast<byte *>(ut_malloc(UNIV_PAGE_SIZE));
+		comp_page = static_cast<byte *>(ut_malloc_nokey(UNIV_PAGE_SIZE));
+		uncomp_page = static_cast<byte *>(ut_malloc_nokey(UNIV_PAGE_SIZE));
 		memcpy(comp_page, out_buf, UNIV_PAGE_SIZE);
 
-		fil_decompress_page(uncomp_page, comp_page, len, NULL);
+		fil_decompress_page(uncomp_page, comp_page, ulong(len), NULL);
 
-		if(buf_page_is_corrupted(false, uncomp_page, 0)) {
-			buf_page_print(uncomp_page, 0, BUF_PAGE_PRINT_NO_CRASH);
-			ut_error;
+		if (buf_page_is_corrupted(false, uncomp_page, univ_page_size,
+					  space)) {
+			buf_page_print(uncomp_page, univ_page_size, 0);
 		}
 
 		ut_free(comp_page);
@@ -397,11 +333,10 @@ fil_compress_page(
 #endif
 	}
 
-#ifdef UNIV_PAGECOMPRESS_DEBUG
-	ib_logf(IB_LOG_LEVEL_INFO,
-		"Compression succeeded for space %lu name %s len %lu out_len %lu.",
-		space_id, fil_space_name(space), len, write_size);
-#endif /* UNIV_PAGECOMPRESS_DEBUG */
+	DBUG_LOG("compress", "Succeeded for space "
+		 << (space ? space->id : 0) << " '"
+		 << (space ? space->name : "(import)")
+		 << "' len " << len << " out_len " << write_size);
 
 	srv_stats.page_compression_saved.add((len - write_size));
 	srv_stats.pages_page_compressed.inc();
@@ -418,11 +353,33 @@ fil_compress_page(
 	if (allocated) {
 		/* TODO: reduce number of memcpy's */
 		memcpy(buf, out_buf, len);
+		goto exit_free;
 	} else {
 		return(out_buf);
 	}
 
 err_exit:
+	/* If error we leave the actual page as it was */
+
+#ifndef UNIV_PAGECOMPRESS_DEBUG
+	if (space && !space->printed_compression_failure) {
+		space->printed_compression_failure = true;
+#endif
+		ib::warn() << "Compression failed for space: "
+			   << space->id << " name: "
+			   << space->name << " len: "
+			   << len << " err: " << err << " write_size: "
+			   << write_size
+			   << " compression method: "
+			   << fil_get_compression_alg_name(comp_method)
+			   << ".";
+#ifndef UNIV_PAGECOMPRESS_DEBUG
+	}
+#endif
+	srv_stats.pages_page_compression_error.inc();
+	*out_len = len;
+
+exit_free:
 	if (allocated) {
 		ut_free(out_buf);
 #ifdef HAVE_LZO
@@ -455,30 +412,32 @@ fil_decompress_page(
 {
 	int err = 0;
 	ulint actual_size = 0;
-	ulint compression_alg = 0;
+	ib_uint64_t compression_alg = 0;
 	byte *in_buf;
 	ulint ptype;
-	ulint header_len = FIL_PAGE_DATA + FIL_PAGE_COMPRESSED_SIZE;
+	ulint header_len;
 
 	ut_ad(buf);
 	ut_ad(len);
 
 	ptype = mach_read_from_2(buf+FIL_PAGE_TYPE);
 
-	if (ptype == FIL_PAGE_PAGE_COMPRESSED_ENCRYPTED) {
-		header_len += FIL_PAGE_COMPRESSION_METHOD_SIZE;
-	}
-
-	/* Do not try to uncompressed pages that are not compressed */
-	if (ptype !=  FIL_PAGE_PAGE_COMPRESSED &&
-		ptype != FIL_PAGE_PAGE_COMPRESSED_ENCRYPTED &&
-		ptype != FIL_PAGE_TYPE_COMPRESSED) {
+	switch (ptype) {
+	case FIL_PAGE_PAGE_COMPRESSED_ENCRYPTED:
+		header_len = FIL_PAGE_DATA + FIL_PAGE_COMPRESSED_SIZE
+			+ FIL_PAGE_COMPRESSION_METHOD_SIZE;
+		break;
+	case FIL_PAGE_PAGE_COMPRESSED:
+		header_len = FIL_PAGE_DATA + FIL_PAGE_COMPRESSED_SIZE;
+		break;
+	default:
+		/* The page is not in our format. */
 		return;
 	}
 
 	// If no buffer was given, we need to allocate temporal buffer
 	if (page_buf == NULL) {
-		in_buf = static_cast<byte *>(ut_malloc(UNIV_PAGE_SIZE));
+		in_buf = static_cast<byte *>(ut_malloc_nokey(UNIV_PAGE_SIZE));
 		memset(in_buf, 0, UNIV_PAGE_SIZE);
 	} else {
 		in_buf = page_buf;
@@ -486,16 +445,14 @@ fil_decompress_page(
 
 	/* Before actual decompress, make sure that page type is correct */
 
-	if (mach_read_from_4(buf+FIL_PAGE_SPACE_OR_CHKSUM) != BUF_NO_CHECKSUM_MAGIC ||
-		(ptype != FIL_PAGE_PAGE_COMPRESSED &&
-		 ptype != FIL_PAGE_PAGE_COMPRESSED_ENCRYPTED)) {
-		ib_logf(IB_LOG_LEVEL_ERROR,
-			"Corruption: We try to uncompress corrupted page"
-			" CRC %lu type %lu len %lu.",
-			mach_read_from_4(buf+FIL_PAGE_SPACE_OR_CHKSUM),
-			mach_read_from_2(buf+FIL_PAGE_TYPE), len);
+	if (mach_read_from_4(buf+FIL_PAGE_SPACE_OR_CHKSUM) != BUF_NO_CHECKSUM_MAGIC) {
+		ib::error() << "Corruption: We try to uncompress corrupted page:"
+			    << " CRC "
+			    << mach_read_from_4(buf+FIL_PAGE_SPACE_OR_CHKSUM)
+			    << " page_type "
+			    << mach_read_from_2(buf+FIL_PAGE_TYPE)
+			    << " page len " << len << ".";
 
-		fflush(stderr);
 		if (return_error) {
 			goto error_return;
 		}
@@ -504,7 +461,7 @@ fil_decompress_page(
 
 	/* Get compression algorithm */
 	if (ptype == FIL_PAGE_PAGE_COMPRESSED_ENCRYPTED) {
-		compression_alg = mach_read_from_2(buf+FIL_PAGE_DATA+FIL_PAGE_COMPRESSED_SIZE);
+		compression_alg = static_cast<ib_uint64_t>(mach_read_from_2(buf+FIL_PAGE_DATA+FIL_PAGE_COMPRESSED_SIZE));
 	} else {
 		compression_alg = mach_read_from_8(buf+FIL_PAGE_FILE_FLUSH_LSN_OR_KEY_VERSION);
 	}
@@ -513,11 +470,11 @@ fil_decompress_page(
 	actual_size = mach_read_from_2(buf+FIL_PAGE_DATA);
 	/* Check if payload size is corrupted */
 	if (actual_size == 0 || actual_size > UNIV_PAGE_SIZE) {
-		ib_logf(IB_LOG_LEVEL_ERROR,
-			"Corruption: We try to uncompress corrupted page"
-			" actual size %lu compression %s.",
-			actual_size, fil_get_compression_alg_name(compression_alg));
-		fflush(stderr);
+		ib::error() << "Corruption: We try to uncompress corrupted page"
+			    << " actual size: " << actual_size
+			    << " compression method: "
+			    << fil_get_compression_alg_name(compression_alg)
+			    << ".";
 		if (return_error) {
 			goto error_return;
 		}
@@ -530,12 +487,8 @@ fil_decompress_page(
 		*write_size = actual_size;
 	}
 
-#ifdef UNIV_PAGECOMPRESS_DEBUG
-	ib_logf(IB_LOG_LEVEL_INFO,
-		"Preparing for decompress for len %lu\n",
-		actual_size);
-#endif /* UNIV_PAGECOMPRESS_DEBUG */
-
+	DBUG_LOG("compress", "Preparing for decompress for len "
+		 << actual_size << ".");
 
 	switch(compression_alg) {
 	case PAGE_ZLIB_ALGORITHM:
@@ -543,19 +496,10 @@ fil_decompress_page(
 
 		/* If uncompress fails it means that page is corrupted */
 		if (err != Z_OK) {
-
-			ib_logf(IB_LOG_LEVEL_ERROR,
-				"Corruption: Page is marked as compressed"
-				" but uncompress failed with error %d "
-				" size %lu len %lu.",
-				err, actual_size, len);
-
-			fflush(stderr);
-
+			goto err_exit;
 			if (return_error) {
 				goto error_return;
 			}
-			ut_error;
 		}
 		break;
 
@@ -564,17 +508,10 @@ fil_decompress_page(
 		err = LZ4_decompress_fast((const char *)buf+header_len, (char *)in_buf, len);
 
 		if (err != (int)actual_size) {
-			ib_logf(IB_LOG_LEVEL_ERROR,
-				"Corruption: Page is marked as compressed"
-				" but decompression read only %d bytes "
-				" size %lu len %lu.",
-				err, actual_size, len);
-			fflush(stderr);
-
+			goto err_exit;
 			if (return_error) {
 				goto error_return;
 			}
-			ut_error;
 		}
 		break;
 #endif /* HAVE_LZ4 */
@@ -585,17 +522,11 @@ fil_decompress_page(
 			actual_size,(unsigned char *)in_buf, &olen, NULL);
 
 		if (err != LZO_E_OK || (olen == 0 || olen > UNIV_PAGE_SIZE)) {
-			ib_logf(IB_LOG_LEVEL_ERROR,
-				"Corruption: Page is marked as compressed"
-				" but decompression read only %ld bytes"
-				" size %lu len %lu.",
-				olen, actual_size, len);
-			fflush(stderr);
-
+			len = olen;
+			goto err_exit;
 			if (return_error) {
 				goto error_return;
 			}
-			ut_error;
 		}
 		break;
         }
@@ -621,17 +552,11 @@ fil_decompress_page(
 
 
 		if (ret != LZMA_OK || (dst_pos == 0 || dst_pos > UNIV_PAGE_SIZE)) {
-			ib_logf(IB_LOG_LEVEL_ERROR,
-				"Corruption: Page is marked as compressed"
-				" but decompression read only %ld bytes"
-				" size %lu len %lu.",
-				dst_pos, actual_size, len);
-			fflush(stderr);
-
+			len = dst_pos;
+			goto err_exit;
 			if (return_error) {
 				goto error_return;
 			}
-			ut_error;
 		}
 
 		break;
@@ -650,17 +575,11 @@ fil_decompress_page(
 			0);
 
 		if (err != BZ_OK || (dst_pos == 0 || dst_pos > UNIV_PAGE_SIZE)) {
-			ib_logf(IB_LOG_LEVEL_ERROR,
-				"Corruption: Page is marked as compressed"
-				" but decompression read only %du bytes"
-				" size %lu len %lu err %d.",
-				dst_pos, actual_size, len, err);
-			fflush(stderr);
-
+			len = dst_pos;
+			goto err_exit;
 			if (return_error) {
 				goto error_return;
 			}
-			ut_error;
 		}
 		break;
 	}
@@ -678,33 +597,21 @@ fil_decompress_page(
 			(size_t*)&olen);
 
 		if (cstatus != SNAPPY_OK || (olen == 0 || olen > UNIV_PAGE_SIZE)) {
-			ib_logf(IB_LOG_LEVEL_ERROR,
-				"Corruption: Page is marked as compressed"
-				" but decompression read only %lu bytes"
-				" size %lu len %lu err %d.",
-				olen, actual_size, len, (int)cstatus);
-			fflush(stderr);
-
+			err = (int)cstatus;
+			len = olen;
+			goto err_exit;
 			if (return_error) {
 				goto error_return;
 			}
-			ut_error;
 		}
 		break;
 	}
 #endif /* HAVE_SNAPPY */
 	default:
-		ib_logf(IB_LOG_LEVEL_ERROR,
-			"Corruption: Page is marked as compressed"
-			" but compression algorithm %s"
-			" is not known."
-			,fil_get_compression_alg_name(compression_alg));
-
-		fflush(stderr);
+		goto err_exit;
 		if (return_error) {
 			goto error_return;
 		}
-		ut_error;
 		break;
 	}
 
@@ -719,4 +626,23 @@ error_return:
 	if (page_buf == NULL) {
 		ut_free(in_buf);
 	}
+
+	return;
+
+err_exit:
+	/* Note that as we have found the page is corrupted, so
+	all this could be incorrect. */
+	ulint space_id = mach_read_from_4(buf+FIL_PAGE_SPACE_ID);
+	const FilSpace space(space_id, true);
+
+	ib::error() << "Corruption: Page is marked as compressed"
+		    << " space: " <<  space_id << " name: "
+		    << (space() ? space()->name : "NULL")
+		    << " but uncompress failed with error: " << err
+		    << " size: " << actual_size
+		    << " len: " << len
+		    << " compression method: "
+		    << fil_get_compression_alg_name(compression_alg) << ".";
+
+	buf_page_print(buf, univ_page_size, 0);
 }

@@ -60,7 +60,9 @@
 #define EXTRA_DEBUG_fflush fflush
 #else
 static void inline EXTRA_DEBUG_fprintf(...) {}
+#ifndef MYSQL_SERVER
 static int inline EXTRA_DEBUG_fflush(...) { return 0; }
+#endif
 #endif
 #ifdef MYSQL_SERVER
 #define MYSQL_SERVER_my_error my_error
@@ -117,9 +119,10 @@ extern my_bool thd_net_is_killed();
 #endif
 
 #define TEST_BLOCKING		8
-#define MAX_PACKET_LENGTH (256L*256L*256L-1)
 
 static my_bool net_write_buff(NET *, const uchar *, ulong);
+
+my_bool net_allocate_new_packet(NET *net, void *thd, uint my_flags);
 
 /** Init with packet info. */
 
@@ -129,14 +132,12 @@ my_bool my_net_init(NET *net, Vio *vio, void *thd, uint my_flags)
   DBUG_PRINT("enter", ("my_flags: %u", my_flags));
   net->vio = vio;
   my_net_local_init(net);			/* Set some limits */
-  if (!(net->buff=(uchar*) my_malloc((size_t) net->max_packet+
-				     NET_HEADER_SIZE + COMP_HEADER_SIZE +1,
-				     MYF(MY_WME | my_flags))))
+
+  if (net_allocate_new_packet(net, thd, my_flags))
     DBUG_RETURN(1);
-  net->buff_end=net->buff+net->max_packet;
+
   net->error=0; net->return_status=0;
   net->pkt_nr=net->compress_pkt_nr=0;
-  net->write_pos=net->read_pos = net->buff;
   net->last_error[0]=0;
   net->compress=0; net->reading_or_writing=0;
   net->where_b = net->remain_in_buf=0;
@@ -162,6 +163,18 @@ my_bool my_net_init(NET *net, Vio *vio, void *thd, uint my_flags)
 #endif
     vio_fastsend(vio);
   }
+  DBUG_RETURN(0);
+}
+
+my_bool net_allocate_new_packet(NET *net, void *thd, uint my_flags)
+{
+  DBUG_ENTER("net_allocate_new_packet");
+  if (!(net->buff=(uchar*) my_malloc((size_t) net->max_packet+
+				     NET_HEADER_SIZE + COMP_HEADER_SIZE +1,
+				     MYF(MY_WME | my_flags))))
+    DBUG_RETURN(1);
+  net->buff_end=net->buff+net->max_packet;
+  net->write_pos=net->read_pos = net->buff;
   DBUG_RETURN(0);
 }
 
@@ -1122,15 +1135,22 @@ ulong my_net_read(NET *net)
   The function returns the length of the found packet or packet_error.
   net->read_pos points to the read data.
 */
+ulong
+my_net_read_packet(NET *net, my_bool read_from_server)
+{
+  ulong reallen = 0;
+  return my_net_read_packet_reallen(net, read_from_server, &reallen); 
+}
 
 
 ulong
-my_net_read_packet(NET *net, my_bool read_from_server)
+my_net_read_packet_reallen(NET *net, my_bool read_from_server, ulong* reallen)
 {
   size_t len, complen;
 
   MYSQL_NET_READ_START();
 
+  *reallen = 0;
 #ifdef HAVE_COMPRESS
   if (!net->compress)
   {
@@ -1153,7 +1173,10 @@ my_net_read_packet(NET *net, my_bool read_from_server)
     }
     net->read_pos = net->buff + net->where_b;
     if (len != packet_error)
+    {
       net->read_pos[len]=0;		/* Safeguard for mysql_use_result */
+      *reallen = len;
+    }
     MYSQL_NET_READ_DONE(0, len);
     return len;
 #ifdef HAVE_COMPRESS
@@ -1254,6 +1277,7 @@ my_net_read_packet(NET *net, my_bool read_from_server)
 	return packet_error;
       }
       buf_length+= complen;
+      *reallen += packet_len;
     }
 
     net->read_pos=      net->buff+ first_packet_offset + NET_HEADER_SIZE;

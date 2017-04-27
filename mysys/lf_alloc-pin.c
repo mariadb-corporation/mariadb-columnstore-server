@@ -121,7 +121,6 @@ void lf_pinbox_init(LF_PINBOX *pinbox, uint free_ptr_offset,
                     lf_pinbox_free_func *free_func, void *free_func_arg)
 {
   DBUG_ASSERT(free_ptr_offset % sizeof(void *) == 0);
-  compile_time_assert(sizeof(LF_PINS) == 128);
   lf_dynarray_init(&pinbox->pinarray, sizeof(LF_PINS));
   pinbox->pinstack_top_ver= 0;
   pinbox->pins_in_array= 0;
@@ -139,7 +138,7 @@ void lf_pinbox_destroy(LF_PINBOX *pinbox)
   Get pins from a pinbox. Usually called via lf_alloc_get_pins() or
   lf_hash_get_pins().
 
-  SYNOPSYS
+  SYNOPSIS
     pinbox      -
 
   DESCRIPTION
@@ -443,7 +442,7 @@ static void alloc_free(uchar *first,
 /*
   initialize lock-free allocator
 
-  SYNOPSYS
+  SYNOPSIS
     allocator           -
     size                a size of an object to allocate
     free_ptr_offset     an offset inside the object to a sizeof(void *)

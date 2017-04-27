@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 2015, MariaDB Corporation.
+Copyright (c) 2015, 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -17,7 +17,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 *****************************************************************************/
 
 /**************************************************//**
-@file include/fil0fil.h
+@file include/fil0crypt.ic
 The low-level file system encryption support functions
 
 Created 04/01/2015 Jan Lindström
@@ -36,33 +36,46 @@ fil_page_is_encrypted(
 }
 
 /*******************************************************************//**
-Find out whether the page can be decrypted.
-The function for decrypting the page should already be executed before this.
-@return	1 if key provider not available or key is not available
-	0 if decryption should be possible
-*/
+Get current encryption mode from crypt_data.
+@return string representation */
 UNIV_INLINE
-bool
-fil_page_encryption_status(
-/*===================*/
-	const byte *buf,	/*!< in: page */
-	ulint space_id)		/*!< in: space_id */
+const char *
+fil_crypt_get_mode(
+/*===============*/
+	const fil_space_crypt_t* crypt_data)
 {
-	fil_space_crypt_t *crypt_data = fil_space_get_crypt_data(space_id);
-	ulint page_type = mach_read_from_2(buf+FIL_PAGE_TYPE);
-
-	if (page_type == FIL_PAGE_TYPE_FSP_HDR) {
-		if (crypt_data != NULL) {
-			if (!encryption_key_id_exists(crypt_data->key_id)) {
-				/* accessing table would surely fail, because no key or no key provider available */
-				return 1;
-			}
-		}
-	} else {
-		ulint key = mach_read_from_4(buf + FIL_PAGE_FILE_FLUSH_LSN_OR_KEY_VERSION);
-		if (!encryption_key_version_exists(crypt_data->key_id, key)) {
-			return 1;
-		}
+	switch (crypt_data->encryption) {
+	case FIL_ENCRYPTION_DEFAULT:
+		return("Default tablespace encryption mode");
+	case FIL_ENCRYPTION_ON:
+		return("Tablespace encrypted");
+	case FIL_ENCRYPTION_OFF:
+		return("Tablespace not encrypted");
 	}
-	return 0;
+
+	ut_error;
+	return ("NULL");
+}
+
+/*******************************************************************//**
+Get current encryption type from crypt_data.
+@return string representation */
+UNIV_INLINE
+const char *
+fil_crypt_get_type(
+	const fil_space_crypt_t* crypt_data)
+{
+	ut_ad(crypt_data != NULL);
+	switch (crypt_data->type) {
+	case CRYPT_SCHEME_UNENCRYPTED:
+		return("scheme unencrypted");
+		break;
+	case CRYPT_SCHEME_1:
+		return("scheme encrypted");
+		break;
+	default:
+		ut_error;
+	}
+
+	return ("NULL");
 }

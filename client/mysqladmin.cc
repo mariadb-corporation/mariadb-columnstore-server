@@ -22,9 +22,10 @@
 #include <my_pthread.h>				/* because of signal()	*/
 #include <sys/stat.h>
 #include <mysql.h>
-#include <sql_common.h>
+#include <mysql_version.h>
 #include <welcome_copyright_notice.h>
 #include <my_rnd.h>
+#include <password.h>
 
 #define ADMIN_VERSION "9.1"
 #define MAX_MYSQL_VAR 512
@@ -38,8 +39,8 @@ char ex_var_names[MAX_MYSQL_VAR][FN_REFLEN];
 ulonglong last_values[MAX_MYSQL_VAR];
 static int interval=0;
 static my_bool option_force=0,interrupted=0,new_line=0,
-               opt_compress=0, opt_relative=0, opt_verbose=0, opt_vertical=0,
-               tty_password= 0, opt_nobeep;
+               opt_compress= 0, opt_local= 0, opt_relative= 0, opt_verbose= 0,
+               opt_vertical= 0, tty_password= 0, opt_nobeep;
 static my_bool debug_info_flag= 0, debug_check_flag= 0;
 static uint tcp_port = 0, option_wait = 0, option_silent=0, nr_iterations;
 static uint opt_count_iterations= 0, my_end_arg;
@@ -102,9 +103,12 @@ enum commands {
   ADMIN_PING,             ADMIN_EXTENDED_STATUS, ADMIN_FLUSH_STATUS,
   ADMIN_FLUSH_PRIVILEGES, ADMIN_START_SLAVE,     ADMIN_STOP_SLAVE,
   ADMIN_START_ALL_SLAVES, ADMIN_STOP_ALL_SLAVES,
-  ADMIN_FLUSH_THREADS,    ADMIN_OLD_PASSWORD,    ADMIN_FLUSH_SLOW_LOG,
+  ADMIN_FLUSH_THREADS,    ADMIN_OLD_PASSWORD,    ADMIN_FLUSH_BINARY_LOG,
+  ADMIN_FLUSH_ENGINE_LOG, ADMIN_FLUSH_ERROR_LOG, ADMIN_FLUSH_GENERAL_LOG,
+  ADMIN_FLUSH_RELAY_LOG,  ADMIN_FLUSH_SLOW_LOG,
   ADMIN_FLUSH_TABLE_STATISTICS, ADMIN_FLUSH_INDEX_STATISTICS,
   ADMIN_FLUSH_USER_STATISTICS, ADMIN_FLUSH_CLIENT_STATISTICS,
+  ADMIN_FLUSH_USER_RESOURCES,
   ADMIN_FLUSH_ALL_STATUS, ADMIN_FLUSH_ALL_STATISTICS
 };
 static const char *command_names[]= {
@@ -116,9 +120,10 @@ static const char *command_names[]= {
   "ping",                 "extended-status",     "flush-status",
   "flush-privileges",     "start-slave",         "stop-slave",
   "start-all-slaves", "stop-all-slaves",
-  "flush-threads", "old-password", "flush-slow-log",
+  "flush-threads", "old-password", "flush-binary-log", "flush-engine-log",
+  "flush-error-log", "flush-general-log", "flush-relay-log", "flush-slow-log",
   "flush-table-statistics", "flush-index-statistics",
-  "flush-user-statistics", "flush-client-statistics",
+  "flush-user-statistics", "flush-client-statistics", "flush-user-resources",
   "flush-all-status", "flush-all-statistics",
   NullS
 };
@@ -160,6 +165,9 @@ static struct my_option my_long_options[] =
    NO_ARG, 0, 0, 0, 0, 0, 0},
   {"host", 'h', "Connect to host.", &host, &host, 0, GET_STR,
    REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
+  {"local", 'l', "Local command, don't write to binlog.",
+   &opt_local, &opt_local, 0, GET_BOOL, NO_ARG, 0, 0, 0,
+   0, 0, 0},
   {"no-beep", 'b', "Turn off beep on error.", &opt_nobeep,
    &opt_nobeep, 0, GET_BOOL, NO_ARG, 0, 0, 0, 0, 0, 0}, 
   {"password", 'p',
@@ -440,7 +448,7 @@ int main(int argc,char *argv[])
           didn't signal for us to die. Otherwise, signal failure.
         */
 
-	if (mysql.net.vio == 0)
+	if (mysql.net.pvio == 0)
 	{
 	  if (option_wait && !interrupted)
 	  {
@@ -521,7 +529,8 @@ static my_bool sql_connect(MYSQL *mysql, uint wait)
     if (mysql_real_connect(mysql,host,user,opt_password,NullS,tcp_port,
 			   unix_port, CLIENT_REMEMBER_OPTIONS))
     {
-      mysql->reconnect= 1;
+      my_bool reconnect= 1;
+      mysql_options(mysql, MYSQL_OPT_RECONNECT, &reconnect);
       if (info)
       {
 	fputs("\n",stderr);
@@ -617,6 +626,18 @@ static int execute_commands(MYSQL *mysql,int argc, char **argv)
   */
 
   struct my_rnd_struct rand_st;
+  char buff[FN_REFLEN + 20];
+
+  if (opt_local)
+  {
+    sprintf(buff, "set local sql_log_bin=0");
+    if (mysql_query(mysql, buff))
+    {
+      my_printf_error(0, "SET LOCAL SQL_LOG_BIN=0 failed; error: '%-.200s'",
+                      error_flags, mysql_error(mysql));
+      return -1;
+    }
+  }
 
   for (; argc > 0 ; argv++,argc--)
   {
@@ -624,7 +645,6 @@ static int execute_commands(MYSQL *mysql,int argc, char **argv)
     switch ((command= find_type(argv[0],&command_typelib,FIND_TYPE_BASIC))) {
     case ADMIN_CREATE:
     {
-      char buff[FN_REFLEN+20];
       if (argc < 2)
       {
 	my_printf_error(0, "Too few arguments to create", error_flags);
@@ -899,6 +919,56 @@ static int execute_commands(MYSQL *mysql,int argc, char **argv)
       }
       break;
     }
+    case ADMIN_FLUSH_BINARY_LOG:
+    {
+      if (mysql_query(mysql, "flush binary logs"))
+      {
+        my_printf_error(0, "flush failed; error: '%s'", error_flags,
+                        mysql_error(mysql));
+        return -1;
+      }
+      break;
+    }
+    case ADMIN_FLUSH_ENGINE_LOG:
+    {
+      if (mysql_query(mysql,"flush engine logs"))
+      {
+        my_printf_error(0, "flush failed; error: '%s'", error_flags,
+                        mysql_error(mysql));
+        return -1;
+      }
+      break;
+    }
+    case ADMIN_FLUSH_ERROR_LOG:
+    {
+      if (mysql_query(mysql, "flush error logs"))
+      {
+        my_printf_error(0, "flush failed; error: '%s'", error_flags,
+                        mysql_error(mysql));
+        return -1;
+      }
+      break;
+    }
+    case ADMIN_FLUSH_GENERAL_LOG:
+    {
+      if (mysql_query(mysql, "flush general logs"))
+      {
+        my_printf_error(0, "flush failed; error: '%s'", error_flags,
+                        mysql_error(mysql));
+        return -1;
+      }
+      break;
+    }
+    case ADMIN_FLUSH_RELAY_LOG:
+    {
+      if (mysql_query(mysql, "flush relay logs"))
+      {
+        my_printf_error(0, "flush failed; error: '%s'", error_flags,
+                        mysql_error(mysql));
+        return -1;
+      }
+      break;
+    }
     case ADMIN_FLUSH_SLOW_LOG:
     {
       if (mysql_query(mysql,"flush slow logs"))
@@ -966,6 +1036,16 @@ static int execute_commands(MYSQL *mysql,int argc, char **argv)
 	my_printf_error(0, "flush failed; error: '%s'", error_flags,
 			mysql_error(mysql));
 	return -1;
+      }
+      break;
+    }
+    case ADMIN_FLUSH_USER_RESOURCES:
+    {
+      if (mysql_query(mysql, "flush user_resources"))
+      {
+        my_printf_error(0, "flush failed; error: '%s'", error_flags,
+                        mysql_error(mysql));
+        return -1;
       }
       break;
     }
@@ -1077,9 +1157,9 @@ static int execute_commands(MYSQL *mysql,int argc, char **argv)
           }
         }
         if (old)
-          make_scrambled_password_323(crypted_pw, typed_password);
+          my_make_scrambled_password_323(crypted_pw, typed_password, strlen(typed_password));
         else
-          make_scrambled_password(crypted_pw, typed_password);
+          my_make_scrambled_password(crypted_pw, typed_password, strlen(typed_password));
       }
       else
 	crypted_pw[0]=0;			/* No password */
@@ -1187,7 +1267,9 @@ static int execute_commands(MYSQL *mysql,int argc, char **argv)
       break;
     }
     case ADMIN_PING:
-      mysql->reconnect=0;	/* We want to know of reconnects */
+    {
+      my_bool reconnect= 0;
+      mysql_options(mysql, MYSQL_OPT_RECONNECT, &reconnect);
       if (!mysql_ping(mysql))
       {
 	if (option_silent < 2)
@@ -1197,7 +1279,8 @@ static int execute_commands(MYSQL *mysql,int argc, char **argv)
       {
 	if (mysql_errno(mysql) == CR_SERVER_GONE_ERROR)
 	{
-	  mysql->reconnect=1;
+          reconnect= 1;
+          mysql_options(mysql, MYSQL_OPT_RECONNECT, &reconnect);
 	  if (!mysql_ping(mysql))
 	    puts("connection was down, but mysqld is now alive");
 	}
@@ -1208,8 +1291,10 @@ static int execute_commands(MYSQL *mysql,int argc, char **argv)
 	  return -1;
 	}
       }
-      mysql->reconnect=1;	/* Automatic reconnect is default */
+      reconnect=1;	/* Automatic reconnect is default */
+      mysql_options(mysql, MYSQL_OPT_RECONNECT, &reconnect);
       break;
+    }
     default:
       my_printf_error(0, "Unknown command: '%-.60s'", error_flags, argv[0]);
       return 1;
@@ -1292,12 +1377,18 @@ static void usage(void)
   flush-index-statistics  Flush index statistics\n\
   flush-logs              Flush all logs\n\
   flush-privileges        Reload grant tables (same as reload)\n\
+  flush-binary-log        Flush binary log\n\
+  flush-engine-log        Flush engine log(s)\n\
+  flush-error-log         Flush error log\n\
+  flush-general-log       Flush general log\n\
+  flush-relay-log         Flush relay log\n\
   flush-slow-log          Flush slow query log\n\
-  flush-status		  Clear status variables\n\
+  flush-status            Clear status variables\n\
   flush-table-statistics  Clear table statistics\n\
   flush-tables            Flush all tables\n\
   flush-threads           Flush the thread cache\n\
   flush-user-statistics   Flush user statistics\n\
+  flush-user-resources    Flush user resources\n\
   kill id,id,...	Kill mysql threads");
 #if MYSQL_VERSION_ID >= 32200
   puts("\

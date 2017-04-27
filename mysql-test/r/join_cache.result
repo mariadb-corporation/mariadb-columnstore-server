@@ -4450,7 +4450,7 @@ EXPLAIN
 SELECT t2.i FROM t1,t2 WHERE t1.cu = t2.cl ;
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	Extra
 1	SIMPLE	t2	ALL	NULL	NULL	NULL	NULL	6	
-1	SIMPLE	t1	hash_index	cu	#hash#cu:cu	33:33	func	10	Using where; Using join buffer (flat, BNLH join)
+1	SIMPLE	t1	hash_index	cu	#hash#cu:cu	33:33	func	10	Using where; Using index; Using join buffer (flat, BNLH join)
 SELECT t2.i FROM t1,t2 WHERE t1.cu = t2.cl ;
 i
 6
@@ -4691,6 +4691,9 @@ FROM t1 LEFT JOIN
 (t2 LEFT OUTER JOIN t3 ON t2.b = t3.b) ON t2.a = t1.b
 WHERE t3.a BETWEEN 3 AND 11 OR t1.a <= t2.c;
 a
+Warnings:
+Warning	1292	Truncated incorrect INTEGER value: 'h'
+Warning	1292	Truncated incorrect INTEGER value: 'j'
 SET SESSION optimizer_switch = 'outer_join_with_cache=off';
 SET SESSION join_cache_level = DEFAULT;
 DROP TABLE t1,t2,t3;
@@ -4773,7 +4776,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t4	ref	idx	idx	5	test.t1.a1	2	100.00	Using where
 1	SIMPLE	t5	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`pk` AS `pk`,`test`.`t1`.`a1` AS `a1`,`test`.`t2`.`pk` AS `pk`,`test`.`t2`.`a2` AS `a2`,`test`.`t2`.`c2` AS `c2`,`test`.`t2`.`d2` AS `d2`,`test`.`t3`.`pk` AS `pk`,`test`.`t3`.`a3` AS `a3`,`test`.`t3`.`c3` AS `c3`,`test`.`t3`.`d3` AS `d3`,`test`.`t4`.`pk` AS `pk`,`test`.`t4`.`a4` AS `a4`,`test`.`t5`.`pk` AS `pk`,`test`.`t5`.`a5` AS `a5` from `test`.`t1` left join (`test`.`t2` join `test`.`t3`) on(((`test`.`t2`.`d2` = `test`.`t1`.`pk`) and (`test`.`t3`.`a3` = `test`.`t2`.`c2`))) left join `test`.`t4` on(((`test`.`t4`.`a4` = `test`.`t1`.`a1`) and (`test`.`t1`.`a1` is not null))) left join `test`.`t5` on((`test`.`t5`.`a5` = `test`.`t3`.`a3`)) where 1
+Note	1003	select `test`.`t1`.`pk` AS `pk`,`test`.`t1`.`a1` AS `a1`,`test`.`t2`.`pk` AS `pk`,`test`.`t2`.`a2` AS `a2`,`test`.`t2`.`c2` AS `c2`,`test`.`t2`.`d2` AS `d2`,`test`.`t3`.`pk` AS `pk`,`test`.`t3`.`a3` AS `a3`,`test`.`t3`.`c3` AS `c3`,`test`.`t3`.`d3` AS `d3`,`test`.`t4`.`pk` AS `pk`,`test`.`t4`.`a4` AS `a4`,`test`.`t5`.`pk` AS `pk`,`test`.`t5`.`a5` AS `a5` from `test`.`t1` left join (`test`.`t2` join `test`.`t3`) on(`test`.`t2`.`d2` = `test`.`t1`.`pk` and `test`.`t3`.`a3` = `test`.`t2`.`c2`) left join `test`.`t4` on(`test`.`t4`.`a4` = `test`.`t1`.`a1` and `test`.`t1`.`a1` is not null) left join `test`.`t5` on(`test`.`t5`.`a5` = `test`.`t3`.`a3`) where 1
 SELECT *
 FROM ((t1 LEFT JOIN (t2 JOIN t3 ON t2.c2 = t3.a3) ON t1.pk = t2.d2)
 LEFT JOIN t4 ON t1.a1 = t4.a4) LEFT JOIN t5 ON t3.a3 = t5.a5;
@@ -4795,7 +4798,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t4	ref	idx	idx	5	test.t1.a1	2	100.00	Using where
 1	SIMPLE	t5	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where; Using join buffer (flat, BNL join)
 Warnings:
-Note	1003	select `test`.`t1`.`pk` AS `pk`,`test`.`t1`.`a1` AS `a1`,`test`.`t2`.`pk` AS `pk`,`test`.`t2`.`a2` AS `a2`,`test`.`t2`.`c2` AS `c2`,`test`.`t2`.`d2` AS `d2`,`test`.`t3`.`pk` AS `pk`,`test`.`t3`.`a3` AS `a3`,`test`.`t3`.`c3` AS `c3`,`test`.`t3`.`d3` AS `d3`,`test`.`t4`.`pk` AS `pk`,`test`.`t4`.`a4` AS `a4`,`test`.`t5`.`pk` AS `pk`,`test`.`t5`.`a5` AS `a5` from `test`.`t1` left join (`test`.`t2` join `test`.`t3`) on(((`test`.`t2`.`d2` = `test`.`t1`.`pk`) and (`test`.`t3`.`a3` = `test`.`t2`.`c2`))) left join `test`.`t4` on(((`test`.`t4`.`a4` = `test`.`t1`.`a1`) and (`test`.`t1`.`a1` is not null))) left join `test`.`t5` on((`test`.`t5`.`a5` = `test`.`t3`.`a3`)) where 1
+Note	1003	select `test`.`t1`.`pk` AS `pk`,`test`.`t1`.`a1` AS `a1`,`test`.`t2`.`pk` AS `pk`,`test`.`t2`.`a2` AS `a2`,`test`.`t2`.`c2` AS `c2`,`test`.`t2`.`d2` AS `d2`,`test`.`t3`.`pk` AS `pk`,`test`.`t3`.`a3` AS `a3`,`test`.`t3`.`c3` AS `c3`,`test`.`t3`.`d3` AS `d3`,`test`.`t4`.`pk` AS `pk`,`test`.`t4`.`a4` AS `a4`,`test`.`t5`.`pk` AS `pk`,`test`.`t5`.`a5` AS `a5` from `test`.`t1` left join (`test`.`t2` join `test`.`t3`) on(`test`.`t2`.`d2` = `test`.`t1`.`pk` and `test`.`t3`.`a3` = `test`.`t2`.`c2`) left join `test`.`t4` on(`test`.`t4`.`a4` = `test`.`t1`.`a1` and `test`.`t1`.`a1` is not null) left join `test`.`t5` on(`test`.`t5`.`a5` = `test`.`t3`.`a3`) where 1
 SELECT *
 FROM ((t1 LEFT JOIN (t2 JOIN t3 ON t2.c2 = t3.a3) ON t1.pk = t2.d2)
 LEFT JOIN t4 ON t1.a1 = t4.a4) LEFT JOIN t5 ON t3.a3 = t5.a5;
@@ -4817,7 +4820,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t4	ref	idx	idx	5	test.t1.a1	2	100.00	Using where
 1	SIMPLE	t5	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where; Using join buffer (flat, BNL join)
 Warnings:
-Note	1003	select `test`.`t1`.`pk` AS `pk`,`test`.`t1`.`a1` AS `a1`,`test`.`t2`.`pk` AS `pk`,`test`.`t2`.`a2` AS `a2`,`test`.`t2`.`c2` AS `c2`,`test`.`t2`.`d2` AS `d2`,`test`.`t3`.`pk` AS `pk`,`test`.`t3`.`a3` AS `a3`,`test`.`t3`.`c3` AS `c3`,`test`.`t3`.`d3` AS `d3`,`test`.`t4`.`pk` AS `pk`,`test`.`t4`.`a4` AS `a4`,`test`.`t5`.`pk` AS `pk`,`test`.`t5`.`a5` AS `a5` from `test`.`t1` left join (`test`.`t2` join `test`.`t3`) on(((`test`.`t2`.`d2` = `test`.`t1`.`pk`) and (`test`.`t3`.`a3` = `test`.`t2`.`c2`))) left join `test`.`t4` on(((`test`.`t4`.`a4` = `test`.`t1`.`a1`) and (`test`.`t1`.`a1` is not null))) left join `test`.`t5` on((`test`.`t5`.`a5` = `test`.`t3`.`a3`)) where 1
+Note	1003	select `test`.`t1`.`pk` AS `pk`,`test`.`t1`.`a1` AS `a1`,`test`.`t2`.`pk` AS `pk`,`test`.`t2`.`a2` AS `a2`,`test`.`t2`.`c2` AS `c2`,`test`.`t2`.`d2` AS `d2`,`test`.`t3`.`pk` AS `pk`,`test`.`t3`.`a3` AS `a3`,`test`.`t3`.`c3` AS `c3`,`test`.`t3`.`d3` AS `d3`,`test`.`t4`.`pk` AS `pk`,`test`.`t4`.`a4` AS `a4`,`test`.`t5`.`pk` AS `pk`,`test`.`t5`.`a5` AS `a5` from `test`.`t1` left join (`test`.`t2` join `test`.`t3`) on(`test`.`t2`.`d2` = `test`.`t1`.`pk` and `test`.`t3`.`a3` = `test`.`t2`.`c2`) left join `test`.`t4` on(`test`.`t4`.`a4` = `test`.`t1`.`a1` and `test`.`t1`.`a1` is not null) left join `test`.`t5` on(`test`.`t5`.`a5` = `test`.`t3`.`a3`) where 1
 SELECT *
 FROM ((t1 LEFT JOIN (t2 JOIN t3 ON t2.c2 = t3.a3) ON t1.pk = t2.d2)
 LEFT JOIN t4 ON t1.a1 = t4.a4) LEFT JOIN t5 ON t3.a3 = t5.a5;
@@ -5239,7 +5242,7 @@ EXPLAIN
 SELECT * FROM t1 WHERE (t1.b) IN (SELECT c FROM t2);
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	Extra
 1	PRIMARY	t1	ALL	NULL	NULL	NULL	NULL	3	Using where
-1	PRIMARY	t2	hash_index	c	#hash#c:c	5:5	test.t1.b	8	Start temporary; End temporary; Using join buffer (flat, BNLH join)
+1	PRIMARY	t2	hash_index	c	#hash#c:c	5:5	test.t1.b	8	Using index; Start temporary; End temporary; Using join buffer (flat, BNLH join)
 SELECT * FROM t1 WHERE (t1.b) IN (SELECT c FROM t2);
 a	b
 3914	17
@@ -5409,9 +5412,9 @@ WHERE t2.c IN (SELECT c FROM t3,t4 WHERE t4.a < 10) AND
 t2.a BETWEEN 4 and 5
 ORDER BY t2.b;
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	Extra
-1	PRIMARY	t1	system	NULL	NULL	NULL	NULL	1	Using filesort
+1	PRIMARY	t1	system	NULL	NULL	NULL	NULL	1	
 1	PRIMARY	t3	system	NULL	NULL	NULL	NULL	1	
-1	PRIMARY	t2	range	a,c	a	5	NULL	1	Using index condition; Using where
+1	PRIMARY	t2	range	a,c	a	5	NULL	1	Using index condition; Using where; Using filesort
 1	PRIMARY	t4	ref	c	c	5	test.t2.c	2	Using where; Start temporary; End temporary
 SELECT * FROM t1,t2
 WHERE t2.c IN (SELECT c FROM t3,t4 WHERE t4.a < 10) AND
@@ -5606,8 +5609,8 @@ set join_cache_level = default;
 set optimizer_switch=@tmp_optimizer_switch;
 DROP TABLE t1,t2,t3;
 #
-# Bug #925985: LEFT JOIN with optimize_join_buffer_size=off +
-#              join_buffer_size > join_buffer_space_limit
+# lp:925985 LEFT JOIN with optimize_join_buffer_size=off +
+#           join_buffer_size > join_buffer_space_limit
 #
 CREATE TABLE t1 (a int);
 INSERT INTO t1 VALUES (5), (3);

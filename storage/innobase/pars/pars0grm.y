@@ -1,6 +1,7 @@
 /*****************************************************************************
 
-Copyright (c) 1997, 2011, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1997, 2014, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -30,7 +31,7 @@ Created 12/14/1997 Heikki Tuuri
 que_node_t */
 
 #include "univ.i"
-#include <math.h>				/* Can't be before univ.i */
+#include <math.h>
 #include "pars0pars.h"
 #include "mem0mem.h"
 #include "que0types.h"
@@ -40,7 +41,6 @@ que_node_t */
 #define YYSTYPE que_node_t*
 
 /* #define __STDC__ */
-
 int
 yylex(void);
 %}
@@ -48,8 +48,6 @@ yylex(void);
 %token PARS_INT_LIT
 %token PARS_FLOAT_LIT
 %token PARS_STR_LIT
-%token PARS_FIXBINARY_LIT
-%token PARS_BLOB_LIT
 %token PARS_NULL_LIT
 %token PARS_ID_TOKEN
 %token PARS_AND_TOKEN
@@ -64,7 +62,6 @@ yylex(void);
 %token PARS_BINARY_TOKEN
 %token PARS_BLOB_TOKEN
 %token PARS_INT_TOKEN
-%token PARS_INTEGER_TOKEN
 %token PARS_FLOAT_TOKEN
 %token PARS_CHAR_TOKEN
 %token PARS_IS_TOKEN
@@ -103,7 +100,6 @@ yylex(void);
 %token PARS_INDEX_TOKEN
 %token PARS_UNIQUE_TOKEN
 %token PARS_CLUSTERED_TOKEN
-%token PARS_DOES_NOT_FIT_IN_MEM_TOKEN
 %token PARS_ON_TOKEN
 %token PARS_ASSIGN_TOKEN
 %token PARS_DECLARE_TOKEN
@@ -155,6 +151,8 @@ yylex(void);
 %left NEG     /* negation--unary minus */
 %left '%'
 
+%expect 41
+
 /* Grammar follows */
 %%
 
@@ -199,8 +197,6 @@ exp:
 	| PARS_INT_LIT		{ $$ = $1;}
 	| PARS_FLOAT_LIT	{ $$ = $1;}
 	| PARS_STR_LIT		{ $$ = $1;}
-	| PARS_FIXBINARY_LIT	{ $$ = $1;}
-	| PARS_BLOB_LIT		{ $$ = $1;}
 	| PARS_NULL_LIT		{ $$ = $1;}
 	| PARS_SQL_TOKEN	{ $$ = $1;}
 	| exp '+' exp        	{ $$ = pars_op('+', $1, $3); }
@@ -574,13 +570,6 @@ opt_not_null:
 					/* pass any non-NULL pointer */ }
 ;
 
-not_fit_in_memory:
-	/* Nothing */		{ $$ = NULL; }
-	| PARS_DOES_NOT_FIT_IN_MEM_TOKEN
-				{ $$ = &pars_int_token;
-					/* pass any non-NULL pointer */ }
-;
-
 compact:
 	/* Nothing */		{ $$ = NULL; }
 	| PARS_COMPACT_TOKEN	{ $$ = &pars_int_token;
@@ -596,12 +585,12 @@ block_size:
 create_table:
 	PARS_CREATE_TOKEN PARS_TABLE_TOKEN
 	table_name '(' column_def_list ')'
-	not_fit_in_memory compact block_size
+	compact block_size
 				{ $$ = pars_create_table(
 					static_cast<sym_node_t*>($3),
 					static_cast<sym_node_t*>($5),
-					static_cast<sym_node_t*>($8),
-					static_cast<sym_node_t*>($9), $7); }
+					static_cast<sym_node_t*>($7),
+					static_cast<sym_node_t*>($8)); }
 ;
 
 column_list:
@@ -651,7 +640,6 @@ rollback_statement:
 
 type_name:
 	PARS_INT_TOKEN		{ $$ = &pars_int_token; }
-	| PARS_INTEGER_TOKEN	{ $$ = &pars_int_token; }
 	| PARS_BIGINT_TOKEN	{ $$ = &pars_bigint_token; }
 	| PARS_CHAR_TOKEN	{ $$ = &pars_char_token; }
 	| PARS_BINARY_TOKEN	{ $$ = &pars_binary_token; }

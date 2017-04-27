@@ -11,7 +11,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111-1301 USA */
 
 /**
   @file
@@ -28,6 +28,7 @@
 #include "key.h"
 #include "sql_statistics.h"
 #include "opt_range.h"
+#include "uniques.h"
 #include "my_atomic.h"
 #include "sql_show.h"
 
@@ -1801,7 +1802,7 @@ public:
 
   bool is_single_comp_pk;
 
-  Index_prefix_calc(TABLE *table, KEY *key_info)
+  Index_prefix_calc(THD *thd, TABLE *table, KEY *key_info)
     : index_table(table), index_info(key_info)
   {
     uint i;
@@ -1822,7 +1823,7 @@ public:
     }
         
     if ((calc_state=
-         (Prefix_calc_state *) sql_alloc(sizeof(Prefix_calc_state)*key_parts)))
+         (Prefix_calc_state *) thd->alloc(sizeof(Prefix_calc_state)*key_parts)))
     {
       uint keyno= key_info-table->key_info;
       for (i= 0, state= calc_state; i < key_parts; i++, state++)
@@ -1836,7 +1837,8 @@ public:
           break;
 
         if (!(state->last_prefix=
-              new Cached_item_field(key_info->key_part[i].field)))
+              new (thd->mem_root) Cached_item_field(thd,
+                                    key_info->key_part[i].field)))
           break;
         state->entry_count= state->prefix_count= 0;
         prefixes++;
@@ -2620,7 +2622,7 @@ int collect_statistics_for_index(THD *thd, TABLE *table, uint index)
   if (key_info->flags & HA_FULLTEXT)
     DBUG_RETURN(rc);
 
-  Index_prefix_calc index_prefix_calc(table, key_info);
+  Index_prefix_calc index_prefix_calc(thd, table, key_info);
 
   DEBUG_SYNC(table->in_use, "statistics_collection_start1");
   DEBUG_SYNC(table->in_use, "statistics_collection_start2");
@@ -2631,9 +2633,7 @@ int collect_statistics_for_index(THD *thd, TABLE *table, uint index)
     DBUG_RETURN(rc);
   }
 
-  table->key_read= 1;
-  table->file->extra(HA_EXTRA_KEYREAD);
-
+  table->file->ha_start_keyread(index);
   table->file->ha_index_init(index, TRUE);
   rc= table->file->ha_index_first(table->record[0]);
   while (rc != HA_ERR_END_OF_FILE)
@@ -2647,7 +2647,7 @@ int collect_statistics_for_index(THD *thd, TABLE *table, uint index)
     index_prefix_calc.add();
     rc= table->file->ha_index_next(table->record[0]);
   }
-  table->key_read= 0;
+  table->file->ha_end_keyread();
   table->file->ha_index_end();
 
   rc= (rc == HA_ERR_END_OF_FILE && !thd->killed) ? 0 : 1;
@@ -3724,7 +3724,7 @@ double get_column_avg_frequency(Field * field)
     return res;
   }
  
-  Column_statistics *col_stats= table->s->field[field->field_index]->read_stats;
+  Column_statistics *col_stats= field->read_stats;
 
   if (!col_stats)
     res= table->stat_records();
@@ -3762,7 +3762,7 @@ double get_column_range_cardinality(Field *field,
 {
   double res;
   TABLE *table= field->table;
-  Column_statistics *col_stats= table->field[field->field_index]->read_stats;
+  Column_statistics *col_stats= field->read_stats;
   double tab_records= table->stat_records();
 
   if (!col_stats)

@@ -21,7 +21,7 @@ TABLE_NAME	t1
 TABLE_TYPE	BASE TABLE
 ENGINE	InnoDB
 VERSION	10
-ROW_FORMAT	Compact
+ROW_FORMAT	DYNAMIC_OR_PAGE
 TABLE_ROWS	#TBLR#
 AVG_ROW_LENGTH	#ARL#
 DATA_LENGTH	#DL#
@@ -44,7 +44,7 @@ TABLE_NAME	t2
 TABLE_TYPE	BASE TABLE
 ENGINE	InnoDB
 VERSION	10
-ROW_FORMAT	Compact
+ROW_FORMAT	DYNAMIC_OR_PAGE
 TABLE_ROWS	#TBLR#
 AVG_ROW_LENGTH	#ARL#
 DATA_LENGTH	#DL#
@@ -67,7 +67,7 @@ TABLE_NAME	t1
 TABLE_TYPE	BASE TABLE
 ENGINE	InnoDB
 VERSION	10
-ROW_FORMAT	Compact
+ROW_FORMAT	DYNAMIC_OR_PAGE
 TABLE_ROWS	#TBLR#
 AVG_ROW_LENGTH	#ARL#
 DATA_LENGTH	#DL#
@@ -94,7 +94,7 @@ t1
 DROP   USER testuser1@localhost;
 CREATE USER testuser1@localhost;
 GRANT SELECT ON test1.* TO testuser1@localhost;
-# Establish connection testuser1 (user=testuser1)
+connect  testuser1,localhost,testuser1,,test1;
 SELECT *,
 LEFT( table_comment,
 IF(INSTR(table_comment,'InnoDB free') = 0,
@@ -111,7 +111,7 @@ TABLE_NAME	t1
 TABLE_TYPE	BASE TABLE
 ENGINE	InnoDB
 VERSION	10
-ROW_FORMAT	Compact
+ROW_FORMAT	DYNAMIC_OR_PAGE
 TABLE_ROWS	#TBLR#
 AVG_ROW_LENGTH	#ARL#
 DATA_LENGTH	#DL#
@@ -134,7 +134,7 @@ TABLE_NAME	t2
 TABLE_TYPE	BASE TABLE
 ENGINE	InnoDB
 VERSION	10
-ROW_FORMAT	Compact
+ROW_FORMAT	DYNAMIC_OR_PAGE
 TABLE_ROWS	#TBLR#
 AVG_ROW_LENGTH	#ARL#
 DATA_LENGTH	#DL#
@@ -157,7 +157,8 @@ t1
 t2
 SHOW TABLES FROM test2;
 ERROR 42000: Access denied for user 'testuser1'@'localhost' to database 'test2'
-# Switch to connection default and close connection testuser1
+connection default;
+disconnect testuser1;
 DROP USER testuser1@localhost;
 DROP DATABASE test1;
 DROP DATABASE test2;

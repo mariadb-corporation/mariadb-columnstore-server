@@ -154,7 +154,7 @@ void udf_init()
   mysql_rwlock_init(key_rwlock_THR_LOCK_udf, &THR_LOCK_udf);
 
   init_sql_alloc(&mem, UDF_ALLOC_BLOCK_SIZE, 0, MYF(0));
-  THD *new_thd = new THD;
+  THD *new_thd = new THD(0);
   if (!new_thd ||
       my_hash_init(&udf_hash,system_charset_info,32,0,0,get_hash_key, NULL, 0))
   {
@@ -180,7 +180,8 @@ void udf_init()
   }
 
   table= tables.table;
-  if (init_read_record(&read_record_info, new_thd, table, NULL,1,0,FALSE))
+  if (init_read_record(&read_record_info, new_thd, table, NULL, NULL, 1, 0,
+                       FALSE))
   {
     sql_print_error("Could not initialize init_read_record; udf's not "
                     "loaded");
@@ -227,14 +228,13 @@ void udf_init()
     if (dl == NULL)
     {
       char dlpath[FN_REFLEN];
-      strxnmov(dlpath, sizeof(dlpath) - 1, opt_plugin_dir, "/", tmp->dl,
-               NullS);
+      strxnmov(dlpath, sizeof(dlpath) - 1, opt_plugin_dir, "/", tmp->dl, NullS);
       (void) unpack_filename(dlpath, dlpath);
       if (!(dl= dlopen(dlpath, RTLD_NOW)))
       {
 	/* Print warning to log */
         sql_print_error(ER_THD(new_thd, ER_CANT_OPEN_LIBRARY),
-                        tmp->dl, errno, dlerror());
+                        tmp->dl, errno, my_dlerror(dlpath));
 	/* Keep the udf in the hash so that we can remove it later */
 	continue;
       }
@@ -538,10 +538,10 @@ int mysql_create_function(THD *thd,udf_func *udf)
 
     if (!(dl = dlopen(dlpath, RTLD_NOW)))
     {
+      my_error(ER_CANT_OPEN_LIBRARY, MYF(0),
+               udf->dl, errno, my_dlerror(dlpath));
       DBUG_PRINT("error",("dlopen of %s failed, error: %d (%s)",
                           udf->dl, errno, dlerror()));
-      my_error(ER_CANT_OPEN_LIBRARY, MYF(0),
-               udf->dl, errno, dlerror());
       goto err;
     }
     new_dl=1;

@@ -90,6 +90,8 @@ IF(UNIX)
   SET(scriptdir ${INSTALL_SCRIPTDIRABS})
   SET(libexecdir ${INSTALL_SBINDIRABS})
   SET(pkgdatadir ${INSTALL_MYSQLSHAREDIRABS})
+  SET(sysconfdir ${INSTALL_SYSCONFDIR})
+  SET(sysconf2dir ${INSTALL_SYSCONF2DIR})
   CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/mysql.server.sh 
                  ${CMAKE_CURRENT_BINARY_DIR}/mysql.server @ONLY)
   INSTALL(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/mysql.server
@@ -135,6 +137,9 @@ IF(UNIX)
             DESTINATION  ${INSTALL_SYSCONFDIR}/init.d
             RENAME mysql COMPONENT SupportFiles)
 
+    INSTALL(FILES rpm/my.cnf DESTINATION ${INSTALL_SYSCONFDIR}
+            COMPONENT Common)
+
     IF (INSTALL_SYSCONF2DIR)
       INSTALL(FILES rpm/client.cnf DESTINATION ${INSTALL_SYSCONF2DIR}
               COMPONENT SharedLibraries)
@@ -148,7 +153,7 @@ IF(UNIX)
 
     # This is for SuSE:
     INSTALL(CODE "EXECUTE_PROCESS(COMMAND ${CMAKE_COMMAND} -E create_symlink
-                   ${INSTALL_SYSCONFDIR}/init.d/mysql-Columnstore
+                   ${INSTALL_SYSCONFDIR}/init.d/mysql
                    ${INSTALL_SBINDIR}/rcmysql
                    WORKING_DIRECTORY \$ENV{DESTDIR}${prefix})"
                    COMPONENT SupportFiles)

@@ -173,18 +173,6 @@ static const uchar sort_order_gb2312[]=
 #include "ctype-mb.ic"
 
 
-static uint ismbchar_gb2312(CHARSET_INFO *cs __attribute__((unused)),
-		    const char* p, const char *e)
-{
-  return (isgb2312head(*(p)) && (e)-(p)>1 && isgb2312tail(*((p)+1))? 2: 0);
-}
-
-static uint mbcharlen_gb2312(CHARSET_INFO *cs __attribute__((unused)),uint c)
-{
-  return (isgb2312head(c)? 2 : 1);
-}
-
-
 static MY_UNICASE_CHARACTER cA2[256]=
 {
   {0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0}, /* xx00 */
@@ -6355,6 +6343,20 @@ my_mb_wc_gb2312(CHARSET_INFO *cs  __attribute__((unused)),
 #include "strcoll.ic"
 
 
+#define DEFINE_STRNNCOLLSP_NOPAD
+#define MY_FUNCTION_NAME(x)   my_ ## x ## _gb2312_chinese_nopad_ci
+#define WEIGHT_MB1(x)        (sort_order_gb2312[(uchar) (x)])
+#define WEIGHT_MB2(x,y)      (gb2312code(x, y))
+#include "strcoll.ic"
+
+
+#define DEFINE_STRNNCOLLSP_NOPAD
+#define MY_FUNCTION_NAME(x)   my_ ## x ## _gb2312_nopad_bin
+#define WEIGHT_MB1(x)        ((uchar) (x))
+#define WEIGHT_MB2(x,y)      (gb2312code(x, y))
+#include "strcoll.ic"
+
+
 static MY_COLLATION_HANDLER my_collation_handler_gb2312_chinese_ci=
 {
   NULL,                 /* init */
@@ -6387,15 +6389,43 @@ static MY_COLLATION_HANDLER my_collation_handler_gb2312_bin=
 };
 
 
+static MY_COLLATION_HANDLER my_collation_handler_gb2312_chinese_nopad_ci=
+{
+  NULL,                 /* init */
+  my_strnncoll_gb2312_chinese_ci,
+  my_strnncollsp_gb2312_chinese_nopad_ci,
+  my_strnxfrm_mb_nopad,
+  my_strnxfrmlen_simple,
+  my_like_range_mb,
+  my_wildcmp_mb,
+  my_strcasecmp_mb,
+  my_instr_mb,
+  my_hash_sort_simple_nopad,
+  my_propagate_simple
+};
+
+
+static MY_COLLATION_HANDLER my_collation_handler_gb2312_nopad_bin=
+{
+  NULL,	                /* init */
+  my_strnncoll_gb2312_bin,
+  my_strnncollsp_gb2312_nopad_bin,
+  my_strnxfrm_mb_nopad,
+  my_strnxfrmlen_simple,
+  my_like_range_mb,
+  my_wildcmp_mb_bin,
+  my_strcasecmp_mb_bin,
+  my_instr_mb,
+  my_hash_sort_mb_nopad_bin,
+  my_propagate_simple
+};
+
 
 static MY_CHARSET_HANDLER my_charset_handler=
 {
   NULL,			/* init */
-  ismbchar_gb2312,
-  mbcharlen_gb2312,
   my_numchars_mb,
   my_charpos_mb,
-  my_well_formed_len_gb2312,
   my_lengthsp_8bit,
   my_numcells_8bit,
   my_mb_wc_gb2312,	/* mb_wc      */
@@ -6487,6 +6517,72 @@ struct charset_info_st my_charset_gb2312_bin=
     1,                  /* levels_for_order   */
     &my_charset_handler,
     &my_collation_handler_gb2312_bin
+};
+
+
+struct charset_info_st my_charset_gb2312_chinese_nopad_ci=
+{
+    MY_NOPAD_ID(24),0,0,/* number           */
+    MY_CS_COMPILED|MY_CS_NOPAD, /* state    */
+    "gb2312",           /* cs name          */
+    "gb2312_chinese_nopad_ci",/* name       */
+    "",                 /* comment          */
+    NULL,               /* tailoring        */
+    ctype_gb2312,
+    to_lower_gb2312,
+    to_upper_gb2312,
+    sort_order_gb2312,
+    NULL,               /* uca              */
+    NULL,               /* tab_to_uni       */
+    NULL,               /* tab_from_uni     */
+    &my_caseinfo_gb2312,/* caseinfo         */
+    NULL,               /* state_map        */
+    NULL,               /* ident_map        */
+    1,                  /* strxfrm_multiply */
+    1,                  /* caseup_multiply  */
+    1,                  /* casedn_multiply  */
+    1,                  /* mbminlen         */
+    2,                  /* mbmaxlen         */
+    0,                  /* min_sort_char    */
+    0xF7FE,             /* max_sort_char    */
+    ' ',                /* pad char         */
+    0,                  /* escape_with_backslash_is_dangerous */
+    1,                  /* levels_for_order */
+    &my_charset_handler,
+    &my_collation_handler_gb2312_chinese_nopad_ci
+};
+
+
+struct charset_info_st my_charset_gb2312_nopad_bin=
+{
+    MY_NOPAD_ID(86),0,0,/* number           */
+    MY_CS_COMPILED|MY_CS_BINSORT|MY_CS_NOPAD, /* state */
+    "gb2312",           /* cs name          */
+    "gb2312_nopad_bin", /* name             */
+    "",                 /* comment          */
+    NULL,               /* tailoring        */
+    ctype_gb2312,
+    to_lower_gb2312,
+    to_upper_gb2312,
+    NULL,               /* sort_order       */
+    NULL,               /* uca              */
+    NULL,               /* tab_to_uni       */
+    NULL,               /* tab_from_uni     */
+    &my_caseinfo_gb2312,/* caseinfo         */
+    NULL,               /* state_map        */
+    NULL,               /* ident_map        */
+    1,                  /* strxfrm_multiply */
+    1,                  /* caseup_multiply  */
+    1,                  /* casedn_multiply  */
+    1,                  /* mbminlen         */
+    2,                  /* mbmaxlen         */
+    0,                  /* min_sort_char    */
+    0xF7FE,             /* max_sort_char    */
+    ' ',                /* pad char         */
+    0,                  /* escape_with_backslash_is_dangerous */
+    1,                  /* levels_for_order */
+    &my_charset_handler,
+    &my_collation_handler_gb2312_nopad_bin
 };
 
 #endif

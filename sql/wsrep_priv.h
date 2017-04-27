@@ -11,7 +11,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111-1301 USA
  */
 
 //! @file declares symbols private to wsrep integration layer
@@ -40,11 +40,12 @@ extern wsrep_uuid_t  local_uuid;
 extern wsrep_seqno_t local_seqno;
 
 // a helper function
-void wsrep_sst_received (wsrep_t* const wsrep,
-                         const wsrep_uuid_t& uuid,
-                         wsrep_seqno_t const segno,
-                         const void * const state,
-                         size_t const state_len);
+bool wsrep_sst_received (wsrep_t*            const wsrep,
+                         const wsrep_uuid_t&       uuid,
+                         const wsrep_seqno_t       seqno,
+                         const void*         const state,
+                         const size_t              state_len,
+                         const bool                implicit);
 /*! SST thread signals init thread about sst completion */
 void wsrep_sst_complete(const wsrep_uuid_t*, wsrep_seqno_t, bool);
 

@@ -396,11 +396,8 @@ int my_wc_mb_latin1(CHARSET_INFO *cs  __attribute__((unused)),
 static MY_CHARSET_HANDLER my_charset_handler=
 {
     NULL,			/* init */
-    NULL,
-    my_mbcharlen_8bit,
     my_numchars_8bit,
     my_charpos_8bit,
-    my_well_formed_len_8bit,
     my_lengthsp_8bit,
     my_numcells_8bit,
     my_mb_wc_latin1,
@@ -459,6 +456,39 @@ struct charset_info_st my_charset_latin1=
     1,                  /* levels_for_order   */
     &my_charset_handler,
     &my_collation_8bit_simple_ci_handler
+};
+
+
+struct charset_info_st my_charset_latin1_nopad=
+{
+    MY_NOPAD_ID(8),0,0,           /* number           */
+    MY_CS_COMPILED | MY_CS_NOPAD, /* state            */
+    "latin1",                     /* cs name          */
+    "latin1_swedish_nopad_ci",    /* name             */
+    "",                           /* comment          */
+    NULL,                         /* tailoring        */
+    ctype_latin1,
+    to_lower_latin1,
+    to_upper_latin1,
+    sort_order_latin1,
+    NULL,                         /* uca              */
+    cs_to_uni,                    /* tab_to_uni       */
+    NULL,                         /* tab_from_uni     */
+    &my_unicase_default,          /* caseinfo         */
+    NULL,                         /* state_map        */
+    NULL,                         /* ident_map        */
+    1,                            /* strxfrm_multiply */
+    1,                            /* caseup_multiply  */
+    1,                            /* casedn_multiply  */
+    1,                            /* mbminlen         */
+    1,                            /* mbmaxlen         */
+    0,                            /* min_sort_char    */
+    255,                          /* max_sort_char    */
+    ' ',                          /* pad char         */
+    0,                            /* escape_with_backslash_is_dangerous */
+    1,                            /* levels_for_order */
+    &my_charset_handler,
+    &my_collation_8bit_simple_nopad_ci_handler
 };
 
 
@@ -598,16 +628,10 @@ static int my_strnncoll_latin1_de(CHARSET_INFO *cs __attribute__((unused)),
 
 static int my_strnncollsp_latin1_de(CHARSET_INFO *cs __attribute__((unused)),
 				    const uchar *a, size_t a_length,
-				    const uchar *b, size_t b_length,
-                                    my_bool diff_if_only_endspace_difference)
+				    const uchar *b, size_t b_length)
 {
   const uchar *a_end= a + a_length, *b_end= b + b_length;
   uchar a_char, a_extend= 0, b_char, b_extend= 0;
-  int res;
-
-#ifndef VARCHAR_WITH_DIFF_ENDSPACE_ARE_DIFFERENT_FOR_UNIQUE
-  diff_if_only_endspace_difference= 0;
-#endif
 
   while ((a < a_end || a_extend) && (b < b_end || b_extend))
   {
@@ -640,31 +664,11 @@ static int my_strnncollsp_latin1_de(CHARSET_INFO *cs __attribute__((unused)),
   if (b_extend)
     return -1;
 
-  res= 0;
-  if (a != a_end || b != b_end)
-  {
-    int swap= 1;
-    if (diff_if_only_endspace_difference)
-      res= 1;                                   /* Assume 'a' is bigger */
-    /*
-      Check the next not space character of the longer key. If it's < ' ',
-      then it's smaller than the other key.
-    */
-    if (a == a_end)
-    {
-      /* put shorter key in a */
-      a_end= b_end;
-      a= b;
-      swap= -1;					/* swap sign of result */
-      res= -res;
-    }
-    for ( ; a < a_end ; a++)
-    {
-      if (*a != ' ')
-	return (*a < ' ') ? -swap : swap;
-    }
-  }
-  return res;
+  if (a < a_end)
+    return my_strnncollsp_padspace_bin(a, a_end - a);
+  if (b < b_end)
+    return -my_strnncollsp_padspace_bin(b, b_end - b);
+  return 0;
 }
 
 
@@ -796,5 +800,38 @@ struct charset_info_st my_charset_latin1_bin=
   1,                                    /* levels_for_order   */
   &my_charset_handler,
   &my_collation_8bit_bin_handler
+};
+
+
+struct charset_info_st my_charset_latin1_nopad_bin=
+{
+  MY_NOPAD_ID(47),0,0,                 /* number           */
+  MY_CS_COMPILED|MY_CS_BINSORT|MY_CS_NOPAD,/* state        */
+  "latin1",                            /* cs name          */
+  "latin1_nopad_bin",                  /* name             */
+  "",                                  /* comment          */
+  NULL,                                /* tailoring        */
+  ctype_latin1,
+  to_lower_latin1,
+  to_upper_latin1,
+  NULL,                                /* sort_order       */
+  NULL,                                /* uca              */
+  cs_to_uni,                           /* tab_to_uni       */
+  NULL,                                /* tab_from_uni     */
+  &my_unicase_default,                 /* caseinfo         */
+  NULL,                                /* state_map        */
+  NULL,                                /* ident_map        */
+  1,                                   /* strxfrm_multiply */
+  1,                                   /* caseup_multiply  */
+  1,                                   /* casedn_multiply  */
+  1,                                   /* mbminlen         */
+  1,                                   /* mbmaxlen         */
+  0,                                   /* min_sort_char    */
+  255,                                 /* max_sort_char    */
+  ' ',                                 /* pad char         */
+  0,                                   /* escape_with_backslash_is_dangerous */
+  1,                                   /* levels_for_order */
+  &my_charset_handler,
+  &my_collation_8bit_nopad_bin_handler
 };
 

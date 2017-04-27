@@ -79,27 +79,3 @@ dict_table_is_page_compressed(
 {
 	return (dict_tf_get_page_compression(table->flags));
 }
-
-/********************************************************************//**
-Extract the atomic writes flag from table flags.
-@return	enumerated value of atomic writes  */
-UNIV_INLINE
-atomic_writes_t
-dict_tf_get_atomic_writes(
-/*======================*/
-	ulint	flags)			/*!< in: flags */
-{
-	return((atomic_writes_t)DICT_TF_GET_ATOMIC_WRITES(flags));
-}
-
-/********************************************************************//**
-Check whether the table uses the atomic writes.
-@return	enumerated value of atomic writes */
-UNIV_INLINE
-atomic_writes_t
-dict_table_get_atomic_writes(
-/*=========================*/
-	const dict_table_t* table)	/*!< in: table */
-{
-	return ((atomic_writes_t)dict_tf_get_atomic_writes(table->flags));
-}

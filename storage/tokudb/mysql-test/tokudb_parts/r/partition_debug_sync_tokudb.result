@@ -15,8 +15,10 @@ a
 1
 21
 33
+connect  con1, localhost, root,,;
 # con1 (send)
 ALTER TABLE t1 TRUNCATE PARTITION pMax;
+connection default;
 # con default
 SELECT * FROM t1;
 a
@@ -26,7 +28,10 @@ a
 # Commit will allow the TRUNCATE to finish
 COMMIT;
 # con1 (reap)
+connection con1;
 # con1 (disconnect)
+disconnect con1;
+connection default;
 # default connection
 SELECT * FROM t1;
 a
@@ -51,8 +56,8 @@ Table	Create Table
 t1	CREATE TABLE `t1` (
   `a` int(11) DEFAULT NULL
 ) ENGINE=TokuDB DEFAULT CHARSET=latin1 STATS_PERSISTENT=0
-/*!50100 PARTITION BY RANGE (a)
-(PARTITION p0 VALUES LESS THAN MAXVALUE ENGINE = TokuDB) */
+ PARTITION BY RANGE (a)
+(PARTITION p0 VALUES LESS THAN MAXVALUE ENGINE = TokuDB)
 t1.frm
 t1.par
 SET DEBUG_SYNC='before_open_in_get_all_tables SIGNAL parked WAIT_FOR open';
@@ -61,6 +66,7 @@ SELECT TABLE_SCHEMA, TABLE_NAME, PARTITION_NAME, PARTITION_ORDINAL_POSITION,
 PARTITION_DESCRIPTION, TABLE_ROWS
 FROM INFORMATION_SCHEMA.PARTITIONS
 WHERE TABLE_NAME = 't1' AND TABLE_SCHEMA = 'test';
+connect  con1, localhost, root,,;
 SET DEBUG_SYNC = 'now WAIT_FOR parked';
 # When waiting for the name lock in get_all_tables in sql_show.cc
 # this will not be concurrent any more, thus the TIMEOUT
@@ -72,6 +78,8 @@ ALTER TABLE t1 REORGANIZE PARTITION p0 INTO
 PARTITION p10 VALUES LESS THAN MAXVALUE);
 Warnings:
 Warning	1639	debug sync point wait timed out
+disconnect con1;
+connection default;
 TABLE_SCHEMA	TABLE_NAME	PARTITION_NAME	PARTITION_ORDINAL_POSITION	PARTITION_DESCRIPTION	TABLE_ROWS
 test	t1	p0	1	10	1
 test	t1	p10	2	MAXVALUE	3
@@ -82,9 +90,9 @@ Table	Create Table
 t1	CREATE TABLE `t1` (
   `a` int(11) DEFAULT NULL
 ) ENGINE=TokuDB DEFAULT CHARSET=latin1 STATS_PERSISTENT=0
-/*!50100 PARTITION BY RANGE (a)
+ PARTITION BY RANGE (a)
 (PARTITION p0 VALUES LESS THAN (10) ENGINE = TokuDB,
- PARTITION p10 VALUES LESS THAN MAXVALUE ENGINE = TokuDB) */
+ PARTITION p10 VALUES LESS THAN MAXVALUE ENGINE = TokuDB)
 SELECT * FROM t1;
 a
 1

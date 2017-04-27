@@ -68,7 +68,7 @@ WHERE (head BETWEEN '80' AND 'FF') AND (tail BETWEEN '20' AND 'FF')
 ORDER BY head, tail;
 DROP TEMPORARY TABLE head, tail;
 SHOW CREATE TABLE t1;
-UPDATE t1 SET a=unhex(code) ORDER BY code;
+UPDATE IGNORE t1 SET a=unhex(code) ORDER BY code;
 SELECT COUNT(*) FROM t1 WHERE a<>'?';
 #
 # Display all characters that have upper or lower case mapping.
@@ -159,4 +159,24 @@ let $ctype_unescape_combinations=selected;
 
 --echo #
 --echo # End of 10.0 tests
+--echo #
+
+
+--echo #
+--echo # Start of 10.2 tests
+--echo #
+--echo #
+--echo # MDEV-9711 NO PAD Collatons
+--echo #
+SET character_set_connection=gb2312;
+let $coll='gb2312_chinese_nopad_ci';
+let $coll_pad='gb2312_chinese_ci';
+--source include/ctype_pad_all_engines.inc
+
+let $coll='gb2312_nopad_bin';
+let $coll_pad='gb2312_bin';
+--source include/ctype_pad_all_engines.inc
+
+--echo #
+--echo # End of 10.2 tests
 --echo #

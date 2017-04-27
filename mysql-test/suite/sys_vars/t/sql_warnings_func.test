@@ -42,7 +42,7 @@ CREATE TEMPORARY TABLE t1(a varchar(5), b varchar(20));
 #
 SET @@sql_warnings = DEFAULT;
 
-INSERT INTO t1 VALUES('abcdef', 'val1');
+INSERT IGNORE INTO t1 VALUES('abcdef', 'val1');
 
 --echo '#-----------------------------FN_DYNVARS_167_02------------------#'
 #
@@ -51,7 +51,7 @@ INSERT INTO t1 VALUES('abcdef', 'val1');
 
 SET @@sql_warnings = 0;
 
-INSERT INTO t1 VALUES('abcdef', 'val1');
+INSERT IGNORE INTO t1 VALUES('abcdef', 'val1');
 
 --echo '#-----------------------------FN_DYNVARS_167_03---------------#'
 #
@@ -60,7 +60,7 @@ INSERT INTO t1 VALUES('abcdef', 'val1');
 
 SET @@sql_warnings = 1;
 
-INSERT INTO t1 VALUES('abcdef', 'val1');
+INSERT IGNORE INTO t1 VALUES('abcdef', 'val1');
 
 
 --echo '#----------------------------FN_DYNVARS_167_04---------------#'
@@ -70,40 +70,32 @@ INSERT INTO t1 VALUES('abcdef', 'val1');
 
 --disable_info
 
---echo ** Connecting con_int1 using root **
 connect (con_int1,localhost,root,,);
 
---echo ** Connection con_int1 **
 connection con_int1;
 SELECT @@SESSION.sql_warnings;
 --echo 0 / FALSE Expected
 
 SET SESSION sql_warnings = FALSE;
 
---echo ** Connecting con_int2 using root **
 connect (con_int2,localhost,root,,);
 
---echo ** Connection con_int2 **
 connection con_int2;
 SELECT @@SESSION.sql_warnings;
 --echo 0 / FALSE Expected
 
 SET SESSION sql_warnings = TRUE;
 
---echo ** Connection con_int2 **
 connection con_int2;
 SELECT @@SESSION.sql_warnings;
 --echo 1 / TRUE Expected
 
---echo ** Connection con_int1 **
 connection con_int1;
 SELECT @@SESSION.sql_warnings;
 --echo 0 / FALSE Expected
 
---echo ** Connection default **
 connection default;
 
---echo Disconnecting Connections con_int1, con_int2
 disconnect con_int1;
 disconnect con_int2;
 

@@ -98,6 +98,7 @@ set @a:=0;
 select @a;
 insert into t1 values (1),(2);
 select @a;
+--replace_column 6 #
 SHOW TRIGGERS IN test like 't1';
 drop trigger trg;
 drop table t1;
@@ -130,3 +131,11 @@ insert into t1 values(2);
 drop table t1;
 
 show status like "feature_delay_key_write";
+
+#
+# Feature CHECK CONSTRAINT
+#
+create table t1 (a int check (a > 5));
+create table t2 (b int, constraint foo check (b < 10));
+drop table t1, t2;
+show status like "feature_check_constraint";

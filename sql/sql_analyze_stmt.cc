@@ -12,7 +12,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111-1301 USA */
 
 #ifdef USE_PRAGMA_IMPLEMENTATION
 #pragma implementation				// gcc: Class implementation
@@ -67,77 +67,5 @@ void Filesort_tracker::print_json_members(Json_writer *writer)
     else
       writer->add_size(sort_buffer_size);
   }
-}
-
-
-/* 
-  Report that we are doing a filesort. 
-    @return 
-      Tracker object to be used with filesort
-*/
-
-Filesort_tracker *Sort_and_group_tracker::report_sorting(THD *thd)
-{
-  DBUG_ASSERT(cur_action < MAX_QEP_ACTIONS);
-
-  if (total_actions)
-  {
-    /* This is not the first execution. Check */
-    if (qep_actions[cur_action] != EXPL_ACTION_FILESORT)
-    {
-      varied_executions= true;
-      cur_action++;
-      if (!dummy_fsort_tracker)
-        dummy_fsort_tracker= new (thd->mem_root) Filesort_tracker(is_analyze);
-      return dummy_fsort_tracker;
-    }
-    return qep_actions_data[cur_action++].filesort_tracker;
-  }
-
-  Filesort_tracker *fs_tracker= new(thd->mem_root)Filesort_tracker(is_analyze);
-  qep_actions_data[cur_action].filesort_tracker= fs_tracker;
-  qep_actions[cur_action++]= EXPL_ACTION_FILESORT;
-
-  return fs_tracker;
-}
-
-
-void Sort_and_group_tracker::report_tmp_table(TABLE *tbl)
-{
-  DBUG_ASSERT(cur_action < MAX_QEP_ACTIONS);
-  if (total_actions)
-  {
-    /* This is not the first execution. Check if the steps match.  */
-    // todo: should also check that tmp.table kinds are the same.
-    if (qep_actions[cur_action] != EXPL_ACTION_TEMPTABLE)
-      varied_executions= true;
-  }
-
-  if (!varied_executions)
-  {
-    qep_actions[cur_action]= EXPL_ACTION_TEMPTABLE;
-    // qep_actions_data[cur_action]= ....
-  }
-  
-  cur_action++;
-}
-
-
-void Sort_and_group_tracker::report_duplicate_removal()
-{
-  DBUG_ASSERT(cur_action < MAX_QEP_ACTIONS);
-  if (total_actions)
-  {
-    /* This is not the first execution. Check if the steps match.  */
-    if (qep_actions[cur_action] != EXPL_ACTION_REMOVE_DUPS)
-      varied_executions= true;
-  }
-
-  if (!varied_executions)
-  {
-    qep_actions[cur_action]= EXPL_ACTION_REMOVE_DUPS;
-  }
-
-  cur_action++;
 }
 

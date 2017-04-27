@@ -54,7 +54,7 @@ static bool field_valid_for_tokudb_table(Field* field) {
     case MYSQL_TYPE_FLOAT:
 #if (50600 <= MYSQL_VERSION_ID && MYSQL_VERSION_ID <= 50699) || \
     (50700 <= MYSQL_VERSION_ID && MYSQL_VERSION_ID <= 50799) || \
-    (100000 <= MYSQL_VERSION_ID && MYSQL_VERSION_ID <= 100199)
+    (100000 <= MYSQL_VERSION_ID)
     case MYSQL_TYPE_DATETIME2:
     case MYSQL_TYPE_TIMESTAMP2:
     case MYSQL_TYPE_TIME2:
@@ -200,7 +200,7 @@ static TOKU_TYPE mysql_to_toku_type (Field* field) {
         goto exit;
 #if (50600 <= MYSQL_VERSION_ID && MYSQL_VERSION_ID <= 50699) || \
     (50700 <= MYSQL_VERSION_ID && MYSQL_VERSION_ID <= 50799) || \
-    (100000 <= MYSQL_VERSION_ID && MYSQL_VERSION_ID <= 100199)
+    (100000 <= MYSQL_VERSION_ID)
     case MYSQL_TYPE_DATETIME2:
     case MYSQL_TYPE_TIMESTAMP2:
     case MYSQL_TYPE_TIME2:
@@ -918,8 +918,7 @@ static inline int cmp_toku_string(
         a_buf, 
         a_num_bytes,
         b_buf, 
-        b_num_bytes, 
-        0
+        b_num_bytes
         );
     return ret_val;
 }
@@ -3123,7 +3122,7 @@ static bool fields_are_same_type(Field* a, Field* b) {
     case MYSQL_TYPE_TIMESTAMP:
 #if (50600 <= MYSQL_VERSION_ID && MYSQL_VERSION_ID <= 50699) || \
     (50700 <= MYSQL_VERSION_ID && MYSQL_VERSION_ID <= 50799) || \
-    (100000 <= MYSQL_VERSION_ID && MYSQL_VERSION_ID <= 100199)
+    (100000 <= MYSQL_VERSION_ID)
     case MYSQL_TYPE_DATETIME2:
     case MYSQL_TYPE_TIMESTAMP2:
     case MYSQL_TYPE_TIME2:

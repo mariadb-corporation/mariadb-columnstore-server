@@ -29,6 +29,7 @@ Copyright (c) 2006, 2015, Percona and/or its affiliates. All rights reserved.
 #include "tokudb_status.h"
 #include "tokudb_card.h"
 #include "ha_tokudb.h"
+#include "sql_db.h"
 
 
 #if TOKU_INCLUDE_EXTENDED_KEYS
@@ -2139,7 +2140,7 @@ int ha_tokudb::write_frm_data(DB* db, DB_TXN* txn, const char* frm_name) {
     size_t frm_len = 0;
     int error = 0;
 
-#if 100000 <= MYSQL_VERSION_ID && MYSQL_VERSION_ID <= 100199
+#if 100000 <= MYSQL_VERSION_ID
     error = table_share->read_frm_image((const uchar**)&frm_data,&frm_len);
     if (error) { goto cleanup; }
 #else    
@@ -2179,7 +2180,7 @@ int ha_tokudb::verify_frm_data(const char* frm_name, DB_TXN* txn) {
     HA_METADATA_KEY curr_key = hatoku_frm_data;
 
     // get the frm data from MySQL
-#if 100000 <= MYSQL_VERSION_ID && MYSQL_VERSION_ID <= 100199
+#if 100000 <= MYSQL_VERSION_ID
     error = table_share->read_frm_image((const uchar**)&mysql_frm_data,&mysql_frm_len);
     if (error) { 
         goto cleanup;
@@ -3990,7 +3991,6 @@ int ha_tokudb::write_row(uchar * record) {
     // some crap that needs to be done because MySQL does not properly abstract
     // this work away from us, namely filling in auto increment and setting auto timestamp
     //
-    ha_statistic_increment(&SSV::ha_write_count);
 #if MYSQL_VERSION_ID < 50600
     if (table->timestamp_field_type & TIMESTAMP_AUTO_SET_ON_INSERT) {
         table->timestamp_field->set_time();
@@ -4176,7 +4176,6 @@ int ha_tokudb::update_row(const uchar * old_row, uchar * new_row) {
     memset((void *) &prim_row, 0, sizeof(prim_row));
     memset((void *) &old_prim_row, 0, sizeof(old_prim_row));
 
-    ha_statistic_increment(&SSV::ha_update_count);
 #if MYSQL_VERSION_ID < 50600
     if (table->timestamp_field_type & TIMESTAMP_AUTO_SET_ON_UPDATE) {
         table->timestamp_field->set_time();
@@ -4343,8 +4342,6 @@ int ha_tokudb::delete_row(const uchar * record) {
     THD* thd = ha_thd();
     uint curr_num_DBs;
     tokudb_trx_data* trx = (tokudb_trx_data *) thd_get_ha_data(thd, tokudb_hton);
-
-    ha_statistic_increment(&SSV::ha_delete_count);
 
     //
     // grab reader lock on numDBs_lock
@@ -4885,7 +4882,6 @@ int ha_tokudb::read_full_row(uchar * buf) {
 // 
 int ha_tokudb::index_next_same(uchar* buf, const uchar* key, uint keylen) {
     TOKUDB_HANDLER_DBUG_ENTER("");
-    ha_statistic_increment(&SSV::ha_read_next_count);
 
     DBT curr_key;
     DBT found_key;
@@ -4974,7 +4970,6 @@ int ha_tokudb::index_read(
         cursor->c_remove_restriction(cursor);
     }
 
-    ha_statistic_increment(&SSV::ha_read_key_count);
     memset((void *) &row, 0, sizeof(row));
 
     info.ha = this;
@@ -5634,7 +5629,6 @@ cleanup:
 //
 int ha_tokudb::index_next(uchar * buf) {
     TOKUDB_HANDLER_DBUG_ENTER("");
-    ha_statistic_increment(&SSV::ha_read_next_count);
     int error = get_next(buf, 1, NULL, key_read);
     TOKUDB_HANDLER_DBUG_RETURN(error);
 }
@@ -5656,7 +5650,6 @@ int ha_tokudb::index_read_last(uchar * buf, const uchar * key, uint key_len) {
 //
 int ha_tokudb::index_prev(uchar * buf) {
     TOKUDB_HANDLER_DBUG_ENTER("");
-    ha_statistic_increment(&SSV::ha_read_prev_count);
     int error = get_next(buf, -1, NULL, key_read);
     TOKUDB_HANDLER_DBUG_RETURN(error);
 }
@@ -5679,8 +5672,6 @@ int ha_tokudb::index_first(uchar * buf) {
     THD* thd = ha_thd();
     tokudb_trx_data* trx = (tokudb_trx_data *) thd_get_ha_data(thd, tokudb_hton);;
     HANDLE_INVALID_CURSOR();
-
-    ha_statistic_increment(&SSV::ha_read_first_count);
 
     info.ha = this;
     info.buf = buf;
@@ -5723,8 +5714,6 @@ int ha_tokudb::index_last(uchar * buf) {
     THD* thd = ha_thd();
     tokudb_trx_data* trx = (tokudb_trx_data *) thd_get_ha_data(thd, tokudb_hton);;
     HANDLE_INVALID_CURSOR();
-
-    ha_statistic_increment(&SSV::ha_read_last_count);
 
     info.ha = this;
     info.buf = buf;
@@ -5805,7 +5794,6 @@ int ha_tokudb::rnd_end() {
 //
 int ha_tokudb::rnd_next(uchar * buf) {
     TOKUDB_HANDLER_DBUG_ENTER("");
-    ha_statistic_increment(&SSV::ha_read_rnd_next_count);
     int error = get_next(buf, 1, NULL, false);
     TOKUDB_HANDLER_DBUG_RETURN(error);
 }
@@ -5911,7 +5899,6 @@ int ha_tokudb::rnd_pos(uchar * buf, uchar * pos) {
     DBT* key = get_pos(&db_pos, pos); 
 
     unpack_entire_row = true;
-    ha_statistic_increment(&SSV::ha_read_rnd_count);
     tokudb_active_index = MAX_KEY;
 
     // test rpl slave by inducing a delay before the point query
@@ -6122,8 +6109,6 @@ int ha_tokudb::info(uint flag) {
         stats.deleted = 0;
         if (!(flag & HA_STATUS_NO_LOCK)) {
             uint64_t num_rows = 0;
-            TOKU_DB_FRAGMENTATION_S frag_info;
-            memset(&frag_info, 0, sizeof frag_info);
 
             error = txn_begin(db_env, NULL, &txn, DB_READ_UNCOMMITTED, ha_thd());
             if (error) {
@@ -6140,11 +6125,6 @@ int ha_tokudb::info(uint flag) {
             } else {
                 goto cleanup;
             }
-            error = share->file->get_fragmentation(share->file, &frag_info);
-            if (error) {
-                goto cleanup;
-            }
-            stats.delete_length = frag_info.unused_bytes;
 
             DB_BTREE_STAT64 dict_stats;
             error = share->file->stat64(share->file, txn, &dict_stats);
@@ -6156,6 +6136,7 @@ int ha_tokudb::info(uint flag) {
             stats.update_time = dict_stats.bt_modify_time_sec;
             stats.check_time = dict_stats.bt_verify_time_sec;
             stats.data_file_length = dict_stats.bt_dsize;
+            stats.delete_length = dict_stats.bt_fsize - dict_stats.bt_dsize;
             if (hidden_primary_key) {
                 //
                 // in this case, we have a hidden primary key, do not
@@ -6191,30 +6172,21 @@ int ha_tokudb::info(uint flag) {
             //
             // this solution is much simpler than trying to maintain an 
             // accurate number of valid keys at the handlerton layer.
-            uint curr_num_DBs = table->s->keys + tokudb_test(hidden_primary_key);
+            uint curr_num_DBs =
+                table->s->keys + tokudb_test(hidden_primary_key);
             for (uint i = 0; i < curr_num_DBs; i++) {
                 // skip the primary key, skip dropped indexes
                 if (i == primary_key || share->key_file[i] == NULL) {
                     continue;
                 }
-                error =
-                    share->key_file[i]->stat64(
-                        share->key_file[i],
-                        txn,
-                        &dict_stats);
+                error = share->key_file[i]->stat64(
+                    share->key_file[i], txn, &dict_stats);
                 if (error) {
                     goto cleanup;
                 }
                 stats.index_file_length += dict_stats.bt_dsize;
-
-                error =
-                    share->file->get_fragmentation(
-                        share->file,
-                        &frag_info);
-                if (error) {
-                    goto cleanup;
-                }
-                stats.delete_length += frag_info.unused_bytes;
+                stats.delete_length +=
+                    dict_stats.bt_fsize - dict_stats.bt_dsize;
             }
         }
 
@@ -7651,6 +7623,27 @@ int ha_tokudb::delete_table(const char *name) {
     TOKUDB_HANDLER_DBUG_RETURN(error);
 }
 
+static bool tokudb_check_db_dir_exist_from_table_name(const char *table_name) {
+    DBUG_ASSERT(table_name);
+    bool mysql_dir_exists;
+    char db_name[FN_REFLEN];
+    const char *db_name_begin = strchr(table_name, FN_LIBCHAR);
+    const char *db_name_end = strrchr(table_name, FN_LIBCHAR);
+    DBUG_ASSERT(db_name_begin);
+    DBUG_ASSERT(db_name_end);
+    DBUG_ASSERT(db_name_begin != db_name_end);
+
+    ++db_name_begin;
+    size_t db_name_size = db_name_end - db_name_begin;
+
+    DBUG_ASSERT(db_name_size < FN_REFLEN);
+
+    memcpy(db_name, db_name_begin, db_name_size);
+    db_name[db_name_size] = '\0';
+    mysql_dir_exists = (check_db_dir_existence(db_name) == 0);
+
+    return mysql_dir_exists;
+}
 
 //
 // renames table from "from" to "to"
@@ -7673,15 +7666,33 @@ int ha_tokudb::rename_table(const char *from, const char *to) {
         TOKUDB_SHARE::drop_share(share);
     }
     int error;
-    error = delete_or_rename_table(from, to, false);
-    if (TOKUDB_LIKELY(TOKUDB_DEBUG_FLAGS(TOKUDB_DEBUG_HIDE_DDL_LOCK_ERRORS) == 0) &&
-        error == DB_LOCK_NOTGRANTED) {
+    bool to_db_dir_exist = tokudb_check_db_dir_exist_from_table_name(to);
+    if (!to_db_dir_exist) {
         sql_print_error(
-            "Could not rename table from %s to %s because another transaction "
-            "has accessed the table. To rename the table, make sure no "
-            "transactions touch the table.",
+            "Could not rename table from %s to %s because "
+            "destination db does not exist",
             from,
             to);
+#ifndef __WIN__
+        /* Small hack. tokudb_check_db_dir_exist_from_table_name calls
+         * my_access, which sets my_errno on Windows, but doesn't on
+         * unix. Set it for unix too.
+         */
+        my_errno= errno;
+#endif
+        error= my_errno;
+    }
+    else {
+        error = delete_or_rename_table(from, to, false);
+        if (TOKUDB_LIKELY(TOKUDB_DEBUG_FLAGS(TOKUDB_DEBUG_HIDE_DDL_LOCK_ERRORS) == 0) &&
+            error == DB_LOCK_NOTGRANTED) {
+            sql_print_error(
+                "Could not rename table from %s to %s because another transaction "
+                "has accessed the table. To rename the table, make sure no "
+                "transactions touch the table.",
+                from,
+                to);
+        }
     }
     TOKUDB_HANDLER_DBUG_RETURN(error);
 }

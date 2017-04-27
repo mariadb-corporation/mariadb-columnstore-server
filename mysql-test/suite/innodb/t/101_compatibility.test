@@ -9,9 +9,10 @@
 # This is actually testing the opposite: starting the fixed 10.1 with
 # buggy 10.1 files (by manually converting the flags in the files).
 
+--disable_query_log
 call mtr.add_suppression("InnoDB: adjusting FSP_SPACE_FLAGS of tablespace");
-SET GLOBAL innodb_file_per_table=1;
-SET GLOBAL innodb_file_format=Barracuda;
+FLUSH TABLES;
+--enable_query_log
 let INNODB_PAGE_SIZE=`select @@innodb_page_size`;
 let MYSQLD_DATADIR=`select @@datadir`;
 
@@ -19,7 +20,10 @@ CREATE TABLE tr(a INT)ENGINE=InnoDB ROW_FORMAT=REDUNDANT;
 CREATE TABLE tc(a INT)ENGINE=InnoDB ROW_FORMAT=COMPACT;
 CREATE TABLE td(a INT)ENGINE=InnoDB ROW_FORMAT=DYNAMIC;
 --disable_warnings
+# ROW_FORMAT=COMPRESSED is not available with innodb_page_size>16k
+SET INNODB_STRICT_MODE=OFF;
 CREATE TABLE tz(a INT)ENGINE=InnoDB ROW_FORMAT=COMPRESSED KEY_BLOCK_SIZE=1;
+SET INNODB_STRICT_MODE=ON;
 --enable_warnings
 
 --replace_result $MYSQL_TMP_DIR MYSQL_TMP_DIR

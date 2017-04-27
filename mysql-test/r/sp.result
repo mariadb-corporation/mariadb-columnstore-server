@@ -791,7 +791,7 @@ comment 'Characteristics procedure test'
   insert into t1 values ("chistics", 1)|
 show create procedure chistics|
 Procedure	sql_mode	Create Procedure	character_set_client	collation_connection	Database Collation
-chistics	NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION	CREATE DEFINER=`root`@`localhost` PROCEDURE `chistics`()
+chistics	STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION	CREATE DEFINER=`root`@`localhost` PROCEDURE `chistics`()
     MODIFIES SQL DATA
     COMMENT 'Characteristics procedure test'
 insert into t1 values ("chistics", 1)	latin1	latin1_swedish_ci	latin1_swedish_ci
@@ -803,7 +803,7 @@ delete from t1|
 alter procedure chistics sql security invoker|
 show create procedure chistics|
 Procedure	sql_mode	Create Procedure	character_set_client	collation_connection	Database Collation
-chistics	NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION	CREATE DEFINER=`root`@`localhost` PROCEDURE `chistics`()
+chistics	STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION	CREATE DEFINER=`root`@`localhost` PROCEDURE `chistics`()
     MODIFIES SQL DATA
     SQL SECURITY INVOKER
     COMMENT 'Characteristics procedure test'
@@ -818,7 +818,7 @@ comment 'Characteristics procedure test'
   return 42|
 show create function chistics|
 Function	sql_mode	Create Function	character_set_client	collation_connection	Database Collation
-chistics	NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION	CREATE DEFINER=`root`@`localhost` FUNCTION `chistics`() RETURNS int(11)
+chistics	STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION	CREATE DEFINER=`root`@`localhost` FUNCTION `chistics`() RETURNS int(11)
     DETERMINISTIC
     SQL SECURITY INVOKER
     COMMENT 'Characteristics procedure test'
@@ -831,7 +831,7 @@ no sql
 comment 'Characteristics function test'|
 show create function chistics|
 Function	sql_mode	Create Function	character_set_client	collation_connection	Database Collation
-chistics	NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION	CREATE DEFINER=`root`@`localhost` FUNCTION `chistics`() RETURNS int(11)
+chistics	STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION	CREATE DEFINER=`root`@`localhost` FUNCTION `chistics`() RETURNS int(11)
     NO SQL
     DETERMINISTIC
     SQL SECURITY INVOKER
@@ -997,9 +997,9 @@ select f5(1)|
 f5(1)
 1
 select f5(2)|
-ERROR HY000: Recursive stored functions and triggers are not allowed.
+ERROR HY000: Recursive stored functions and triggers are not allowed
 select f5(3)|
-ERROR HY000: Recursive stored functions and triggers are not allowed.
+ERROR HY000: Recursive stored functions and triggers are not allowed
 create function f6() returns int
 begin
 declare n int;
@@ -1048,11 +1048,11 @@ ERROR HY000: View 'test.v1' references invalid table(s) or column(s) or function
 create function f1() returns int
 return (select sum(data) from t1) + (select sum(data) from v1)|
 select f1()|
-ERROR HY000: Recursive stored functions and triggers are not allowed.
+ERROR HY000: Recursive stored functions and triggers are not allowed
 select * from v1|
-ERROR HY000: Recursive stored functions and triggers are not allowed.
+ERROR HY000: Recursive stored functions and triggers are not allowed
 select * from v2|
-ERROR HY000: Recursive stored functions and triggers are not allowed.
+ERROR HY000: Recursive stored functions and triggers are not allowed
 drop function f1|
 create function f1() returns int
 return (select sum(data) from t1)|
@@ -1140,9 +1140,12 @@ insert into t3 values (1), (2), (3);
 return (select count(*) from t3 as a, t3 as b);
 end|
 select f11()|
-ERROR HY000: Can't reopen table: 'a'
+f11()
+9
 select f11() from t1|
-ERROR HY000: Can't reopen table: 'a'
+f11()
+9
+9
 create function f12_1() returns int
 begin
 drop temporary table if exists t3;
@@ -1156,6 +1159,7 @@ drop temporary table t3|
 select f12_1()|
 f12_1()
 3
+drop temporary table t3|
 select f12_1() from t1 limit 1|
 f12_1()
 3
@@ -4060,9 +4064,9 @@ select @@max_sp_recursion_depth|
 @@max_sp_recursion_depth
 4
 select bug10100f(3)|
-ERROR HY000: Recursive stored functions and triggers are not allowed.
+ERROR HY000: Recursive stored functions and triggers are not allowed
 select bug10100f(6)|
-ERROR HY000: Recursive stored functions and triggers are not allowed.
+ERROR HY000: Recursive stored functions and triggers are not allowed
 call bug10100t(5)|
 res
 120
@@ -4131,7 +4135,7 @@ select @@max_sp_recursion_depth|
 @@max_sp_recursion_depth
 0
 select bug10100f(5)|
-ERROR HY000: Recursive stored functions and triggers are not allowed.
+ERROR HY000: Recursive stored functions and triggers are not allowed
 call bug10100t(5)|
 ERROR HY000: Recursive limit 0 (as set by the max_sp_recursion_depth variable) was exceeded for routine bug10100p
 deallocate prepare stmt2|
@@ -6041,12 +6045,12 @@ select bug20777(9223372036854775810) as '9223372036854775810   2**63+2';
 9223372036854775810   2**63+2
 9223372036854775810
 select bug20777(-9223372036854775808) as 'lower bounds signed bigint';
-ERROR 22003: BIGINT UNSIGNED value is out of range in '(f1@0 - 10)'
+ERROR 22003: BIGINT UNSIGNED value is out of range in 'f1@0 - 10'
 select bug20777(9223372036854775807) as 'upper bounds signed bigint';
 upper bounds signed bigint
 9223372036854775807
 select bug20777(0) as 'lower bounds unsigned bigint';
-ERROR 22003: BIGINT UNSIGNED value is out of range in '(f1@0 - 10)'
+ERROR 22003: BIGINT UNSIGNED value is out of range in 'f1@0 - 10'
 select bug20777(18446744073709551615) as 'upper bounds unsigned bigint';
 upper bounds unsigned bigint
 18446744073709551615
@@ -6056,7 +6060,7 @@ upper bounds unsigned bigint + 1
 Warnings:
 Warning	1264	Out of range value for column 'f1' at row 1
 select bug20777(-1) as 'lower bounds unsigned bigint - 1';
-ERROR 22003: BIGINT UNSIGNED value is out of range in '(f1@0 - 10)'
+ERROR 22003: BIGINT UNSIGNED value is out of range in 'f1@0 - 10'
 create table examplebug20777 as select 
 0 as 'i',
 bug20777(9223372036854775806) as '2**63-2',
@@ -6417,6 +6421,8 @@ set x=-1;
 return x;
 end|
 create view v1 as select 1 as one, f1() as days;
+connect  bug29408, localhost, root,,*NO-ONE*;
+connection bug29408;
 show create view test.v1;
 View	Create View	character_set_client	collation_connection
 v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `test`.`v1` AS select 1 AS `one`,`f1`() AS `days`	latin1	latin1_swedish_ci
@@ -6425,6 +6431,8 @@ where table_name='v1' and table_schema='test';
 column_name
 one
 days
+connection default;
+disconnect bug29408;
 drop view v1;
 drop function f1;
 
@@ -6929,7 +6937,7 @@ CREATE TEMPORARY TABLE t3 LIKE t1;
 CREATE PROCEDURE p1 () BEGIN SELECT f1 FROM t3 AS A WHERE A.f1 IN ( SELECT f1 FROM t3 ) ;
 END|
 CALL p1;
-ERROR HY000: Can't reopen table: 'A'
+f1
 CREATE VIEW t3 AS SELECT f1 FROM t2 A WHERE A.f1 IN ( SELECT f1 FROM t2 );
 DROP TABLE t3;
 CALL p1;
@@ -7955,6 +7963,44 @@ set global table_open_cache= @tmp_toc;
 set global table_definition_cache= @tmp_tdc;
 drop procedure p1;
 drop table t1,t2,t3,t4,t5,t6;
+#
+# MDEV-11935: Queries in stored procedures with and
+# EXISTS(SELECT * FROM VIEW) crashes and closes hte conneciton.
+#
+CREATE TABLE ANY_TABLE (
+ENTITY_UID    BIGINT NOT NULL
+);
+CREATE TABLE SECURITY_PATH(
+origid BIGINT UNSIGNED NOT NULL,
+destid BIGINT UNSIGNED NOT NULL,
+KEY (destid)
+);
+CREATE VIEW ENTITY_ACCESS (
+ENTITY_UID,
+OWNER_UID
+) AS
+SELECT SP1.origid,
+SP2.destid
+FROM SECURITY_PATH SP1
+JOIN SECURITY_PATH SP2 ON SP1.destid = SP2.origid
+;
+CREATE PROCEDURE SP_EXAMPLE_SELECT ()
+BEGIN
+SELECT *
+FROM ANY_TABLE AT1
+WHERE EXISTS ( SELECT *
+FROM ENTITY_ACCESS EA
+WHERE AT1.ENTITY_UID = EA.ENTITY_UID
+AND   EA.OWNER_UID IS NULL );
+END
+//
+CALL SP_EXAMPLE_SELECT ();
+ENTITY_UID
+CALL SP_EXAMPLE_SELECT ();
+ENTITY_UID
+drop procedure SP_EXAMPLE_SELECT;
+drop view ENTITY_ACCESS;
+drop table ANY_TABLE, SECURITY_PATH;
 # End of 10.0 test
 CREATE FUNCTION f(f1 VARCHAR(64) COLLATE latin1_german2_ci)
 RETURNS VARCHAR(64)
@@ -8042,3 +8088,42 @@ CALL sp1();
 drop user 'foo'@'%';
 drop procedure sp1;
 #End of 10.1 tests
+#
+# MDEV-11081: CURSOR for query with GROUP BY
+#
+CREATE TABLE t1 (name VARCHAR(10), value INT);
+INSERT INTO t1 VALUES ('b',1);
+INSERT INTO t1 VALUES ('b',1);
+INSERT INTO t1 VALUES ('c',1);
+INSERT INTO t1 VALUES ('a',1);
+INSERT INTO t1 VALUES ('a',1);
+INSERT INTO t1 VALUES ('a',1);
+CREATE PROCEDURE p1 ()
+BEGIN
+DECLARE done INT DEFAULT FALSE;
+DECLARE v_name VARCHAR(10);
+DECLARE v_total INT;
+DECLARE c CURSOR FOR
+SELECT name, SUM(value) AS total FROM t1 GROUP BY name;
+DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
+OPEN c;
+read_loop:
+LOOP
+FETCH c INTO v_name, v_total;
+IF done THEN
+LEAVE read_loop;
+END IF;
+SELECT v_name, v_total;
+END LOOP;
+CLOSE c;
+END;
+|
+CALL p1();
+v_name	v_total
+a	3
+v_name	v_total
+b	2
+v_name	v_total
+c	1
+DROP PROCEDURE p1;
+DROP TABLE t1;

@@ -12,7 +12,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111-1301 USA */
 
 /*
   Bitmap handling (for records in block)
@@ -105,7 +105,7 @@
   - On checkpoint
   (Ie: When we do a checkpoint, we have to ensure that all bitmaps are
   put on disk even if they are not in the page cache).
-  - When explicitely requested (for example on backup or after recovery,
+  - When explicitly requested (for example on backup or after recovery,
   to simplify things)
 
  The flow of writing a row is that:

@@ -38,13 +38,13 @@
 
 static char *heap_start;
 
-#ifdef HAVE_BSS_START
+#if(defined HAVE_BSS_START) && !(defined __linux__)
 extern char *__bss_start;
 #endif
 
 void my_init_stacktrace()
 {
-#ifdef HAVE_BSS_START
+#if(defined HAVE_BSS_START) && !(defined __linux__)
   heap_start = (char*) &__bss_start;
 #endif
 }
@@ -483,7 +483,18 @@ void my_write_core(int sig)
 
 #else /* __WIN__*/
 
+#ifdef _MSC_VER
+/* Silence warning in OS header dbghelp.h */
+#pragma warning(push)
+#pragma warning(disable : 4091)
+#endif
+
 #include <dbghelp.h>
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
+
 #include <tlhelp32.h>
 #include <my_sys.h>
 #if _MSC_VER

@@ -1,12 +1,13 @@
 include/master-slave.inc
 [connection master]
+connection master;
 DROP PROCEDURE IF EXISTS test.p1;
 DROP TABLE IF EXISTS test.t1;
 CREATE TABLE test.t1 (a INT, blob_column LONGBLOB, PRIMARY KEY(a));
 INSERT INTO test.t1  VALUES(1,'test');
 UPDATE test.t1 SET blob_column=LOAD_FILE('../../std_data/words2.dat') WHERE a=1;
 Warnings:
-Note	1592	Unsafe statement written to the binary log using statement format since BINLOG_FORMAT = STATEMENT. Statement is unsafe because it uses a system function that may return a different value on the slave.
+Note	1592	Unsafe statement written to the binary log using statement format since BINLOG_FORMAT = STATEMENT. Statement is unsafe because it uses a system function that may return a different value on the slave
 create procedure test.p1()
 begin
 INSERT INTO test.t1  VALUES(2,'test');
@@ -14,7 +15,7 @@ UPDATE test.t1 SET blob_column=LOAD_FILE('../../std_data/words2.dat') WHERE a=2;
 end|
 CALL test.p1();
 Warnings:
-Note	1592	Unsafe statement written to the binary log using statement format since BINLOG_FORMAT = STATEMENT. Statement is unsafe because it uses a system function that may return a different value on the slave.
+Note	1592	Unsafe statement written to the binary log using statement format since BINLOG_FORMAT = STATEMENT. Statement is unsafe because it uses a system function that may return a different value on the slave
 SELECT * FROM test.t1 ORDER BY blob_column;
 a	blob_column
 1	abase
@@ -119,6 +120,8 @@ Abernathy
 aberrant
 aberration
 
+connection slave;
+connection slave;
 SELECT * FROM test.t1 ORDER BY blob_column;
 a	blob_column
 1	abase
@@ -223,6 +226,8 @@ Abernathy
 aberrant
 aberration
 
+connection master;
 DROP PROCEDURE IF EXISTS test.p1;
 DROP TABLE test.t1;
+connection slave;
 include/rpl_end.inc

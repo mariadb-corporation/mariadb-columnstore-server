@@ -177,6 +177,10 @@ typedef struct st_partition_iter
     iterator also produce id of the partition that contains NULL value.
   */
   bool ret_null_part, ret_null_part_orig;
+  /*
+    We should return DEFAULT partition.
+  */
+  bool ret_default_part, ret_default_part_orig;
   struct st_part_num_range
   {
     uint32 start;
@@ -262,7 +266,7 @@ uint prep_alter_part_table(THD *thd, TABLE *table, Alter_info *alter_info,
                            Alter_table_ctx *alter_ctx,
                            bool *partition_changed,
                            bool *fast_alter_table);
-char *generate_partition_syntax(partition_info *part_info,
+char *generate_partition_syntax(THD *thd, partition_info *part_info,
                                 uint *buf_length, bool use_sql_alloc,
                                 bool show_partition_options,
                                 HA_CREATE_INFO *create_info,
@@ -284,7 +288,6 @@ void create_subpartition_name(char *out, const char *in1,
                               const char *in2, const char *in3,
                               uint name_variant);
 
-void set_field_ptr(Field **ptr, const uchar *new_buf, const uchar *old_buf);
 void set_key_field_ptr(KEY *key_info, const uchar *new_buf,
                        const uchar *old_buf);
 

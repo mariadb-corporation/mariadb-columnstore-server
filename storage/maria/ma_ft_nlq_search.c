@@ -11,7 +11,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111-1301 USA */
 
 /* Written by Sergei A. Golubchik, who has a shared copyright to this code */
 
@@ -119,7 +119,7 @@ static int walk_and_match(FT_WORD *word, uint32 count, ALL_IN_ONE *aio)
                         info->last_key.data+1,
                         info->last_key.data_length +
                         info->last_key.ref_length - extra - 1,
-                        key.data+1, key.data_length-1, 0, 0))
+                        key.data+1, key.data_length-1, 0))
      break;
 
     if (subkeys.i < 0)

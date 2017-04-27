@@ -11,7 +11,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111-1301 USA */
 
 /* Written by Sergei A. Golubchik, who has a shared copyright to this code */
 
@@ -34,7 +34,7 @@ typedef struct st_my_maria_ft_parser_param
 static int FT_WORD_cmp(CHARSET_INFO* cs, FT_WORD *w1, FT_WORD *w2)
 {
   return ha_compare_text(cs, (uchar*) w1->pos, w1->len,
-                         (uchar*) w2->pos, w2->len, 0, 0);
+                         (uchar*) w2->pos, w2->len, 0);
 }
 
 static int walk_and_copy(FT_WORD *word,uint32 count,FT_DOCSTAT *docstat)

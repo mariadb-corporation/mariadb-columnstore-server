@@ -2,6 +2,7 @@
 #define STRUCTS_INCLUDED
 
 /* Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+   Copyright (c) 2017, MariaDB Corporation.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -64,9 +65,11 @@ typedef struct st_keyfile_info {	/* used with ha_info() */
 
 
 typedef struct st_key_part_info {	/* Info about a key part */
-  Field *field;
-  uint	offset;				/* offset in record (from 0) */
-  uint	null_offset;			/* Offset to null_bit in record */
+  Field *field;                         /* the Field object for the indexed
+                                           prefix of the original table Field.
+                                           NOT necessarily the original Field */
+  uint  offset;                         /* Offset in record (from 0) */
+  uint  null_offset;                    /* Offset to null_bit in record */
   /* Length of key part in bytes, excluding NULL flag and length bytes */
   uint16 length;
   /* 
@@ -77,9 +80,8 @@ typedef struct st_key_part_info {	/* Info about a key part */
   */
   uint16 store_length;
   uint16 key_type;
-  /* Fieldnr begins counting from 1 */
-  uint16 fieldnr;			/* Fieldnum in UNIREG */
-  uint16 key_part_flag;			/* 0 or HA_REVERSE_SORT */
+  uint16 fieldnr;                       /* Fieldnr begins counting from 1 */
+  uint16 key_part_flag;                 /* 0 or HA_REVERSE_SORT */
   uint8 type;
   uint8 null_bit;			/* Position to null_bit */
 } KEY_PART_INFO ;
@@ -204,7 +206,7 @@ typedef int *(*update_var)(THD *, struct st_mysql_show_var *);
 typedef struct	st_lex_user {
   LEX_STRING user, host, plugin, auth;
   LEX_STRING pwtext, pwhash;
-  bool is_role() { return user.str[0] && !host.str[0]; }
+  bool is_role() const { return user.str[0] && !host.str[0]; }
   void set_lex_string(LEX_STRING *l, char *buf)
   {
     if (is_role())
@@ -330,26 +332,26 @@ typedef struct st_index_stats
 
 
 	/* Bits in form->update */
-#define REG_MAKE_DUPP		1	/* Make a copy of record when read */
-#define REG_NEW_RECORD		2	/* Write a new record if not found */
-#define REG_UPDATE		4	/* Uppdate record */
-#define REG_DELETE		8	/* Delete found record */
-#define REG_PROG		16	/* User is updating database */
-#define REG_CLEAR_AFTER_WRITE	32
-#define REG_MAY_BE_UPDATED	64
-#define REG_AUTO_UPDATE		64	/* Used in D-forms for scroll-tables */
-#define REG_OVERWRITE		128
-#define REG_SKIP_DUP		256
+#define REG_MAKE_DUPP		1U	/* Make a copy of record when read */
+#define REG_NEW_RECORD		2U	/* Write a new record if not found */
+#define REG_UPDATE		4U	/* Uppdate record */
+#define REG_DELETE		8U	/* Delete found record */
+#define REG_PROG		16U	/* User is updating database */
+#define REG_CLEAR_AFTER_WRITE	32U
+#define REG_MAY_BE_UPDATED	64U
+#define REG_AUTO_UPDATE		64U	/* Used in D-forms for scroll-tables */
+#define REG_OVERWRITE		128U
+#define REG_SKIP_DUP		256U
 
 	/* Bits in form->status */
-#define STATUS_NO_RECORD	(1+2)	/* Record isn't usably */
-#define STATUS_GARBAGE		1
-#define STATUS_NOT_FOUND	2	/* No record in database when needed */
-#define STATUS_NO_PARENT	4	/* Parent record wasn't found */
-#define STATUS_NOT_READ		8	/* Record isn't read */
-#define STATUS_UPDATED		16	/* Record is updated by formula */
-#define STATUS_NULL_ROW		32	/* table->null_row is set */
-#define STATUS_DELETED		64
+#define STATUS_NO_RECORD	(1U+2U)	/* Record isn't usable */
+#define STATUS_GARBAGE		1U
+#define STATUS_NOT_FOUND	2U	/* No record in database when needed */
+#define STATUS_NO_PARENT	4U	/* Parent record wasn't found */
+#define STATUS_NOT_READ		8U	/* Record isn't read */
+#define STATUS_UPDATED		16U	/* Record is updated by formula */
+#define STATUS_NULL_ROW		32U	/* table->null_row is set */
+#define STATUS_DELETED		64U
 
 /*
   Such interval is "discrete": it is the set of
@@ -554,6 +556,76 @@ public:
   DDL_options(Options options) { init(options); }
   DDL_options(const DDL_options_st &options)
   { DDL_options_st::operator=(options); }
+};
+
+
+struct Lex_length_and_dec_st
+{
+private:
+  const char *m_length;
+  const char *m_dec;
+public:
+  void set(const char *length, const char *dec)
+  {
+    m_length= length;
+    m_dec= dec;
+  }
+  const char *length() const { return m_length; }
+  const char *dec() const { return m_dec; }
+};
+
+
+struct Lex_field_type_st: public Lex_length_and_dec_st
+{
+private:
+  enum_field_types m_type;
+  void set(enum_field_types type, const char *length, const char *dec)
+  {
+    m_type= type;
+    Lex_length_and_dec_st::set(length, dec);
+  }
+public:
+  void set(enum_field_types type, Lex_length_and_dec_st length_and_dec)
+  {
+    m_type= type;
+    Lex_length_and_dec_st::operator=(length_and_dec);
+  }
+  void set(enum_field_types type, const char *length)
+  {
+    set(type, length, 0);
+  }
+  void set(enum_field_types type)
+  {
+    set(type, 0, 0);
+  }
+  enum_field_types field_type() const { return m_type; }
+};
+
+
+struct Lex_dyncol_type_st: public Lex_length_and_dec_st
+{
+private:
+  int m_type; // enum_dynamic_column_type is not visible here, so use int
+public:
+  void set(int type, const char *length, const char *dec)
+  {
+    m_type= type;
+    Lex_length_and_dec_st::set(length, dec);
+  }
+  void set(int type, Lex_length_and_dec_st length_and_dec)
+  {
+    m_type= type;
+    Lex_length_and_dec_st::operator=(length_and_dec);
+  }
+  void set(int type, const char *length)
+  {
+    set(type, length, 0);
+  }
+  void set(int type)
+  {
+    set(type, 0, 0);
+  }
+  int dyncol_type() const { return m_type; }
 };
 
 

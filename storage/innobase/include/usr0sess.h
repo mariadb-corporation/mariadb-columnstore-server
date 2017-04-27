@@ -1,6 +1,7 @@
 /*****************************************************************************
 
-Copyright (c) 1996, 2009, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -38,14 +39,12 @@ Created 6/25/1996 Heikki Tuuri
 
 /*********************************************************************//**
 Opens a session.
-@return	own: session object */
-UNIV_INTERN
+@return own: session object */
 sess_t*
 sess_open(void);
 /*============*/
 /*********************************************************************//**
 Closes a session, freeing the memory occupied by it. */
-UNIV_INTERN
 void
 sess_close(
 /*=======*/
@@ -60,9 +59,6 @@ struct sess_t{
 					transaction instance designated by the
 					trx id changes, but the memory
 					structure is preserved */
-	UT_LIST_BASE_NODE_T(que_t)
-			graphs;		/*!< query graphs belonging to this
-					session */
 };
 
 /* Session states */
@@ -70,8 +66,4 @@ struct sess_t{
 #define SESS_ERROR		2	/* session contains an error message
 					which has not yet been communicated
 					to the client */
-#ifndef UNIV_NONINL
-#include "usr0sess.ic"
-#endif
-
 #endif

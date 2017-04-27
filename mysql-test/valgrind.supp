@@ -368,8 +368,6 @@
    fun:_dl_init
 }
 
-
-
 #
 #  dlclose can allocate memory for error message, the memory will be
 #  freed by dlerror or other dl* function.
@@ -1074,6 +1072,15 @@
    fun:SSL_library_init
 }
 
+{
+   OpenSSL still reachable.
+   Memcheck:Leak
+   fun:*alloc
+   fun:CRYPTO_malloc
+   fun:sk_new
+   fun:SSL_COMP_get_compression_methods
+   fun:SSL_library_init
+}
 
 {
    OpenSSL still reachable.
@@ -1081,6 +1088,16 @@
    fun:*alloc
    fun:CRYPTO_malloc
    obj:*libssl*
+   fun:SSL_COMP_get_compression_methods
+   fun:SSL_library_init
+}
+
+{
+   OpenSSL still reachable.
+   Memcheck:Leak
+   fun:*alloc
+   fun:CRYPTO_malloc
+   fun:sk_new
    fun:SSL_COMP_get_compression_methods
    fun:SSL_library_init
 }
@@ -1119,6 +1136,16 @@
    match-leak-kinds:possible
    ...
    fun:pthread_create*
+}
+
+{
+   Memory Leak in loader and valgrind malloc
+   Memcheck:Leak
+   match-leak-kinds:reachable
+   obj:*/vgpreload_memcheck*.so
+   ...
+   obj:*/ld-*.so
+   ...
 }
 
 {
@@ -1591,3 +1618,123 @@
    fun:start_thread
    fun:clone
 }
+
+# 
+# MDEV-11061: OpenSSL 0.9.8 problems
+#
+
+{
+   MDEV-11061: OpenSSL 0.9.8
+   Memcheck:Cond
+   obj:*/libz.so*
+   ...
+   obj:*/libcrypto.so.0.9.8
+   ...
+   obj:*/libssl.so.0.9.8
+   ...
+}
+
+{
+   MDEV-11061: OpenSSL 0.9.8
+   Memcheck:Value8
+   obj:*/libz.so*
+   ...
+   obj:*/libcrypto.so.0.9.8
+   ...
+   obj:*/libssl.so.0.9.8
+   ...
+}
+
+{
+   MDEV-11061: OpenSSL 0.9.8
+   Memcheck:Cond
+   obj:*/libcrypto.so.0.9.8
+   ...
+   obj:*/libssl.so.0.9.8
+   ...
+}
+
+{
+   MDEV-11061: OpenSSL 0.9.8
+   Memcheck:Value8
+   obj:*/libcrypto.so.0.9.8
+   ...
+   obj:*/libssl.so.0.9.8
+   ...
+}
+
+{
+   MDEV-11061: OpenSSL 0.9.8
+   Memcheck:Cond
+   obj:*/libssl.so.0.9.8
+   obj:*/libssl.so.0.9.8
+   ...
+}
+
+{
+   MDEV-11061: OpenSSL 0.9.8
+   Memcheck:Value8
+   obj:*/libssl.so.0.9.8
+   obj:*/libssl.so.0.9.8
+   ...
+}
+
+{
+   MDEV-11061: OpenSSL 0.9.8
+   Memcheck:Cond
+   fun:memcpy
+   obj:*/libcrypto.so.0.9.8
+   obj:*/libssl.so.0.9.8
+   ...
+}
+
+{
+   MDEV-11061: OpenSSL 0.9.8
+   Memcheck:Value8
+   fun:memcpy
+   obj:*/libcrypto.so.0.9.8
+   obj:*/libssl.so.0.9.8
+   ...
+}
+
+{
+   MDEV-11061: OpenSSL 0.9.8
+   Memcheck:Cond
+   fun:is_overlap
+   fun:memcpy
+   obj:*/libcrypto.so.0.9.8
+   obj:*/libssl.so.0.9.8
+   ...
+}
+
+{
+   MDEV-11061: OpenSSL 0.9.8
+   Memcheck:Cond
+   fun:memset
+   obj:*/libcrypto.so.0.9.8
+   ...
+   obj:*/libssl.so.0.9.8
+   ...
+}
+
+{
+   MDEV-11061: OpenSSL 0.9.8
+   Memcheck:Value8
+   fun:memset
+   obj:*/libcrypto.so.0.9.8
+   ...
+   obj:*/libssl.so.0.9.8
+   ...
+}
+
+{
+   MDEV-11061: OpenSSL 0.9.8
+   Memcheck:Param
+   write(buf)
+   obj:*/libpthread-2.9.so*
+   obj:*/libcrypto.so.0.9.8
+   ...
+   obj:*/libssl.so.0.9.8
+   ...
+}
+

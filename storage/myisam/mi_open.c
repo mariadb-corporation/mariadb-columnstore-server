@@ -104,8 +104,13 @@ MI_INFO *mi_open(const char *name, int mode, uint open_flags)
 
   realpath_err= my_realpath(name_buff,
                             fn_format(org_name,name,"",MI_NAME_IEXT,4),MYF(0));
+  if (realpath_err > 0) /* File not found, no point in looking further. */
+  {
+    DBUG_RETURN(NULL);
+  }
+
   if (my_is_symlink(org_name) &&
-      (realpath_err || (*myisam_test_invalid_symlink)(name_buff)))
+      (realpath_err || mysys_test_invalid_symlink(name_buff)))
   {
     my_errno= HA_WRONG_CREATE_OPTION;
     DBUG_RETURN (NULL);
@@ -131,15 +136,17 @@ MI_INFO *mi_open(const char *name, int mode, uint open_flags)
                       my_errno= HA_ERR_CRASHED;
                       goto err;
                     });
-    if ((kfile= mysql_file_open(mi_key_file_kfile,
-                                name_buff,
-                                (open_mode= O_RDWR) | O_SHARE, MYF(0))) < 0)
+
+    DEBUG_SYNC_C("mi_open_kfile");
+    if ((kfile= mysql_file_open(mi_key_file_kfile, name_buff,
+                                (open_mode= O_RDWR) | O_SHARE | O_NOFOLLOW,
+                                MYF(MY_NOSYMLINKS))) < 0)
     {
       if ((errno != EROFS && errno != EACCES) ||
 	  mode != O_RDONLY ||
-          (kfile= mysql_file_open(mi_key_file_kfile,
-                                  name_buff,
-                                  (open_mode= O_RDONLY) | O_SHARE, MYF(0))) < 0)
+          (kfile= mysql_file_open(mi_key_file_kfile, name_buff,
+                                  (open_mode= O_RDONLY) | O_SHARE| O_NOFOLLOW,
+                                  MYF(MY_NOSYMLINKS))) < 0)
 	goto err;
     }
     share->mode=open_mode;
@@ -183,7 +190,18 @@ MI_INFO *mi_open(const char *name, int mode, uint open_flags)
       (void) strmov(index_name, org_name);
     *strrchr(org_name, '.')= '\0';
     (void) fn_format(data_name,org_name,"",MI_NAME_DEXT,
-                     MY_APPEND_EXT|MY_UNPACK_FILENAME|MY_RESOLVE_SYMLINKS);
+                     MY_APPEND_EXT|MY_UNPACK_FILENAME);
+    if (my_is_symlink(data_name))
+    {
+      if (my_realpath(data_name, data_name, MYF(0)))
+        goto err;
+      if (mysys_test_invalid_symlink(data_name))
+      {
+        my_errno= HA_WRONG_CREATE_OPTION;
+        goto err;
+      }
+      share->mode|= O_NOFOLLOW; /* all symlinks are resolved by realpath() */
+    }
 
     info_length=mi_uint2korr(share->state.header.header_length);
     base_pos=mi_uint2korr(share->state.header.base_pos);
@@ -328,21 +346,22 @@ MI_INFO *mi_open(const char *name, int mode, uint open_flags)
     strmov(share->index_file_name,  index_name);
     strmov(share->data_file_name,   data_name);
 
+    share->vreclength= share->base.reclength;
     share->blocksize=MY_MIN(IO_SIZE,myisam_block_size);
     {
       HA_KEYSEG *pos=share->keyparts;
       uint32 ftkey_nr= 1;
       for (i=0 ; i < keys ; i++)
       {
-        share->keyinfo[i].share= share;
-	disk_pos=mi_keydef_read(disk_pos, &share->keyinfo[i]);
-        disk_pos_assert(disk_pos + share->keyinfo[i].keysegs * HA_KEYSEG_SIZE,
- 			end_pos);
-        if (share->keyinfo[i].key_alg == HA_KEY_ALG_RTREE)
+        MI_KEYDEF *keyinfo= share->keyinfo + i;
+        keyinfo->share= share;
+        disk_pos=mi_keydef_read(disk_pos, keyinfo);
+        disk_pos_assert(disk_pos + keyinfo->keysegs * HA_KEYSEG_SIZE, end_pos);
+        if (keyinfo->key_alg == HA_KEY_ALG_RTREE)
           have_rtree=1;
-	set_if_smaller(share->blocksize,share->keyinfo[i].block_length);
-	share->keyinfo[i].seg=pos;
-	for (j=0 ; j < share->keyinfo[i].keysegs; j++,pos++)
+        set_if_smaller(share->blocksize, keyinfo->block_length);
+        keyinfo->seg= pos;
+        for (j=0 ; j < keyinfo->keysegs; j++,pos++)
 	{
 	  disk_pos=mi_keyseg_read(disk_pos, pos);
           if (pos->flag & HA_BLOB_PART &&
@@ -366,35 +385,30 @@ MI_INFO *mi_open(const char *name, int mode, uint open_flags)
 	  }
 	  else if (pos->type == HA_KEYTYPE_BINARY)
 	    pos->charset= &my_charset_bin;
-          if (!(share->keyinfo[i].flag & HA_SPATIAL) &&
-              pos->start > share->base.reclength)
-          {
-            my_errno= HA_ERR_CRASHED;
-            goto err;
-          }
 	}
-	if (share->keyinfo[i].flag & HA_SPATIAL)
+        if (keyinfo->flag & HA_SPATIAL)
 	{
 #ifdef HAVE_SPATIAL
-	  uint sp_segs=SPDIMS*2;
-	  share->keyinfo[i].seg=pos-sp_segs;
-	  share->keyinfo[i].keysegs--;
+          uint sp_segs= SPDIMS*2;
+          keyinfo->seg= pos - sp_segs;
+          DBUG_ASSERT(keyinfo->keysegs == sp_segs + 1);
+          keyinfo->keysegs= sp_segs;
 #else
 	  my_errno=HA_ERR_UNSUPPORTED;
 	  goto err;
 #endif
 	}
-        else if (share->keyinfo[i].flag & HA_FULLTEXT)
+        else if (keyinfo->flag & HA_FULLTEXT)
 	{
           if (!fulltext_keys)
           { /* 4.0 compatibility code, to be removed in 5.0 */
-            share->keyinfo[i].seg=pos-FT_SEGS;
-            share->keyinfo[i].keysegs-=FT_SEGS;
+            keyinfo->seg= pos - FT_SEGS;
+            keyinfo->keysegs-= FT_SEGS;
           }
           else
           {
             uint k;
-            share->keyinfo[i].seg=pos;
+            keyinfo->seg= pos;
             for (k=0; k < FT_SEGS; k++)
             {
               *pos= ft_keysegs[k];
@@ -409,7 +423,7 @@ MI_INFO *mi_open(const char *name, int mode, uint open_flags)
           }
           if (!share->ft2_keyinfo.seg)
           {
-            memcpy(& share->ft2_keyinfo, & share->keyinfo[i], sizeof(MI_KEYDEF));
+            memcpy(& share->ft2_keyinfo, keyinfo, sizeof(MI_KEYDEF));
             share->ft2_keyinfo.keysegs=1;
             share->ft2_keyinfo.flag=0;
             share->ft2_keyinfo.keylength=
@@ -419,10 +433,10 @@ MI_INFO *mi_open(const char *name, int mode, uint open_flags)
             share->ft2_keyinfo.end=pos;
             setup_key_functions(& share->ft2_keyinfo);
           }
-          share->keyinfo[i].ftkey_nr= ftkey_nr++;
+          keyinfo->ftkey_nr= ftkey_nr++;
 	}
-        setup_key_functions(share->keyinfo+i);
-	share->keyinfo[i].end=pos;
+        setup_key_functions(keyinfo);
+        keyinfo->end= pos;
 	pos->type=HA_KEYTYPE_END;			/* End */
 	pos->length=share->base.rec_reflength;
 	pos->null_bit=0;
@@ -497,7 +511,7 @@ MI_INFO *mi_open(const char *name, int mode, uint open_flags)
       lock_error=1;			/* Database unlocked */
     }
 
-    if (mi_open_datafile(&info, share, name, -1))
+    if (mi_open_datafile(&info, share))
       goto err;
     errpos=5;
 
@@ -578,7 +592,7 @@ MI_INFO *mi_open(const char *name, int mode, uint open_flags)
       my_errno=EACCES;				/* Can't open in write mode */
       goto err;
     }
-    if (mi_open_datafile(&info, share, name, old_info->dfile))
+    if (mi_open_datafile(&info, share))
       goto err;
     errpos=5;
     have_rtree= old_info->rtree_recursion_state != NULL;
@@ -734,6 +748,7 @@ uchar *mi_alloc_rec_buff(MI_INFO *info, ulong length, uchar **buf)
       else
         length= info->s->base.pack_reclength;
       length= MY_MAX(length, info->s->base.max_key_length);
+      length= MY_MAX(length, info->s->vreclength);
       /* Avoid unnecessary realloc */
       if (newptr && length == old_length)
 	return newptr;
@@ -746,7 +761,7 @@ uchar *mi_alloc_rec_buff(MI_INFO *info, ulong length, uchar **buf)
       newptr-= MI_REC_BUFF_OFFSET;
     if (!(newptr=(uchar*) my_realloc((uchar*)newptr, length+extra+8,
                                      MYF(MY_ALLOW_ZERO_PTR))))
-      return newptr;
+      return NULL;
     *((uint32 *) newptr)= (uint32) length;
     *buf= newptr+(extra ?  MI_REC_BUFF_OFFSET : 0);
   }
@@ -1248,33 +1263,14 @@ uchar *mi_recinfo_read(uchar *ptr, MI_COLUMNDEF *recinfo)
 Open data file.
 We can't use dup() here as the data file descriptors need to have different
 active seek-positions.
-
-The argument file_to_dup is here for the future if there would on some OS
-exist a dup()-like call that would give us two different file descriptors.
 *************************************************************************/
 
-int mi_open_datafile(MI_INFO *info, MYISAM_SHARE *share, const char *org_name,
-                     File file_to_dup __attribute__((unused)))
+int mi_open_datafile(MI_INFO *info, MYISAM_SHARE *share)
 {
-  char *data_name= share->data_file_name;
-  char real_data_name[FN_REFLEN];
-
-  if (org_name)
-  {
-    fn_format(real_data_name,org_name,"",MI_NAME_DEXT,4);
-    if (my_is_symlink(real_data_name))
-    {
-      if (my_realpath(real_data_name, real_data_name, MYF(0)) ||
-          (*myisam_test_invalid_symlink)(real_data_name))
-      {
-        my_errno= HA_WRONG_CREATE_OPTION;
-        return 1;
-      }
-      data_name= real_data_name;
-    }
-  }
-  info->dfile= mysql_file_open(mi_key_file_dfile,
-                               data_name, share->mode | O_SHARE, MYF(MY_WME));
+  myf flags= MY_WME | (share->mode & O_NOFOLLOW ? MY_NOSYMLINKS: 0);
+  DEBUG_SYNC_C("mi_open_datafile");
+  info->dfile= mysql_file_open(mi_key_file_dfile, share->data_file_name,
+                               share->mode | O_SHARE, MYF(flags));
   return info->dfile >= 0 ? 0 : 1;
 }
 
@@ -1283,8 +1279,8 @@ int mi_open_keyfile(MYISAM_SHARE *share)
 {
   if ((share->kfile= mysql_file_open(mi_key_file_kfile,
                                      share->unique_file_name,
-                                     share->mode | O_SHARE,
-                                     MYF(MY_WME))) < 0)
+                                     share->mode | O_SHARE | O_NOFOLLOW,
+                                     MYF(MY_NOSYMLINKS | MY_WME))) < 0)
     return 1;
   return 0;
 }
@@ -1388,4 +1384,3 @@ int mi_indexes_are_disabled(MI_INFO *info)
   */
   return 2;
 }
-

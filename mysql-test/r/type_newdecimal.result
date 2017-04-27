@@ -77,13 +77,13 @@ t1	CREATE TABLE `t1` (
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 create table t1 (a decimal(4,2));
-insert into t1 value (10000), (1.1e10), ("11111"), (100000.1);
+insert ignore into t1 value (10000), (1.1e10), ("11111"), (100000.1);
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 Warning	1264	Out of range value for column 'a' at row 2
 Warning	1264	Out of range value for column 'a' at row 3
 Warning	1264	Out of range value for column 'a' at row 4
-insert into t1 value (-10000), (-1.1e10), ("-11111"), (-100000.1);
+insert ignore into t1 value (-10000), (-1.1e10), ("-11111"), (-100000.1);
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 Warning	1264	Out of range value for column 'a' at row 2
@@ -101,13 +101,13 @@ a
 -99.99
 drop table t1;
 create table t1 (a decimal(4,2) unsigned);
-insert into t1 value (10000), (1.1e10), ("11111"), (100000.1);
+insert ignore into t1 value (10000), (1.1e10), ("11111"), (100000.1);
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 Warning	1264	Out of range value for column 'a' at row 2
 Warning	1264	Out of range value for column 'a' at row 3
 Warning	1264	Out of range value for column 'a' at row 4
-insert into t1 value (-10000), (-1.1e10), ("-11111"), (-100000.1);
+insert ignore into t1 value (-10000), (-1.1e10), ("-11111"), (-100000.1);
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 Warning	1264	Out of range value for column 'a' at row 2
@@ -125,13 +125,13 @@ a
 0.00
 drop table t1;
 create table t1 (a bigint);
-insert into t1 values (18446744073709551615.0);
+insert ignore into t1 values (18446744073709551615.0);
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
-insert into t1 values (9223372036854775808.0);
+insert ignore into t1 values (9223372036854775808.0);
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
-insert into t1 values (-18446744073709551615.0);
+insert ignore into t1 values (-18446744073709551615.0);
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 select * from t1;
@@ -143,10 +143,10 @@ drop table t1;
 create table t1 (a bigint unsigned);
 insert into t1 values (18446744073709551615.0);
 insert into t1 values (9223372036854775808.0);
-insert into t1 values (9999999999999999999999999.000);
+insert ignore into t1 values (9999999999999999999999999.000);
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
-insert into t1 values (-1.0);
+insert ignore into t1 values (-1.0);
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 select * from t1;
@@ -157,11 +157,11 @@ a
 0
 drop table t1;
 create table t1 (a tinyint);
-insert into t1 values (18446744073709551615.0);
+insert ignore into t1 values (18446744073709551615.0);
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 Warning	1264	Out of range value for column 'a' at row 1
-insert into t1 values (9223372036854775808.0);
+insert ignore into t1 values (9223372036854775808.0);
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 Warning	1264	Out of range value for column 'a' at row 1
@@ -176,7 +176,7 @@ Table	Create Table
 t1	CREATE TABLE `t1` (
   `round(15.4,-1)` decimal(3,0) NOT NULL,
   `truncate(-5678.123451,-3)` decimal(4,0) NOT NULL,
-  `abs(-1.1)` decimal(3,1) NOT NULL,
+  `abs(-1.1)` decimal(2,1) NOT NULL,
   `-(-1.1)` decimal(2,1) NOT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
@@ -700,10 +700,10 @@ select .7777777777777777777777777777777777777 *
 1000000000000000000;
 .7777777777777777777777777777777777777 *
 1000000000000000000
-777777777777777777.777777777777777777700000000000
+777777777777777777.7777777777777777777000000000000000000
 select .7777777777777777777777777777777777777 - 0.1;
 .7777777777777777777777777777777777777 - 0.1
-0.677777777777777777777777777778
+0.6777777777777777777777777777777777777
 select .343434343434343434 + .343434343434343434;
 .343434343434343434 + .343434343434343434
 0.686868686868686868
@@ -758,12 +758,12 @@ round(99999999999999999.999,3)
 select round(-99999999999999999.999,3);
 round(-99999999999999999.999,3)
 -99999999999999999.999
-select truncate(99999999999999999999999999999999999999,31);
-truncate(99999999999999999999999999999999999999,31)
-99999999999999999999999999999999999999.000000000000000000000000000000
-select truncate(99.999999999999999999999999999999999999,31);
-truncate(99.999999999999999999999999999999999999,31)
-99.999999999999999999999999999999
+select truncate(99999999999999999999999999999999999999,49);
+truncate(99999999999999999999999999999999999999,49)
+99999999999999999999999999999999999999.000000000000000000000000000000000000
+select truncate(99.999999999999999999999999999999999999,49);
+truncate(99.999999999999999999999999999999999999,49)
+99.99999999999999999999999999999999999900
 select truncate(99999999999999999999999999999999999999,-31);
 truncate(99999999999999999999999999999999999999,-31)
 99999990000000000000000000000000000000
@@ -838,12 +838,12 @@ select 9999999999999999999999999999999999999999999999999999999999999999999999999
 x
 99999999999999999999999999999999999999999999999999999999999999999
 Warnings:
-Warning	1916	Got overflow when converting '' to DECIMAL. Value truncated.
+Warning	1916	Got overflow when converting '' to DECIMAL. Value truncated
 select 9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999 + 1 as x;
 x
 100000000000000000000000000000000000000000000000000000000000000000
 Warnings:
-Warning	1916	Got overflow when converting '' to DECIMAL. Value truncated.
+Warning	1916	Got overflow when converting '' to DECIMAL. Value truncated
 select 0.190287977636363637 + 0.040372670 * 0 -  0;
 0.190287977636363637 + 0.040372670 * 0 -  0
 0.190287977636363637
@@ -889,7 +889,7 @@ create table t1 (col1 int, col2 decimal(30,25), col3 numeric(30,25));
 insert into t1 values (1,0.0123456789012345678912345,0.0123456789012345678912345);
 select col2/9999999999 from t1 where col1=1;
 col2/9999999999
-0.000000000001234567890246913578
+0.00000000000123456789024691357814814136
 select 9999999999/col2 from t1 where col1=1;
 9999999999/col2
 810000007209.000065537105051
@@ -919,17 +919,19 @@ select ln(14000) c1, convert(ln(14000),decimal(5,3)) c2, cast(ln(14000) as decim
 c1	c2	c3
 9.546812608597396	9.547	9.547
 select convert(ln(14000),decimal(2,3)) c1;
-ERROR 42000: For float(M,D), double(M,D) or decimal(M,D), M must be >= D (column '').
+ERROR 42000: For float(M,D), double(M,D) or decimal(M,D), M must be >= D (column '')
 select cast(ln(14000) as decimal(2,3)) c1;
-ERROR 42000: For float(M,D), double(M,D) or decimal(M,D), M must be >= D (column '').
+ERROR 42000: For float(M,D), double(M,D) or decimal(M,D), M must be >= D (column '')
 create table t1 (sl decimal(70,30));
-ERROR 42000: Too big precision 70 specified for 'sl'. Maximum is 65.
-create table t1 (sl decimal(32,31));
-ERROR 42000: Too big scale 31 specified for 'sl'. Maximum is 30.
-create table t1 (sl decimal(0,38));
-ERROR 42000: Too big scale 38 specified for 'sl'. Maximum is 30.
+ERROR 42000: Too big precision 70 specified for 'sl'. Maximum is 65
+create table t1 (sl decimal(32,39));
+ERROR 42000: Too big scale 39 specified for 'sl'. Maximum is 38
+create table t1 (sl decimal(67,38));
+ERROR 42000: Too big precision 67 specified for 'sl'. Maximum is 65
+create table t1 (sl decimal(0,50));
+ERROR 42000: Too big scale 50 specified for 'sl'. Maximum is 38
 create table t1 (sl decimal(0,30));
-ERROR 42000: For float(M,D), double(M,D) or decimal(M,D), M must be >= D (column 'sl').
+ERROR 42000: For float(M,D), double(M,D) or decimal(M,D), M must be >= D (column 'sl')
 create table t1 (sl decimal(5, 5));
 show create table t1;
 Table	Create Table
@@ -937,11 +939,11 @@ t1	CREATE TABLE `t1` (
   `sl` decimal(5,5) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
-create table t1 (sl decimal(65, 30));
+create table t1 (sl decimal(65, 38));
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `sl` decimal(65,30) DEFAULT NULL
+  `sl` decimal(65,38) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 create table t1 (
@@ -973,8 +975,8 @@ f1 decimal (0,0) zerofill not null default 0);
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f0` decimal(30,30) unsigned zerofill NOT NULL DEFAULT '0.000000000000000000000000000000',
-  `f1` decimal(10,0) unsigned zerofill NOT NULL DEFAULT '0000000000'
+  `f0` decimal(30,30) unsigned zerofill NOT NULL DEFAULT 0.000000000000000000000000000000,
+  `f1` decimal(10,0) unsigned zerofill NOT NULL DEFAULT 0000000000
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 drop procedure if exists wg2;
@@ -1011,7 +1013,7 @@ select cast(@non_existing_user_var/2 as DECIMAL);
 cast(@non_existing_user_var/2 as DECIMAL)
 NULL
 create table t (d decimal(0,10));
-ERROR 42000: For float(M,D), double(M,D) or decimal(M,D), M must be >= D (column 'd').
+ERROR 42000: For float(M,D), double(M,D) or decimal(M,D), M must be >= D (column 'd')
 CREATE TABLE t1 (
 my_float   FLOAT,
 my_double  DOUBLE,
@@ -1380,12 +1382,12 @@ create table t1 (c1 decimal(64));
 insert into t1 values(
 89000000000000000000000000000000000000000000000000000000000000000000000000000000000000000);
 Warnings:
-Warning	1916	Got overflow when converting '' to DECIMAL. Value truncated.
+Warning	1916	Got overflow when converting '' to DECIMAL. Value truncated
 Warning	1264	Out of range value for column 'c1' at row 1
 insert into t1 values(
 99999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999 *
 99999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999);
-ERROR 22003: DECIMAL value is out of range in '(99999999999999999999999999999999999999999999999999999999999999999 * 99999999999999999999999999999999999999999999999999999999999999999)'
+ERROR 22003: DECIMAL value is out of range in '99999999999999999999999999999999999999999999999999999999999999999 * 99999999999999999999999999999999999999999999999999999999999999999'
 insert into t1 values(1e100);
 Warnings:
 Warning	1264	Out of range value for column 'c1' at row 1
@@ -1427,7 +1429,7 @@ select cast(19999999999999999999 as unsigned);
 cast(19999999999999999999 as unsigned)
 18446744073709551615
 Warnings:
-Warning	1916	Got overflow when converting '19999999999999999999' to UNSIGNED INT. Value truncated.
+Warning	1916	Got overflow when converting '19999999999999999999' to UNSIGNED INT. Value truncated
 create table t1(a decimal(18));
 insert into t1 values(123456789012345678);
 alter table t1 modify column a decimal(19);
@@ -1480,12 +1482,12 @@ SELECT CAST(1 AS decimal(65,10));
 CAST(1 AS decimal(65,10))
 1.0000000000
 SELECT CAST(1 AS decimal(66,10));
-ERROR 42000: Too big precision 66 specified for '1'. Maximum is 65.
-SELECT CAST(1 AS decimal(65,30));
-CAST(1 AS decimal(65,30))
-1.000000000000000000000000000000
-SELECT CAST(1 AS decimal(65,31));
-ERROR 42000: Too big scale 31 specified for '1'. Maximum is 30.
+ERROR 42000: Too big precision 66 specified for '1'. Maximum is 65
+SELECT CAST(1 AS decimal(65,38));
+CAST(1 AS decimal(65,38))
+1.00000000000000000000000000000000000000
+SELECT CAST(1 AS decimal(65,39));
+ERROR 42000: Too big scale 39 specified for '1'. Maximum is 38
 CREATE TABLE t1 (a int DEFAULT NULL, b int DEFAULT NULL);
 INSERT INTO t1 VALUES (3,30), (1,10), (2,10);
 SELECT a+CAST(1 AS decimal(65,30)) AS aa, SUM(b) FROM t1 GROUP BY aa;
@@ -1493,8 +1495,8 @@ aa	SUM(b)
 2.000000000000000000000000000000	10
 3.000000000000000000000000000000	10
 4.000000000000000000000000000000	30
-SELECT a+CAST(1 AS decimal(65,31)) AS aa, SUM(b) FROM t1 GROUP BY aa;
-ERROR 42000: Too big scale 31 specified for '1'. Maximum is 30.
+SELECT a+CAST(1 AS decimal(65,49)) AS aa, SUM(b) FROM t1 GROUP BY aa;
+ERROR 42000: Too big scale 49 specified for '1'. Maximum is 38
 DROP TABLE t1;
 CREATE TABLE t1 (a int DEFAULT NULL, b int DEFAULT NULL);
 INSERT INTO t1 VALUES (3,30), (1,10), (2,10);
@@ -1504,31 +1506,31 @@ SELECT 1 FROM t1 GROUP BY @b := @a, @b;
 1
 1
 DROP TABLE t1;
-CREATE TABLE t1 SELECT 0.123456789012345678901234567890123456 AS f1;
+CREATE TABLE t1 SELECT 0.1234567890123456789012345678901234567890123456789 AS f1;
 Warnings:
 Note	1265	Data truncated for column 'f1' at row 1
 DESC t1;
 Field	Type	Null	Key	Default	Extra
-f1	decimal(31,30)	NO		NULL	
+f1	decimal(39,38)	NO		NULL	
 SELECT f1 FROM t1;
 f1
-0.123456789012345678901234567890
+0.12345678901234567890123456789012345679
 DROP TABLE t1;
 CREATE TABLE t1 SELECT 123451234512345123451234512345123451234512345.678906789067890678906789067890678906789067890 AS f1;
 Warnings:
 Warning	1264	Out of range value for column 'f1' at row 1
 DESC t1;
 Field	Type	Null	Key	Default	Extra
-f1	decimal(65,30)	NO		NULL	
+f1	decimal(65,36)	NO		NULL	
 SELECT f1 FROM t1;
 f1
-99999999999999999999999999999999999.999999999999999999999999999999
+99999999999999999999999999999.999999999999999999999999999999999999
 DROP TABLE t1;
 select (1.20396873 * 0.89550000 * 0.68000000 * 1.08721696 * 0.99500000 *
 1.01500000 * 1.01500000 * 0.99500000);
 (1.20396873 * 0.89550000 * 0.68000000 * 1.08721696 * 0.99500000 *
 1.01500000 * 1.01500000 * 0.99500000)
-0.812988073953673124592306939480
+0.81298807395367312459230693948000000000
 create table t1 as select 5.05 / 0.014;
 Warnings:
 Note	1265	Data truncated for column '5.05 / 0.014' at row 1
@@ -1552,8 +1554,8 @@ SELECT substring(('M') FROM (999999999999999999999999999999999999999999999999999
 foo
 
 Warnings:
-Warning	1916	Got overflow when converting '999999999999999999999999999999999999999999999999999999999999999999999999999999999' to INT. Value truncated.
-Warning	1916	Got overflow when converting '999999999999999999999999999999999999999999999999999999999999999999999999999999999' to INT. Value truncated.
+Warning	1916	Got overflow when converting '999999999999999999999999999999999999999999999999999999999999999999999999999999999' to INT. Value truncated
+Warning	1916	Got overflow when converting '999999999999999999999999999999999999999999999999999999999999999999999999999999999' to INT. Value truncated
 SELECT min(999999999999999999999999999999999999999999999999999999999999999999999999999999999) AS foo;
 foo
 999999999999999999999999999999999999999999999999999999999999999999999999999999999
@@ -1561,7 +1563,7 @@ SELECT multipolygonfromtext(('4294967294.1'),(9999999999999999999999999999999999
 foo
 NULL
 Warnings:
-Warning	1916	Got overflow when converting '999999999999999999999999999999999999999999999999999999999999999999999999999999999' to INT. Value truncated.
+Warning	1916	Got overflow when converting '999999999999999999999999999999999999999999999999999999999999999999999999999999999' to INT. Value truncated
 SELECT convert((999999999999999999999999999999999999999999999999999999999999999999999999999999999), decimal(30,30)) AS foo;
 foo
 0.999999999999999999999999999999
@@ -1571,7 +1573,7 @@ SELECT bit_xor(99999999999999999999999999999999999999999999999999999999999999999
 foo
 9223372036854775807
 Warnings:
-Warning	1916	Got overflow when converting '999999999999999999999999999999999999999999999999999999999999999999999999999999999' to INT. Value truncated.
+Warning	1916	Got overflow when converting '999999999999999999999999999999999999999999999999999999999999999999999999999999999' to INT. Value truncated
 SELECT -(999999999999999999999999999999999999999999999999999999999999999999999999999999999) AS foo;
 foo
 -999999999999999999999999999999999999999999999999999999999999999999999999999999999
@@ -1623,30 +1625,30 @@ Warnings:
 Note	1265	Data truncated for column 'my_col' at row 1
 DESCRIBE t1;
 Field	Type	Null	Key	Default	Extra
-my_col	decimal(30,30)	NO		NULL	
+my_col	decimal(38,38)	NO		NULL	
 SELECT my_col FROM t1;
 my_col
-0.123456789123456789123456789123
+0.12345678912345678912345678912345678912
 DROP TABLE t1;
 CREATE TABLE t1 SELECT 1 + .123456789123456789123456789123456789123456789123456789123456789123456789123456789 AS my_col;
 Warnings:
 Note	1265	Data truncated for column 'my_col' at row 1
 DESCRIBE t1;
 Field	Type	Null	Key	Default	Extra
-my_col	decimal(65,30)	NO		NULL	
+my_col	decimal(65,38)	NO		NULL	
 SELECT my_col FROM t1;
 my_col
-1.123456789123456789123456789123
+1.12345678912345678912345678912345678912
 DROP TABLE t1;
 CREATE TABLE t1 SELECT 1 * .123456789123456789123456789123456789123456789123456789123456789123456789123456789 AS my_col;
 Warnings:
 Note	1265	Data truncated for column 'my_col' at row 1
 DESCRIBE t1;
 Field	Type	Null	Key	Default	Extra
-my_col	decimal(65,30)	NO		NULL	
+my_col	decimal(65,38)	NO		NULL	
 SELECT my_col FROM t1;
 my_col
-0.123456789123456789123456789123
+0.12345678912345678912345678912345678912
 DROP TABLE t1;
 CREATE TABLE t1 SELECT 1 / .123456789123456789123456789123456789123456789123456789123456789123456789123456789 AS my_col;
 Warnings:
@@ -1663,10 +1665,10 @@ Warnings:
 Note	1265	Data truncated for column 'my_col' at row 1
 DESCRIBE t1;
 Field	Type	Null	Key	Default	Extra
-my_col	decimal(65,30)	YES		NULL	
+my_col	decimal(65,38)	YES		NULL	
 SELECT my_col FROM t1;
 my_col
-0.012345687012345687012345687012
+0.01234568701234568701234568701234568701
 DROP TABLE t1;
 #
 # Bug#45261: Crash, stored procedure + decimal
@@ -1712,7 +1714,7 @@ CREATE TABLE t1 SELECT
 /* 82 */ 1000000000000000000000000000000000000000000000000000000000000000000000000000000001
 AS c1;
 Warnings:
-Warning	1916	Got overflow when converting '' to DECIMAL. Value truncated.
+Warning	1916	Got overflow when converting '' to DECIMAL. Value truncated
 DESC t1;
 Field	Type	Null	Key	Default	Extra
 c1	decimal(65,0)	NO		NULL	
@@ -1727,30 +1729,30 @@ Warnings:
 Warning	1264	Out of range value for column 'c1' at row 1
 DESC t1;
 Field	Type	Null	Key	Default	Extra
-c1	decimal(65,30)	NO		NULL	
+c1	decimal(65,36)	NO		NULL	
 SELECT * FROM t1;
 c1
-99999999999999999999999999999999999.999999999999999999999999999999
+99999999999999999999999999999.999999999999999999999999999999999999
 DROP TABLE t1;
 CREATE TABLE t1 SELECT
 /* 1 */ 1.10000000000000000000000000000000000000000000000000000000000000000000000000000001 /* 80 */
 AS c1;
 DESC t1;
 Field	Type	Null	Key	Default	Extra
-c1	decimal(31,30)	NO		NULL	
+c1	decimal(39,38)	NO		NULL	
 SELECT * FROM t1;
 c1
-1.100000000000000000000000000000
+1.10000000000000000000000000000000000000
 DROP TABLE t1;
 CREATE TABLE t1 SELECT
 /* 1 */ 1.100000000000000000000000000000000000000000000000000000000000000000000000000000001 /* 81 */
 AS c1;
 DESC t1;
 Field	Type	Null	Key	Default	Extra
-c1	decimal(31,30)	NO		NULL	
+c1	decimal(39,38)	NO		NULL	
 SELECT * FROM t1;
 c1
-1.100000000000000000000000000000
+1.10000000000000000000000000000000000000
 DROP TABLE t1;
 CREATE TABLE t1 SELECT
 .100000000000000000000000000000000000000000000000000000000000000000000000000000001 /* 81 */
@@ -1759,10 +1761,10 @@ Warnings:
 Note	1265	Data truncated for column 'c1' at row 1
 DESC t1;
 Field	Type	Null	Key	Default	Extra
-c1	decimal(30,30)	NO		NULL	
+c1	decimal(38,38)	NO		NULL	
 SELECT * FROM t1;
 c1
-0.100000000000000000000000000000
+0.10000000000000000000000000000000000000
 DROP TABLE t1;
 CREATE TABLE t1 SELECT
 /* 45 */ 123456789012345678901234567890123456789012345.123456789012345678901234567890123456789012345 /* 45 */
@@ -1771,10 +1773,10 @@ Warnings:
 Warning	1264	Out of range value for column 'c1' at row 1
 DESC t1;
 Field	Type	Null	Key	Default	Extra
-c1	decimal(65,30)	NO		NULL	
+c1	decimal(65,36)	NO		NULL	
 SELECT * FROM t1;
 c1
-99999999999999999999999999999999999.999999999999999999999999999999
+99999999999999999999999999999.999999999999999999999999999999999999
 DROP TABLE t1;
 CREATE TABLE t1 SELECT
 /* 65 */ 12345678901234567890123456789012345678901234567890123456789012345.1 /* 1 */
@@ -1807,20 +1809,18 @@ Warnings:
 Note	1265	Data truncated for column 'c1' at row 1
 DESC t1;
 Field	Type	Null	Key	Default	Extra
-c1	decimal(30,30)	NO		NULL	
+c1	decimal(38,38)	NO		NULL	
 SELECT * FROM t1;
 c1
-0.123456789012345678901234567890
+0.12345678901234567890123456789012345679
 DROP TABLE t1;
 CREATE TABLE t1 AS SELECT 123.1234567890123456789012345678901 /* 31 */ AS c1;
-Warnings:
-Note	1265	Data truncated for column 'c1' at row 1
 DESC t1;
 Field	Type	Null	Key	Default	Extra
-c1	decimal(33,30)	NO		NULL	
+c1	decimal(34,31)	NO		NULL	
 SELECT * FROM t1;
 c1
-123.123456789012345678901234567890
+123.1234567890123456789012345678901
 DROP TABLE t1;
 CREATE TABLE t1 SELECT 1.1 + CAST(1 AS DECIMAL(65,30)) AS c1;
 DESC t1;
@@ -1836,22 +1836,20 @@ DROP TABLE t1;
 CREATE TABLE t1 (a DECIMAL(30,30));
 INSERT INTO t1 VALUES (0.1),(0.2),(0.3);
 CREATE TABLE t2 SELECT MIN(a + 0.0000000000000000000000000000001) AS c1 FROM t1;
-Warnings:
-Note	1265	Data truncated for column 'c1' at row 4
 DESC t2;
 Field	Type	Null	Key	Default	Extra
-c1	decimal(33,30)	YES		NULL	
+c1	decimal(33,31)	YES		NULL	
 DROP TABLE t1,t2;
 CREATE TABLE t1 (a DECIMAL(30,30));
 INSERT INTO t1 VALUES (0.1),(0.2),(0.3);
-CREATE TABLE t2 SELECT IFNULL(a + 0.0000000000000000000000000000001, NULL) AS c1 FROM t1;
+CREATE TABLE t2 SELECT IFNULL(a + 0.00000000000000000000000000000000000000000000000001, NULL) AS c1 FROM t1;
 Warnings:
 Note	1265	Data truncated for column 'c1' at row 1
 Note	1265	Data truncated for column 'c1' at row 2
 Note	1265	Data truncated for column 'c1' at row 3
 DESC t2;
 Field	Type	Null	Key	Default	Extra
-c1	decimal(33,30)	YES		NULL	
+c1	decimal(52,38)	YES		NULL	
 DROP TABLE t1,t2;
 CREATE TABLE t1 (a DECIMAL(30,30));
 INSERT INTO t1 VALUES (0.1),(0.2),(0.3);
@@ -1860,7 +1858,7 @@ Warnings:
 Note	1265	Data truncated for column 'c1' at row 1
 DESC t2;
 Field	Type	Null	Key	Default	Extra
-c1	decimal(65,30)	YES		NULL	
+c1	decimal(65,38)	YES		NULL	
 DROP TABLE t1,t2;
 #
 # Test that variables get maximum precision.
@@ -1869,10 +1867,10 @@ SET @decimal= 1.1;
 CREATE TABLE t1 SELECT @decimal AS c1;
 DESC t1;
 Field	Type	Null	Key	Default	Extra
-c1	decimal(65,30)	YES		NULL	
+c1	decimal(65,38)	YES		NULL	
 SELECT * FROM t1;
 c1
-1.100000000000000000000000000000
+1.10000000000000000000000000000000000000
 DROP TABLE t1;
 #
 # Bug #45261 : Crash, stored procedure + decimal
@@ -1990,7 +1988,7 @@ d1 * d2
 DROP TABLE t1;
 select 0.000000000000000000000000000000000000000000000000001 mod 1;
 0.000000000000000000000000000000000000000000000000001 mod 1
-0.000000000000000000000000000000
+0.00000000000000000000000000000000000000
 select 0.0000000001 mod 1;
 0.0000000001 mod 1
 0.0000000001
@@ -2088,7 +2086,7 @@ SELECT * FROM t1 WHERE LENGTH(a)!=rand() AND a=1.10;
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	3	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where ((`test`.`t1`.`a` = 1.10) and (<cache>(length(1.1)) <> rand()))
+Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where `test`.`t1`.`a` = 1.10 and <cache>(length(1.1)) <> rand()
 DROP TABLE t1;
 CREATE TABLE t1 (a DECIMAL(10,2));
 INSERT INTO t1 VALUES (1.1),(1.2),(1.3);
@@ -2108,7 +2106,7 @@ SELECT * FROM t1 WHERE LENGTH(a)!=rand() AND a=1.10;
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	3	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where ((`test`.`t1`.`a` = 1.10) and (<cache>(length(1.10)) <> rand()))
+Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where `test`.`t1`.`a` = 1.10 and <cache>(length(1.10)) <> rand()
 DROP TABLE t1;
 CREATE TABLE t1 (a DECIMAL(10,3));
 INSERT INTO t1 VALUES (1.1),(1.2),(1.3);
@@ -2128,7 +2126,7 @@ SELECT * FROM t1 WHERE LENGTH(a)!=rand() AND a=1.10;
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	3	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where ((`test`.`t1`.`a` = 1.10) and (<cache>(length(1.100)) <> rand()))
+Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where `test`.`t1`.`a` = 1.10 and <cache>(length(1.100)) <> rand()
 DROP TABLE t1;
 #
 # MDEV-8741 Equal field propagation leaves some remainders after simplifying WHERE zerofill_column=2010 AND zerofill_column>=2010
@@ -2139,7 +2137,7 @@ EXPLAIN EXTENDED SELECT * FROM t1 WHERE a=2010.0 AND a>=2010.0;
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where (`test`.`t1`.`a` = 2010.0)
+Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where `test`.`t1`.`a` = 2010.0
 DROP TABLE t1;
 #
 # MDEV-8635 Redundant warnings on WHERE decimal_column='ax'
@@ -2192,7 +2190,7 @@ Note	1265	Data truncated for column 'a' at row 1
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` decimal(2,1) DEFAULT '0.0'
+  `a` decimal(2,1) DEFAULT 0.0
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 DROP TABLE t1;
 CREATE TABLE t1 (a DECIMAL(2,1) DEFAULT '0.1 ');
@@ -2201,7 +2199,7 @@ Note	1265	Data truncated for column 'a' at row 1
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` decimal(2,1) DEFAULT '0.1'
+  `a` decimal(2,1) DEFAULT 0.1
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 DROP TABLE t1;
 CREATE TABLE t1 (a DECIMAL(2,1) DEFAULT '0.10001 ');
@@ -2210,7 +2208,7 @@ Note	1265	Data truncated for column 'a' at row 1
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` decimal(2,1) DEFAULT '0.1'
+  `a` decimal(2,1) DEFAULT 0.1
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 DROP TABLE t1;
 CREATE TABLE t1 (a DECIMAL(2,1) DEFAULT '0.10001');
@@ -2219,7 +2217,7 @@ Note	1265	Data truncated for column 'a' at row 1
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` decimal(2,1) DEFAULT '0.1'
+  `a` decimal(2,1) DEFAULT 0.1
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 DROP TABLE t1;
 CREATE TABLE t1 (a DECIMAL(2,1) DEFAULT 0.10001);
@@ -2228,7 +2226,7 @@ Note	1265	Data truncated for column 'a' at row 1
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` decimal(2,1) DEFAULT '0.1'
+  `a` decimal(2,1) DEFAULT 0.1
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 DROP TABLE t1;
 CREATE TABLE t1 (a DECIMAL(2,1) DEFAULT 0.10001e0);
@@ -2237,9 +2235,73 @@ Note	1265	Data truncated for column 'a' at row 1
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` decimal(2,1) DEFAULT '0.1'
+  `a` decimal(2,1) DEFAULT 0.1
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 DROP TABLE t1;
 #
+# Bug#18408499 UNSIGNED BIGINT HIGH VALUES 
+#              WRONG NUMERICAL COMPARISON RESULTS
+#
+CREATE TABLE t1(value DECIMAL(24,0) NOT NULL);
+INSERT INTO t1(value) 
+VALUES('100000000000000000000001'),
+('100000000000000000000002'), 
+('100000000000000000000003');
+SELECT * FROM t1 WHERE value = '100000000000000000000002';
+value
+100000000000000000000002
+SELECT * FROM t1 WHERE '100000000000000000000002' = value;
+value
+100000000000000000000002
+SELECT * FROM t1 WHERE value + 0 = '100000000000000000000002';
+value
+100000000000000000000002
+SELECT * FROM t1 WHERE value = 100000000000000000000002;
+value
+100000000000000000000002
+SELECT * FROM t1 WHERE value + 0 = 100000000000000000000002;
+value
+100000000000000000000002
+PREPARE stmt FROM 'SELECT * FROM t1 WHERE value = ?';
+set @a="100000000000000000000002";
+EXECUTE stmt using @a;
+value
+100000000000000000000002
+set @a=100000000000000000000002;
+EXECUTE stmt using @a;
+value
+100000000000000000000002
+DEALLOCATE PREPARE stmt;
+ALTER TABLE t1 ADD INDEX value (value);
+SELECT * FROM t1 WHERE value = '100000000000000000000002';
+value
+100000000000000000000002
+DROP TABLE t1;
+#
 # End of 10.1 tests
+#
+#
+# Test CREATE .. SELECT
+#
+create or replace table t1 as select 1.000000000000000000000000000000000 as a;
+show create table t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` decimal(34,33) NOT NULL
+) ENGINE=MyISAM DEFAULT CHARSET=latin1
+create or replace table t1 as select 1.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 as a;
+show create table t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` decimal(39,38) NOT NULL
+) ENGINE=MyISAM DEFAULT CHARSET=latin1
+create or replace table t1 as select 1.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 as a;
+show create table t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` decimal(39,38) NOT NULL
+) ENGINE=MyISAM DEFAULT CHARSET=latin1
+drop table t1;
+#
+# End of 10.2 tests
 #

@@ -376,6 +376,27 @@ unsigned int ha_archive::pack_row_v1(uchar *record)
   uchar *pos;
   DBUG_ENTER("pack_row_v1");
   memcpy(record_buffer->buffer, record, table->s->reclength);
+
+  /*
+    The end of VARCHAR fields are filled with garbage,so here
+    we explicitly set the end of the VARCHAR fields with zeroes
+  */
+
+  for (Field** field= table->field; (*field) ; field++)
+  {
+    Field *fld= *field;
+    if (fld->type() == MYSQL_TYPE_VARCHAR)
+    {
+      if (!(fld->is_real_null(record - table->record[0])))
+      {
+        ptrdiff_t  start= (fld->ptr - table->record[0]);
+        Field_varstring *const field_var= (Field_varstring *)fld;
+        uint offset= field_var->data_length() + field_var->length_size();
+        memset(record_buffer->buffer + start + offset, 0,
+               fld->field_length - offset + 1);
+      }
+    }
+  }
   pos= record_buffer->buffer + table->s->reclength;
   for (blob= table->s->blob_field, end= blob + table->s->blob_fields;
        blob != end; blob++)
@@ -383,8 +404,7 @@ unsigned int ha_archive::pack_row_v1(uchar *record)
     uint32 length= ((Field_blob *) table->field[*blob])->get_length();
     if (length)
     {
-      uchar *data_ptr;
-      ((Field_blob *) table->field[*blob])->get_ptr(&data_ptr);
+      uchar *data_ptr= ((Field_blob *) table->field[*blob])->get_ptr();
       memcpy(pos, data_ptr, length);
       pos+= length;
     }
@@ -1645,7 +1665,7 @@ void ha_archive::update_create_info(HA_CREATE_INFO *create_info)
   }
 
   if (!(my_readlink(tmp_real_path, share->data_file_name, MYF(0))))
-    create_info->data_file_name= sql_strdup(tmp_real_path);
+    create_info->data_file_name= thd_strdup(ha_thd(), tmp_real_path);
 
   DBUG_VOID_RETURN;
 }

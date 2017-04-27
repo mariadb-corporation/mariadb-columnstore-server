@@ -13,7 +13,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111-1301 USA */
 
 #define DECIMAL_LONGLONG_DIGITS 22
 #define DECIMAL_LONG_DIGITS 10
@@ -31,10 +31,16 @@
   digits * number of decimal digits in one our big digit - number of decimal
   digits in one our big digit decreased by 1 (because we always put decimal
   point on the border of our big digits))
+
+  With normal precession we can handle 65 digits. MariaDB can store in
+  the .frm up to 63 digits.  By default we use DECIMAL_NOT_SPECIFIED digits
+  when converting strings to decimal, so we don't want to set this too high.
+  To not use up all digits for the scale we limit the number of decimals to
+  38.
 */
 #define DECIMAL_MAX_PRECISION (DECIMAL_MAX_POSSIBLE_PRECISION - 8*2)
-#define DECIMAL_MAX_SCALE 30
-#define DECIMAL_NOT_SPECIFIED 31
+#define DECIMAL_MAX_SCALE 38
+#define DECIMAL_NOT_SPECIFIED 39
 
 /**
   maximum length of string representation (number of maximum decimal

@@ -11,7 +11,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111-1301 USA */
 
 /* Describe, check and repair of MARIA tables */
 
@@ -2837,7 +2837,7 @@ int maria_repair(HA_CHECK *param, register MARIA_HA *info,
                                 (param->testflag & T_BACKUP_DATA ?
                                  MYF(MY_REDEL_MAKE_BACKUP): MYF(0)) |
                                 sync_dir) ||
-        _ma_open_datafile(info, share, NullS, -1))
+        _ma_open_datafile(info, share))
     {
       goto err;
     }
@@ -3998,7 +3998,7 @@ int maria_repair_by_sort(HA_CHECK *param, register MARIA_HA *info,
                                   (param->testflag & T_BACKUP_DATA ?
                                    MYF(MY_REDEL_MAKE_BACKUP): MYF(0)) |
                                   sync_dir) ||
-          _ma_open_datafile(info, share, NullS, -1))
+          _ma_open_datafile(info, share))
       {
         _ma_check_print_error(param, "Couldn't change to new data file");
         goto err;
@@ -4638,7 +4638,7 @@ err:
                                   MYF((param->testflag & T_BACKUP_DATA ?
                                        MY_REDEL_MAKE_BACKUP : 0) |
                                       sync_dir)) ||
-	  _ma_open_datafile(info,share, NullS, -1))
+	  _ma_open_datafile(info,share))
 	got_error=1;
     }
   }
@@ -5642,7 +5642,7 @@ static int sort_maria_ft_key_write(MARIA_SORT_PARAM *sort_param,
 
   if (ha_compare_text(sort_param->seg->charset,
                       a+1,a_len-1,
-                      ft_buf->lastkey+1,val_off-1, 0, 0)==0)
+                      ft_buf->lastkey+1,val_off-1, 0)==0)
   {
     uchar *p;
     if (!ft_buf->buf)                   /* store in second-level tree */

@@ -11,7 +11,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111-1301 USA */
 
 /* Calculate a checksum for a row */
 
@@ -58,7 +58,7 @@ ha_checksum _ma_checksum(MARIA_HA *info, const uchar *record)
       length= _ma_calc_blob_length(blob_size_length, pos);
       if (length)
       {
-        memcpy(&pos, pos + blob_size_length, sizeof(char*));
+        memcpy((char**) &pos, pos + blob_size_length, sizeof(char*));
         crc= my_checksum(crc, pos, length);
       }
       continue;

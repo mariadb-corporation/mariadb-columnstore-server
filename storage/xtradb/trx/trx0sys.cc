@@ -353,10 +353,17 @@ trx_sys_update_wsrep_checkpoint(
             unsigned char xid_uuid[16];
             long long xid_seqno = read_wsrep_xid_seqno(xid);
             read_wsrep_xid_uuid(xid, xid_uuid);
-            if (!memcmp(xid_uuid, trx_sys_cur_xid_uuid, 8))
+            if (!memcmp(xid_uuid, trx_sys_cur_xid_uuid, 16))
             {
+              /*
+                This check is a protection against the initial seqno (-1)
+                assigned in read_wsrep_xid_uuid(), which, if not checked,
+                would cause the following assertion to fail.
+              */
+              if (xid_seqno > -1 )
+              {
                 ut_ad(xid_seqno > trx_sys_cur_xid_seqno);
-                trx_sys_cur_xid_seqno = xid_seqno;
+              }
             }
             else
             {
@@ -415,6 +422,8 @@ trx_sys_read_wsrep_checkpoint(XID* xid)
                                       + TRX_SYS_WSREP_XID_MAGIC_N_FLD))
             != TRX_SYS_WSREP_XID_MAGIC_N) {
                 memset(xid, 0, sizeof(*xid));
+                long long seqno= -1;
+                memcpy(xid->data + 24, &seqno, sizeof(long long));
                 xid->formatID = -1;
                 trx_sys_update_wsrep_checkpoint(xid, sys_header, &mtr);
                 mtr_commit(&mtr);
@@ -1335,7 +1344,9 @@ trx_sys_close(void)
 	ut_a(UT_LIST_GET_LEN(trx_sys->ro_trx_list) == 0);
 
 	/* Only prepared transactions may be left in the system. Free them. */
-	ut_a(UT_LIST_GET_LEN(trx_sys->rw_trx_list) == trx_sys->n_prepared_trx);
+	ut_a(UT_LIST_GET_LEN(trx_sys->rw_trx_list) == trx_sys->n_prepared_trx
+	     || srv_read_only_mode
+	     || srv_force_recovery >= SRV_FORCE_NO_TRX_UNDO);
 
 	while ((trx = UT_LIST_GET_FIRST(trx_sys->rw_trx_list)) != NULL) {
 		trx_free_prepared(trx);
@@ -1381,6 +1392,33 @@ trx_sys_close(void)
 	trx_sys = NULL;
 }
 
+/** @brief Convert an undo log to TRX_UNDO_PREPARED state on shutdown.
+
+If any prepared ACTIVE transactions exist, and their rollback was
+prevented by innodb_force_recovery, we convert these transactions to
+XA PREPARE state in the main-memory data structures, so that shutdown
+will proceed normally. These transactions will again recover as ACTIVE
+on the next restart, and they will be rolled back unless
+innodb_force_recovery prevents it again.
+
+@param[in]	trx	transaction
+@param[in,out]	undo	undo log to convert to TRX_UNDO_PREPARED */
+static
+void
+trx_undo_fake_prepared(
+	const trx_t*	trx,
+	trx_undo_t*	undo)
+{
+	ut_ad(srv_force_recovery >= SRV_FORCE_NO_TRX_UNDO);
+	ut_ad(trx_state_eq(trx, TRX_STATE_ACTIVE));
+	ut_ad(trx->is_recovered);
+
+	if (undo != NULL) {
+		ut_ad(undo->state == TRX_UNDO_ACTIVE);
+		undo->state = TRX_UNDO_PREPARED;
+	}
+}
+
 /*********************************************************************
 Check if there are any active (non-prepared) transactions.
 @return total number of active transactions or 0 if none */
@@ -1389,15 +1427,42 @@ ulint
 trx_sys_any_active_transactions(void)
 /*=================================*/
 {
-	ulint	total_trx = 0;
-
 	mutex_enter(&trx_sys->mutex);
 
-	total_trx = UT_LIST_GET_LEN(trx_sys->rw_trx_list)
-		  + UT_LIST_GET_LEN(trx_sys->mysql_trx_list);
+	ulint	total_trx = UT_LIST_GET_LEN(trx_sys->mysql_trx_list);
 
-	ut_a(total_trx >= trx_sys->n_prepared_trx);
-	total_trx -= trx_sys->n_prepared_trx;
+	if (total_trx == 0) {
+		total_trx = UT_LIST_GET_LEN(trx_sys->rw_trx_list);
+		ut_a(total_trx >= trx_sys->n_prepared_trx);
+
+		if (total_trx > trx_sys->n_prepared_trx
+		    && srv_force_recovery >= SRV_FORCE_NO_TRX_UNDO) {
+			for (trx_t* trx = UT_LIST_GET_FIRST(
+				     trx_sys->rw_trx_list);
+			     trx != NULL;
+			     trx = UT_LIST_GET_NEXT(trx_list, trx)) {
+				if (!trx_state_eq(trx, TRX_STATE_ACTIVE)
+				    || !trx->is_recovered) {
+					continue;
+				}
+				/* This was a recovered transaction
+				whose rollback was disabled by
+				the innodb_force_recovery setting.
+				Pretend that it is in XA PREPARE
+				state so that shutdown will work. */
+				trx_undo_fake_prepared(
+					trx, trx->insert_undo);
+				trx_undo_fake_prepared(
+					trx, trx->update_undo);
+				trx->state = TRX_STATE_PREPARED;
+				trx_sys->n_prepared_trx++;
+				trx_sys->n_prepared_recovered_trx++;
+			}
+		}
+
+		ut_a(total_trx >= trx_sys->n_prepared_trx);
+		total_trx -= trx_sys->n_prepared_trx;
+	}
 
 	mutex_exit(&trx_sys->mutex);
 

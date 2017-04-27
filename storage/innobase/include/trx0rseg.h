@@ -1,6 +1,7 @@
 /*****************************************************************************
 
-Copyright (c) 1996, 2011, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -26,38 +27,38 @@ Created 3/26/1996 Heikki Tuuri
 #ifndef trx0rseg_h
 #define trx0rseg_h
 
-#include "univ.i"
 #include "trx0types.h"
 #include "trx0sys.h"
-#include "ut0bh.h"
+#include "fut0lst.h"
+#include <vector>
 
-/******************************************************************//**
-Gets a rollback segment header.
-@return	rollback segment header, page x-latched */
+/** Gets a rollback segment header.
+@param[in]	space		space where placed
+@param[in]	page_no		page number of the header
+@param[in,out]	mtr		mini-transaction
+@return rollback segment header, page x-latched */
 UNIV_INLINE
 trx_rsegf_t*
 trx_rsegf_get(
-/*==========*/
-	ulint	space,		/*!< in: space where placed */
-	ulint	zip_size,	/*!< in: compressed page size in bytes
-				or 0 for uncompressed pages */
-	ulint	page_no,	/*!< in: page number of the header */
-	mtr_t*	mtr);		/*!< in: mtr */
-/******************************************************************//**
-Gets a newly created rollback segment header.
-@return	rollback segment header, page x-latched */
+	ulint			space,
+	ulint			page_no,
+	mtr_t*			mtr);
+
+/** Gets a newly created rollback segment header.
+@param[in]	space		space where placed
+@param[in]	page_no		page number of the header
+@param[in,out]	mtr		mini-transaction
+@return rollback segment header, page x-latched */
 UNIV_INLINE
 trx_rsegf_t*
 trx_rsegf_get_new(
-/*==============*/
-	ulint	space,		/*!< in: space where placed */
-	ulint	zip_size,	/*!< in: compressed page size in bytes
-				or 0 for uncompressed pages */
-	ulint	page_no,	/*!< in: page number of the header */
-	mtr_t*	mtr);		/*!< in: mtr */
+	ulint			space,
+	ulint			page_no,
+	mtr_t*			mtr);
+
 /***************************************************************//**
 Gets the file page number of the nth undo log slot.
-@return	page number of the undo log segment */
+@return page number of the undo log segment */
 UNIV_INLINE
 ulint
 trx_rsegf_get_nth_undo(
@@ -77,60 +78,45 @@ trx_rsegf_set_nth_undo(
 	mtr_t*		mtr);	/*!< in: mtr */
 /****************************************************************//**
 Looks for a free slot for an undo log segment.
-@return	slot index or ULINT_UNDEFINED if not found */
+@return slot index or ULINT_UNDEFINED if not found */
 UNIV_INLINE
 ulint
 trx_rsegf_undo_find_free(
 /*=====================*/
 	trx_rsegf_t*	rsegf,	/*!< in: rollback segment header */
 	mtr_t*		mtr);	/*!< in: mtr */
-/******************************************************************//**
-Looks for a rollback segment, based on the rollback segment id.
-@return	rollback segment */
-UNIV_INLINE
-trx_rseg_t*
-trx_rseg_get_on_id(
-/*===============*/
-	ulint	id);		/*!< in: rollback segment id */
-/****************************************************************//**
-Creates a rollback segment header. This function is called only when
-a new rollback segment is created in the database.
-@return	page number of the created segment, FIL_NULL if fail */
-UNIV_INTERN
+
+/** Creates a rollback segment header.
+This function is called only when a new rollback segment is created in
+the database.
+@param[in]	space		space id
+@param[in]	max_size	max size in pages
+@param[in]	rseg_slot_no	rseg id == slot number in trx sys
+@param[in,out]	mtr		mini-transaction
+@return page number of the created segment, FIL_NULL if fail */
 ulint
 trx_rseg_header_create(
-/*===================*/
-	ulint	space,		/*!< in: space id */
-	ulint	zip_size,	/*!< in: compressed page size in bytes
-				or 0 for uncompressed pages */
-	ulint	max_size,	/*!< in: max size in pages */
-	ulint	rseg_slot_no,	/*!< in: rseg id == slot number in trx sys */
-	mtr_t*	mtr);		/*!< in: mtr */
-/*********************************************************************//**
-Creates the memory copies for rollback segments and initializes the
-rseg array in trx_sys at a database startup. */
-UNIV_INTERN
-void
-trx_rseg_array_init(
-/*================*/
-	trx_sysf_t*	sys_header,	/*!< in/out: trx system header */
-	ib_bh_t*	ib_bh,		/*!< in: rseg queue */
-	mtr_t*		mtr);		/*!< in/out: mtr */
-/***************************************************************************
-Free's an instance of the rollback segment in memory. */
-UNIV_INTERN
-void
-trx_rseg_mem_free(
-/*==============*/
-	trx_rseg_t*	rseg);		/*!< in, own: instance to free */
+	ulint			space,
+	ulint			max_size,
+	ulint			rseg_slot_no,
+	mtr_t*			mtr);
 
-/*********************************************************************
-Creates a rollback segment. */
-UNIV_INTERN
+/** Initialize the rollback segments in memory at database startup. */
+void
+trx_rseg_array_init();
+
+/** Free a rollback segment in memory. */
+void
+trx_rseg_mem_free(trx_rseg_t* rseg);
+
+/** Create a persistent rollback segment.
+@param[in]	space_id	system or undo tablespace id */
 trx_rseg_t*
-trx_rseg_create(
-/*============*/
-	ulint	space);			/*!< in: id of UNDO tablespace */
+trx_rseg_create(ulint space_id);
+
+/** Create the temporary rollback segments. */
+void
+trx_temp_rseg_create();
 
 /********************************************************************
 Get the number of unique rollback tablespaces in use except space id 0.
@@ -138,7 +124,6 @@ The last space id will be the sentinel value ULINT_UNDEFINED. The array
 will be sorted on space id. Note: space_ids should have have space for
 TRX_SYS_N_RSEGS + 1 elements.
 @return number of unique rollback tablespaces in use. */
-UNIV_INTERN
 ulint
 trx_rseg_get_n_undo_tablespaces(
 /*============================*/
@@ -150,51 +135,74 @@ trx_rseg_get_n_undo_tablespaces(
 /* Maximum number of transactions supported by a single rollback segment */
 #define TRX_RSEG_MAX_N_TRXS	(TRX_RSEG_N_SLOTS / 2)
 
-/* The rollback segment memory object */
-struct trx_rseg_t{
+/** The rollback segment memory object */
+struct trx_rseg_t {
 	/*--------------------------------------------------------*/
-	ulint		id;	/*!< rollback segment id == the index of
-				its slot in the trx system file copy */
-	ib_mutex_t		mutex;	/*!< mutex protecting the fields in this
-				struct except id, which is constant */
-	ulint		space;	/*!< space where the rollback segment is
-				header is placed */
-	ulint		zip_size;/* compressed page size of space
-				in bytes, or 0 for uncompressed spaces */
-	ulint		page_no;/* page number of the rollback segment
-				header */
-	ulint		max_size;/* maximum allowed size in pages */
-	ulint		curr_size;/* current size in pages */
+	/** rollback segment id == the index of its slot in the trx
+	system file copy */
+	ulint				id;
+
+	/** mutex protecting the fields in this struct except id,space,page_no
+	which are constant */
+	RsegMutex			mutex;
+
+	/** space where the rollback segment header is placed */
+	ulint				space;
+
+	/** page number of the rollback segment header */
+	ulint				page_no;
+
+	/** maximum allowed size in pages */
+	ulint				max_size;
+
+	/** current size in pages */
+	ulint				curr_size;
+
 	/*--------------------------------------------------------*/
 	/* Fields for update undo logs */
-	UT_LIST_BASE_NODE_T(trx_undo_t) update_undo_list;
-					/* List of update undo logs */
-	UT_LIST_BASE_NODE_T(trx_undo_t) update_undo_cached;
-					/* List of update undo log segments
-					cached for fast reuse */
+	/** List of update undo logs */
+	UT_LIST_BASE_NODE_T(trx_undo_t)	update_undo_list;
+
+	/** List of update undo log segments cached for fast reuse */
+	UT_LIST_BASE_NODE_T(trx_undo_t)	update_undo_cached;
+
 	/*--------------------------------------------------------*/
 	/* Fields for insert undo logs */
+	/** List of insert undo logs */
 	UT_LIST_BASE_NODE_T(trx_undo_t) insert_undo_list;
-					/* List of insert undo logs */
-	UT_LIST_BASE_NODE_T(trx_undo_t) insert_undo_cached;
-					/* List of insert undo log segments
-					cached for fast reuse */
-	/*--------------------------------------------------------*/
-	ulint		last_page_no;	/*!< Page number of the last not yet
-					purged log header in the history list;
-					FIL_NULL if all list purged */
-	ulint		last_offset;	/*!< Byte offset of the last not yet
-					purged log header */
-	trx_id_t	last_trx_no;	/*!< Transaction number of the last not
-					yet purged log */
-	ibool		last_del_marks;	/*!< TRUE if the last not yet purged log
-					needs purging */
-};
 
-/** For prioritising the rollback segments for purge. */
-struct rseg_queue_t {
-        trx_id_t	trx_no;         /*!< trx_rseg_t::last_trx_no */
-        trx_rseg_t*     rseg;           /*!< Rollback segment */
+	/** List of insert undo log segments cached for fast reuse */
+	UT_LIST_BASE_NODE_T(trx_undo_t) insert_undo_cached;
+
+	/*--------------------------------------------------------*/
+
+	/** Page number of the last not yet purged log header in the history
+	list; FIL_NULL if all list purged */
+	ulint				last_page_no;
+
+	/** Byte offset of the last not yet purged log header */
+	ulint				last_offset;
+
+	/** Transaction number of the last not yet purged log */
+	trx_id_t			last_trx_no;
+
+	/** TRUE if the last not yet purged log needs purging */
+	ibool				last_del_marks;
+
+	/** Reference counter to track rseg allocated transactions. */
+	ulint				trx_ref_count;
+
+	/** If true, then skip allocating this rseg as it reside in
+	UNDO-tablespace marked for truncate. */
+	bool				skip_allocation;
+
+	/** @return whether the rollback segment is persistent */
+	bool is_persistent() const
+	{
+		ut_ad(space == SRV_TMP_SPACE_ID
+		      || space <= srv_undo_tablespaces);
+		return(space != SRV_TMP_SPACE_ID);
+	}
 };
 
 /* Undo log segment slot in a rollback segment header */
@@ -223,8 +231,6 @@ struct rseg_queue_t {
 					/* Undo log segment slots */
 /*-------------------------------------------------------------*/
 
-#ifndef UNIV_NONINL
 #include "trx0rseg.ic"
-#endif
 
 #endif

@@ -562,7 +562,6 @@ select @@lc_time_names;
 select @@global.lc_time_names, @@lc_time_names;
 set @@global.lc_time_names=fr_FR;
 select @@global.lc_time_names, @@lc_time_names;
---echo New connection
 connect (con1,localhost,root,,);
 connection con1;
 select @@global.lc_time_names, @@lc_time_names;
@@ -570,7 +569,6 @@ set @@lc_time_names=ru_RU;
 select @@global.lc_time_names, @@lc_time_names;
 disconnect con1;
 connection default;
---echo Returnung to default connection
 select @@global.lc_time_names, @@lc_time_names;
 set lc_time_names=default;
 select @@global.lc_time_names, @@lc_time_names;
@@ -1534,3 +1532,11 @@ show global status like 'foobar';
 select * from information_schema.session_variables where variable_name='sql_mode';
 
 --echo End of 5.5 tests
+
+#
+# test Item_func_get_system_var::print()
+#
+explain extended select @@VERsion from dual where rand() > @@verSION;
+explain extended select @@SESsion.SQL_mode from dual where rand() > @@sesSION.sql_MODE;
+explain extended select @@GLObal.COLLATION_connection from dual where rand() > @@gloBAL.collation_CONNECTION;
+explain extended select @@FOObar.KEY_BUFfer_size from dual where rand() > @@fooBAR.key_bufFER_SIZE;

@@ -32,6 +32,7 @@ Created 5/11/2006 Osku Salerma
 #include "my_sys.h"
 #include "m_string.h"
 #include "my_base.h"
+#include "dur_prop.h"
 
 #ifndef UNIV_INNOCHECKSUM
 #include "mysqld_error.h"
@@ -156,6 +157,13 @@ ibool
 thd_has_edited_nontrans_tables(
 /*===========================*/
 	THD*	thd);	/*!< in: thread handle */
+
+/**
+Get high resolution timestamp for the current query start time.
+
+@retval timestamp in microseconds precision
+*/
+unsigned long long thd_query_start_micro(const MYSQL_THD thd);
 
 /*************************************************************//**
 Prints info of a THD object (== user session thread) to the given file. */

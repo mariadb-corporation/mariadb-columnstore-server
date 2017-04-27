@@ -1,4 +1,4 @@
-/* Copyright (c) 2011, 2013, Monty Program Ab
+/* Copyright (c) 2011, 2017, MariaDB Corporation.
    Copyright (c) 2011, 2012, Oleksandr Byelkin
 
    Redistribution and use in source and binary forms, with or without
@@ -74,15 +74,15 @@ uint32 copy_and_convert(char *to, uint32 to_length, CHARSET_INFO *to_cs,
   2 bits which determinate size of offset in the header -1
 */
 /* mask to get above bits */
-#define DYNCOL_FLG_OFFSET   (1|2)
-#define DYNCOL_FLG_NAMES    4
-#define DYNCOL_FLG_NMOFFSET (8|16)
+#define DYNCOL_FLG_OFFSET   (1U|2U)
+#define DYNCOL_FLG_NAMES    4U
+#define DYNCOL_FLG_NMOFFSET (8U|16U)
 /**
   All known flags mask that could be set.
 
   @note DYNCOL_FLG_NMOFFSET should be 0 for now.
 */
-#define DYNCOL_FLG_KNOWN  (1|2|4)
+#define DYNCOL_FLG_KNOWN  (1U|2U|4U)
 
 /* formats */
 enum enum_dyncol_format
@@ -294,7 +294,7 @@ static void set_fixed_header_named(DYNAMIC_COLUMN *str, DYN_HEADER *hdr)
   DBUG_ASSERT(hdr->offset_size <= MAX_OFFSET_LENGTH_NM);
   /* size of data offset, named format flag, size of names offset (0 means 2) */
   str->str[0]=
-    (char) ((str->str[0] & ~(DYNCOL_FLG_OFFSET | DYNCOL_FLG_NMOFFSET)) |
+    (char) (((uchar)str->str[0] & ~(DYNCOL_FLG_OFFSET | DYNCOL_FLG_NMOFFSET)) |
             (hdr->offset_size - 2) | DYNCOL_FLG_NAMES);
   int2store(str->str + 1, hdr->column_count);        /* columns number */
   int2store(str->str + 3, hdr->nmpool_size);
@@ -319,7 +319,7 @@ static my_bool type_and_offset_store_num(uchar *place, size_t offset_size,
 {
   ulong val = (((ulong) offset) << 3) | (type - 1);
   DBUG_ASSERT(type != DYN_COL_NULL);
-  DBUG_ASSERT(((type - 1) & (~7)) == 0); /* fit in 3 bits */
+  DBUG_ASSERT(((type - 1) & (~7U)) == 0); /* fit in 3 bits */
   DBUG_ASSERT(offset_size >= 1 && offset_size <= 4);
 
   /* Index entry starts with column number; jump over it */
@@ -359,7 +359,7 @@ static my_bool type_and_offset_store_named(uchar *place, size_t offset_size,
 {
   ulonglong val = (((ulong) offset) << 4) | (type - 1);
   DBUG_ASSERT(type != DYN_COL_NULL);
-  DBUG_ASSERT(((type - 1) & (~0xf)) == 0); /* fit in 4 bits */
+  DBUG_ASSERT(((type - 1) & (~0xfU)) == 0); /* fit in 4 bits */
   DBUG_ASSERT(offset_size >= 2 && offset_size <= 5);
 
   /* Index entry starts with name offset; jump over it */
@@ -566,7 +566,7 @@ static my_bool type_and_offset_read_named(DYNAMIC_COLUMN_TYPE *type,
     return 1;
   }
   *type= (val & 0xf) + 1;
-  *offset= val >> 4;
+  *offset= (size_t) (val >> 4);
   return (*offset >= lim);
 }
 
@@ -2066,7 +2066,7 @@ static uchar *find_entry_named(DYN_HEADER *hdr, LEX_STRING *key)
 /**
   Write number in the buffer (backward direction - starts from the buffer end)
 
-  @return pointer on the number begining
+  @return pointer on the number beginning
 */
 
 static char *backwritenum(char *chr, uint numkey)
@@ -2136,7 +2136,7 @@ find_column(DYN_HEADER *hdr, uint numkey, LEX_STRING *strkey)
   hdr->length= hdr_interval_length(hdr, hdr->entry + hdr->entry_size);
   hdr->data= hdr->dtpool + hdr->offset;
   /*
-    Check that the found data is withing the ranges. This can happen if
+    Check that the found data is within the ranges. This can happen if
     we get data with wrong offsets.
   */
   if (hdr->length == DYNCOL_OFFSET_ERROR ||
@@ -2803,7 +2803,7 @@ dynamic_column_update_copy(DYNAMIC_COLUMN *str, PLAN *plan,
       else if (offs < first_offset)
         goto err;
 
-      offs+= plan[i].ddelta;
+      offs+= (size_t) plan[i].ddelta;
       {
         DYNAMIC_COLUMN_VALUE val;
         val.type= tp; // only the type used in the header
@@ -2969,7 +2969,7 @@ dynamic_column_update_move_left(DYNAMIC_COLUMN *str, PLAN *plan,
           return ER_DYNCOL_FORMAT;
         }
 
-        offs+= plan[i].ddelta;
+        offs+= (size_t) plan[i].ddelta;
         int2store(write, nm);
         /* write rest of data at write + COLUMN_NUMBER_SIZE */
         type_and_offset_store_num(write, new_offset_size, tp, offs);
@@ -3023,9 +3023,9 @@ dynamic_column_update_move_left(DYNAMIC_COLUMN *str, PLAN *plan,
       memmove((header_base + new_header_size +
                plan[i].mv_offset + plan[i].ddelta),
               header_base + header_size + plan[i].mv_offset,
-              plan[i].mv_length);
+              (size_t) plan[i].mv_length);
     }
-    str->length+= plan[i].mv_length;
+    str->length+= (size_t) plan[i].mv_length;
 
     /* new data adding */
     if (i < add_column_count)
@@ -3480,7 +3480,7 @@ dynamic_column_update_many_fmt(DYNAMIC_COLUMN *str,
 
       if (plan[i].val->type == DYN_COL_NULL)
       {
-        plan[i].act= PLAN_NOP;                  /* Mark entry to be skiped */
+        plan[i].act= PLAN_NOP;                  /* Mark entry to be skipped */
       }
       else
       {
@@ -3514,8 +3514,8 @@ dynamic_column_update_many_fmt(DYNAMIC_COLUMN *str,
     Check if it is only "increasing" or only "decreasing" plan for (header
     and data separately).
   */
-  new_header.data_size= header.data_size + data_delta;
-  new_header.nmpool_size= new_header.nmpool_size + name_delta;
+  new_header.data_size= (size_t) (header.data_size + data_delta);
+  new_header.nmpool_size= (size_t) (new_header.nmpool_size + name_delta);
   DBUG_ASSERT(new_header.format != dyncol_fmt_num ||
               new_header.nmpool_size == 0);
   if ((new_header.offset_size=
@@ -4129,7 +4129,7 @@ mariadb_dyncol_json_internal(DYNAMIC_COLUMN *str, DYNAMIC_STRING *json,
       hdr_interval_length(&header, header.entry + header.entry_size);
     header.data= header.dtpool + header.offset;
     /*
-      Check that the found data is withing the ranges. This can happen if
+      Check that the found data is within the ranges. This can happen if
       we get data with wrong offsets.
     */
     if (header.length == DYNCOL_OFFSET_ERROR ||
@@ -4269,7 +4269,7 @@ mariadb_dyncol_unpack(DYNAMIC_COLUMN *str,
       hdr_interval_length(&header, header.entry + header.entry_size);
     header.data= header.dtpool + header.offset;
     /*
-      Check that the found data is withing the ranges. This can happen if
+      Check that the found data is within the ranges. This can happen if
       we get data with wrong offsets.
     */
     if (header.length == DYNCOL_OFFSET_ERROR ||

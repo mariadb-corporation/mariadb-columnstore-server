@@ -88,6 +88,8 @@ struct my_cs_file_section_st
 #define _CS_CL_SUPPRESS_CONTRACTIONS    101
 #define _CS_CL_OPTIMIZE                 102
 #define _CS_CL_SHIFT_AFTER_METHOD       103
+#define _CS_CL_RULES_IMPORT             104
+#define _CS_CL_RULES_IMPORT_SOURCE      105
 
 
 /* Collation Settings */
@@ -188,6 +190,8 @@ static const struct my_cs_file_section_st sec[] =
   {_CS_CL_SUPPRESS_CONTRACTIONS, "charsets/charset/collation/suppress_contractions"},
   {_CS_CL_OPTIMIZE,              "charsets/charset/collation/optimize"},
   {_CS_CL_SHIFT_AFTER_METHOD,    "charsets/charset/collation/shift-after-method"},
+  {_CS_CL_RULES_IMPORT,          "charsets/charset/collation/rules/import"},
+  {_CS_CL_RULES_IMPORT_SOURCE,   "charsets/charset/collation/rules/import/source"},
 
   /* Collation Settings */
   {_CS_ST_SETTINGS,              "charsets/charset/collation/settings"},
@@ -614,6 +618,8 @@ static int cs_value(MY_XML_PARSER *st,const char *attr, size_t len)
       i->cs.state|= MY_CS_BINSORT;
     else if (!strncmp("compiled",attr,len))
       i->cs.state|= MY_CS_COMPILED;
+    else if (!strncmp("nopad",attr,len))
+      i->cs.state|= MY_CS_NOPAD;
     break;
   case _CS_UPPERMAP:
     fill_uchar(i->to_upper,MY_CS_TO_UPPER_TABLE_SIZE,attr,len);
@@ -641,6 +647,10 @@ static int cs_value(MY_XML_PARSER *st,const char *attr, size_t len)
     rc= tailoring_append(st, "[version %.*s]", len, attr);
     break;
 
+  case _CS_CL_RULES_IMPORT_SOURCE:
+    rc= tailoring_append(st, "[import %.*s]", len, attr);
+    break;
+
   case _CS_CL_SUPPRESS_CONTRACTIONS:
     rc= tailoring_append(st, "[suppress contractions %.*s]", len, attr);
     break;
@@ -657,6 +667,8 @@ static int cs_value(MY_XML_PARSER *st,const char *attr, size_t len)
   case _CS_ST_STRENGTH:
     /* 1, 2, 3, 4, 5, or primary, secondary, tertiary, quaternary, identical */
     rc= tailoring_append(st, "[strength %.*s]", len, attr);
+    if (len && attr[0] >= '1' && attr[0] <= '9')
+      i->cs.levels_for_order= attr[0] - '0';
     break;
 
   case _CS_ST_ALTERNATE:
@@ -974,48 +986,6 @@ my_charset_is_ascii_based(CHARSET_INFO *cs)
 
 
 /*
-  Detect if a character set is 8bit,
-  and it is pure ascii, i.e. doesn't have
-  characters outside U+0000..U+007F
-  This functions is shared between "conf_to_src"
-  and dynamic charsets loader in "mysqld".
-*/
-my_bool
-my_charset_is_8bit_pure_ascii(CHARSET_INFO *cs)
-{
-  size_t code;
-  if (!cs->tab_to_uni)
-    return 0;
-  for (code= 0; code < 256; code++)
-  {
-    if (cs->tab_to_uni[code] > 0x7F)
-      return 0;
-  }
-  return 1;
-}
-
-
-/*
-  Shared function between conf_to_src and mysys.
-  Check if a 8bit character set is compatible with
-  ascii on the range 0x00..0x7F.
-*/
-my_bool
-my_charset_is_ascii_compatible(CHARSET_INFO *cs)
-{
-  uint i;
-  if (!cs->tab_to_uni)
-    return 1;
-  for (i= 0; i < 128; i++)
-  {
-    if (cs->tab_to_uni[i] != i)
-      return 0;
-  }
-  return 1;
-}
-
-
-/*
   Convert a string between two character sets.
   'to' must be large enough to store (form_length * to_cs->mbmaxlen) bytes.
 
@@ -1170,7 +1140,9 @@ my_convert(char *to, uint32 to_length, CHARSET_INFO *to_cs,
 size_t
 my_convert_fix(CHARSET_INFO *to_cs, char *to, size_t to_length,
                CHARSET_INFO *from_cs, const char *from, size_t from_length,
-               size_t nchars, MY_STRCONV_STATUS *status)
+               size_t nchars,
+               MY_STRCOPY_STATUS *copy_status,
+               MY_STRCONV_STATUS *conv_status)
 {
   int cnvres;
   my_wc_t wc;
@@ -1183,8 +1155,8 @@ my_convert_fix(CHARSET_INFO *to_cs, char *to, size_t to_length,
   DBUG_ASSERT(to_cs != &my_charset_bin);
   DBUG_ASSERT(from_cs != &my_charset_bin);
 
-  status->m_native_copy_status.m_well_formed_error_pos= NULL;
-  status->m_cannot_convert_error_pos= NULL;
+  copy_status->m_well_formed_error_pos= NULL;
+  conv_status->m_cannot_convert_error_pos= NULL;
 
   for ( ; nchars; nchars--)
   {
@@ -1193,8 +1165,8 @@ my_convert_fix(CHARSET_INFO *to_cs, char *to, size_t to_length,
       from+= cnvres;
     else if (cnvres == MY_CS_ILSEQ)
     {
-      if (!status->m_native_copy_status.m_well_formed_error_pos)
-        status->m_native_copy_status.m_well_formed_error_pos= from;
+      if (!copy_status->m_well_formed_error_pos)
+        copy_status->m_well_formed_error_pos= from;
       from++;
       wc= '?';
     }
@@ -1204,8 +1176,8 @@ my_convert_fix(CHARSET_INFO *to_cs, char *to, size_t to_length,
         A correct multibyte sequence detected
         But it doesn't have Unicode mapping.
       */
-      if (!status->m_cannot_convert_error_pos)
-        status->m_cannot_convert_error_pos= from;
+      if (!conv_status->m_cannot_convert_error_pos)
+        conv_status->m_cannot_convert_error_pos= from;
       from+= (-cnvres);
       wc= '?';
     }
@@ -1214,8 +1186,8 @@ my_convert_fix(CHARSET_INFO *to_cs, char *to, size_t to_length,
       if ((uchar *) from >= from_end)
         break; // End of line
       // Incomplete byte sequence
-      if (!status->m_native_copy_status.m_well_formed_error_pos)
-        status->m_native_copy_status.m_well_formed_error_pos= from;
+      if (!copy_status->m_well_formed_error_pos)
+        copy_status->m_well_formed_error_pos= from;
       from++;
       wc= '?';
     }
@@ -1224,8 +1196,8 @@ outp:
       to+= cnvres;
     else if (cnvres == MY_CS_ILUNI && wc != '?')
     {
-      if (!status->m_cannot_convert_error_pos)
-        status->m_cannot_convert_error_pos= from_prev;
+      if (!conv_status->m_cannot_convert_error_pos)
+        conv_status->m_cannot_convert_error_pos= from_prev;
       wc= '?';
       goto outp;
     }
@@ -1235,6 +1207,6 @@ outp:
       break;
     }
   }
-  status->m_native_copy_status.m_source_end_pos= from;
+  copy_status->m_source_end_pos= from;
   return to - to_start;
 }

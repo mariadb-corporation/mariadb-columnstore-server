@@ -155,31 +155,31 @@ create table t1 (a decimal(10,2));
 insert into t1 values ("0.0"),("-0.0"),("+0.0"),("01.0"),("+01.0"),("-01.0");
 insert into t1 values ("-.1"),("+.1"),(".1");
 insert into t1 values ("00000000000001"),("+0000000000001"),("-0000000000001");
-insert into t1 values ("+111111111.11"),("111111111.11"),("-11111111.11");
+insert ignore into t1 values ("+111111111.11"),("111111111.11"),("-11111111.11");
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 Warning	1264	Out of range value for column 'a' at row 2
-insert into t1 values ("-111111111.11"),("+1111111111.11"),("1111111111.11");
+insert ignore into t1 values ("-111111111.11"),("+1111111111.11"),("1111111111.11");
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 Warning	1264	Out of range value for column 'a' at row 2
 Warning	1264	Out of range value for column 'a' at row 3
-insert into t1 values ("1e+1000"),("1e-1000"),("-1e+1000");
+insert ignore into t1 values ("1e+1000"),("1e-1000"),("-1e+1000");
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 Note	1265	Data truncated for column 'a' at row 2
 Warning	1264	Out of range value for column 'a' at row 3
-insert into t1 values ("1e+4294967296"),("1e-4294967296");
+insert ignore into t1 values ("1e+4294967296"),("1e-4294967296");
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 Note	1265	Data truncated for column 'a' at row 2
-insert into t1 values ("1e+18446744073709551615"),("1e+18446744073709551616"),("1e-9223372036854775807"),("1e-9223372036854775809");
+insert ignore into t1 values ("1e+18446744073709551615"),("1e+18446744073709551616"),("1e-9223372036854775807"),("1e-9223372036854775809");
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 Warning	1366	Incorrect decimal value: '1e+18446744073709551616' for column 'a' at row 2
 Note	1265	Data truncated for column 'a' at row 3
 Warning	1366	Incorrect decimal value: '1e-9223372036854775809' for column 'a' at row 4
-insert into t1 values ("123.4e"),("123.4e+2"),("123.4e-2"),("123e1"),("123e+0");
+insert ignore into t1 values ("123.4e"),("123.4e+2"),("123.4e-2"),("123e1"),("123e+0");
 Warnings:
 Warning	1265	Data truncated for column 'a' at row 1
 Note	1265	Data truncated for column 'a' at row 3
@@ -222,28 +222,28 @@ create table t1 (a decimal(10,2) unsigned);
 insert into t1 values ("0.0"),("-0.0"),("+0.0"),("01.0"),("+01.0"),("-01.0");
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 6
-insert into t1 values ("-.1"),("+.1"),(".1");
+insert ignore into t1 values ("-.1"),("+.1"),(".1");
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 insert into t1 values ("00000000000001"),("+0000000000001"),("-0000000000001");
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 3
-insert into t1 values ("+111111111.11"),("111111111.11"),("-11111111.11");
+insert ignore into t1 values ("+111111111.11"),("111111111.11"),("-11111111.11");
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 Warning	1264	Out of range value for column 'a' at row 2
 Warning	1264	Out of range value for column 'a' at row 3
-insert into t1 values ("-111111111.11"),("+1111111111.11"),("1111111111.11");
+insert ignore into t1 values ("-111111111.11"),("+1111111111.11"),("1111111111.11");
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 Warning	1264	Out of range value for column 'a' at row 2
 Warning	1264	Out of range value for column 'a' at row 3
-insert into t1 values ("1e+1000"),("1e-1000"),("-1e+1000");
+insert ignore into t1 values ("1e+1000"),("1e-1000"),("-1e+1000");
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 Note	1265	Data truncated for column 'a' at row 2
 Warning	1264	Out of range value for column 'a' at row 3
-insert into t1 values ("123.4e"),("123.4e+2"),("123.4e-2"),("123e1"),("123e+0");
+insert ignore into t1 values ("123.4e"),("123.4e+2"),("123.4e-2"),("123e1"),("123e+0");
 Warnings:
 Warning	1265	Data truncated for column 'a' at row 1
 Note	1265	Data truncated for column 'a' at row 3
@@ -280,28 +280,28 @@ create table t1 (a decimal(10,2) zerofill);
 insert into t1 values ("0.0"),("-0.0"),("+0.0"),("01.0"),("+01.0"),("-01.0");
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 6
-insert into t1 values ("-.1"),("+.1"),(".1");
+insert ignore into t1 values ("-.1"),("+.1"),(".1");
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 insert into t1 values ("00000000000001"),("+0000000000001"),("-0000000000001");
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 3
-insert into t1 values ("+111111111.11"),("111111111.11"),("-11111111.11");
+insert ignore into t1 values ("+111111111.11"),("111111111.11"),("-11111111.11");
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 Warning	1264	Out of range value for column 'a' at row 2
 Warning	1264	Out of range value for column 'a' at row 3
-insert into t1 values ("-111111111.11"),("+1111111111.11"),("1111111111.11");
+insert ignore into t1 values ("-111111111.11"),("+1111111111.11"),("1111111111.11");
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 Warning	1264	Out of range value for column 'a' at row 2
 Warning	1264	Out of range value for column 'a' at row 3
-insert into t1 values ("1e+1000"),("1e-1000"),("-1e+1000");
+insert ignore into t1 values ("1e+1000"),("1e-1000"),("-1e+1000");
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 Note	1265	Data truncated for column 'a' at row 2
 Warning	1264	Out of range value for column 'a' at row 3
-insert into t1 values ("123.4e"),("123.4e+2"),("123.4e-2"),("123e1"),("123e+0");
+insert ignore into t1 values ("123.4e"),("123.4e+2"),("123.4e-2"),("123e1"),("123e+0");
 Warnings:
 Warning	1265	Data truncated for column 'a' at row 1
 Note	1265	Data truncated for column 'a' at row 3
@@ -338,16 +338,16 @@ create table t1 (a decimal(10,2));
 insert into t1 values (0.0),("-0.0"),(+0.0),(01.0),(+01.0),(-01.0);
 insert into t1 values (-.1),(+.1),(.1);
 insert into t1 values (00000000000001),(+0000000000001),(-0000000000001);
-insert into t1 values (+111111111.11),(111111111.11),(-11111111.11);
+insert ignore into t1 values (+111111111.11),(111111111.11),(-11111111.11);
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 Warning	1264	Out of range value for column 'a' at row 2
-insert into t1 values (-111111111.11),(+1111111111.11),(1111111111.11);
+insert ignore into t1 values (-111111111.11),(+1111111111.11),(1111111111.11);
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 Warning	1264	Out of range value for column 'a' at row 2
 Warning	1264	Out of range value for column 'a' at row 3
-insert into t1 values (1e+100),(1e-100),(-1e+100);
+insert ignore into t1 values (1e+100),(1e-100),(-1e+100);
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 Note	1265	Data truncated for column 'a' at row 2
@@ -392,7 +392,7 @@ a
 98760.00
 drop  table t1;
 create table t1 (a decimal);
-insert into t1 values (-99999999999999),(-1),('+1'),('01'),('+00000000000001'),('+12345678901'),(99999999999999);
+insert ignore into t1 values (-99999999999999),(-1),('+1'),('01'),('+00000000000001'),('+12345678901'),(99999999999999);
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 Warning	1264	Out of range value for column 'a' at row 6
@@ -408,7 +408,7 @@ a
 9999999999
 drop  table t1;
 create table t1 (a decimal unsigned);
-insert into t1 values (-99999999999999),(-1),('+1'),('01'),('+00000000000001'),('+1234567890'),(99999999999999);
+insert ignore into t1 values (-99999999999999),(-1),('+1'),('01'),('+00000000000001'),('+1234567890'),(99999999999999);
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 Warning	1264	Out of range value for column 'a' at row 2
@@ -424,7 +424,7 @@ a
 9999999999
 drop  table t1;
 create table t1 (a decimal zerofill);
-insert into t1 values (-99999999999999),(-1),('+1'),('01'),('+00000000000001'),('+1234567890'),(99999999999999);
+insert ignore into t1 values (-99999999999999),(-1),('+1'),('01'),('+00000000000001'),('+1234567890'),(99999999999999);
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 Warning	1264	Out of range value for column 'a' at row 2
@@ -440,7 +440,7 @@ a
 9999999999
 drop  table t1;
 create table t1 (a decimal unsigned zerofill);
-insert into t1 values (-99999999999999),(-1),('+1'),('01'),('+00000000000001'),('+1234567890'),(99999999999999);
+insert ignore into t1 values (-99999999999999),(-1),('+1'),('01'),('+00000000000001'),('+1234567890'),(99999999999999);
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 Warning	1264	Out of range value for column 'a' at row 2
@@ -456,14 +456,14 @@ a
 9999999999
 drop  table t1;
 create table t1(a decimal(10,0));
-insert into t1 values ("1e4294967295");
+insert ignore into t1 values ("1e4294967295");
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 select * from t1;
 a
 9999999999
 delete from t1;
-insert into t1 values("1e4294967297");
+insert ignore into t1 values("1e4294967297");
 Warnings:
 Warning	1264	Out of range value for column 'a' at row 1
 select * from t1;
@@ -477,7 +477,7 @@ ERROR 42000: You have an error in your SQL syntax; check the manual that corresp
 CREATE TABLE t1 (a_dec DECIMAL(-1,1));
 ERROR 42000: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '-1,1))' at line 1
 CREATE TABLE t1 (a_dec DECIMAL(0,11));
-ERROR 42000: For float(M,D), double(M,D) or decimal(M,D), M must be >= D (column 'a_dec').
+ERROR 42000: For float(M,D), double(M,D) or decimal(M,D), M must be >= D (column 'a_dec')
 create table t1(a decimal(7,3));
 insert into t1 values ('1'),('+1'),('-1'),('0000000001'),('+0000000001'),('-0000000001'),('10'),('+10'),('-10'),('0000000010'),('+0000000010'),('-0000000010'),('100'),('+100'),('-100'),('0000000100'),('+0000000100'),('-0000000100'),('1000'),('+1000'),('-1000'),('0000001000'),('+0000001000'),('-0000001000'),('10000'),('+10000'),('-10000'),('0000010000'),('+0000010000'),('-0000010000'),('100000'),('+100000'),('-100000'),('0000100000'),('+0000100000'),('-0000100000'),('1000000'),('+1000000'),('-1000000'),('0001000000'),('+0001000000'),('-0001000000'),('10000000'),('+10000000'),('-10000000'),('0010000000'),('+0010000000'),('-0010000000'),('100000000'),('+100000000'),('-100000000'),('0100000000'),('+0100000000'),('-0100000000'),('1000000000'),('+1000000000'),('-1000000000'),('1000000000'),('+1000000000'),('-1000000000');
 select * from t1;
@@ -722,7 +722,7 @@ t1	CREATE TABLE `t1` (
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
 create table t1 (d decimal(66,0));
-ERROR 42000: Too big precision 66 specified for 'd'. Maximum is 65.
+ERROR 42000: Too big precision 66 specified for 'd'. Maximum is 65
 CREATE TABLE t1 (i INT, d1 DECIMAL(9,2), d2 DECIMAL(9,2));
 INSERT INTO t1 VALUES (1, 101.40, 21.40), (1, -80.00, 0.00),
 (2, 0.00, 0.00), (2, -13.20, 0.00), (2, 59.60, 46.40),
@@ -811,10 +811,10 @@ c1
 drop table t1;
 SELECT 1 % .123456789123456789123456789123456789123456789123456789123456789123456789123456789 AS '%';
 %
-0.012345687012345687012345687012
+0.01234568701234568701234568701234568701
 SELECT MOD(1, .123456789123456789123456789123456789123456789123456789123456789123456789123456789) AS 'MOD()';
 MOD()
-0.012345687012345687012345687012
+0.01234568701234568701234568701234568701
 create table t1 (f1 decimal(6,6),f2 decimal(6,6) zerofill);
 insert into t1 values (-0.123456,0.123456);
 select group_concat(f1),group_concat(f2) from t1;
@@ -845,8 +845,8 @@ c
 123456
 SELECT ROUND( a, 100 ) AS c FROM t1 ORDER BY c;
 c
-123456.000000000000000000000000000000
-123456.000000000000000000000000000000
+123456.00000000000000000000000000000000000000
+123456.00000000000000000000000000000000000000
 CREATE TABLE t2( a NUMERIC, b INT );
 INSERT INTO t2 VALUES (123456, 100);
 SELECT TRUNCATE( a, b ) AS c FROM t2 ORDER BY c;
@@ -867,8 +867,8 @@ c
 123456
 SELECT ROUND( a, 100 ) AS c FROM t3 ORDER BY c;
 c
-123456.000000000000000000000000000000
-123456.000000000000000000000000000000
+123456.00000000000000000000000000000000000000
+123456.00000000000000000000000000000000000000
 CREATE TABLE t4( a DECIMAL, b INT );
 INSERT INTO t4 VALUES (123456, 40), (123456, 40);
 SELECT TRUNCATE( a, b ) AS c FROM t4 ORDER BY c;
@@ -881,8 +881,8 @@ c
 123456
 SELECT ROUND( a, 100 ) AS c FROM t4 ORDER BY c;
 c
-123456.000000000000000000000000000000
-123456.000000000000000000000000000000
+123456.00000000000000000000000000000000000000
+123456.00000000000000000000000000000000000000
 delete from t1;
 INSERT INTO t1 VALUES (1234567890, 20), (999.99, 5);
 Warnings:

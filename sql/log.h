@@ -1,5 +1,5 @@
 /* Copyright (c) 2005, 2016, Oracle and/or its affiliates.
-   Copyright (c) 2009, 2016, Monty Program Ab
+   Copyright (c) 2009, 2017, MariaDB Corporation.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -26,6 +26,7 @@ class Relay_log_info;
 
 class Format_description_log_event;
 
+void setup_log_handling();
 bool trans_has_updated_trans_table(const THD* thd);
 bool stmt_has_updated_trans_table(const THD *thd);
 bool use_trans_cache(const THD* thd, bool is_transactional);
@@ -286,9 +287,9 @@ typedef struct st_log_info
 #define MAX_LOG_HANDLERS_NUM 3
 
 /* log event handler flags */
-#define LOG_NONE       1
-#define LOG_FILE       2
-#define LOG_TABLE      4
+#define LOG_NONE       1U
+#define LOG_FILE       2U
+#define LOG_TABLE      4U
 
 class Log_event;
 class Rows_log_event;
@@ -354,7 +355,7 @@ public:
   MYSQL_QUERY_LOG() : last_time(0) {}
   void reopen_file();
   bool write(time_t event_time, const char *user_host,
-             uint user_host_len, int thread_id,
+             uint user_host_len, my_thread_id thread_id,
              const char *command_type, uint command_type_len,
              const char *sql_text, uint sql_text_len);
   bool write(THD *thd, time_t current_time,
@@ -587,6 +588,8 @@ public:
   mysql_mutex_t LOCK_binlog_background_thread;
   mysql_cond_t COND_binlog_background_thread;
   mysql_cond_t COND_binlog_background_thread_end;
+
+  void stop_background_thread();
 
   using MYSQL_LOG::generate_name;
   using MYSQL_LOG::is_open;
@@ -904,7 +907,7 @@ public:
   virtual bool log_error(enum loglevel level, const char *format,
                          va_list args)= 0;
   virtual bool log_general(THD *thd, my_hrtime_t event_time, const char *user_host,
-                           uint user_host_len, int thread_id,
+                           uint user_host_len, my_thread_id thread_id,
                            const char *command_type, uint command_type_len,
                            const char *sql_text, uint sql_text_len,
                            CHARSET_INFO *client_cs)= 0;
@@ -933,7 +936,7 @@ public:
   virtual bool log_error(enum loglevel level, const char *format,
                          va_list args);
   virtual bool log_general(THD *thd, my_hrtime_t event_time, const char *user_host,
-                           uint user_host_len, int thread_id,
+                           uint user_host_len, my_thread_id thread_id,
                            const char *command_type, uint command_type_len,
                            const char *sql_text, uint sql_text_len,
                            CHARSET_INFO *client_cs);
@@ -965,7 +968,7 @@ public:
   virtual bool log_error(enum loglevel level, const char *format,
                          va_list args);
   virtual bool log_general(THD *thd, my_hrtime_t event_time, const char *user_host,
-                           uint user_host_len, int thread_id,
+                           uint user_host_len, my_thread_id thread_id,
                            const char *command_type, uint command_type_len,
                            const char *sql_text, uint sql_text_len,
                            CHARSET_INFO *client_cs);
@@ -1013,7 +1016,6 @@ public:
   */
   void init_base();
   void init_log_tables();
-  bool flush_logs(THD *thd);
   bool flush_slow_log();
   bool flush_general_log();
   /* Perform basic logger cleanup. this will leave e.g. error log open. */

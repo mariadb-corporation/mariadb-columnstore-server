@@ -59,9 +59,6 @@ start slave;
 connection server_1;
 connection server_2;
 include/wait_for_slave_io_error.inc [errno=1236]
-connection server_2;
-connection server_2;
-connection server_2;
 SHOW TABLES;
 Tables_in_test
 table1_no_encryption

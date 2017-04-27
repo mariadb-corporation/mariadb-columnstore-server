@@ -1,6 +1,7 @@
 /*****************************************************************************
 
-Copyright (c) 1997, 2011, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1997, 2014, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -59,14 +60,14 @@ Created 12/14/1997 Heikki Tuuri
 #include "mem0mem.h"
 #include "os0proc.h"
 
-#define malloc(A)	ut_malloc(A)
+#define malloc(A)	ut_malloc_nokey(A)
 #define free(A)		ut_free(A)
 #define realloc(P, A)	ut_realloc(P, A)
 #define exit(A) 	ut_error
 
 /* Note: We cast &result to int* from yysize_t* */
 #define YY_INPUT(buf, result, max_size) \
-	pars_get_lex_chars(buf, (int*) &result, max_size)
+	(result = pars_get_lex_chars(buf, max_size))
 
 /* String buffer for removing quotes */
 static ulint	stringbuf_len_alloc = 0; /* Allocated length */
@@ -425,10 +426,6 @@ In the state 'id', only two actions are possible (defined below). */
 			return(PARS_CLUSTERED_TOKEN);
 }
 
-"DOES_NOT_FIT_IN_MEMORY"	{
-			return(PARS_DOES_NOT_FIT_IN_MEM_TOKEN);
-}
-
 "ON"		{
 			return(PARS_ON_TOKEN);
 }
@@ -692,7 +689,6 @@ In the state 'id', only two actions are possible (defined below). */
 
 /**********************************************************************
 Release any resources used by the lexer. */
-UNIV_INTERN
 void
 pars_lexer_close(void)
 /*==================*/

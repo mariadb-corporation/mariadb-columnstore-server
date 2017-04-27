@@ -54,7 +54,7 @@
 
 # Set the SESSION DEFAULT STORAGE ENGINE to a value <> storage engine
 # to be tested. This must not affect any CREATE TABLE statement, where
-# the storage engine is assigned explicitely,
+# the storage engine is assigned explicitly,
 eval SET SESSION STORAGE_ENGINE = $other_engine_type;
 
 #
@@ -1470,9 +1470,11 @@ source include/varchar.inc;
 --replace_result \\ / $MYSQL_TEST_DIR . /var/mysqld.1/data/ / t1.frm t1
 create table t1 (v varchar(65530), key(v));
 drop table t1;
+SET STATEMENT sql_mode = 'NO_ENGINE_SUBSTITUTION' FOR
 create table t1 (v varchar(65536));
 show create table t1;
 drop table t1;
+SET STATEMENT sql_mode = 'NO_ENGINE_SUBSTITUTION' FOR
 create table t1 (v varchar(65530) character set utf8);
 show create table t1;
 drop table t1;

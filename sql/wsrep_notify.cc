@@ -11,13 +11,12 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111-1301 USA */
 
 #include <mysqld.h>
 #include "wsrep_priv.h"
 #include "wsrep_utils.h"
 
-const char* wsrep_notify_cmd="";
 
 static const char* _status_str(wsrep_member_status_t status)
 {

@@ -1,4 +1,6 @@
 set global max_allowed_packet=1048576;
+connect  conn1,localhost,root,,;
+connection conn1;
 select @test_compress_string:='string for test compress function aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ';
 @test_compress_string:='string for test compress function aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa '
 string for test compress function aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 
@@ -12,7 +14,7 @@ explain extended select uncompress(compress(@test_compress_string));
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	No tables used
 Warnings:
-Note	1003	select uncompress(compress((@`test_compress_string`))) AS `uncompress(compress(@test_compress_string))`
+Note	1003	select uncompress(compress(@`test_compress_string`)) AS `uncompress(compress(@test_compress_string))`
 select uncompressed_length(compress(@test_compress_string))=length(@test_compress_string);
 uncompressed_length(compress(@test_compress_string))=length(@test_compress_string)
 1
@@ -20,7 +22,7 @@ explain extended select uncompressed_length(compress(@test_compress_string))=len
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	No tables used
 Warnings:
-Note	1003	select (uncompressed_length(compress((@`test_compress_string`))) = length((@`test_compress_string`))) AS `uncompressed_length(compress(@test_compress_string))=length(@test_compress_string)`
+Note	1003	select uncompressed_length(compress(@`test_compress_string`)) = length(@`test_compress_string`) AS `uncompressed_length(compress(@test_compress_string))=length(@test_compress_string)`
 select uncompressed_length(compress(@test_compress_string));
 uncompressed_length(compress(@test_compress_string))
 117
@@ -70,12 +72,15 @@ Warning	1259	ZLIB: Input data corrupted
 Warning	1256	Uncompressed data size too large; the maximum size is 1048576 (probably, length of uncompressed data was corrupted)
 drop table t1;
 set @@global.max_allowed_packet=1048576*100;
+connect  newconn, localhost, root,,;
 select compress(repeat('aaaaaaaaaa', IF(XXX, 10, 10000000))) is null;
 compress(repeat('aaaaaaaaaa', IF(XXX, 10, 10000000))) is null
 0
 Warnings:
 Warning	1292	Truncated incorrect DOUBLE value: XXX
 Warning	1292	Truncated incorrect DOUBLE value: XXX
+disconnect newconn;
+connection default;
 set @@global.max_allowed_packet=default;
 create table t1(a blob);
 insert into t1 values(NULL), (compress('a'));
@@ -156,6 +161,8 @@ UNCOMPRESS(CAST(0 AS BINARY(5)))
 NULL
 Warnings:
 Warning	1259	ZLIB: Input data corrupted
+disconnect conn1;
+connection default;
 set global max_allowed_packet=default;
 #
 # End of 5.5 tests
@@ -183,4 +190,27 @@ test	04000000789C2B492D2E0100045D01C1
 DROP TABLE t1;
 #
 # End of 10.1 tests
+#
+#
+# Start of 10.2 tests
+#
+#
+# MDEV-10134 Add full support for DEFAULT
+#
+CREATE TABLE t1 (a TEXT, b BLOB DEFAULT COMPRESS(a), bl INT DEFAULT UNCOMPRESSED_LENGTH(b), a1 TEXT DEFAULT UNCOMPRESS(b));
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` text DEFAULT NULL,
+  `b` blob DEFAULT compress(`a`),
+  `bl` int(11) DEFAULT uncompressed_length(`b`),
+  `a1` text DEFAULT uncompress(`b`)
+) ENGINE=MyISAM DEFAULT CHARSET=latin1
+INSERT INTO t1 (a) VALUES (REPEAT('a',100));
+SELECT bl, a1 FROM t1;
+bl	a1
+100	aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+DROP TABLE t1;
+#
+# End of 10.2 tests
 #
