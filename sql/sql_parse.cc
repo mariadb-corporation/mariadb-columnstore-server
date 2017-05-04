@@ -10411,54 +10411,58 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 							stmt->set_parameters(&expanded_query, NULL, NULL);
 						}
 						// replace ? with values
-						std::string tmp_query = std::string (stmt->query());
-						std::string::size_type p1 = tmp_query.find("?");
-						std::string replaceStr;
-						Item_param **begin= stmt->param_array;
-						while (p1 != std::string::npos)
-						{
-							Item_param *param= *begin;
-							if (param->state == Item_param::NO_VALUE)
-							{
-								replaceStr = "NULL";
-							}
-							else
-							{
-								String val, *str;
-								str = param->val_str(&val);
-								if ( param->item_type == Item::STRING_ITEM )
-									replaceStr = "'" + std::string(str->c_ptr()) + "'";
-								else
-									replaceStr = std::string(str->c_ptr());
-							}
+                        String tmp_query;
+                        Item_param **begin= stmt->param_array;
+                        Item_param **end= begin + stmt->param_count;
+                        Copy_query_with_rewrite acc(thd, stmt->query(), stmt->query_length(), &tmp_query);
+                        bool param_fail = false;
 
-							tmp_query.replace( p1, 1, replaceStr);
-							begin++;
-							p1 = tmp_query.find("?");
-						}
-						alloc_query(thd, tmp_query.c_str(), tmp_query.length());
+                        for (Item_param **it= begin; it < end; ++it)
+                        {
+                            Item_param *param= *it;
 
-						// pre parse statement to tell DML statement from select
-						lex_start(thd);
-						thd->reset_for_next_command();
+                            if (acc.append(param))
+                            {
+                                param_fail = true;
+                                break;
+                            }
 
-						Parser_state parser_state;
-						parser_state.init(thd, thd->query(), thd->query_length());
-						parse_sql(thd, &parser_state, NULL, true);
+                            if (param->convert_str_value(thd))
+                            {
+                                param_fail = true;
+                                break;
+                            }
+                        }
+                        if (param_fail || acc.finalize())
+                        {
+                            INFINIDB_execute = false;
+                        }
+                        else
+                        {
+    						alloc_query(thd, tmp_query.c_ptr(), tmp_query.length());
 
-						if (thd->lex->sql_command != SQLCOM_SELECT)
-						{
-							INFINIDB_execute = false;
-							if ( thd->lex->sql_command != SQLCOM_DELETE )
-							{
-								// set original query back
-								thd->set_query(query, query_length);
-							}
-							//Set to table mode for DML statement
-							thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
-							thd->infinidb_vtable.autoswitch = false;
-							isSqlExecute = true;
-						}
+                            // pre parse statement to tell DML statement from select
+                            lex_start(thd);
+                            thd->reset_for_next_command();
+
+                            Parser_state parser_state;
+                            parser_state.init(thd, thd->query(), thd->query_length());
+                            parse_sql(thd, &parser_state, NULL, true);
+
+                            if (thd->lex->sql_command != SQLCOM_SELECT)
+                            {
+                                INFINIDB_execute = false;
+                                if ( thd->lex->sql_command != SQLCOM_DELETE )
+                                {
+                                    // set original query back
+                                    thd->set_query(query, query_length);
+                                }
+                                //Set to table mode for DML statement
+                                thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
+                                thd->infinidb_vtable.autoswitch = false;
+                                isSqlExecute = true;
+                            }
+                        }
 					}
 					else
 					{
