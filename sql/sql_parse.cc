@@ -9761,7 +9761,7 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 								  continue;
 
 								std::string arg_name = spvar->name.str;
-								std::string arg_val = arg_item->name;
+								std::string arg_val(arg_item->val_str()->c_ptr(), arg_item->val_str()->length());
 								uint len = spvar->name.length;
 								if (arg_item->type() ==  Item::STRING_ITEM)
 									arg_val = "'" + arg_val + "'";
