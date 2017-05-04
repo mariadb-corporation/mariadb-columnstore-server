@@ -137,9 +137,6 @@ IF(UNIX)
             DESTINATION  ${INSTALL_SYSCONFDIR}/init.d
             RENAME mysql COMPONENT SupportFiles)
 
-    INSTALL(FILES rpm/my.cnf DESTINATION ${INSTALL_SYSCONFDIR}
-            COMPONENT Common)
-
     IF (INSTALL_SYSCONF2DIR)
       INSTALL(FILES rpm/client.cnf DESTINATION ${INSTALL_SYSCONF2DIR}
               COMPONENT SharedLibraries)
@@ -153,7 +150,7 @@ IF(UNIX)
 
     # This is for SuSE:
     INSTALL(CODE "EXECUTE_PROCESS(COMMAND ${CMAKE_COMMAND} -E create_symlink
-                   ${INSTALL_SYSCONFDIR}/init.d/mysql
+                   ${INSTALL_SYSCONFDIR}/init.d/mysql-Columnstore
                    ${INSTALL_SBINDIR}/rcmysql
                    WORKING_DIRECTORY \$ENV{DESTDIR}${prefix})"
                    COMPONENT SupportFiles)
