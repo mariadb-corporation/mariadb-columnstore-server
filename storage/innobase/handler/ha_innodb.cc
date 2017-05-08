@@ -1084,6 +1084,9 @@ static SHOW_VAR innodb_status_variables[]= {
   {"encryption_rotation_estimated_iops",
   (char*) &export_vars.innodb_encryption_rotation_estimated_iops,
    SHOW_LONG},
+  {"encryption_key_rotation_list_length",
+  (char*)&export_vars.innodb_key_rotation_list_length,
+   SHOW_LONGLONG},
 
   /* scrubing */
   {"scrub_background_page_reorganizations",
@@ -1700,6 +1703,15 @@ thd_has_edited_nontrans_tables(
 	THD*	thd)	/*!< in: thread handle */
 {
 	return((ibool) thd_non_transactional_update(thd));
+}
+
+/* Return high resolution timestamp for the start of the current query */
+UNIV_INTERN
+unsigned long long
+thd_query_start_micro(
+	const THD*	thd)	/*!< in: thread handle */
+{
+	return thd_start_utime(thd);
 }
 
 /******************************************************************//**
@@ -5663,20 +5675,23 @@ ha_innobase::innobase_initialize_autoinc()
 			break;
 		}
 		case DB_RECORD_NOT_FOUND:
-			ut_print_timestamp(stderr);
-			fprintf(stderr, "  InnoDB: MySQL and InnoDB data "
-				"dictionaries are out of sync.\n"
-				"InnoDB: Unable to find the AUTOINC column "
-				"%s in the InnoDB table %s.\n"
-				"InnoDB: We set the next AUTOINC column "
-				"value to 0,\n"
-				"InnoDB: in effect disabling the AUTOINC "
-				"next value generation.\n"
-				"InnoDB: You can either set the next "
-				"AUTOINC value explicitly using ALTER TABLE\n"
-				"InnoDB: or fix the data dictionary by "
-				"recreating the table.\n",
-				col_name, index->table->name);
+			char		buf[MAX_FULL_NAME_LEN];
+			ut_format_name(index->table->name, TRUE, buf, sizeof(buf));
+
+			ib_logf(IB_LOG_LEVEL_ERROR,
+				"MySQL and InnoDB data "
+				"dictionaries are out of sync."
+				" Unable to find the AUTOINC column "
+				" %s in the InnoDB table %s."
+				" We set the next AUTOINC column "
+				"value to 0"
+				" in effect disabling the AUTOINC "
+				"next value generation."
+				" You can either set the next "
+				"AUTOINC value explicitly using ALTER TABLE "
+				" or fix the data dictionary by "
+				"recreating the table.",
+				col_name, buf);
 
 			/* This will disable the AUTOINC generation. */
 			auto_inc = 0;
@@ -5768,16 +5783,17 @@ ha_innobase::open(
 		    && (table->s->fields
 			!= dict_table_get_n_user_cols(ib_table) - 1)))) {
 		ib_logf(IB_LOG_LEVEL_WARN,
-			"table %s contains %lu user defined columns "
-			"in InnoDB, but %lu columns in MySQL. Please "
+			"table %s contains " ULINTPF " user defined columns "
+			"in InnoDB, but %u columns in MySQL. Please "
 			"check INFORMATION_SCHEMA.INNODB_SYS_COLUMNS and "
 			REFMAN "innodb-troubleshooting.html "
 			"for how to resolve it",
-			norm_name, (ulong) dict_table_get_n_user_cols(ib_table),
-			(ulong) table->s->fields);
+			norm_name, dict_table_get_n_user_cols(ib_table),
+			table->s->fields);
 
 		/* Mark this table as corrupted, so the drop table
 		or force recovery can still use it, but not others. */
+		ib_table->file_unreadable = true;
 		ib_table->corrupted = true;
 		dict_table_close(ib_table, FALSE, FALSE);
 		ib_table = NULL;
@@ -5878,7 +5894,7 @@ table_opened:
 	ib_table->thd = (void*)thd;
 
 	/* No point to init any statistics if tablespace is still encrypted. */
-	if (!ib_table->is_encrypted) {
+	if (ib_table->is_readable()) {
 		dict_stats_init(ib_table);
 	} else {
 		ib_table->stat_initialized = 1;
@@ -5886,7 +5902,9 @@ table_opened:
 
 	MONITOR_INC(MONITOR_TABLE_OPEN);
 
-	bool	no_tablespace;
+	bool	no_tablespace = false;
+	bool	encrypted = false;
+	FilSpace space;
 
 	if (dict_table_is_discarded(ib_table)) {
 
@@ -5901,21 +5919,28 @@ table_opened:
 
 		no_tablespace = false;
 
-	} else if (ib_table->ibd_file_missing) {
+	} else if (!ib_table->is_readable()) {
+		space = fil_space_acquire_silent(ib_table->space);
 
-		ib_senderrf(
-			thd, IB_LOG_LEVEL_WARN,
-			ER_TABLESPACE_MISSING, norm_name);
+		if (space()) {
+			if (space()->crypt_data && space()->crypt_data->is_encrypted()) {
+				/* This means that tablespace was found but we could not
+				decrypt encrypted page. */
+				no_tablespace = true;
+				encrypted = true;
+			} else {
+				no_tablespace = true;
+			}
+		} else {
+			ib_senderrf(
+				thd, IB_LOG_LEVEL_WARN,
+				ER_TABLESPACE_MISSING, norm_name);
 
-		/* This means we have no idea what happened to the tablespace
-		file, best to play it safe. */
+			/* This means we have no idea what happened to the tablespace
+			file, best to play it safe. */
 
-		no_tablespace = true;
-	} else if (ib_table->is_encrypted) {
-		/* This means that tablespace was found but we could not
-		decrypt encrypted page. */
-		no_tablespace = true;
-		ib_table->ibd_file_missing = true;
+			no_tablespace = true;
+		}
 	} else {
 		no_tablespace = false;
 	}
@@ -5928,27 +5953,34 @@ table_opened:
 		/* If table has no talespace but it has crypt data, check
 		is tablespace made unaccessible because encryption service
 		or used key_id is not available. */
-		if (ib_table) {
-			fil_space_crypt_t* crypt_data = ib_table->crypt_data;
+		if (encrypted) {
+			bool warning_pushed = false;
 
-			if (crypt_data && crypt_data->should_encrypt()) {
+			char	buf[MAX_FULL_NAME_LEN];
+			ut_format_name(ib_table->name, TRUE, buf, sizeof(buf));
 
-				if (!encryption_key_id_exists(crypt_data->key_id)) {
-					push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
-						HA_ERR_DECRYPTION_FAILED,
-						"Table %s is encrypted but encryption service or"
-						" used key_id %u is not available. "
-						" Can't continue reading table.",
-						ib_table->name, crypt_data->key_id);
-					ret_err = HA_ERR_DECRYPTION_FAILED;
-				}
-			} else if (ib_table->is_encrypted) {
+			if (!encryption_key_id_exists(space()->crypt_data->key_id)) {
 				push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
 					HA_ERR_DECRYPTION_FAILED,
-					"Table %s is encrypted but encryption service or"
+					"Table %s in file %s is encrypted but encryption service or"
+					" used key_id %u is not available. "
+					" Can't continue reading table.",
+					buf, space()->chain.start->name,
+					space()->crypt_data->key_id);
+				ret_err = HA_ERR_DECRYPTION_FAILED;
+				warning_pushed = true;
+			}
+
+			/* If table is marked as encrypted then we push
+			warning if it has not been already done as used
+			key_id might be found but it is incorrect. */
+			if (!warning_pushed) {
+				push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
+					HA_ERR_DECRYPTION_FAILED,
+					"Table %s in file %s is encrypted but encryption service or"
 					" used key_id is not available. "
 					" Can't continue reading table.",
-					ib_table->name);
+					buf, space()->chain.start->name);
 				ret_err = HA_ERR_DECRYPTION_FAILED;
 			}
 		}
@@ -6084,7 +6116,7 @@ table_opened:
 
 	/* Only if the table has an AUTOINC column. */
 	if (prebuilt->table != NULL
-	    && !prebuilt->table->ibd_file_missing
+	    && prebuilt->table->is_readable()
 	    && table->found_next_number_field != NULL) {
 		dict_table_autoinc_lock(prebuilt->table);
 
@@ -9583,6 +9615,21 @@ ha_innobase::general_fetch(
 
 	ut_a(prebuilt->trx == thd_to_trx(user_thd));
 
+	if (prebuilt->table->is_readable()) {
+	} else {
+		if (prebuilt->table->corrupted) {
+			DBUG_RETURN(HA_ERR_CRASHED);
+		} else {
+			FilSpace space(prebuilt->table->space, true);
+
+			if (space()) {
+				DBUG_RETURN(HA_ERR_DECRYPTION_FAILED);
+			} else {
+				DBUG_RETURN(HA_ERR_NO_SUCH_TABLE);
+			}
+		}
+	}
+
 	innobase_srv_conc_enter_innodb(prebuilt->trx);
 
 	ret = row_search_for_mysql(
@@ -11752,7 +11799,7 @@ ha_innobase::check_table_options(
 	atomic_writes_t awrites = (atomic_writes_t)options->atomic_writes;
 	fil_encryption_t encrypt = (fil_encryption_t)options->encryption;
 
-	if (encrypt != FIL_SPACE_ENCRYPTION_DEFAULT && !use_tablespace) {
+	if (encrypt != FIL_ENCRYPTION_DEFAULT && !use_tablespace) {
 		push_warning(
 			thd, Sql_condition::WARN_LEVEL_WARN,
 			HA_WRONG_CREATE_OPTION,
@@ -11760,7 +11807,7 @@ ha_innobase::check_table_options(
 		return "ENCRYPTED";
  	}
 
-        if (encrypt == FIL_SPACE_ENCRYPTION_OFF && srv_encrypt_tables == 2) {
+        if (encrypt == FIL_ENCRYPTION_OFF && srv_encrypt_tables == 2) {
 		push_warning(
 			thd, Sql_condition::WARN_LEVEL_WARN,
 			HA_WRONG_CREATE_OPTION,
@@ -11841,8 +11888,8 @@ ha_innobase::check_table_options(
 	}
 
 	/* If encryption is set up make sure that used key_id is found */
-	if (encrypt == FIL_SPACE_ENCRYPTION_ON ||
-            (encrypt == FIL_SPACE_ENCRYPTION_DEFAULT && srv_encrypt_tables)) {
+	if (encrypt == FIL_ENCRYPTION_ON ||
+            (encrypt == FIL_ENCRYPTION_DEFAULT && srv_encrypt_tables)) {
 		if (!encryption_key_id_exists((unsigned int)options->encryption_key_id)) {
 			push_warning_printf(
 				thd, Sql_condition::WARN_LEVEL_WARN,
@@ -11855,7 +11902,7 @@ ha_innobase::check_table_options(
 	}
 
 	/* Ignore nondefault key_id if encryption is set off */
-	if (encrypt == FIL_SPACE_ENCRYPTION_OFF &&
+	if (encrypt == FIL_ENCRYPTION_OFF &&
 		options->encryption_key_id != THDVAR(thd, default_encryption_key_id)) {
 		push_warning_printf(
 			thd, Sql_condition::WARN_LEVEL_WARN,
@@ -11868,7 +11915,7 @@ ha_innobase::check_table_options(
 
 	/* If default encryption is used make sure that used kay is found
 	from key file. */
-	if (encrypt == FIL_SPACE_ENCRYPTION_DEFAULT &&
+	if (encrypt == FIL_ENCRYPTION_DEFAULT &&
 		!srv_encrypt_tables &&
 		options->encryption_key_id != FIL_DEFAULT_ENCRYPTION_KEY) {
 		if (!encryption_key_id_exists((unsigned int)options->encryption_key_id)) {
@@ -12325,7 +12372,7 @@ ha_innobase::discard_or_import_tablespace(
 		user may want to set the DISCARD flag in order to IMPORT
 		a new tablespace. */
 
-		if (dict_table->ibd_file_missing) {
+		if (!dict_table->is_readable()) {
 			ib_senderrf(
 				prebuilt->trx->mysql_thd,
 				IB_LOG_LEVEL_WARN, ER_TABLESPACE_MISSING,
@@ -12335,7 +12382,7 @@ ha_innobase::discard_or_import_tablespace(
 		err = row_discard_tablespace_for_mysql(
 			dict_table->name, prebuilt->trx);
 
-	} else if (!dict_table->ibd_file_missing) {
+	} else if (dict_table->is_readable()) {
 		/* Commit the transaction in order to
 		release the table lock. */
 		trx_commit_for_mysql(prebuilt->trx);
@@ -12586,6 +12633,17 @@ ha_innobase::defragment_table(
 
 	for (index = dict_table_get_first_index(table); index;
 	     index = dict_table_get_next_index(index)) {
+
+		if (dict_index_is_corrupted(index)) {
+			continue;
+		}
+
+		if (index->page == FIL_NULL) {
+			/* Do not defragment auxiliary tables related
+			to FULLTEXT INDEX. */
+			ut_ad(index->type & DICT_FTS);
+			continue;
+		}
 
 		if (one_index && strcasecmp(index_name, index->name) != 0) {
 			continue;
@@ -13885,7 +13943,8 @@ ha_innobase::check(
 
 		DBUG_RETURN(HA_ADMIN_CORRUPT);
 
-	} else if (prebuilt->table->ibd_file_missing) {
+	} else if (prebuilt->table->file_unreadable &&
+		   fil_space_get(prebuilt->table->space) == NULL) {
 
 		ib_senderrf(
 			thd, IB_LOG_LEVEL_ERROR,
@@ -15009,7 +15068,7 @@ ha_innobase::transactional_table_lock(
 				ER_TABLESPACE_DISCARDED,
 				table->s->table_name.str);
 
-		} else if (prebuilt->table->ibd_file_missing) {
+		} else if (!prebuilt->table->is_readable()) {
 
 			ib_senderrf(
 				thd, IB_LOG_LEVEL_ERROR,
@@ -19820,10 +19879,11 @@ static MYSQL_SYSVAR_UINT(encryption_rotate_key_age,
 			 PLUGIN_VAR_RQCMDARG,
 			 "Key rotation - re-encrypt in background "
                          "all pages that were encrypted with a key that "
-                         "many (or more) versions behind",
+                         "many (or more) versions behind. Value 0 indicates "
+			 "that key rotation is disabled.",
 			 NULL,
 			 innodb_encryption_rotate_key_age_update,
-			 srv_fil_crypt_rotate_key_age, 0, UINT_MAX32, 0);
+			 1, 0, UINT_MAX32, 0);
 
 static MYSQL_SYSVAR_UINT(encryption_rotation_iops, srv_n_fil_crypt_iops,
 			 PLUGIN_VAR_RQCMDARG,
@@ -20737,8 +20797,9 @@ innodb_encrypt_tables_validate(
 						for update function */
 	struct st_mysql_value*		value)	/*!< in: incoming string */
 {
-	if (check_sysvar_enum(thd, var, save, value))
+	if (check_sysvar_enum(thd, var, save, value)) {
 		return 1;
+	}
 
 	ulong encrypt_tables = *(ulong*)save;
 
@@ -20750,6 +20811,17 @@ innodb_encrypt_tables_validate(
 		                    "encryption plugin is not available");
 		return 1;
 	}
+
+	if (!srv_fil_crypt_rotate_key_age) {
+		const char *msg = (encrypt_tables ? "enable" : "disable");
+		push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
+				    HA_ERR_UNSUPPORTED,
+				    "InnoDB: cannot %s encryption, "
+				    "innodb_encryption_rotate_key_age=0"
+				    " i.e. key rotation disabled", msg);
+		return 1;
+	}
+
 	return 0;
 }
 

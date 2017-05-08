@@ -1297,7 +1297,12 @@ recv_parse_or_apply_log_rec_body(
 		}
 		break;
 	case MLOG_FILE_WRITE_CRYPT_DATA:
-		ptr = fil_parse_write_crypt_data(ptr, end_ptr, block);
+		dberr_t err;
+		ptr = const_cast<byte*>(fil_parse_write_crypt_data(ptr, end_ptr, block, &err));
+
+		if (err != DB_SUCCESS) {
+			recv_sys->found_corrupt_log = TRUE;
+		}
 		break;
 	default:
 		ptr = NULL;
@@ -1640,7 +1645,7 @@ recv_recover_page_func(
 			}
 
 			DBUG_PRINT("ib_log",
-				   ("apply " DBUG_LSN_PF ": %u len %u "
+				   ("apply " LSN_PF ": %u len %u "
 				    "page %u:%u", recv->start_lsn,
 				    (unsigned) recv->type,
 				    (unsigned) recv->len,
@@ -1769,6 +1774,7 @@ recv_read_in_area(
 /** Apply the hash table of stored log records to persistent data pages.
 @param[in]	last_batch	whether the change buffer merge will be
 				performed as part of the operation */
+
 UNIV_INTERN
 void
 recv_apply_hashed_log_recs(bool last_batch)
@@ -1778,6 +1784,11 @@ recv_apply_hashed_log_recs(bool last_batch)
 
 		if (!recv_sys->apply_batch_on) {
 			break;
+		}
+
+		if (recv_sys->found_corrupt_log) {
+			mutex_exit(&recv_sys->mutex);
+			return;
 		}
 
 		mutex_exit(&recv_sys->mutex);
@@ -1843,6 +1854,10 @@ recv_apply_hashed_log_recs(bool last_batch)
 	while (recv_sys->n_addrs != 0) {
 
 		mutex_exit(&(recv_sys->mutex));
+
+		if (recv_sys->found_corrupt_log) {
+			return;
+		}
 
 		os_thread_sleep(500000);
 
@@ -2301,7 +2316,7 @@ loop:
 		recv_sys->recovered_lsn = new_recovered_lsn;
 
 		DBUG_PRINT("ib_log",
-			   ("scan " DBUG_LSN_PF ": log rec %u len %u "
+			   ("scan " LSN_PF ": log rec %u len %u "
 			    "page %u:%u", old_lsn,
 			    (unsigned) type, (unsigned) len,
 			    (unsigned) space, (unsigned) page_no));
@@ -2393,7 +2408,7 @@ loop:
 #endif /* UNIV_LOG_DEBUG */
 
 			DBUG_PRINT("ib_log",
-				   ("scan " DBUG_LSN_PF ": multi-log rec %u "
+				   ("scan " LSN_PF ": multi-log rec %u "
 				    "len %u page %u:%u",
 				    recv_sys->recovered_lsn,
 				    (unsigned) type, (unsigned) len,

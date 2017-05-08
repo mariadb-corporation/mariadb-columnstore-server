@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2005, 2016, Oracle and/or its affiliates
-Copyright (c) 2013, 2016, MariaDB Corporation. All Rights Reserved.
+Copyright (c) 2013, 2017, MariaDB Corporation. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -130,7 +130,6 @@ my_error_innodb(
 		break;
 	case DB_OUT_OF_FILE_SPACE:
 		my_error(ER_RECORD_FILE_FULL, MYF(0), table);
-		ut_error;
 		break;
 	case DB_TEMP_FILE_WRITE_FAILURE:
 		my_error(ER_GET_ERRMSG, MYF(0),
@@ -2883,9 +2882,11 @@ prepare_inplace_alter_table_dict(
 		ulint		n_cols;
 		dtuple_t*	add_cols;
 		ulint		key_id = FIL_DEFAULT_ENCRYPTION_KEY;
-		fil_encryption_t mode = FIL_SPACE_ENCRYPTION_DEFAULT;
+		fil_encryption_t mode = FIL_ENCRYPTION_DEFAULT;
 
-		crypt_data = fil_space_get_crypt_data(ctx->prebuilt->table->space);
+		fil_space_t* space = fil_space_acquire(ctx->prebuilt->table->space);
+		crypt_data = space->crypt_data;
+		fil_space_release(space);
 
 		if (crypt_data) {
 			key_id = crypt_data->key_id;
@@ -3128,7 +3129,7 @@ prepare_inplace_alter_table_dict(
 		clustered index of the old table, later. */
 		if (new_clustered
 		    || !ctx->online
-		    || user_table->ibd_file_missing
+		    || !user_table->is_readable()
 		    || dict_table_is_discarded(user_table)) {
 			/* No need to allocate a modification log. */
 			ut_ad(!ctx->add_index[a]->online_log);
@@ -3537,6 +3538,43 @@ ha_innobase::prepare_inplace_alter_table(
 	if (!(ha_alter_info->handler_flags & ~INNOBASE_INPLACE_IGNORE)) {
 		/* Nothing to do */
 		goto func_exit;
+	}
+
+	indexed_table = prebuilt->table;
+
+	if (indexed_table->is_readable()) {
+	} else {
+		if (indexed_table->corrupted) {
+			/* Handled below */
+		} else {
+			FilSpace space(indexed_table->space, true);
+
+			if (space()) {
+				String str;
+				const char* engine= table_type();
+				char	buf[MAX_FULL_NAME_LEN];
+				ut_format_name(indexed_table->name, TRUE, buf, sizeof(buf));
+
+				push_warning_printf(user_thd, Sql_condition::WARN_LEVEL_WARN,
+					HA_ERR_DECRYPTION_FAILED,
+					"Table %s in file %s is encrypted but encryption service or"
+					" used key_id is not available. "
+					" Can't continue reading table.",
+					buf, space()->chain.start->name);
+
+				my_error(ER_GET_ERRMSG, MYF(0), HA_ERR_DECRYPTION_FAILED, str.c_ptr(), engine);
+				DBUG_RETURN(true);
+			}
+		}
+	}
+
+	if (indexed_table->corrupted
+	    || dict_table_get_first_index(indexed_table) == NULL
+	    || dict_index_is_corrupted(
+		    dict_table_get_first_index(indexed_table))) {
+		/* The clustered index is corrupted. */
+		my_error(ER_CHECK_NO_SUCH_TABLE, MYF(0));
+		DBUG_RETURN(true);
 	}
 
 	if (ha_alter_info->handler_flags
@@ -4191,7 +4229,7 @@ ok_exit:
 	DBUG_ASSERT(ctx->trx);
 	DBUG_ASSERT(ctx->prebuilt == prebuilt);
 
-	if (prebuilt->table->ibd_file_missing
+	if (prebuilt->table->file_unreadable
 	    || dict_table_is_discarded(prebuilt->table)) {
 		goto all_done;
 	}
@@ -5213,7 +5251,7 @@ commit_try_rebuild(
 	/* The new table must inherit the flag from the
 	"parent" table. */
 	if (dict_table_is_discarded(user_table)) {
-		rebuilt_table->ibd_file_missing = true;
+		rebuilt_table->file_unreadable = true;
 		rebuilt_table->flags2 |= DICT_TF2_DISCARDED;
 	}
 
@@ -5743,9 +5781,9 @@ ha_innobase::commit_inplace_alter_table(
 	if (ha_alter_info->group_commit_ctx) {
 		ctx_array = ha_alter_info->group_commit_ctx;
 	} else {
-	ctx_single[0] = ctx0;
-	ctx_single[1] = NULL;
-	ctx_array = ctx_single;
+		ctx_single[0] = ctx0;
+		ctx_single[1] = NULL;
+		ctx_array = ctx_single;
 	}
 
 	DBUG_ASSERT(ctx0 == ctx_array[0]);
@@ -5773,6 +5811,19 @@ ha_innobase::commit_inplace_alter_table(
 		ha_innobase_inplace_ctx*	ctx
 			= static_cast<ha_innobase_inplace_ctx*>(*pctx);
 		DBUG_ASSERT(ctx->prebuilt->trx == prebuilt->trx);
+
+		/* If decryption failed for old table or new table
+		fail here. */
+		if ((ctx->old_table->file_unreadable &&
+		     fil_space_get(ctx->old_table->space) != NULL)||
+		    (ctx->new_table->file_unreadable &&
+		     fil_space_get(ctx->new_table->space) != NULL)) {
+			String str;
+			const char* engine= table_type();
+			get_error_message(HA_ERR_DECRYPTION_FAILED, &str);
+			my_error(ER_GET_ERRMSG, MYF(0), HA_ERR_DECRYPTION_FAILED, str.c_ptr(), engine);
+			DBUG_RETURN(true);
+		}
 
 		/* Exclusively lock the table, to ensure that no other
 		transaction is holding locks on the table while we

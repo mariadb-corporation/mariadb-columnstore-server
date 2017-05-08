@@ -3,7 +3,7 @@
 Copyright (c) 1995, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2008, 2009 Google Inc.
 Copyright (c) 2009, Percona Inc.
-Copyright (c) 2013, 2017, MariaDB Corporation Ab. All Rights Reserved.
+Copyright (c) 2013, 2017, MariaDB Corporation.
 
 Portions of this file contain modifications contributed and copyrighted by
 Google, Inc. Those modifications are gratefully acknowledged and are described
@@ -464,7 +464,7 @@ UNIV_INTERN const char* srv_io_thread_function[SRV_MAX_N_IO_THREADS];
 
 UNIV_INTERN time_t	srv_last_monitor_time;
 
-UNIV_INTERN ib_mutex_t	srv_innodb_monitor_mutex;
+static ib_mutex_t	srv_innodb_monitor_mutex;
 
 /* Mutex for locking srv_monitor_file. Not created if srv_read_only_mode */
 UNIV_INTERN ib_mutex_t	srv_monitor_file_mutex;
@@ -1480,10 +1480,10 @@ srv_export_innodb_status(void)
 	mutex_enter(&srv_innodb_monitor_mutex);
 
 	export_vars.innodb_data_pending_reads =
-		os_n_pending_reads;
+		ulint(MONITOR_VALUE(MONITOR_OS_PENDING_READS));
 
 	export_vars.innodb_data_pending_writes =
-		os_n_pending_writes;
+		ulint(MONITOR_VALUE(MONITOR_OS_PENDING_WRITES));
 
 	export_vars.innodb_data_pending_fsyncs =
 		fil_n_pending_log_flushes
@@ -1689,6 +1689,8 @@ srv_export_innodb_status(void)
 		crypt_stat.estimated_iops;
 	export_vars.innodb_encryption_key_requests =
 		srv_stats.n_key_requests;
+	export_vars.innodb_key_rotation_list_length =
+		srv_stats.key_rotation_list_length;
 
 	export_vars.innodb_scrub_page_reorganizations =
 		scrub_stat.page_reorganizations;

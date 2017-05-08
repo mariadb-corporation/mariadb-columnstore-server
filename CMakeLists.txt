@@ -1,5 +1,5 @@
-# Copyright (c) 2006, 2014, Oracle and/or its affiliates.
-# Copyright (c) 2008, 2014, Monty Program Ab
+# Copyright (c) 2006, 2017, Oracle and/or its affiliates.
+# Copyright (c) 2008, 2017, MariaDB
 # 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -225,11 +225,9 @@ IF(SECURITY_HARDENED)
   MY_CHECK_AND_SET_COMPILER_FLAG("-D_FORTIFY_SOURCE=2" RELEASE RELWITHDEBINFO)
 ENDIF()
 
-OPTION(ENABLE_DEBUG_SYNC "Enable debug sync (debug builds only)" ON) 
-IF(ENABLE_DEBUG_SYNC) 
-  SET(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DENABLED_DEBUG_SYNC") 
-  SET(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DENABLED_DEBUG_SYNC") 
-ENDIF() 
+# Always enable debug sync for debug builds.
+SET(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DENABLED_DEBUG_SYNC")
+SET(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DENABLED_DEBUG_SYNC")
  
 OPTION(ENABLE_GCOV "Enable gcov (debug, Linux builds only)" OFF)
 IF (ENABLE_GCOV)
@@ -469,8 +467,9 @@ ADD_CUSTOM_TARGET(INFO_BIN ALL
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
 )
 
-INSTALL_DOCUMENTATION(README CREDITS COPYING COPYING.LESSER COPYING.thirdparty
+INSTALL_DOCUMENTATION(README CREDITS COPYING COPYING.thirdparty
                       EXCEPTIONS-CLIENT COMPONENT Readme)
+
 # MDEV-6526 these files are not installed anymore
 #INSTALL_DOCUMENTATION(${CMAKE_BINARY_DIR}/Docs/INFO_SRC
 #                      ${CMAKE_BINARY_DIR}/Docs/INFO_BIN)

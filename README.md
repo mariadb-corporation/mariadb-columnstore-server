@@ -1,7 +1,7 @@
 #MariaDB ColumnStore Server (version 1.0)
-This is the server part of MariaDB ColumnStore 1.0.8.
-MariaDB ColumnStore 1.0.8 is the development version of MariaDB ColumnStore. 
-It is built by porting InfiniDB 4.6.7 on MariaDB 10.1.22 and adding entirely 
+This is the server part of MariaDB ColumnStore 1.0.9.
+MariaDB ColumnStore 1.0.9 is a GA of MariaDB ColumnStore. 
+It is built by porting InfiniDB 4.6.7 on MariaDB 10.1.23 and adding entirely 
 new features not found anywhere else.
 
 ##MariaDB ColumnStore Engine (version 1.0)
@@ -10,7 +10,7 @@ MariaDB ColumnStore also requires the matching engine version. This can be found
 Always match the server engine / git branch with the engine git branch.
 
 ##GA release notice
-MariaDB ColumnStore 1.0.8 is an GA release.
+MariaDB ColumnStore 1.0.9 is an GA release.
 
 Currently building has only been certified on CentOS 6 and 7, Ubuntu 16.04, Debain 8, and SUSE 12.. 
 Building on other platforms will be certified in a later release.

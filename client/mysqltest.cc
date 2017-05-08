@@ -1,5 +1,5 @@
 /* Copyright (c) 2000, 2013, Oracle and/or its affiliates.
-   Copyright (c) 2009, 2016, Monty Program Ab.
+   Copyright (c) 2009, 2017, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -1062,7 +1062,7 @@ void do_eval(DYNAMIC_STRING *query_eval, const char *query,
 	if (!(v= var_get(p, &p, 0, 0)))
         {
           report_or_die( "Bad variable in eval");
-          return;
+          DBUG_VOID_RETURN;
         }
 	dynstr_append_mem(query_eval, v->str_val, v->str_val_len);
       }
@@ -1777,7 +1777,7 @@ static int run_command(char* cmd,
   if (!(res_file= popen(cmd, "r")))
   {
     report_or_die("popen(\"%s\", \"r\") failed", cmd);
-    return -1;
+    DBUG_RETURN(-1);
   }
 
   while (fgets(buf, sizeof(buf), res_file))
@@ -2874,7 +2874,7 @@ void var_set_query_get_value(struct st_command *command, VAR *var)
     dynstr_free(&ds_query);
     dynstr_free(&ds_col);
     eval_expr(var, "", 0);
-    return;
+    DBUG_VOID_RETURN;
   }
 
   {
@@ -2899,7 +2899,7 @@ void var_set_query_get_value(struct st_command *command, VAR *var)
                     ds_col.str, ds_query.str);
       dynstr_free(&ds_query);
       dynstr_free(&ds_col);
-      return;
+      DBUG_VOID_RETURN;
     }
     DBUG_PRINT("info", ("Found column %d with name '%s'",
                         i, fields[i].name));
@@ -3347,7 +3347,7 @@ void do_exec(struct st_command *command)
   if (!*cmd)
   {
     report_or_die("Missing argument in exec");
-    return;
+    DBUG_VOID_RETURN;
   }
   command->last_argument= command->end;
 
@@ -3373,6 +3373,12 @@ void do_exec(struct st_command *command)
 #endif
 #endif
 
+  if (disable_result_log)
+  {
+    /* Collect stderr output as well, for the case app. crashes or returns error.*/
+    dynstr_append(&ds_cmd, " 2>&1");
+  }
+
   DBUG_PRINT("info", ("Executing '%s' as '%s'",
                       command->first_argument, ds_cmd.str));
 
@@ -3381,7 +3387,7 @@ void do_exec(struct st_command *command)
     dynstr_free(&ds_cmd);
     if (command->abort_on_error)
       report_or_die("popen(\"%s\", \"r\") failed", command->first_argument);
-    return;
+    DBUG_VOID_RETURN;
   }
 
   ds_result= &ds_res;
@@ -3408,16 +3414,7 @@ void do_exec(struct st_command *command)
       len--;
     }
 #endif
-    if (disable_result_log)
-    {
-      if (len)
-        buf[len-1] = 0;
-      DBUG_PRINT("exec_result",("%s", buf));
-    }
-    else
-    {
-      replace_dynstr_append_mem(ds_result, buf, len);
-    }
+    replace_dynstr_append_mem(ds_result, buf, len);
   }
   error= pclose(res_file);
 
@@ -3427,7 +3424,7 @@ void do_exec(struct st_command *command)
     dynstr_free(&ds_sorted);
   }
 
-  if (error > 0)
+  if (error)
   {
     uint status= WEXITSTATUS(error);
     int i;
@@ -3439,7 +3436,7 @@ void do_exec(struct st_command *command)
                     ds_cmd.str, error, status, errno,
                     ds_res.str);
       dynstr_free(&ds_cmd);
-      return;
+      DBUG_VOID_RETURN;
     }
 
     DBUG_PRINT("info",
@@ -3473,6 +3470,12 @@ void do_exec(struct st_command *command)
   }
 
   dynstr_free(&ds_cmd);
+
+  if (disable_result_log)
+  {
+    /* Disable output in case of successful exit.*/
+    dynstr_set(&ds_res,"");
+  }
   DBUG_VOID_RETURN;
 }
 
@@ -3572,7 +3575,7 @@ void do_system(struct st_command *command)
   if (strlen(command->first_argument) == 0)
   {
     report_or_die("Missing arguments to system, nothing to do!");
-    return;
+    DBUG_VOID_RETURN;
   }
 
   init_dynamic_string(&ds_cmd, 0, command->query_len + 64, 256);
@@ -3607,6 +3610,37 @@ void do_system(struct st_command *command)
   command->last_argument= command->end;
   dynstr_free(&ds_cmd);
   DBUG_VOID_RETURN;
+}
+
+
+/* returns TRUE if path is inside a sandbox */
+bool is_sub_path(const char *path, size_t plen, const char *sandbox)
+{
+  size_t len= strlen(sandbox);
+  if (!sandbox || !len || plen <= len || memcmp(path, sandbox, len - 1)
+      || path[len] != '/')
+    return false;
+  return true;
+}
+
+
+/* returns TRUE if path cannot be modified */
+bool bad_path(const char *path)
+{
+  size_t plen= strlen(path);
+
+  const char *vardir= getenv("MYSQLTEST_VARDIR");
+  if (is_sub_path(path, plen, vardir))
+    return false;
+
+  const char *tmpdir= getenv("MYSQL_TMP_DIR");
+  if (is_sub_path(path, plen, tmpdir))
+    return false;
+
+  report_or_die("Path '%s' is not a subdirectory of MYSQLTEST_VARDIR '%s'"
+                "or MYSQL_TMP_DIR '%s'",
+                path, vardir, tmpdir);
+  return true;
 }
 
 
@@ -3668,6 +3702,9 @@ void do_remove_file(struct st_command *command)
                      rm_args, sizeof(rm_args)/sizeof(struct command_arg),
                      ' ');
 
+  if (bad_path(ds_filename.str))
+    DBUG_VOID_RETURN;
+
   DBUG_PRINT("info", ("removing file: %s", ds_filename.str));
   error= my_delete(ds_filename.str, MYF(disable_warnings ? 0 : MY_WME)) != 0;
   handle_command_error(command, error, my_errno);
@@ -3710,6 +3747,9 @@ void do_remove_files_wildcard(struct st_command *command)
                      rm_args, sizeof(rm_args)/sizeof(struct command_arg),
                      ' ');
   fn_format(dirname, ds_directory.str, "", "", MY_UNPACK_FILENAME);
+
+  if (bad_path(ds_directory.str))
+    DBUG_VOID_RETURN;
 
   DBUG_PRINT("info", ("listing directory: %s", dirname));
   if (!(dir_info= my_dir(dirname, MYF(MY_DONT_SORT | MY_WANT_STAT | MY_WME))))
@@ -3785,6 +3825,9 @@ void do_copy_file(struct st_command *command)
                      sizeof(copy_file_args)/sizeof(struct command_arg),
                      ' ');
 
+  if (bad_path(ds_to_file.str))
+    DBUG_VOID_RETURN;
+
   DBUG_PRINT("info", ("Copy %s to %s", ds_from_file.str, ds_to_file.str));
   /* MY_HOLD_ORIGINAL_MODES prevents attempts to chown the file */
   error= (my_copy(ds_from_file.str, ds_to_file.str,
@@ -3821,6 +3864,9 @@ void do_move_file(struct st_command *command)
                      move_file_args,
                      sizeof(move_file_args)/sizeof(struct command_arg),
                      ' ');
+
+  if (bad_path(ds_to_file.str))
+    DBUG_VOID_RETURN;
 
   DBUG_PRINT("info", ("Move %s to %s", ds_from_file.str, ds_to_file.str));
   error= (my_rename(ds_from_file.str, ds_to_file.str,
@@ -3859,6 +3905,9 @@ void do_chmod_file(struct st_command *command)
                      chmod_file_args,
                      sizeof(chmod_file_args)/sizeof(struct command_arg),
                      ' ');
+
+  if (bad_path(ds_file.str))
+    DBUG_VOID_RETURN;
 
   /* Parse what mode to set */
   if (ds_mode.length != 4 ||
@@ -3931,12 +3980,56 @@ void do_mkdir(struct st_command *command)
                      mkdir_args, sizeof(mkdir_args)/sizeof(struct command_arg),
                      ' ');
 
+  if (bad_path(ds_dirname.str))
+    DBUG_VOID_RETURN;
+
   DBUG_PRINT("info", ("creating directory: %s", ds_dirname.str));
   error= my_mkdir(ds_dirname.str, 0777, MYF(MY_WME)) != 0;
   handle_command_error(command, error, my_errno);
   dynstr_free(&ds_dirname);
   DBUG_VOID_RETURN;
 }
+
+
+/*
+   Remove directory recursively.
+*/
+static int rmtree(const char *dir)
+{
+  char path[FN_REFLEN];
+  char sep[]={ FN_LIBCHAR, 0 };
+  int err=0;
+
+  MY_DIR *dir_info= my_dir(dir, MYF(MY_DONT_SORT | MY_WANT_STAT));
+  if (!dir_info)
+    return 1;
+
+  for (uint i= 0; i < dir_info->number_of_files; i++)
+  {
+    FILEINFO *file= dir_info->dir_entry + i;
+    /* Skip "." and ".." */
+    if (!strcmp(file->name, ".") || !strcmp(file->name, ".."))
+      continue;
+
+    strxnmov(path, sizeof(path), dir, sep, file->name, NULL);
+
+    if (!MY_S_ISDIR(file->mystat->st_mode))
+      err= my_delete(path, 0);
+    else
+      err= rmtree(path);
+
+    if(err)
+      break;
+  }
+
+  my_dirend(dir_info);
+
+  if (!err)
+   err= rmdir(dir);
+
+  return err;
+}
+
 
 /*
   SYNOPSIS
@@ -3945,12 +4038,11 @@ void do_mkdir(struct st_command *command)
 
   DESCRIPTION
   rmdir <dir_name>
-  Remove the empty directory <dir_name>
+  Remove the directory tree
 */
 
 void do_rmdir(struct st_command *command)
 {
-  int error;
   static DYNAMIC_STRING ds_dirname;
   const struct command_arg rmdir_args[] = {
     { "dirname", ARG_STRING, TRUE, &ds_dirname, "Directory to remove" }
@@ -3961,9 +4053,13 @@ void do_rmdir(struct st_command *command)
                      rmdir_args, sizeof(rmdir_args)/sizeof(struct command_arg),
                      ' ');
 
+  if (bad_path(ds_dirname.str))
+    DBUG_VOID_RETURN;
+
   DBUG_PRINT("info", ("removing directory: %s", ds_dirname.str));
-  error= rmdir(ds_dirname.str) != 0;
-  handle_command_error(command, error, errno);
+  if (rmtree(ds_dirname.str))
+    handle_command_error(command, 1, errno);
+
   dynstr_free(&ds_dirname);
   DBUG_VOID_RETURN;
 }
@@ -4076,6 +4172,9 @@ static void do_list_files_write_file_command(struct st_command *command,
                      list_files_args,
                      sizeof(list_files_args)/sizeof(struct command_arg), ' ');
 
+  if (bad_path(ds_filename.str))
+    DBUG_VOID_RETURN;
+
   init_dynamic_string(&ds_content, "", 1024, 1024);
   error= get_list_files(&ds_content, &ds_dirname, &ds_wild);
   handle_command_error(command, error, my_errno);
@@ -4127,7 +4226,8 @@ void read_until_delimiter(DYNAMIC_STRING *ds,
   while (1)
   {
     c= my_getc(cur_file->file);
-
+    if (c == '\r')
+      c= my_getc(cur_file->file);
     if (c == '\n')
     {
       cur_file->lineno++;
@@ -4177,6 +4277,9 @@ void do_write_file_command(struct st_command *command, my_bool append)
                      write_file_args,
                      sizeof(write_file_args)/sizeof(struct command_arg),
                      ' ');
+
+  if (bad_path(ds_filename.str))
+    DBUG_VOID_RETURN;
 
   if (!append && access(ds_filename.str, F_OK) == 0)
   {
@@ -4559,7 +4662,7 @@ void do_perl(struct st_command *command)
       if (command->abort_on_error)
         die("popen(\"%s\", \"r\") failed", buf);
       dynstr_free(&ds_delimiter);
-      return;
+      DBUG_VOID_RETURN;
     }
 
     while (fgets(buf, sizeof(buf), res_file))
