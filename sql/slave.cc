@@ -519,13 +519,22 @@ int init_slave()
 
   if (active_mi->host[0] && !opt_skip_slave_start)
   {
-    if (start_slave_threads(0, /* No active thd */
-                            1 /* need mutex */,
-                            0 /* no wait for start*/,
-                            active_mi,
-                            master_info_file,
-                            relay_log_info_file,
-                            SLAVE_IO | SLAVE_SQL))
+    int error;
+    THD *thd= new THD;
+    thd->thread_stack= (char*) &thd;
+    thd->store_globals();
+
+    error= start_slave_threads(0, /* No active thd */
+                               1 /* need mutex */,
+                               1 /* wait for start*/,
+                               active_mi,
+                               master_info_file,
+                               relay_log_info_file,
+                               SLAVE_IO | SLAVE_SQL);
+
+    thd->reset_globals();
+    delete thd;
+    if (error)
     {
       sql_print_error("Failed to create slave threads");
       goto err;
@@ -3845,7 +3854,8 @@ static int exec_relay_log_event(THD* thd, Relay_log_info* rli,
         DBUG_RETURN(1);
       }
 
-      if (opt_gtid_ignore_duplicates)
+      if (opt_gtid_ignore_duplicates &&
+          rli->mi->using_gtid != Master_info::USE_GTID_NO)
       {
         int res= rpl_global_gtid_slave_state->check_duplicate_gtid
           (&serial_rgi->current_gtid, serial_rgi);

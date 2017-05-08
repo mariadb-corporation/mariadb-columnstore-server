@@ -47,6 +47,8 @@ extra/comp_err
 extra/innochecksum
 extra/jemalloc/build/
 extra/jemalloc/tmp/
+extra/mariabackup/mariabackup
+extra/mariabackup/mbstream
 extra/my_print_defaults
 extra/mysql_waitpid
 extra/mysqld_safe_helper
@@ -92,6 +94,9 @@ pcre/pcre_chartables.c
 pcre/pcregrep
 pcre/pcretest
 pcre/test*grep
+plugin/aws_key_management/aws-sdk-cpp
+plugin/aws_key_management/aws_sdk_cpp
+plugin/aws_key_management/aws_sdk_cpp-prefix
 scripts/comp_sql
 scripts/make_binary_distribution
 scripts/msql2mysql
@@ -116,6 +121,7 @@ scripts/mytop
 scripts/wsrep_sst_common
 scripts/wsrep_sst_mysqldump
 scripts/wsrep_sst_rsync
+scripts/wsrep_sst_mariabackup
 scripts/wsrep_sst_xtrabackup
 scripts/wsrep_sst_xtrabackup-v2
 scripts/maria_add_gis_sp.sql
@@ -237,6 +243,10 @@ storage/mroonga/vendor/groonga/src/suggest/groonga-suggest-create-dataset
 storage/mroonga/mysql-test/mroonga/storage/r/information_schema_plugins.result
 storage/mroonga/mysql-test/mroonga/storage/r/variable_version.result
 mariadb-columnstore-engine/
+xxx/*
+yyy/*
+zzz/*
+
 # C and C++
 
 # Compiled Object files

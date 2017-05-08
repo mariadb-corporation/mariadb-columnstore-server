@@ -3,7 +3,7 @@
 Copyright (c) 1995, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2008, 2009 Google Inc.
 Copyright (c) 2009, Percona Inc.
-Copyright (c) 2013, 2017, MariaDB Corporation Ab. All Rights Reserved.
+Copyright (c) 2013, 2017, MariaDB Corporation.
 
 Portions of this file contain modifications contributed and copyrighted by
 Google, Inc. Those modifications are gratefully acknowledged and are described
@@ -203,7 +203,7 @@ performance killer causing calling thread to context switch. Besides, Innodb
 is preallocating large number (often millions) of os_events. With kernel event
 objects it takes a big chunk out of non-paged pool, which is better suited
 for tasks like IO than for storing idle event objects. */
-UNIV_INTERN ibool	srv_use_native_conditions = FALSE;
+UNIV_INTERN ibool	srv_use_native_conditions = TRUE;
 #endif /* __WIN__ */
 
 UNIV_INTERN ulint	srv_n_data_files = 0;
@@ -366,7 +366,9 @@ readahead request. */
 UNIV_INTERN ulong	srv_read_ahead_threshold	= 56;
 
 #ifdef UNIV_LOG_ARCHIVE
-UNIV_INTERN ibool		srv_log_archive_on	= FALSE;
+UNIV_INTERN bool		srv_log_archive_on;
+UNIV_INTERN bool		srv_archive_recovery;
+UNIV_INTERN ib_uint64_t	srv_archive_recovery_limit_lsn;
 #endif /* UNIV_LOG_ARCHIVE */
 
 /* This parameter is used to throttle the number of insert buffers that are
@@ -522,6 +524,12 @@ UNIV_INTERN ulong	srv_doublewrite_batch_size	= 120;
 
 UNIV_INTERN ulong	srv_replication_delay		= 0;
 
+UNIV_INTERN bool	srv_apply_log_only;
+
+UNIV_INTERN bool	srv_backup_mode;
+UNIV_INTERN bool	srv_close_files;
+UNIV_INTERN bool	srv_xtrabackup;
+
 UNIV_INTERN ulong	srv_pass_corrupt_table = 0; /* 0:disable 1:enable */
 
 UNIV_INTERN ulong	srv_log_checksum_algorithm =
@@ -604,7 +612,7 @@ UNIV_INTERN const char* srv_io_thread_function[SRV_MAX_N_IO_THREADS];
 
 UNIV_INTERN time_t	srv_last_monitor_time;
 
-UNIV_INTERN ib_mutex_t	srv_innodb_monitor_mutex;
+static ib_mutex_t	srv_innodb_monitor_mutex;
 
 /* Mutex for locking srv_monitor_file. Not created if srv_read_only_mode */
 UNIV_INTERN ib_mutex_t	srv_monitor_file_mutex;
@@ -1284,16 +1292,22 @@ srv_free(void)
 			os_event_free(srv_sys->sys_threads[i].event);
 
 		os_event_free(srv_error_event);
+		srv_error_event = NULL;
 		os_event_free(srv_monitor_event);
+		srv_monitor_event = NULL;
 		os_event_free(srv_buf_dump_event);
+		srv_buf_dump_event = NULL;
 		os_event_free(srv_checkpoint_completed_event);
+		srv_checkpoint_completed_event = NULL;
 		os_event_free(srv_redo_log_tracked_event);
+		srv_redo_log_tracked_event = NULL;
 		mutex_free(&srv_sys->mutex);
 		mutex_free(&srv_sys->tasks_mutex);
 	}
 
 #ifdef WITH_INNODB_DISALLOW_WRITES
 	os_event_free(srv_allow_writes_event);
+	srv_allow_writes_event = NULL;
 #endif /* WITH_INNODB_DISALLOW_WRITES */
 
 #ifndef HAVE_ATOMIC_BUILTINS
@@ -1813,10 +1827,10 @@ srv_export_innodb_status(void)
 	mutex_enter(&srv_innodb_monitor_mutex);
 
 	export_vars.innodb_data_pending_reads =
-		os_n_pending_reads;
+		ulint(MONITOR_VALUE(MONITOR_OS_PENDING_READS));
 
 	export_vars.innodb_data_pending_writes =
-		os_n_pending_writes;
+		ulint(MONITOR_VALUE(MONITOR_OS_PENDING_WRITES));
 
 	export_vars.innodb_data_pending_fsyncs =
 		fil_n_pending_log_flushes
@@ -2111,6 +2125,8 @@ srv_export_innodb_status(void)
 		crypt_stat.estimated_iops;
 	export_vars.innodb_encryption_key_requests =
 		srv_stats.n_key_requests;
+	export_vars.innodb_key_rotation_list_length =
+		srv_stats.key_rotation_list_length;
 
 	export_vars.innodb_scrub_page_reorganizations =
 		scrub_stat.page_reorganizations;

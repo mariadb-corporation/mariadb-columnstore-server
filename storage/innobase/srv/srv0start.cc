@@ -665,6 +665,7 @@ create_log_files(
 		FIL_LOG,
 		NULL /* no encryption yet */,
 		true /* this is create */);
+
 	ut_a(fil_validate());
 
 	logfile0 = fil_node_create(
@@ -1153,13 +1154,14 @@ check_first_page:
 
 		if (i == 0) {
 			if (!crypt_data) {
-				crypt_data = fil_space_create_crypt_data(FIL_SPACE_ENCRYPTION_DEFAULT, FIL_DEFAULT_ENCRYPTION_KEY);
+				crypt_data = fil_space_create_crypt_data(FIL_ENCRYPTION_DEFAULT,
+					FIL_DEFAULT_ENCRYPTION_KEY);
 			}
 
 			flags = FSP_FLAGS_PAGE_SSIZE();
 
 			fil_space_create(name, 0, flags, FIL_TABLESPACE,
-					crypt_data, (*create_new_db) == true);
+				crypt_data, (*create_new_db) == true);
 		}
 
 		ut_a(fil_validate());
@@ -2492,6 +2494,11 @@ files_checked:
 			recv_group_scan_log_recs(). */
 
 			recv_apply_hashed_log_recs(true);
+
+			if (recv_sys->found_corrupt_log) {
+				return (DB_CORRUPTION);
+			}
+
 			DBUG_PRINT("ib_log", ("apply completed"));
 		}
 
@@ -3185,7 +3192,7 @@ innobase_shutdown_for_mysql(void)
 	sync_close();
 	srv_free();
 
-	/* 4. Free the os_conc_mutex and all os_events and os_mutexes */
+	/* 4. Free all os_events and os_mutexes */
 
 	os_sync_free();
 

@@ -192,6 +192,9 @@ struct srv_stats_t {
 
 	/** Number of encryption_get_latest_key_version calls */
 	ulint_ctr_64_t		n_key_requests;
+
+	/** Number of spaces in keyrotation list */
+	ulint_ctr_64_t		key_rotation_list_length;
 };
 
 extern const char*	srv_main_thread_op_info;
@@ -496,7 +499,9 @@ as enum type because the configure option takes unsigned integer type. */
 extern ulong	srv_innodb_stats_method;
 
 #ifdef UNIV_LOG_ARCHIVE
-extern ibool		srv_log_archive_on;
+extern bool		srv_log_archive_on;
+extern bool		srv_archive_recovery;
+extern ib_uint64_t	srv_archive_recovery_limit_lsn;
 #endif /* UNIV_LOG_ARCHIVE */
 
 extern char*	srv_file_flush_method_str;
@@ -546,6 +551,14 @@ extern my_bool  srv_use_stacktrace;
 extern ulong	srv_pass_corrupt_table;
 
 extern ulong	srv_log_checksum_algorithm;
+
+extern bool	srv_apply_log_only;
+
+extern bool	srv_backup_mode;
+extern bool	srv_close_files;
+extern bool	srv_xtrabackup;
+
+#define IS_XTRABACKUP() (srv_xtrabackup)
 
 extern my_bool	srv_force_primary_key;
 
@@ -1265,6 +1278,7 @@ struct export_var_t{
 	ulint innodb_encryption_rotation_pages_flushed;
 	ulint innodb_encryption_rotation_estimated_iops;
 	ib_int64_t innodb_encryption_key_requests;
+	ib_int64_t innodb_key_rotation_list_length;
 
 	ulint innodb_scrub_page_reorganizations;
 	ulint innodb_scrub_page_splits;

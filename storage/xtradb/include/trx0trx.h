@@ -348,6 +348,23 @@ trx_print_latched(
 					or 0 to use the default max length */
 	MY_ATTRIBUTE((nonnull));
 
+#ifdef WITH_WSREP
+/**********************************************************************//**
+Prints info about a transaction.
+Transaction information may be retrieved without having trx_sys->mutex acquired
+so it may not be completely accurate. The caller must own lock_sys->mutex
+and the trx must have some locks to make sure that it does not escape
+without locking lock_sys->mutex. */
+UNIV_INTERN
+void
+wsrep_trx_print_locking(
+/*==============*/
+	FILE*		f,		/*!< in: output stream */
+	const trx_t*	trx,		/*!< in: transaction */
+	ulint		max_query_len)	/*!< in: max query length to print,
+					or 0 to use the default max length */
+	MY_ATTRIBUTE((nonnull));
+#endif /* WITH_WSREP */
 /**********************************************************************//**
 Prints info about a transaction.
 Acquires and releases lock_sys->mutex and trx_sys->mutex. */
@@ -882,7 +899,7 @@ struct trx_t{
 
 	time_t		start_time;	/*!< time the trx state last time became
 					TRX_STATE_ACTIVE */
-	clock_t		start_time_micro;	/*!< start time of transaction in
+	ib_uint64_t	start_time_micro;	/*!< start time of transaction in
 					microseconds */
 	trx_id_t	id;		/*!< transaction id */
 	XID		xid;		/*!< X/Open XA transaction

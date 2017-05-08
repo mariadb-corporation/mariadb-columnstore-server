@@ -221,7 +221,14 @@ row_fts_psort_info_init(
 	common_info->sort_event = os_event_create();
 	common_info->merge_event = os_event_create();
 	common_info->opt_doc_id_size = opt_doc_id_size;
-	crypt_data = fil_space_get_crypt_data(new_table->space);
+
+	/* Theoretically the tablespace can be dropped straight away.
+	In practice, the DDL completion will wait for this thread to
+	finish. */
+	if (fil_space_t* space = fil_space_acquire(new_table->space)) {
+		crypt_data = space->crypt_data;
+		fil_space_release(space);
+	}
 
 	if (crypt_data && crypt_data->should_encrypt()) {
 		common_info->crypt_data = crypt_data;
@@ -1310,10 +1317,9 @@ row_fts_build_sel_tree_level(
 	int	child_left;
 	int	child_right;
 	ulint	i;
-	ulint	num_item;
+	ulint	num_item	= ulint(1) << level;
 
-	start = static_cast<ulint>((1 << level) - 1);
-	num_item = static_cast<ulint>(1 << level);
+	start = num_item - 1;
 
 	for (i = 0; i < num_item;  i++) {
 		child_left = sel_tree[(start + i) * 2 + 1];
@@ -1382,7 +1388,7 @@ row_fts_build_sel_tree(
 		treelevel++;
 	}
 
-	start = (1 << treelevel) - 1;
+	start = (ulint(1) << treelevel) - 1;
 
 	for (i = 0; i < (int) fts_sort_pll_degree; i++) {
 		sel_tree[i + start] = i;
