@@ -1,6 +1,5 @@
-/* Copyright (c) 2000, 2015, Oracle and/or its affiliates.
-   Copyright (c) 2008, 2015, MariaDB
-Copyright (c) 2016, MariaDB Corporation
+/* Copyright (c) 2000, 2017, Oracle and/or its affiliates.
+   Copyright (c) 2008, 2017, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -9704,86 +9703,6 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 				{
 					thd->infinidb_vtable.isInsertSelect = true;
 				}
-				else if (thd->lex->sql_command == SQLCOM_EXECUTE || thd->get_command() == COM_STMT_EXECUTE)
-				{
-					//@Bug 2703 Added the support of prepared statement with and without variables binding
-					//Save the query in case we need set it back
-					char *query = thd->query();
-					uint32 query_length = thd->query_length();
-					Prepared_statement *stmt = (Prepared_statement*)statement;
-					LEX *lex= thd->lex;
-					String expanded_query ;
-
-					if (!stmt)
-					{
-						//Bind variable and parse statement
-						LEX_STRING *name= &lex->prepared_stmt_name;
-						stmt= (Prepared_statement*) thd->stmt_map.find_by_name(name);
-					}
-
-					if ( stmt )
-					{
-						if ( stmt->param_count == lex->prepared_stmt_params.elements )
-						{
-							stmt->set_parameters(&expanded_query, NULL, NULL);
-						}
-						// replace ? with values
-						std::string tmp_query = std::string (stmt->query());
-						std::string::size_type p1 = tmp_query.find("?");
-						std::string replaceStr;
-						Item_param **begin= stmt->param_array;
-						while (p1 != std::string::npos)
-						{
-							Item_param *param= *begin;
-							if (param->state == Item_param::NO_VALUE)
-							{
-								replaceStr = "NULL";
-							}
-							else
-							{
-								String val, *str;
-								str = param->val_str(&val);
-								if ( param->item_type == Item::STRING_ITEM )
-									replaceStr = "'" + std::string(str->c_ptr()) + "'";
-								else
-									replaceStr = std::string(str->c_ptr());
-							}
-
-							tmp_query.replace( p1, 1, replaceStr);
-							begin++;
-							p1 = tmp_query.find("?");
-						}
-						alloc_query(thd, tmp_query.c_str(), tmp_query.length());
-
-						// pre parse statement to tell DML statement from select
-						lex_start(thd);
-						thd->reset_for_next_command();
-
-						Parser_state parser_state;
-						parser_state.init(thd, thd->query(), thd->query_length());
-						parse_sql(thd, &parser_state, NULL, true);
-
-						if (thd->lex->sql_command != SQLCOM_SELECT)
-						{
-							INFINIDB_execute = false;
-							if ( thd->lex->sql_command != SQLCOM_DELETE )
-							{
-								// set original query back
-								thd->set_query(query, query_length);
-							}
-							//Set to table mode for DML statement
-							thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
-							thd->infinidb_vtable.autoswitch = false;
-							isSqlExecute = true;
-						}
-					}
-					else
-					{
-						thd->infinidb_vtable.isInfiniDBDML = false;
-						thd->infinidb_vtable.hasInfiniDBTable = false;
-						DBUG_RETURN(-1);
-					}
-				}
 				else if (thd->lex->sql_command == SQLCOM_CALL)
 				{
 					thd->infinidb_vtable.original_query.free();
@@ -9841,7 +9760,7 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 								  continue;
 
 								std::string arg_name = spvar->name.str;
-								std::string arg_val = arg_item->name;
+								std::string arg_val(arg_item->val_str()->c_ptr(), arg_item->val_str()->length());
 								uint len = spvar->name.length;
 								if (arg_item->type() ==  Item::STRING_ITEM)
 									arg_val = "'" + arg_val + "'";
@@ -9889,6 +9808,90 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 							break;
 						}
 						break;
+					}
+				}
+        else if (thd->lex->sql_command == SQLCOM_EXECUTE || thd->get_command() == COM_STMT_EXECUTE)
+				{
+					//@Bug 2703 Added the support of prepared statement with and without variables binding
+					//Save the query in case we need set it back
+					char *query = thd->query();
+					uint32 query_length = thd->query_length();
+					Prepared_statement *stmt = (Prepared_statement*)statement;
+					LEX *lex= thd->lex;
+					String expanded_query ;
+
+					if (!stmt)
+					{
+						//Bind variable and parse statement
+						LEX_STRING *name= &lex->prepared_stmt_name;
+						stmt= (Prepared_statement*) thd->stmt_map.find_by_name(name);
+					}
+
+					if ( stmt )
+					{
+						if ( stmt->param_count == lex->prepared_stmt_params.elements )
+						{
+							stmt->set_parameters(&expanded_query, NULL, NULL);
+						}
+						// replace ? with values
+                        String tmp_query;
+                        Item_param **begin= stmt->param_array;
+                        Item_param **end= begin + stmt->param_count;
+                        Copy_query_with_rewrite acc(thd, stmt->query(), stmt->query_length(), &tmp_query);
+                        bool param_fail = false;
+
+                        for (Item_param **it= begin; it < end; ++it)
+                        {
+                            Item_param *param= *it;
+
+                            if (acc.append(param))
+                            {
+                                param_fail = true;
+                                break;
+                            }
+
+                            if (param->convert_str_value(thd))
+                            {
+                                param_fail = true;
+                                break;
+                            }
+                        }
+                        if (param_fail || acc.finalize())
+                        {
+                            INFINIDB_execute = false;
+                        }
+                        else
+                        {
+    						alloc_query(thd, tmp_query.c_ptr(), tmp_query.length());
+
+                            // pre parse statement to tell DML statement from select
+                            lex_start(thd);
+                            thd->reset_for_next_command();
+
+                            Parser_state parser_state;
+                            parser_state.init(thd, thd->query(), thd->query_length());
+                            parse_sql(thd, &parser_state, NULL, true);
+
+                            if (thd->lex->sql_command != SQLCOM_SELECT)
+                            {
+                                INFINIDB_execute = false;
+                                if ( thd->lex->sql_command != SQLCOM_DELETE )
+                                {
+                                    // set original query back
+                                    thd->set_query(query, query_length);
+                                }
+                                //Set to table mode for DML statement
+                                thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
+                                thd->infinidb_vtable.autoswitch = false;
+                                isSqlExecute = true;
+                            }
+                        }
+					}
+					else
+					{
+						thd->infinidb_vtable.isInfiniDBDML = false;
+						thd->infinidb_vtable.hasInfiniDBTable = false;
+						DBUG_RETURN(-1);
 					}
 				}
 

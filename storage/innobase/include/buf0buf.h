@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1995, 2016, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2013, 2017, MariaDB Corporation. All Rights Reserved.
+Copyright (c) 2013, 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -679,13 +679,13 @@ buf_page_is_checksum_valid_none(
 	ulint		checksum_field2)
 	MY_ATTRIBUTE((warn_unused_result));
 
-/********************************************************************//**
-Checks if a page is corrupt.
+/** Check if a page is corrupt.
 @param[in]	check_lsn		true if LSN should be checked
 @param[in]	read_buf		Page to be checked
 @param[in]	zip_size		compressed size or 0
 @param[in]	space			Pointer to tablespace
 @return	true if corrupted, false if not */
+UNIV_INTERN
 bool
 buf_page_is_corrupted(
 	bool			check_lsn,
@@ -693,27 +693,13 @@ buf_page_is_corrupted(
 	ulint			zip_size,
 	const fil_space_t* 	space)
 	MY_ATTRIBUTE((warn_unused_result));
-
-/********************************************************************//**
-Check if page is maybe compressed, encrypted or both when we encounter
-corrupted page. Note that we can't be 100% sure if page is corrupted
-or decrypt/decompress just failed.
-@param[in]	bpage		Page
-@return true if page corrupted, false if not */
+/** Check if a page is all zeroes.
+@param[in]	read_buf	database page
+@param[in]	zip_size	ROW_FORMAT=COMPRESSED page size, or 0
+@return	whether the page is all zeroes */
+UNIV_INTERN
 bool
-buf_page_check_corrupt(
-	buf_page_t*	bpage)	/*!< in/out: buffer page read from disk */
-	MY_ATTRIBUTE(( warn_unused_result));
-
-/********************************************************************//**
-Checks if a page is all zeroes.
-@return	TRUE if the page is all zeroes */
-bool
-buf_page_is_zeroes(
-/*===============*/
-	const byte*	read_buf,	/*!< in: a database page */
-	const ulint	zip_size);	/*!< in: size of compressed page;
-					0 for uncompressed pages */
+buf_page_is_zeroes(const byte* read_buf, ulint zip_size);
 #ifndef UNIV_HOTBACKUP
 /**********************************************************************//**
 Gets the space id, page offset, and byte offset within page of a
@@ -1252,17 +1238,21 @@ buf_page_init_for_read(
 				version of the tablespace in case we have done
 				DISCARD + IMPORT */
 	ulint		offset);/*!< in: page number */
-/********************************************************************//**
-Completes an asynchronous read or write request of a file page to or from
-the buffer pool.
-@return true if successful */
+/** Complete a read or write request of a file page to or from the buffer pool.
+@param[in,out]		bpage		Page to complete
+@param[in]		evict		whether or not to evict the page
+					from LRU list.
+@return whether the operation succeeded
+@retval	DB_SUCCESS		always when writing, or if a read page was OK
+@retval	DB_PAGE_CORRUPTED	if the checksum fails on a page read
+@retval	DB_DECRYPTION_FAILED	if page post encryption checksum matches but
+				after decryption normal page checksum does
+				not match */
 UNIV_INTERN
-bool
-buf_page_io_complete(
-/*=================*/
-	buf_page_t*	bpage,	/*!< in: pointer to the block in question */
-	bool		evict = false);/*!< in: whether or not to evict
-				the page from LRU list. */
+dberr_t
+buf_page_io_complete(buf_page_t* bpage, bool evict = false)
+	MY_ATTRIBUTE((nonnull));
+
 /********************************************************************//**
 Calculates a folded value of a file page address to use in the page hash
 table.
@@ -1502,17 +1492,19 @@ buf_flush_update_zip_checksum(
 
 #endif /* !UNIV_HOTBACKUP */
 
-/********************************************************************//**
-The hook that is called just before a page is written to disk.
-The function encrypts the content of the page and returns a pointer
-to a frame that will be written instead of the real frame. */
+/** Encryption and page_compression hook that is called just before
+a page is written to disk.
+@param[in,out]	space		tablespace
+@param[in,out]	bpage		buffer page
+@param[in]	src_frame	physical page frame that is being encrypted
+@return	page frame to be written to file
+(may be src_frame or an encrypted/compressed copy of it) */
 UNIV_INTERN
 byte*
 buf_page_encrypt_before_write(
-/*==========================*/
-	buf_page_t*	page,		/*!< in/out: buffer page to be flushed */
-	byte*		frame,		/*!< in: src frame */
-	ulint		space_id);	/*!< in: space id */
+	fil_space_t*	space,
+	buf_page_t*	bpage,
+	byte*		src_frame);
 
 /**********************************************************************
 The hook that is called after page is written to disk.
@@ -1642,7 +1634,6 @@ struct buf_page_t{
 					if written again we check is TRIM
 					operation needed. */
 
-	unsigned        key_version;	/*!< key version for this block */
 	bool            encrypted;	/*!< page is still encrypted */
 
 	ulint           real_size;	/*!< Real size of the page

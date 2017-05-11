@@ -2107,7 +2107,7 @@ static int mysql_test_handler_read(Prepared_statement *stmt,
   THD *thd= stmt->thd;
   LEX *lex= stmt->lex;
   SQL_HANDLER *ha_table;
-  DBUG_ENTER("mysql_test_select");
+  DBUG_ENTER("mysql_test_handler_read");
 
   lex->select_lex.context.resolve_in_select_list= TRUE;
 
@@ -4216,7 +4216,7 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
     }
   }
 
-  if (bHasInfiniDB && thd->get_command() == COM_STMT_EXECUTE)
+  if ((bHasInfiniDB && thd->get_command() == COM_STMT_EXECUTE) || (thd->lex->sql_command == SQLCOM_CALL))
   {
     // @bug5298. disable re-prepare observer for infinidb query
     thd->m_reprepare_observer = NULL;
