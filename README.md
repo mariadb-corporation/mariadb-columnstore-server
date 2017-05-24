@@ -262,7 +262,7 @@ SUSEConnect -p sle-sdk/12.2/x86_64
 zypper install boost-devel
 
 ```bash
-zypper install expect perl perl-DBI openssl file sudo libaio1 rsync net-tools libsnappy1 perl-DBD-MySQL
+zypper install expect perl perl-DBI openssl file sudo libaio1 rsync net-tools libsnappy1 perl-DBD-mysql
 ```
 
 ##MariaDB ColumnStore utilizes the System Logging for logging purposes
