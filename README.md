@@ -1,61 +1,58 @@
-## MariaDB: drop-in replacement for MySQL
+#MariaDB ColumnStore Server (version 1.0)
+This is the server part of MariaDB ColumnStore 1.1.0.
+MariaDB ColumnStore 1.0.9 is a GA of MariaDB ColumnStore. 
+It is built by porting InfiniDB 4.6.7 on MariaDB 10.2 and adding entirely 
+new features not found anywhere else.
 
-MariaDB is designed as a drop-in replacement of MySQL(R) with more
-features, new storage engines, fewer bugs, and better performance.
+##MariaDB ColumnStore Engine (version 1.0)
+MariaDB ColumnStore also requires the matching engine version. This can be found at https://github.com/mariadb-corporation/mariadb-columnstore-engine.
 
-MariaDB is brought to you by the MariaDB Foundation.
-Please read the CREDITS file for details about the MariaDB Foundation,
-and who is developing MariaDB.
+Always match the server engine / git branch with the engine git branch.
 
-MariaDB is developed by many of the original developers of MySQL who
-now work for the MariadB Foundation and the MariaDB Corporation, and by many people in
-the community.
+##GA release notice
+MariaDB ColumnStore 1.0.9 is an GA release.
 
-MySQL, which is the base of MariaDB, is a product and trademark of Oracle
-Corporation, Inc. For a list of developers and other contributors,
-see the Credits appendix.  You can also run 'SHOW authors' to get a
-list of active contributors.
+Currently building has only been certified on CentOS 6 and 7, Ubuntu 16.04, Debain 8, and SUSE 12.. 
+Building on other platforms will be certified in a later release.
 
-A description of the MariaDB project and a manual can be found at:
-http://mariadb.org/
-https://mariadb.com/kb/en/
-https://mariadb.com/kb/en/mariadb-vs-mysql-features/
-https://mariadb.com/kb/en/mariadb-versus-mysql-features/
-https://mariadb.com/kb/en/mariadb-versus-mysql-compatibility/
+##Issue tracking
+Issue tracking of MariaDB ColumnStore happens in JIRA, https://jira.mariadb.org/browse/MCOL
 
-As MariaDB is a full replacement of MySQL, the MySQL manual at
-http://dev.mysql.com/doc is generally applicable.
+###The structure of this repository is:
+* Branch "master" - this is the latest released version of the source code.  Each major release is tagged.
+* Branch "develop-1.0" - this is the 1.0 mainline development branch.
+* Branch "develop" - this is the 1.1 unstable development branch.
+* Branch "mcol-xxx" - these are specific bug and feature branches. These are merged into development which is merged to master.
 
-Help:
------
+MariaDB ColumnStore server and the engine are in separate repositories.
 
-More help is available from the Maria Discuss mailing list
-https://launchpad.net/~maria-discuss
-and the #maria IRC channel on Freenode.
+##Contributing
 
+To contribute to ColumnStore please see the [Contributions Documentation](CONTRIBUTING.md).
 
-License:
---------
+##Build dependencies
 
-***************************************************************************
+### Boost Libraries
+MariaDB ColumnStore requires that the boost package of 1.53 or newer is installed for both building and executing
 
-NOTE: 
+For CentOS 7, Ubuntu 16, Debian 8, SUSE 12 and other newer OS's, you can just install the boost packages via yum or apt-get.
 
-MariaDB is specifically available only under version 2 of the GNU
-General Public License (GPLv2). (I.e. Without the "any later version"
-clause.) This is inherited from MySQL. Please see the README file in
-the MySQL distribution for more information.
+```bash
+yum install boost-devel
+```
 
-License information can be found in the COPYING, COPYING.LESSER,
-and COPYING.thirdparty files.
+or
 
-***************************************************************************
+```bash
+apt-get install libboost-dev-all
+```
+or
 
-Bug Reports:
-------------
+```bash
+SUSEConnect -p sle-sdk/12.2/x86_64
 
-Bug and/or error reports regarding MariaDB should be submitted at
-http://mariadb.org/jira
+zypper install boost-devel
+```
 
 For CentOS 6, you can either download and install the MariaDB Columnstore Centos 6 boost library package or install the boost source of 1.55 and build it to generate the required libraries. That means both the build and the install machines require this.
 
@@ -63,15 +60,14 @@ Downloading and installing the MariaDB Columnstore Centos 6 boost library packag
 
 https://mariadb.com/kb/en/mariadb/preparing-for-columnstore-installation/#boost-libraries
 
-Bugs in the MySQL code can also be submitted at http://bugs.mysql.com
-
-The code for MariaDB, including all revision history, can be found at:
-https://github.com/MariaDB/server
-
-***************************************************************************
-
 Downloading and build the boost libraries:
-------------------------------------------
+
+NOTE: This means that the "Development Tools" group install be done prior to this.
+
+```bash
+yum groupinstall "Development Tools"
+yum install cmake
+```
 
 Here is the procedure to download and build the boost source:
 
@@ -90,32 +86,35 @@ cd boost_1_55_0
 
 ldconfig
 ```
-``
 
-### For CentOS 7
+### For CentOS
 
 These packages need to be install along with the group development packages:
 
 ```bash
 yum groupinstall "Development Tools"
-yum install bison ncurses-devel readline-devel perl-devel openssl-devel cmake libxml2-devel snappy-devel
+yum install bison ncurses-devel readline-devel perl-devel openssl-devel cmake libxml2-devel gperf libaio-devel libevent-devel python-devel ruby-devel tree wget pam-devel
 ```
-
 
 ### For Ubuntu 16
 
-These packages need to be installed along with the group development packages:
-
 ```bash
-apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev flex libsnappy-dev
+apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev libkrb5-dev flex libpam-dev
 ```
 ### For Debian 8
 
-These packages need to be installed along with the group development packages:
+```bash
+apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev libkrb5-dev flex libpam-dev libkrb5-dev
+```
+### For Suse 12
+
+These packages need to be install along with the group development packages:
 
 ```bash
-apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev flex libsnappy-dev
+zypper groupinstall "Development Tools"
+zypper install bison ncurses-devel readline-devel perl-devel openssl-devel cmake libxml2-devel gperf libaio-devel libevent-devel python-devel ruby-devel tree wget pam-devel
 ```
+
 
 ##Building master branch
 The current master branch is the released version.
@@ -126,7 +125,7 @@ The develop branch is used for develop updates
 Building can be done as a non-root user. If you do a "build install", it will install the binaries in `/usr/local/mariadb/columnstore`
 and the use of sudo is required.
 
-To build the current development branch (Engine checkout inside Server):
+To build the current development branch binaries only (Engine checkout inside Server):
 ```bash
 git clone https://github.com/mariadb-corporation/mariadb-columnstore-server.git
 cd mariadb-columnstore-server
@@ -140,6 +139,32 @@ git checkout develop
 cmake .
 make -jN # same as above with respect to concurrent processes
 sudo make install
+```
+
+To build the current development branch binaries and packages only (Engine checkout inside Server):
+```bash
+git clone https://github.com/mariadb-corporation/mariadb-columnstore-server.git
+cd mariadb-columnstore-server
+git checkout develop # switch to develop code
+run cmake
+For RPMs:
+cmake . -DWITH_READLINE=1 -DRPM=centos6 -DPLUGIN_CONNECT=NO -DWITH_WSREP=OFF -DINSTALL_LAYOUT=RPM -DCMAKE_INSTALL_PREFIX=/usr/local/mariadb/columnstore/mysql  -DCPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION=/usr/local
+For DEBIANs:
+cmake . -DWITH_READLINE=1 -DDEB=xenial -DPLUGIN_CONNECT=NO -DWITH_WSREP=OFF -DINSTALL_LAYOUT=DEB -DCMAKE_INSTALL_PREFIX=/usr/local/mariadb/columnstore/mysql/  -DCPACK_DEB_EXCLUDE_FROM_AUTO_FILELIST_ADDITION=/usr/local
+make -jN # N is the number of concurrent build processes and should likely be the number of cores available
+sudo make install
+make package
+git clone https://github.com/mariadb-corporation/mariadb-columnstore-engine.git
+cd mariadb-columnstore-engine
+git checkout develop
+run cmake 
+For RPMs"
+cmake . -DRPM=centos6
+For DEBIANs:
+cmake . -DDEB=xenial
+make -jN # same as above with respect to concurrent processes
+sudo make install
+make package
 ```
 
 With the engine checked out in a separate location the following values need to be set by cmake command.
@@ -201,6 +226,7 @@ To develop a new branch/feature/pull request
   * MariaDB ColumnStore team will evaluate the changes and may request further development or changes before merge 
 
 ##Run dependencies
+
 ## For CentOS
 
 For CentOS 6 follow the install procedure for boost from the build Dependecy section above, with CentOS 7 you can just do:
@@ -212,7 +238,7 @@ yum install boost
 In addition these packages need to be install:
 
 ```bash
-yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio snappy
+yum install expect perl perl-DBI openssl zlib file sudo libaio rsync snappy net-tools
 ```
 
 ## For Ubuntu 16
@@ -220,7 +246,7 @@ yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio sn
 These packages need to be installed:
 
 ```bash
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev libsnappy1
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync snappy net-tools
 ```
 
 ## For Debian 8
@@ -228,7 +254,17 @@ apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libre
 These packages need to be installed:
 
 ```bash
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev libsnappy1
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1 net-tools
+```
+## For SUSE 12
+
+These packages need to be installed:
+
+SUSEConnect -p sle-sdk/12.2/x86_64
+zypper install boost-devel
+
+```bash
+zypper install expect perl perl-DBI openssl file sudo libaio1 rsync net-tools libsnappy1 perl-DBD-mysql
 ```
 
 ##MariaDB ColumnStore utilizes the System Logging for logging purposes
@@ -249,9 +285,4 @@ cd /usr/local/mariadb/columnstore/bin/
 ./post-install
 ./postConfigure
 ```
-=======
-Code status:
-------------
->>>>>>> MCOL-597
 
-* [![tests status](https://secure.travis-ci.org/MariaDB/server.png?branch=10.2)](https://travis-ci.org/MariaDB/server) travis-ci.org (10.2 branch)
