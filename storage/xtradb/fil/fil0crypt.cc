@@ -537,16 +537,16 @@ fil_parse_write_crypt_data(
 	ptr += len;
 
 	/* update fil_space memory cache with crypt_data */
-	fil_space_t* space = fil_space_acquire_silent(space_id);
-
-	if (space) {
+	if (fil_space_t* space = fil_space_acquire_silent(space_id)) {
 		crypt_data = fil_space_set_crypt_data(space, crypt_data);
 		fil_space_release(space);
-	}
-
-	/* Check is used key found from encryption plugin */
-	if (crypt_data->should_encrypt() && !crypt_data->is_key_found()) {
-		*err = DB_DECRYPTION_FAILED;
+		/* Check is used key found from encryption plugin */
+		if (crypt_data->should_encrypt()
+		    && !crypt_data->is_key_found()) {
+			*err = DB_DECRYPTION_FAILED;
+		}
+	} else {
+		fil_space_destroy_crypt_data(&crypt_data);
 	}
 
 	return ptr;
@@ -1294,10 +1294,10 @@ struct rotate_thread_t {
 	bool should_shutdown() const {
 		switch (srv_shutdown_state) {
 		case SRV_SHUTDOWN_NONE:
-		case SRV_SHUTDOWN_CLEANUP:
 			return thread_no >= srv_n_fil_crypt_threads;
-		case SRV_SHUTDOWN_FLUSH_PHASE:
+		case SRV_SHUTDOWN_CLEANUP:
 			return true;
+		case SRV_SHUTDOWN_FLUSH_PHASE:
 		case SRV_SHUTDOWN_LAST_PHASE:
 		case SRV_SHUTDOWN_EXIT_THREADS:
 			break;

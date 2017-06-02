@@ -6904,7 +6904,8 @@ bool alter_table_manage_keys(TABLE *table, int indexes_were_disabled,
   case Alter_info::LEAVE_AS_IS:
     if (!indexes_were_disabled)
       break;
-    /* fall-through: disabled indexes */
+    /* disabled indexes */
+    /* fall through */
   case Alter_info::DISABLE:
     error= table->file->ha_disable_indexes(HA_KEY_SWITCH_NONUNIQ_SAVE);
   }
@@ -8879,7 +8880,9 @@ bool mysql_alter_table(THD *thd,char *new_db, char *new_name,
 
          TODO don't create the frm in the first place
       */
-      deletefrm(alter_ctx.get_tmp_path());
+      const char *path= alter_ctx.get_tmp_path();
+      table->file->ha_create_partitioning_metadata(path, NULL, CHF_DELETE_FLAG);
+      deletefrm(path);
       my_free(const_cast<uchar*>(frm.str));
       goto end_inplace;
     }

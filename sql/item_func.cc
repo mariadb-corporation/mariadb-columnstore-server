@@ -1,6 +1,6 @@
 /* Copyright (c) 2000, 2015, Oracle and/or its affiliates.
-   Copyright (c) 2009, 2015, MariaDB
-Copyright (c) 2016, MariaDB Corporation
+   Copyright (c) 2009, 2017, MariaDB
+   Copyright (c) 2016, MariaDB Corporation
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -1953,6 +1953,7 @@ my_decimal *Item_func_mod::decimal_op(my_decimal *decimal_value)
     return decimal_value;
   case E_DEC_DIV_ZERO:
     signal_divide_by_null();
+    /* fall through */
   default:
     null_value= 1;
     return 0;
@@ -3970,6 +3971,7 @@ longlong Item_master_gtid_wait::val_int()
 {
   DBUG_ASSERT(fixed == 1);
   longlong result= 0;
+  String *gtid_pos = args[0]->val_str(&value);
 
   if (args[0]->null_value)
   {
@@ -3981,7 +3983,6 @@ longlong Item_master_gtid_wait::val_int()
 #ifdef HAVE_REPLICATION
   THD* thd= current_thd;
   longlong timeout_us;
-  String *gtid_pos = args[0]->val_str(&value);
 
   if (arg_count==2 && !args[1]->null_value)
     timeout_us= (longlong)(1e6*args[1]->val_real());
