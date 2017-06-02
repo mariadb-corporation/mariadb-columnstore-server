@@ -1183,7 +1183,6 @@ dict_stats_analyze_index_level(
 
 			continue;
 		}
-
 		rec_offsets = rec_get_offsets(
 			rec, index, rec_offsets, n_uniq, &heap);
 
@@ -1341,8 +1340,12 @@ enum page_scan_method_t {
 				the given page and count the number of
 				distinct ones, also ignore delete marked
 				records */
-	QUIT_ON_FIRST_NON_BORING/* quit when the first record that differs
+	QUIT_ON_FIRST_NON_BORING,/* quit when the first record that differs
 				from its right neighbor is found */
+	COUNT_ALL_NON_BORING_INCLUDE_DEL_MARKED/* scan all records on
+				the given page and count the number of
+				distinct ones, include delete marked
+				records */
 };
 /* @} */
 
@@ -1615,6 +1618,8 @@ dict_stats_analyze_index_below_cur(
 
 	offsets_rec = dict_stats_scan_page(
 		&rec, offsets1, offsets2, index, page, n_prefix,
+		srv_stats_include_delete_marked ?
+		COUNT_ALL_NON_BORING_INCLUDE_DEL_MARKED:
 		COUNT_ALL_NON_BORING_AND_SKIP_DEL_MARKED, n_diff,
 		n_external_pages);
 

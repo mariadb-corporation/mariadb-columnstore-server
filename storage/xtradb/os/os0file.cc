@@ -6302,19 +6302,11 @@ os_file_trim(
 		/* After first failure do not try to trim again */
 		os_fallocate_failed = true;
 		srv_use_trim = FALSE;
-<<<<<<< HEAD
-		ut_print_timestamp(stderr);
-		fprintf(stderr,
-			"  InnoDB: Warning: fallocate call failed with error code %d.\n"
-			"  InnoDB: start: %lu len: %lu payload: %lu\n"
-			"  InnoDB: Disabling fallocate for now.\n", errno, (ulong) off, (ulong) trim_len, (ulong) len);
-=======
 		ib_logf(IB_LOG_LEVEL_WARN,
 			"fallocate() failed with error %d."
 			" start: " UINT64PF " len: " ULINTPF " payload: " ULINTPF "."
 			" Disabling fallocate for now.",
 			errno, off, ulint(trim_len), ulint(len));
->>>>>>> mariadb/10.2
 
 		os_file_handle_error_no_exit(slot->name,
 			" fallocate(FALLOC_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE) ",

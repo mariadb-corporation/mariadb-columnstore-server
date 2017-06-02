@@ -400,7 +400,10 @@ innobase_need_rebuild(
 	const Alter_inplace_info*	ha_alter_info,
 	const TABLE*			altered_table)
 {
-	if (ha_alter_info->handler_flags
+	Alter_inplace_info::HA_ALTER_FLAGS alter_inplace_flags =
+		ha_alter_info->handler_flags & ~(INNOBASE_INPLACE_IGNORE);
+
+	if (alter_inplace_flags
 	    == Alter_inplace_info::CHANGE_CREATE_OPTION
 	    && !(ha_alter_info->create_info->used_fields
 		 & (HA_CREATE_USED_ROW_FORMAT
@@ -2502,6 +2505,7 @@ innobase_fts_check_doc_id_index_in_def(
 
 	return(FTS_NOT_EXIST_DOC_ID_INDEX);
 }
+
 /*******************************************************************//**
 Create an index table where indexes are ordered as follows:
 
@@ -2570,34 +2574,15 @@ innobase_create_key_defs(
 	(only prefix/part of the column is indexed), MySQL will treat the
 	index as a PRIMARY KEY unless the table already has one. */
 
-	if (n_add > 0 && !new_primary && got_default_clust
-	    && (key_info[*add].flags & HA_NOSAME)
-	    && !(key_info[*add].flags & HA_KEY_HAS_PART_KEY_SEG)) {
-		uint	key_part = key_info[*add].user_defined_key_parts;
+	ut_ad(altered_table->s->primary_key == 0
+	      || altered_table->s->primary_key == MAX_KEY);
 
-		new_primary = true;
-
-		while (key_part--) {
-			const uint	maybe_null
-				= key_info[*add].key_part[key_part].key_type
-				& FIELDFLAG_MAYBE_NULL;
-			bool		is_v
-				= innobase_is_v_fld(
-					key_info[*add].key_part[key_part].field);
-			DBUG_ASSERT(!maybe_null
-				    == !key_info[*add].key_part[key_part].
-				    field->real_maybe_null());
-
-			if (maybe_null || is_v) {
-				new_primary = false;
-				break;
-			}
-		}
+	if (got_default_clust && !new_primary) {
+		new_primary = (altered_table->s->primary_key != MAX_KEY);
 	}
 
 	const bool rebuild = new_primary || add_fts_doc_id
 		|| innobase_need_rebuild(ha_alter_info, table);
-
 
 	/* Reserve one more space if new_primary is true, and we might
 	need to add the FTS_DOC_ID_INDEX */
@@ -2612,8 +2597,14 @@ innobase_create_key_defs(
 		ulint	primary_key_number;
 
 		if (new_primary) {
-			DBUG_ASSERT(n_add > 0);
-			primary_key_number = *add;
+			if (n_add == 0) {
+				DBUG_ASSERT(got_default_clust);
+				DBUG_ASSERT(altered_table->s->primary_key
+					    == 0);
+				primary_key_number = 0;
+			} else {
+				primary_key_number = *add;
+			}
 		} else if (got_default_clust) {
 			/* Create the GEN_CLUST_INDEX */
 			index_def_t*	index = indexdef++;
@@ -4818,6 +4809,8 @@ new_clustered_failed:
 		ctx->add_cols = add_cols;
 	} else {
 		DBUG_ASSERT(!innobase_need_rebuild(ha_alter_info, old_table));
+		DBUG_ASSERT(old_table->s->primary_key
+			    == altered_table->s->primary_key);
 
 		for (dict_index_t* index
 			     = dict_table_get_first_index(user_table);
@@ -6130,7 +6123,7 @@ err_exit:
 	}
 
 	if (!(ha_alter_info->handler_flags & INNOBASE_ALTER_DATA)
-	    || (ha_alter_info->handler_flags
+	    || ((ha_alter_info->handler_flags & ~INNOBASE_INPLACE_IGNORE)
 		== Alter_inplace_info::CHANGE_CREATE_OPTION
 		&& !innobase_need_rebuild(ha_alter_info, table))) {
 
@@ -6414,7 +6407,7 @@ ok_exit:
 		DBUG_RETURN(false);
 	}
 
-	if (ha_alter_info->handler_flags
+	if ((ha_alter_info->handler_flags & ~INNOBASE_INPLACE_IGNORE)
 	    == Alter_inplace_info::CHANGE_CREATE_OPTION
 	    && !innobase_need_rebuild(ha_alter_info, table)) {
 		goto ok_exit;
