@@ -114,7 +114,8 @@ static my_bool  verbose= 0, opt_no_create_info= 0, opt_no_data= 0, opt_no_data_m
                 opt_slave_apply= 0, 
                 opt_include_master_host_port= 0,
                 opt_events= 0, opt_comments_used= 0,
-                opt_alltspcs=0, opt_notspcs= 0, opt_logging;
+                opt_alltspcs=0, opt_notspcs= 0, opt_logging,
+                opt_drop_trigger= 0 ;
 static my_bool insert_pat_inited= 0, debug_info_flag= 0, debug_check_flag= 0;
 static ulong opt_max_allowed_packet, opt_net_buffer_length;
 static MYSQL mysql_connection,*mysql=0;
@@ -232,6 +233,9 @@ static struct my_option my_long_options[] =
    0},
   {"add-drop-table", OPT_DROP, "Add a DROP TABLE before each create.",
    &opt_drop, &opt_drop, 0, GET_BOOL, NO_ARG, 1, 0, 0, 0, 0,
+   0},
+  {"add-drop-trigger", 0, "Add a DROP TRIGGER before each create.",
+   &opt_drop_trigger, &opt_drop_trigger, 0, GET_BOOL, NO_ARG, 0, 0, 0, 0, 0,
    0},
   {"add-locks", OPT_LOCKS, "Add locks around INSERT statements.",
    &opt_lock, &opt_lock, 0, GET_BOOL, NO_ARG, 1, 0, 0, 0, 0,
@@ -2207,7 +2211,6 @@ static void print_comment(FILE *sql_file, my_bool is_error, const char *format,
   print_xml_comment(sql_file, strlen(comment_buff), comment_buff);
 }
 
-
 /*
  create_delimiter
  Generate a new (null-terminated) string that does not exist in  query 
@@ -2552,7 +2555,7 @@ static uint dump_routines_for_db(char *db)
                           query_buff);
             print_comment(sql_file, 1,
                           "-- does %s have permissions on mysql.proc?\n\n",
-                          current_user);
+                          fix_for_comment(current_user));
             maybe_die(EX_MYSQLERR,"%s has insufficent privileges to %s!",
                       current_user, query_buff);
           }
@@ -3281,6 +3284,10 @@ static void dump_trigger_old(FILE *sql_file, MYSQL_RES *show_triggers_rs,
   if (opt_compact)
     fprintf(sql_file, "/*!50003 SET @OLD_SQL_MODE=@@SQL_MODE*/;\n");
 
+  if (opt_drop_trigger)
+    fprintf(sql_file, "/*!50032 DROP TRIGGER IF EXISTS %s */;\n",
+    (*show_trigger_row)[0]);
+
   fprintf(sql_file,
           "DELIMITER ;;\n"
           "/*!50003 SET SESSION SQL_MODE=\"%s\" */;;\n"
@@ -3360,6 +3367,10 @@ static int dump_trigger(FILE *sql_file, MYSQL_RES *show_create_trigger_rs,
                         row[4]);  /* collation_connection */
 
     switch_sql_mode(sql_file, ";", row[1]);
+
+    if (opt_drop_trigger)
+      fprintf(sql_file, "/*!50032 DROP TRIGGER IF EXISTS %s */;\n",
+          row[0]);
 
     query_str= cover_definer_clause(row[2], strlen(row[2]),
                                     C_STRING_WITH_LEN("50017"),

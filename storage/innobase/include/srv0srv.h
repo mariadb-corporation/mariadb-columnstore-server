@@ -57,15 +57,13 @@ Created 10/10/1995 Heikki Tuuri
 #include "ut0counter.h"
 #include "fil0fil.h"
 
-struct fil_space_t;
-
-/* Global counters used inside InnoDB. */
-struct srv_stats_t {
+/** Global counters used inside InnoDB. */
+struct srv_stats_t
+{
 	typedef ib_counter_t<ulint, 64> ulint_ctr_64_t;
-	typedef ib_counter_t<lsn_t, 1, single_indexer_t> lsn_ctr_1_t;
-	typedef ib_counter_t<ulint, 1, single_indexer_t> ulint_ctr_1_t;
-	typedef ib_counter_t<lint, 1, single_indexer_t> lint_ctr_1_t;
-	typedef ib_counter_t<int64_t, 1, single_indexer_t> int64_ctr_1_t;
+	typedef simple_counter<lsn_t> lsn_ctr_1_t;
+	typedef simple_counter<ulint> ulint_ctr_1_t;
+	typedef simple_counter<int64_t> int64_ctr_1_t;
 
 	/** Count the amount of data written in total (in bytes) */
 	ulint_ctr_1_t		data_written;
@@ -82,8 +80,9 @@ struct srv_stats_t {
 	/** Amount of data written to the log files in bytes */
 	lsn_ctr_1_t		os_log_written;
 
-	/** Number of writes being done to the log files */
-	lint_ctr_1_t		os_log_pending_writes;
+	/** Number of writes being done to the log files.
+	Protected by log_sys->write_mutex. */
+	ulint_ctr_1_t		os_log_pending_writes;
 
 	/** We increase this counter, when we don't have enough
 	space in the log buffer and have to flush it */
@@ -141,7 +140,7 @@ struct srv_stats_t {
 	ulint_ctr_1_t		n_lock_wait_count;
 
 	/** Number of threads currently waiting on database locks */
-	lint_ctr_1_t		n_lock_wait_current_count;
+	simple_counter<ulint, true> n_lock_wait_current_count;
 
 	/** Number of rows read. */
 	ulint_ctr_64_t		n_rows_read;
@@ -300,6 +299,9 @@ extern long    srv_mtflush_threads;
 
 /* If this flag is TRUE, then we will use multi threaded flush. */
 extern my_bool	srv_use_mtflush;
+
+/** TRUE if the server was successfully started */
+extern bool	srv_was_started;
 
 /** Server undo tablespaces directory, can be absolute path. */
 extern char*	srv_undo_dir;
@@ -512,7 +514,6 @@ extern ulong	srv_n_spin_wait_rounds;
 extern ulong	srv_n_free_tickets_to_enter;
 extern ulong	srv_thread_sleep_delay;
 extern uint	srv_spin_wait_delay;
-extern ibool	srv_priority_boost;
 
 extern ulint	srv_truncated_status_writes;
 /** Number of initialized rollback segments for persistent undo log */
@@ -746,36 +747,24 @@ srv_set_io_thread_op_info(
 Resets the info describing an i/o thread current state. */
 void
 srv_reset_io_thread_op_info();
-/*=========================*/
-/*******************************************************************//**
-Tells the purge thread that there has been activity in the database
-and wakes up the purge thread if it is suspended (not sleeping).  Note
-that there is a small chance that the purge thread stays suspended
-(we do not protect our operation with the srv_sys_t:mutex, for
-performance reasons). */
+
+/** Wake up the purge threads if there is work to do. */
 void
-srv_wake_purge_thread_if_not_active(void);
-/*=====================================*/
-/*******************************************************************//**
-Tells the Innobase server that there has been activity in the database
-and wakes up the master thread if it is suspended (not sleeping). Used
-in the MySQL interface. Note that there is a small chance that the master
-thread stays suspended (we do not protect our operation with the kernel
-mutex, for performace reasons). */
+srv_wake_purge_thread_if_not_active();
+/** Wake up the InnoDB master thread if it was suspended (not sleeping). */
 void
-srv_active_wake_master_thread_low(void);
-/*===================================*/
+srv_active_wake_master_thread_low();
+
 #define srv_active_wake_master_thread()					\
 	do {								\
 		if (!srv_read_only_mode) {				\
 			srv_active_wake_master_thread_low();		\
 		}							\
 	} while (0)
-/*******************************************************************//**
-Wakes up the master thread if it is suspended or being suspended. */
+/** Wake up the master thread if it is suspended or being suspended. */
 void
-srv_wake_master_thread(void);
-/*========================*/
+srv_wake_master_thread();
+
 /******************************************************************//**
 Outputs to a file the output of the InnoDB Monitor.
 @return FALSE if not all information printed

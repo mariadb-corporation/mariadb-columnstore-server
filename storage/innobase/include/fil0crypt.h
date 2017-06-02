@@ -116,10 +116,9 @@ struct fil_space_crypt_t : st_encryption_scheme
 		min_key_version(new_min_key_version),
 		page0_offset(0),
 		encryption(new_encryption),
-		key_found(),
+		key_found(0),
 		rotate_state()
 	{
-		key_found = new_min_key_version;
 		key_id = new_key_id;
 		my_random_bytes(iv, sizeof(iv));
 		mutex_create(LATCH_ID_FIL_CRYPT_DATA_MUTEX, &mutex);
@@ -134,6 +133,8 @@ struct fil_space_crypt_t : st_encryption_scheme
 			type = CRYPT_SCHEME_1;
 			min_key_version = key_get_latest_version();
 		}
+
+		key_found = min_key_version;
 	}
 
 	/** Destructor */
@@ -205,7 +206,7 @@ struct fil_space_crypt_status_t {
 	uint  min_key_version;   /*!< min key version */
 	uint  current_key_version;/*!< current key version */
 	uint  keyserver_requests;/*!< no of key requests to key server */
-	ulint key_id;            /*!< current key_id */
+	uint key_id;            /*!< current key_id */
 	bool rotating;           /*!< is key rotation ongoing */
 	bool flushing;           /*!< is flush at end of rotation ongoing */
 	ulint rotate_next_page_number; /*!< next page if key rotating */
@@ -293,13 +294,15 @@ Parse a MLOG_FILE_WRITE_CRYPT_DATA log entry
 @param[in]	ptr		Log entry start
 @param[in]	end_ptr		Log entry end
 @param[in]	block		buffer block
+@param[out]	err		DB_SUCCESS or DB_DECRYPTION_FAILED
 @return position on log buffer */
 UNIV_INTERN
-const byte*
+byte*
 fil_parse_write_crypt_data(
-	const byte*		ptr,
+	byte*			ptr,
 	const byte*		end_ptr,
-	const buf_block_t*	block)
+	const buf_block_t*	block,
+	dberr_t*		err)
 	MY_ATTRIBUTE((warn_unused_result));
 
 /** Encrypt a buffer.
@@ -382,7 +385,7 @@ Calculate post encryption checksum
 @return page checksum or BUF_NO_CHECKSUM_MAGIC
 not needed. */
 UNIV_INTERN
-ulint
+uint32_t
 fil_crypt_calculate_checksum(
 	const page_size_t&	page_size,
 	const byte*		dst_frame)
@@ -492,10 +495,6 @@ bool
 fil_space_verify_crypt_checksum(
 	byte* 			page,
 	const page_size_t&	page_size,
-#ifdef UNIV_INNOCHECKSUM
-	bool			strict_check,	/*!< --strict-check */
-	FILE*			log_file,	/*!< --log */
-#endif /* UNIV_INNOCHECKSUM */
 	ulint			space,
 	ulint			offset)
 	MY_ATTRIBUTE((warn_unused_result));

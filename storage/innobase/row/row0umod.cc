@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 1997, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1997, 2017, Oracle and/or its affiliates. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -1139,12 +1139,19 @@ row_undo_mod_parse_undo_rec(
 		return;
 	}
 
-	if (node->table->ibd_file_missing) {
+	if (UNIV_UNLIKELY(!fil_table_accessible(node->table))) {
+close_table:
+		/* Normally, tables should not disappear or become
+		unaccessible during ROLLBACK, because they should be
+		protected by InnoDB table locks. TRUNCATE TABLE
+		or table corruption could be valid exceptions.
+
+		FIXME: When running out of temporary tablespace, it
+		would probably be better to just drop all temporary
+		tables (and temporary undo log records) of the current
+		connection, instead of doing this rollback. */
 		dict_table_close(node->table, dict_locked, FALSE);
-
-		/* We skip undo operations to missing .ibd files */
 		node->table = NULL;
-
 		return;
 	}
 
@@ -1163,14 +1170,23 @@ row_undo_mod_parse_undo_rec(
 	node->cmpl_info = cmpl_info;
 
 	if (!row_undo_search_clust_to_pcur(node)) {
+		/* As long as this rolling-back transaction exists,
+		the PRIMARY KEY value pointed to by the undo log
+		record must exist. But, it is possible that the record
+		was not modified yet (the DB_ROLL_PTR does not match
+		node->roll_ptr) and thus there is nothing to roll back.
 
-		dict_table_close(node->table, dict_locked, FALSE);
-
-		node->table = NULL;
+		btr_cur_upd_lock_and_undo() only writes the undo log
+		record after successfully acquiring an exclusive lock
+		on the the clustered index record. That lock will not
+		be released before the transaction is committed or
+		fully rolled back. */
+		ut_ad(node->pcur.btr_cur.low_match == node->ref->n_fields);
+		goto close_table;
 	}
 
 	/* Extract indexed virtual columns from undo log */
-	if (node->table && node->table->n_v_cols) {
+	if (node->table->n_v_cols) {
 		row_upd_replace_vcol(node->row, node->table,
 				     node->update, false, node->undo_row,
 				     (node->cmpl_info & UPD_NODE_NO_ORD_CHANGE)

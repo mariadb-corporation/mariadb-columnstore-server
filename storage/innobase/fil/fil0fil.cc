@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 1995, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1995, 2017, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2014, 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
@@ -30,6 +30,7 @@ Created 10/25/1995 Heikki Tuuri
 #include "fil0crypt.h"
 
 #include "btr0btr.h"
+#include "btr0sea.h"
 #include "buf0buf.h"
 #include "dict0boot.h"
 #include "dict0dict.h"
@@ -39,6 +40,7 @@ Created 10/25/1995 Heikki Tuuri
 #include "fsp0space.h"
 #include "fsp0sysspace.h"
 #include "hash0hash.h"
+#include "log0log.h"
 #include "log0recv.h"
 #include "mach0data.h"
 #include "mem0mem.h"
@@ -55,9 +57,6 @@ Created 10/25/1995 Heikki Tuuri
 #include "os0event.h"
 #include "sync0sync.h"
 #include "buf0flu.h"
-#include "srv0start.h"
-#include "trx0purge.h"
-#include "ut0new.h"
 #include "os0api.h"
 
 /** Tries to close a file in the LRU list. The caller must hold the fil_sys
@@ -307,7 +306,9 @@ fil_write(
 }
 
 /*******************************************************************//**
-Returns the table space by a given id, NULL if not found. */
+Returns the table space by a given id, NULL if not found.
+It is unsafe to dereference the returned pointer. It is fine to check
+for NULL. */
 fil_space_t*
 fil_space_get_by_id(
 /*================*/
@@ -1507,6 +1508,13 @@ fil_space_free_low(
 	ut_ad(srv_fast_shutdown == 2 || !srv_was_started
 	      || space->max_lsn == 0);
 
+	/* Wait for fil_space_release_for_io(); after
+	fil_space_detach(), the tablespace cannot be found, so
+	fil_space_acquire_for_io() would return NULL */
+	while (space->n_pending_ios) {
+		os_thread_sleep(100);
+	}
+
 	for (fil_node_t* node = UT_LIST_GET_FIRST(space->chain);
 	     node != NULL; ) {
 		ut_d(space->size -= node->size);
@@ -2268,13 +2276,11 @@ Used by background threads that do not necessarily hold proper locks
 for concurrency control.
 @param[in]	id	tablespace ID
 @param[in]	silent	whether to silently ignore missing tablespaces
-@param[in]	for_io	whether to look up the tablespace while performing I/O
-			(possibly executing TRUNCATE)
 @return	the tablespace
 @retval	NULL if missing or being deleted or truncated */
-inline
+UNIV_INTERN
 fil_space_t*
-fil_space_acquire_low(ulint id, bool silent, bool for_io = false)
+fil_space_acquire_low(ulint id, bool silent)
 {
 	fil_space_t*	space;
 
@@ -2287,7 +2293,7 @@ fil_space_acquire_low(ulint id, bool silent, bool for_io = false)
 			ib::warn() << "Trying to access missing"
 				" tablespace " << id;
 		}
-	} else if (!for_io && space->is_stopping()) {
+	} else if (space->is_stopping()) {
 		space = NULL;
 	} else {
 		space->n_pending_ops++;
@@ -2296,32 +2302,6 @@ fil_space_acquire_low(ulint id, bool silent, bool for_io = false)
 	mutex_exit(&fil_system->mutex);
 
 	return(space);
-}
-
-/** Acquire a tablespace when it could be dropped concurrently.
-Used by background threads that do not necessarily hold proper locks
-for concurrency control.
-@param[in]	id	tablespace ID
-@param[in]	for_io	whether to look up the tablespace while performing I/O
-			(possibly executing TRUNCATE)
-@return	the tablespace
-@retval	NULL	if missing or being deleted or truncated */
-fil_space_t*
-fil_space_acquire(ulint id, bool for_io)
-{
-	return(fil_space_acquire_low(id, false, for_io));
-}
-
-/** Acquire a tablespace that may not exist.
-Used by background threads that do not necessarily hold proper locks
-for concurrency control.
-@param[in]	id	tablespace ID
-@return	the tablespace
-@retval	NULL if missing or being deleted */
-fil_space_t*
-fil_space_acquire_silent(ulint id)
-{
-	return(fil_space_acquire_low(id, true));
 }
 
 /** Release a tablespace acquired with fil_space_acquire().
@@ -2333,6 +2313,39 @@ fil_space_release(fil_space_t* space)
 	ut_ad(space->magic_n == FIL_SPACE_MAGIC_N);
 	ut_ad(space->n_pending_ops > 0);
 	space->n_pending_ops--;
+	mutex_exit(&fil_system->mutex);
+}
+
+/** Acquire a tablespace for reading or writing a block,
+when it could be dropped concurrently.
+@param[in]	id	tablespace ID
+@return	the tablespace
+@retval	NULL if missing */
+fil_space_t*
+fil_space_acquire_for_io(ulint id)
+{
+	mutex_enter(&fil_system->mutex);
+
+	fil_space_t* space = fil_space_get_by_id(id);
+
+	if (space) {
+		space->n_pending_ios++;
+	}
+
+	mutex_exit(&fil_system->mutex);
+
+	return(space);
+}
+
+/** Release a tablespace acquired with fil_space_acquire_for_io().
+@param[in,out]	space	tablespace to release  */
+void
+fil_space_release_for_io(fil_space_t* space)
+{
+	mutex_enter(&fil_system->mutex);
+	ut_ad(space->magic_n == FIL_SPACE_MAGIC_N);
+	ut_ad(space->n_pending_ios > 0);
+	space->n_pending_ios--;
 	mutex_exit(&fil_system->mutex);
 }
 
@@ -2837,15 +2850,15 @@ enum fil_operation_t {
 @return 0 if no operations else count + 1. */
 static
 ulint
-fil_check_pending_ops(
-	fil_space_t*	space,
-	ulint		count)
+fil_check_pending_ops(const fil_space_t* space, ulint count)
 {
 	ut_ad(mutex_own(&fil_system->mutex));
 
-	const ulint	n_pending_ops = space ? space->n_pending_ops : 0;
+	if (space == NULL) {
+		return 0;
+	}
 
-	if (n_pending_ops) {
+	if (ulint n_pending_ops = space->n_pending_ops) {
 
 		if (count > 5000) {
 			ib::warn() << "Trying to close/delete/truncate"
@@ -3057,6 +3070,32 @@ fil_close_tablespace(
 	return(err);
 }
 
+/** Determine whether a table can be accessed in operations that are
+not (necessarily) protected by meta-data locks.
+(Rollback would generally be protected, but rollback of
+FOREIGN KEY CASCADE/SET NULL is not protected by meta-data locks
+but only by InnoDB table locks, which may be broken by TRUNCATE TABLE.)
+@param[in]	table	persistent table
+checked @return whether the table is accessible */
+bool
+fil_table_accessible(const dict_table_t* table)
+{
+	if (UNIV_UNLIKELY(!table->is_readable() || table->corrupted)) {
+		return(false);
+	}
+
+	if (fil_space_t* space = fil_space_acquire(table->space)) {
+		bool accessible = !space->is_stopping();
+		fil_space_release(space);
+		ut_ad(accessible || dict_table_is_file_per_table(table));
+		return(accessible);
+	} else {
+		/* The tablespace may momentarily be missing during
+		TRUNCATE TABLE. */
+		return(false);
+	}
+}
+
 /** Deletes an IBD tablespace, either general or single-table.
 The tablespace must be cached in the memory cache. This will delete the
 datafile, fil_space_t & fil_node_t entries from the file_system_t cache.
@@ -3266,20 +3305,34 @@ fil_prepare_for_truncate(
 	return(err);
 }
 
-/**********************************************************************//**
-Reinitialize the original tablespace header with the same space id
-for single tablespace */
+/** Reinitialize the original tablespace header with the same space id
+for single tablespace
+@param[in]      id              space id of the tablespace
+@param[in]      size            size in blocks
+@param[in]      trx             Transaction covering truncate */
 void
 fil_reinit_space_header(
-/*====================*/
-	ulint		id,	/*!< in: space id */
-	ulint		size)	/*!< in: size in blocks */
+	ulint		id,
+	ulint		size,
+	trx_t*		trx)
 {
 	ut_a(!is_system_tablespace(id));
 
 	/* Invalidate in the buffer pool all pages belonging
-	to the tablespace */
+	to the tablespace. The buffer pool scan may take long
+	time to complete, therefore we release dict_sys->mutex
+	and the dict operation lock during the scan and aquire
+	it again after the buffer pool scan.*/
+
+	row_mysql_unlock_data_dictionary(trx);
+
+	/* Lock the search latch in shared mode to prevent user
+	from disabling AHI during the scan */
+	btr_search_s_lock_all();
+	DEBUG_SYNC_C("buffer_pool_scan");
 	buf_LRU_flush_or_remove_pages(id, BUF_REMOVE_ALL_NO_WRITE, 0);
+	btr_search_s_unlock_all();
+	row_mysql_lock_data_dictionary(trx);
 
 	/* Remove all insert buffer entries for the tablespace */
 	ibuf_delete_for_discarded_space(id);
@@ -3741,7 +3794,7 @@ fil_ibd_create(
 	ulint		flags,
 	ulint		size,
 	fil_encryption_t mode,
-	ulint		key_id)
+	uint32_t	key_id)
 {
 	os_file_t	file;
 	dberr_t		err;
@@ -3805,17 +3858,21 @@ fil_ibd_create(
 
         success= false;
 #ifdef HAVE_POSIX_FALLOCATE
-        /*
-          Extend the file using posix_fallocate(). This is required by
-          FusionIO HW/Firmware but should also be the prefered way to extend
-          a file.
-        */
-        int	ret = posix_fallocate(file, 0, size * UNIV_PAGE_SIZE);
+	/*
+	  Extend the file using posix_fallocate(). This is required by
+	  FusionIO HW/Firmware but should also be the prefered way to extend
+	  a file.
+	*/
+	int	ret;
+	do {
+		ret = posix_fallocate(file, 0, size * UNIV_PAGE_SIZE);
+	} while (ret == EINTR
+		 && srv_shutdown_state == SRV_SHUTDOWN_NONE);
 
-        if (ret == 0) {
+	if (ret == 0) {
 		success = true;
 	} else if (ret != EINVAL) {
-          	ib::error() <<
+		ib::error() <<
 			"posix_fallocate(): Failed to preallocate"
 			" data for file " << path
 			<< ", desired size "
@@ -4716,7 +4773,7 @@ fsp_flags_try_adjust(ulint space_id, ulint flags)
 	ut_ad(fsp_flags_is_valid(flags));
 
 	mtr_t	mtr;
-	mtr_start(&mtr);
+	mtr.start();
 	if (buf_block_t* b = buf_page_get(
 		    page_id_t(space_id, 0), page_size_t(flags),
 		    RW_X_LATCH, &mtr)) {
@@ -4730,12 +4787,13 @@ fsp_flags_try_adjust(ulint space_id, ulint flags)
 				<< " to " << ib::hex(flags);
 		}
 		if (f != flags) {
+			mtr.set_named_space(space_id);
 			mlog_write_ulint(FSP_HEADER_OFFSET
 					 + FSP_SPACE_FLAGS + b->frame,
 					 flags, MLOG_4BYTES, &mtr);
 		}
 	}
-	mtr_commit(&mtr);
+	mtr.commit();
 }
 
 /** Determine if a matching tablespace exists in the InnoDB tablespace
@@ -4846,7 +4904,7 @@ fil_space_for_table_exists_in_mem(
 				" deleted or moved .ibd files?";
 		}
 error_exit:
-		ib::warn() << TROUBLESHOOT_DATADICT_MSG;
+		ib::info() << TROUBLESHOOT_DATADICT_MSG;
 		valid = false;
 		goto func_exit;
 	}
@@ -5434,6 +5492,8 @@ fil_aio_wait(
 	mutex_enter(&fil_system->mutex);
 
 	fil_node_complete_io(node, type);
+	const fil_type_t	purpose		= node->space->purpose;
+	const ulint		space_id	= node->space->id;
 
 	mutex_exit(&fil_system->mutex);
 
@@ -5445,7 +5505,11 @@ fil_aio_wait(
 	deadlocks in the i/o system. We keep tablespace 0 data files always
 	open, and use a special i/o thread to serve insert buffer requests. */
 
-	switch (node->space->purpose) {
+	switch (purpose) {
+	case FIL_TYPE_LOG:
+		srv_set_io_thread_op_info(segment, "complete io for log");
+		log_io_complete(static_cast<log_group_t*>(message));
+		return;
 	case FIL_TYPE_TABLESPACE:
 	case FIL_TYPE_TEMPORARY:
 	case FIL_TYPE_IMPORT:
@@ -5453,13 +5517,32 @@ fil_aio_wait(
 
 		/* async single page writes from the dblwr buffer don't have
 		access to the page */
-		if (message != NULL) {
-			buf_page_io_complete(static_cast<buf_page_t*>(message));
+		buf_page_t* bpage = static_cast<buf_page_t*>(message);
+		if (!bpage) {
+			return;
 		}
-		return;
-	case FIL_TYPE_LOG:
-		srv_set_io_thread_op_info(segment, "complete io for log");
-		log_io_complete(static_cast<log_group_t*>(message));
+
+		ulint offset = bpage->id.page_no();
+		dberr_t err = buf_page_io_complete(bpage);
+		if (err == DB_SUCCESS) {
+			return;
+		}
+
+		ut_ad(type.is_read());
+		if (recv_recovery_is_on() && !srv_force_recovery) {
+			recv_sys->found_corrupt_fs = true;
+		}
+
+		if (fil_space_t* space = fil_space_acquire_for_io(space_id)) {
+			if (space == node->space) {
+				ib::error() << "Failed to read file '"
+					    << node->name
+					    << "' at offset " << offset
+					    << ": " << ut_strerr(err);
+			}
+
+			fil_space_release_for_io(space);
+		}
 		return;
 	}
 
@@ -5492,7 +5575,7 @@ fil_flush(
 void
 fil_flush(fil_space_t* space)
 {
-	ut_ad(space->n_pending_ops > 0);
+	ut_ad(space->n_pending_ios > 0);
 	ut_ad(space->purpose == FIL_TYPE_TABLESPACE
 	      || space->purpose == FIL_TYPE_IMPORT);
 
@@ -6498,6 +6581,12 @@ fil_names_clear(
 	bool	do_write)
 {
 	mtr_t	mtr;
+	ulint	mtr_checkpoint_size = LOG_CHECKPOINT_FREE_PER_THREAD;
+
+	DBUG_EXECUTE_IF(
+		"increase_mtr_checkpoint_size",
+		mtr_checkpoint_size = 75 * 1024;
+		);
 
 	ut_ad(log_mutex_own());
 
@@ -6531,11 +6620,24 @@ fil_names_clear(
 		fil_names_write(space, &mtr);
 		do_write = true;
 
+		const mtr_buf_t* mtr_log = mtr_get_log(&mtr);
+
+		/** If the mtr buffer size exceeds the size of
+		LOG_CHECKPOINT_FREE_PER_THREAD then commit the multi record
+		mini-transaction, start the new mini-transaction to
+		avoid the parsing buffer overflow error during recovery. */
+
+		if (mtr_log->size() > mtr_checkpoint_size) {
+			ut_ad(mtr_log->size() < (RECV_PARSING_BUF_SIZE / 2));
+			mtr.commit_checkpoint(lsn, false);
+			mtr.start();
+		}
+
 		space = next;
 	}
 
 	if (do_write) {
-		mtr.commit_checkpoint(lsn);
+		mtr.commit_checkpoint(lsn, true);
 	} else {
 		ut_ad(!mtr.has_modifications());
 	}
@@ -6826,8 +6928,8 @@ fil_space_keyrotate_next(
 	or dropped or truncated. Note that rotation_list contains only
 	space->purpose == FIL_TYPE_TABLESPACE. */
 	while (space != NULL
-		&& (UT_LIST_GET_LEN(space->chain) == 0
-		    || space->is_stopping())) {
+	       && (UT_LIST_GET_LEN(space->chain) == 0
+		   || space->is_stopping())) {
 
 		old = space;
 		space = UT_LIST_GET_NEXT(rotation_list, space);
@@ -6858,9 +6960,10 @@ fil_space_get_block_size(const fil_space_t* space, unsigned offset)
 	     node = UT_LIST_GET_NEXT(chain, node)) {
 		block_size = node->block_size;
 		if (node->size > offset) {
+			ut_ad(node->size <= 0xFFFFFFFFU);
 			break;
 		}
-		offset -= node->size;
+		offset -= static_cast<unsigned>(node->size);
 	}
 
 	/* Currently supporting block size up to 4K,

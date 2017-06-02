@@ -362,7 +362,7 @@ public:
 	void print(FILE* file);
 
 	/** @return the number of slots per segment */
-	unsigned slots_per_segment() const
+	ulint slots_per_segment() const
 		MY_ATTRIBUTE((warn_unused_result))
 	{
 		return(m_slots.size() / m_n_segments);
@@ -3496,7 +3496,8 @@ SyncFileIO::execute(Slot* slot)
 		/* Wait for async io to complete */
 		ret = GetOverlappedResult(slot->file, &slot->control, &slot->n_bytes, TRUE);
 	}
-	return(ret ? slot->n_bytes : -1);
+
+	return(ret ? static_cast<ssize_t>(slot->n_bytes) : -1);
 }
 
 /* Startup/shutdown */
@@ -5777,7 +5778,7 @@ AIO::init_linux_native_aio()
 	}
 
 	io_context**	ctx = m_aio_ctx;
-	unsigned	max_events = slots_per_segment();
+	ulint		max_events = slots_per_segment();
 
 	for (ulint i = 0; i < m_n_segments; ++i, ++ctx) {
 

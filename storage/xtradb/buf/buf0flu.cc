@@ -873,11 +873,12 @@ buf_flush_write_block_low(
 	buf_flush_t	flush_type,	/*!< in: type of flush */
 	bool		sync)		/*!< in: true if sync IO request */
 {
+	fil_space_t*	space = fil_space_acquire_for_io(bpage->space);
+	if (!space) {
+		return;
+	}
 	ulint	zip_size	= buf_page_get_zip_size(bpage);
 	page_t*	frame		= NULL;
-	ulint space_id          = buf_page_get_space(bpage);
-	atomic_writes_t awrites = fil_space_get_atomic_writes(space_id);
-
 #ifdef UNIV_DEBUG
 	buf_pool_t*	buf_pool = buf_pool_from_bpage(bpage);
 	ut_ad(!mutex_own(&buf_pool->LRU_list_mutex));
@@ -947,7 +948,7 @@ buf_flush_write_block_low(
 		break;
 	}
 
-	frame = buf_page_encrypt_before_write(bpage, frame, space_id);
+	frame = buf_page_encrypt_before_write(space, bpage, frame);
 
 	if (!srv_use_doublewrite_buf || !buf_dblwr) {
 		fil_io(OS_FILE_WRITE | OS_AIO_SIMULATED_WAKE_LATER,
@@ -968,7 +969,8 @@ buf_flush_write_block_low(
 		atomic writes should be used, no doublewrite buffer
 		is used. */
 
-		if (awrites == ATOMIC_WRITES_ON) {
+		if (fsp_flags_get_atomic_writes(space->flags)
+		    == ATOMIC_WRITES_ON) {
 			fil_io(OS_FILE_WRITE | OS_AIO_SIMULATED_WAKE_LATER,
 				FALSE,
 				buf_page_get_space(bpage),
@@ -991,9 +993,24 @@ buf_flush_write_block_low(
 	are working on. */
 	if (sync) {
 		ut_ad(flush_type == BUF_FLUSH_SINGLE_PAGE);
-		fil_flush(buf_page_get_space(bpage));
+		fil_flush(space);
+
+		/* The tablespace could already have been dropped,
+		because fil_io(request, sync) would already have
+		decremented the node->n_pending. However,
+		buf_page_io_complete() only needs to look up the
+		tablespace during read requests, not during writes. */
+		ut_ad(buf_page_get_io_fix_unlocked(bpage) == BUF_IO_WRITE);
+
+#ifdef UNIV_DEBUG
+		dberr_t err =
+#endif
 		buf_page_io_complete(bpage);
+
+		ut_ad(err == DB_SUCCESS);
 	}
+
+	fil_space_release_for_io(space);
 
 	/* Increment the counter of I/O operations used
 	for selecting LRU policy. */
@@ -2854,7 +2871,7 @@ DECLARE_THREAD(buf_flush_page_cleaner_thread)(
 		success = buf_flush_list(PCT_IO(100), LSN_MAX, &n_flushed);
 		buf_flush_wait_batch_end(NULL, BUF_FLUSH_LIST);
 
-	} while (!success || n_flushed > 0);
+	} while (!success || n_flushed > 0 || (IS_XTRABACKUP() && buf_get_n_pending_read_ios() > 0));
 
 	/* Some sanity checks */
 	ut_a(srv_get_active_thread_type() == SRV_NONE);

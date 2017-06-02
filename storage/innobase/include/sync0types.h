@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1995, 2016, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2017, MariaDB Corporation. All Rights Reserved.
+Copyright (c) 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -505,14 +505,32 @@ private:
 };
 
 #ifdef UNIV_PFS_MUTEX
-/** Latch element
+/** Latch element.
+Used for mutexes which have PFS keys defined under UNIV_PFS_MUTEX.
 @param[in]	id		Latch id
 @param[in]	level		Latch level
 @param[in]	key		PFS key */
-# define LATCH_ADD(id, level, key)	latch_meta[LATCH_ID_ ## id] =	\
+# define LATCH_ADD_MUTEX(id, level, key)	latch_meta[LATCH_ID_ ## id] =\
+	UT_NEW_NOKEY(latch_meta_t(LATCH_ID_ ## id, #id, level, #level, key))
+
+#ifdef UNIV_PFS_RWLOCK
+/** Latch element.
+Used for rwlocks which have PFS keys defined under UNIV_PFS_RWLOCK.
+@param[in]	id		Latch id
+@param[in]	level		Latch level
+@param[in]	key		PFS key */
+# define LATCH_ADD_RWLOCK(id, level, key)	latch_meta[LATCH_ID_ ## id] =\
 	UT_NEW_NOKEY(latch_meta_t(LATCH_ID_ ## id, #id, level, #level, key))
 #else
-# define LATCH_ADD(id, level, key)	latch_meta[LATCH_ID_ ## id] =	\
+# define LATCH_ADD_RWLOCK(id, level, key)	latch_meta[LATCH_ID_ ## id] =\
+	UT_NEW_NOKEY(latch_meta_t(LATCH_ID_ ## id, #id, level, #level,	     \
+		     PSI_NOT_INSTRUMENTED))
+#endif /* UNIV_PFS_RWLOCK */
+
+#else
+# define LATCH_ADD_MUTEX(id, level, key)	latch_meta[LATCH_ID_ ## id] =\
+	UT_NEW_NOKEY(latch_meta_t(LATCH_ID_ ## id, #id, level, #level))
+# define LATCH_ADD_RWLOCK(id, level, key)	latch_meta[LATCH_ID_ ## id] =\
 	UT_NEW_NOKEY(latch_meta_t(LATCH_ID_ ## id, #id, level, #level))
 #endif /* UNIV_PFS_MUTEX */
 
@@ -919,7 +937,7 @@ sync_latch_get_level(latch_id_t id)
 	return(meta.get_level());
 }
 
-#ifdef HAVE_PSI_INTERFACE
+#ifdef UNIV_PFS_MUTEX
 /** Get the latch PFS key from the latch ID
 @param[in]	id		Latch ID
 @return the PFS key */
@@ -1247,5 +1265,49 @@ enum rw_lock_flag_t {
 #define my_atomic_loadlint my_atomic_loadlong
 #define my_atomic_caslint my_atomic_caslong
 #endif
+
+/** Simple counter aligned to CACHE_LINE_SIZE
+@tparam	Type	the integer type of the counter
+@tparam	atomic	whether to use atomic memory access */
+template <typename Type = ulint, bool atomic = false>
+struct MY_ALIGNED(CPU_LEVEL1_DCACHE_LINESIZE) simple_counter
+{
+	/** Increment the counter */
+	Type inc() { return add(1); }
+	/** Decrement the counter */
+	Type dec() { return sub(1); }
+
+	/** Add to the counter
+	@param[in]	i	amount to be added
+	@return	the value of the counter after adding */
+	Type add(Type i)
+	{
+		compile_time_assert(!atomic || sizeof(Type) == sizeof(lint));
+		if (atomic) {
+			return Type(my_atomic_addlint(&m_counter, i));
+		} else {
+			return m_counter += i;
+		}
+	}
+	/** Subtract from the counter
+	@param[in]	i	amount to be subtracted
+	@return	the value of the counter after adding */
+	Type sub(Type i)
+	{
+		compile_time_assert(!atomic || sizeof(Type) == sizeof(lint));
+		if (atomic) {
+			return Type(my_atomic_addlint(&m_counter, -lint(i)));
+		} else {
+			return m_counter -= i;
+		}
+	}
+
+	/** @return the value of the counter (non-atomic access)! */
+	operator Type() const { return m_counter; }
+
+private:
+	/** The counter */
+	Type	m_counter;
+};
 
 #endif /* sync0types_h */
