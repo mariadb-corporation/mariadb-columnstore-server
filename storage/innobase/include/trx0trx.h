@@ -386,6 +386,22 @@ trx_print_latched(
 	ulint		max_query_len);	/*!< in: max query length to print,
 					or 0 to use the default max length */
 
+#ifdef WITH_WSREP
+/**********************************************************************//**
+Prints info about a transaction.
+Transaction information may be retrieved without having trx_sys->mutex acquired
+so it may not be completely accurate. The caller must own lock_sys->mutex
+and the trx must have some locks to make sure that it does not escape
+without locking lock_sys->mutex. */
+UNIV_INTERN
+void
+wsrep_trx_print_locking(
+	FILE*		f,		/*!< in: output stream */
+	const trx_t*	trx,		/*!< in: transaction */
+	ulint		max_query_len)	/*!< in: max query length to print,
+					or 0 to use the default max length */
+	MY_ATTRIBUTE((nonnull));
+#endif /* WITH_WSREP */
 /**********************************************************************//**
 Prints info about a transaction.
 Acquires and releases lock_sys->mutex and trx_sys->mutex. */
@@ -1468,46 +1484,46 @@ private:
 			return;
 		}
 
-		/* Avoid excessive mutex acquire/release */
-
 		ut_ad(!is_async_rollback(trx));
 
-		++trx->in_depth;
+		/* If it hasn't already been marked for async rollback.
+		and it will be committed/rolled back. */
+		if (disable) {
 
-		/* If trx->in_depth is greater than 1 then
-		transaction is already in InnoDB. */
-		if (trx->in_depth > 1) {
+			trx_mutex_enter(trx);
+			if (!is_forced_rollback(trx)
+			    && is_started(trx)
+			    && !trx_is_autocommit_non_locking(trx)) {
 
+				ut_ad(trx->killed_by == 0);
+
+				/* This transaction has crossed the point of
+				no return and cannot be rolled back
+				asynchronously now. It must commit or rollback
+				synhronously. */
+
+				trx->in_innodb |= TRX_FORCE_ROLLBACK_DISABLE;
+			}
+			trx_mutex_exit(trx);
+		}
+
+		/* Avoid excessive mutex acquire/release */
+		if (++trx->in_depth > 1) {
+			/* The transaction is already inside InnoDB. */
+			ut_ad(trx->in_depth > 1);
 			return;
 		}
 
 		/* Only the owning thread should release the latch. */
 
+		ut_ad(trx->in_depth == 1);
 		trx_assert_no_search_latch(trx);
 
 		trx_mutex_enter(trx);
 
 		wait(trx);
 
-		ut_ad((trx->in_innodb & TRX_FORCE_ROLLBACK_MASK)
-		      < (TRX_FORCE_ROLLBACK_MASK - 1));
-
-		/* If it hasn't already been marked for async rollback.
-		and it will be committed/rolled back. */
-
-		if (!is_forced_rollback(trx)
-		    && disable
-		    && is_started(trx)
-		    && !trx_is_autocommit_non_locking(trx)) {
-
-			ut_ad(trx->killed_by == 0);
-
-			/* This transaction has crossed the point of no
-			return and cannot be rolled back asynchronously
-			now. It must commit or rollback synhronously. */
-
-			trx->in_innodb |= TRX_FORCE_ROLLBACK_DISABLE;
-		}
+		ut_ad((trx->in_innodb & TRX_FORCE_ROLLBACK_MASK) == 0);
 
 		++trx->in_innodb;
 
@@ -1527,15 +1543,14 @@ private:
 
 		ut_ad(trx->in_depth > 0);
 
-		--trx->in_depth;
-
-		if (trx->in_depth > 0) {
-
+		if (--trx->in_depth > 0) {
+			ut_ad(trx->in_depth);
 			return;
 		}
 
 		/* Only the owning thread should release the latch. */
 
+		ut_ad(trx->in_depth == 0);
 		trx_assert_no_search_latch(trx);
 
 		trx_mutex_enter(trx);

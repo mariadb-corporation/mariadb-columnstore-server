@@ -133,6 +133,12 @@ void reset_thd(MYSQL_THD thd);
 TABLE *open_purge_table(THD *thd, const char *db, size_t dblen,
 			const char *tb, size_t tblen);
 
+/** Check if user has used xtradb extended system variable that
+is not currently supported by innodb or marked as deprecated. */
+static
+void
+innodb_check_deprecated(void);
+
 #ifdef MYSQL_DYNAMIC_PLUGIN
 #define tc_size  400
 #define tdc_size 400
@@ -215,46 +221,46 @@ static uint innobase_old_blocks_pct;
 /* The default values for the following char* start-up parameters
 are determined in innobase_init below: */
 
-static char*	innobase_data_home_dir			= NULL;
-static char*	innobase_data_file_path			= NULL;
-static char*	innobase_temp_data_file_path		= NULL;
-static char*	innobase_file_format_name		= NULL;
-static char*	innobase_change_buffering		= NULL;
-static char*	innobase_enable_monitor_counter		= NULL;
-static char*	innobase_disable_monitor_counter	= NULL;
-static char*	innobase_reset_monitor_counter		= NULL;
-static char*	innobase_reset_all_monitor_counter	= NULL;
+static char*	innobase_data_home_dir;
+static char*	innobase_data_file_path;
+static char*	innobase_temp_data_file_path;
+static char*	innobase_file_format_name;
+static char*	innobase_change_buffering;
+static char*	innobase_enable_monitor_counter;
+static char*	innobase_disable_monitor_counter;
+static char*	innobase_reset_monitor_counter;
+static char*	innobase_reset_all_monitor_counter;
 
 /* The highest file format being used in the database. The value can be
 set by user, however, it will be adjusted to the newer file format if
 a table of such format is created/opened. */
-char*	innobase_file_format_max		= NULL;
+char*	innobase_file_format_max;
 
 /** Default value of innodb_file_format */
 static const char*	innodb_file_format_default	= "Barracuda";
 /** Default value of innodb_file_format_max */
 static const char*	innodb_file_format_max_default	= "Antelope";
 
-static char*	innobase_file_flush_method		= NULL;
+static char*	innobase_file_flush_method;
 
 /* This variable can be set in the server configure file, specifying
 stopword table to be used */
-static char*	innobase_server_stopword_table		= NULL;
+static char*	innobase_server_stopword_table;
 
 /* Below we have boolean-valued start-up parameters, and their default
 values */
 
-static my_bool	innobase_file_format_check		= TRUE;
-static my_bool	innobase_use_atomic_writes		= TRUE;
+static my_bool	innobase_file_format_check;
+static my_bool	innobase_use_atomic_writes;
 static my_bool	innobase_use_fallocate;
-static my_bool	innobase_use_doublewrite		= TRUE;
-static my_bool	innobase_use_checksums			= TRUE;
-static my_bool	innobase_locks_unsafe_for_binlog	= FALSE;
-static my_bool	innobase_rollback_on_timeout		= FALSE;
-static my_bool	innobase_create_status_file		= FALSE;
-my_bool	innobase_stats_on_metadata		= TRUE;
-static my_bool	innobase_large_prefix			= FALSE;
-static my_bool	innodb_optimize_fulltext_only		= FALSE;
+static my_bool	innobase_use_doublewrite;
+static my_bool	innobase_use_checksums;
+static my_bool	innobase_locks_unsafe_for_binlog;
+static my_bool	innobase_rollback_on_timeout;
+static my_bool	innobase_create_status_file;
+my_bool	innobase_stats_on_metadata;
+static my_bool	innobase_large_prefix;
+static my_bool	innodb_optimize_fulltext_only;
 
 static char*	innodb_version_str = (char*) INNODB_VERSION_STR;
 
@@ -1359,15 +1365,11 @@ void
 innobase_commit_concurrency_init_default();
 /*=======================================*/
 
-/** @brief Initialize the default and max value of innodb_undo_logs.
-
-Once InnoDB is running, the default value and the max value of
-innodb_undo_logs must be equal to the available undo logs,
-given by srv_available_undo_logs. */
+/** @brief Adjust some InnoDB startup parameters based on file contents
+or innodb_page_size. */
 static
 void
-innobase_undo_logs_init_default_max();
-/*==================================*/
+innodb_params_adjust();
 
 /************************************************************//**
 Validate the file format name and return its corresponding id.
@@ -1839,6 +1841,7 @@ innobase_srv_conc_enter_innodb(
 #endif /* WITH_WSREP */
 
 	trx_t*	trx	= prebuilt->trx;
+
 	if (srv_thread_concurrency) {
 		if (trx->n_tickets_to_enter_innodb > 0) {
 
@@ -3445,11 +3448,35 @@ innobase_invalidate_query_cache(
 	above the InnoDB trx_sys_t->lock. The caller of this function must
 	not have latches of a lower rank. */
 
-	/* Argument TRUE below means we are using transactions */
-	mysql_query_cache_invalidate4(trx->mysql_thd,
-				      full_name,
-				      (uint32) full_name_len,
-				      TRUE);
+#ifdef HAVE_QUERY_CACHE
+        char    qcache_key_name[2 * (NAME_LEN + 1)];
+        char db_name[NAME_CHAR_LEN * MY_CS_MBMAXLEN + 1];
+        const char *key_ptr;
+        size_t  tabname_len;
+        size_t  dbname_len;
+
+        // Extract the database name.
+        key_ptr= strchr(full_name, '/');
+        DBUG_ASSERT(key_ptr != NULL); // Database name should be present
+        memcpy(db_name, full_name, (dbname_len= (key_ptr - full_name)));
+        db_name[dbname_len]= '\0';
+
+        /* Construct the key("db-name\0table$name\0") for the query cache using
+        the path name("db@002dname\0table@0024name\0") of the table in its
+        canonical form. */
+        dbname_len = filename_to_tablename(db_name, qcache_key_name,
+                                           sizeof(qcache_key_name));
+        tabname_len = filename_to_tablename(++key_ptr,
+                                            (qcache_key_name + dbname_len + 1),
+                                            sizeof(qcache_key_name) -
+                                            dbname_len - 1);
+
+        /* Argument TRUE below means we are using transactions */
+        mysql_query_cache_invalidate4(trx->mysql_thd,
+                                      qcache_key_name,
+                                      (dbname_len + tabname_len + 2),
+                                      TRUE);
+#endif
 }
 
 /** Quote a standard SQL identifier like index or column name.
@@ -4025,6 +4052,8 @@ innobase_init(
 		goto error;
 	}
 
+	innodb_check_deprecated();
+
 
 	/* First calculate the default path for innodb_data_home_dir etc.,
 	in case the user has not given any value.
@@ -4291,6 +4320,11 @@ innobase_change_buffering_inited_ok:
 
 	if (UNIV_PAGE_SIZE_DEF != srv_page_size) {
 		ib::info() << "innodb_page_size=" << srv_page_size;
+
+		srv_max_undo_log_size = std::max(
+			srv_max_undo_log_size,
+			ulonglong(SRV_UNDO_TABLESPACE_SIZE_IN_PAGES)
+			* srv_page_size);
 	}
 
 	if (srv_log_write_ahead_size > srv_page_size) {
@@ -4457,12 +4491,6 @@ innobase_change_buffering_inited_ok:
 	}
 	*/
 
-	/* Since we in this module access directly the fields of a trx
-	struct, and due to different headers and flags it might happen that
-	ib_mutex_t has a different size in this module and in InnoDB
-	modules, we check at run time that the size is the same in
-	these compilation modules. */
-
 	err = innobase_start_or_create_for_mysql();
 
 	if (srv_buf_pool_size_org != 0) {
@@ -4487,9 +4515,8 @@ innobase_change_buffering_inited_ok:
 			os_thread_sleep(20);
 	}
 
-	srv_was_started = TRUE;
-	/* Adjust the innodb_undo_logs config object */
-	innobase_undo_logs_init_default_max();
+	srv_was_started = true;
+	innodb_params_adjust();
 
 	innobase_old_blocks_pct = static_cast<uint>(
 		buf_LRU_old_ratio_update(innobase_old_blocks_pct, TRUE));
@@ -6607,6 +6634,7 @@ ha_innobase::open(
 
 		/* Mark this table as corrupted, so the drop table
 		or force recovery can still use it, but not others. */
+		ib_table->file_unreadable = true;
 		ib_table->corrupted = true;
 		dict_table_close(ib_table, FALSE, FALSE);
 		ib_table = NULL;
@@ -6635,7 +6663,7 @@ ha_innobase::open(
 	ib_table->thd = (void*)thd;
 
 	/* No point to init any statistics if tablespace is still encrypted. */
-	if (!ib_table->is_encrypted) {
+	if (ib_table->is_readable()) {
 		dict_stats_init(ib_table);
 	} else {
 		ib_table->stat_initialized = 1;
@@ -6643,7 +6671,9 @@ ha_innobase::open(
 
 	MONITOR_INC(MONITOR_TABLE_OPEN);
 
-	bool	no_tablespace;
+	bool	no_tablespace = false;
+	bool	encrypted = false;
+	FilSpace space;
 
 	if (dict_table_is_discarded(ib_table)) {
 
@@ -6658,21 +6688,28 @@ ha_innobase::open(
 
 		no_tablespace = false;
 
-	} else if (ib_table->ibd_file_missing) {
+	} else if (!ib_table->is_readable()) {
+		space = fil_space_acquire_silent(ib_table->space);
 
-		ib_senderrf(
-			thd, IB_LOG_LEVEL_WARN,
-			ER_TABLESPACE_MISSING, norm_name);
+		if (space()) {
+			if (space()->crypt_data && space()->crypt_data->is_encrypted()) {
+				/* This means that tablespace was found but we could not
+				decrypt encrypted page. */
+				no_tablespace = true;
+				encrypted = true;
+			} else {
+				no_tablespace = true;
+			}
+		} else {
+			ib_senderrf(
+				thd, IB_LOG_LEVEL_WARN,
+				ER_TABLESPACE_MISSING, norm_name);
 
-		/* This means we have no idea what happened to the tablespace
-		file, best to play it safe. */
+			/* This means we have no idea what happened to the tablespace
+			file, best to play it safe. */
 
-		no_tablespace = true;
-	} else if (ib_table->is_encrypted) {
-		/* This means that tablespace was found but we could not
-		decrypt encrypted page. */
-		no_tablespace = true;
-		ib_table->ibd_file_missing = true;
+			no_tablespace = true;
+		}
 	} else {
 		no_tablespace = false;
 	}
@@ -6685,34 +6722,35 @@ ha_innobase::open(
 		/* If table has no talespace but it has crypt data, check
 		is tablespace made unaccessible because encryption service
 		or used key_id is not available. */
-		if (ib_table) {
+		if (encrypted) {
 			bool warning_pushed = false;
-			fil_space_crypt_t* crypt_data = ib_table->crypt_data;
 
-			if (crypt_data && crypt_data->should_encrypt()) {
-
-				if (!encryption_key_id_exists(crypt_data->key_id)) {
-					push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
-						HA_ERR_DECRYPTION_FAILED,
-						"Table %s is encrypted but encryption service or"
-						" used key_id %u is not available. "
-						" Can't continue reading table.",
-						ib_table->name, crypt_data->key_id);
-					ret_err = HA_ERR_DECRYPTION_FAILED;
-					warning_pushed = true;
-				}
+			if (!encryption_key_id_exists(space()->crypt_data->key_id)) {
+				push_warning_printf(
+					thd, Sql_condition::WARN_LEVEL_WARN,
+					HA_ERR_DECRYPTION_FAILED,
+					"Table %s in file %s is encrypted but encryption service or"
+					" used key_id %u is not available. "
+					" Can't continue reading table.",
+					table_share->table_name.str,
+					space()->chain.start->name,
+					space()->crypt_data->key_id);
+				ret_err = HA_ERR_DECRYPTION_FAILED;
+				warning_pushed = true;
 			}
 
 			/* If table is marked as encrypted then we push
 			warning if it has not been already done as used
 			key_id might be found but it is incorrect. */
-			if (ib_table->is_encrypted && !warning_pushed) {
-				push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
+			if (!warning_pushed) {
+				push_warning_printf(
+					thd, Sql_condition::WARN_LEVEL_WARN,
 					HA_ERR_DECRYPTION_FAILED,
-					"Table %s is encrypted but encryption service or"
+					"Table %s in file %s is encrypted but encryption service or"
 					" used key_id is not available. "
 					" Can't continue reading table.",
-					ib_table->name);
+					table_share->table_name.str,
+					space()->chain.start->name);
 				ret_err = HA_ERR_DECRYPTION_FAILED;
 			}
 		}
@@ -6871,7 +6909,7 @@ ha_innobase::open(
 	if (m_prebuilt->table == NULL
 	    || dict_table_is_temporary(m_prebuilt->table)
 	    || m_prebuilt->table->persistent_autoinc
-	    || m_prebuilt->table->ibd_file_missing) {
+	    || !m_prebuilt->table->is_readable()) {
 	} else if (const Field* ai = table->found_next_number_field) {
 		initialize_auto_increment(m_prebuilt->table, ai);
 	}
@@ -10309,7 +10347,6 @@ ha_innobase::general_fetch(
 	DBUG_ENTER("general_fetch");
 
 	const trx_t*	trx = m_prebuilt->trx;
-	dberr_t	ret;
 
 	ut_ad(trx == thd_to_trx(m_user_thd));
 
@@ -10321,9 +10358,20 @@ ha_innobase::general_fetch(
 			DB_FORCED_ABORT, 0,  m_user_thd));
 	}
 
+	if (m_prebuilt->table->is_readable()) {
+	} else if (m_prebuilt->table->corrupted) {
+		DBUG_RETURN(HA_ERR_CRASHED);
+	} else {
+		FilSpace space(m_prebuilt->table->space, true);
+
+		DBUG_RETURN(space()
+			    ? HA_ERR_DECRYPTION_FAILED
+			    : HA_ERR_NO_SUCH_TABLE);
+	}
+
 	innobase_srv_conc_enter_innodb(m_prebuilt);
 
-	ret = row_search_mvcc(
+	dberr_t	ret = row_search_mvcc(
 		buf, PAGE_CUR_UNSUPP, m_prebuilt, match_mode, direction);
 
 	innobase_srv_conc_exit_innodb(m_prebuilt);
@@ -10477,13 +10525,7 @@ ha_innobase::rnd_init(
 	bool	scan)	/*!< in: true if table/index scan FALSE otherwise */
 {
 	TrxInInnoDB	trx_in_innodb(m_prebuilt->trx);
-
-	if (trx_in_innodb.is_aborted()) {
-
-		return(innobase_rollback(ht, m_user_thd, false));
-	}
-
-	int	err;
+	int		err;
 
 	/* Store the active index value so that we can restore the original
 	value after a scan */
@@ -10531,6 +10573,8 @@ ha_innobase::rnd_next(
 	int	error;
 
 	DBUG_ENTER("rnd_next");
+
+	TrxInInnoDB	trx_in_innodb(m_prebuilt->trx);
 
 	if (m_start_of_scan) {
 		error = index_first(buf);
@@ -11932,8 +11976,7 @@ err_col:
 			err = row_create_table_for_mysql(
 				table, m_trx, false,
 				(fil_encryption_t)options->encryption,
-				(ulint)options->encryption_key_id);
-
+				options->encryption_key_id);
 		}
 
 		DBUG_EXECUTE_IF("ib_crash_during_create_for_encryption",
@@ -13658,7 +13701,7 @@ ha_innobase::discard_or_import_tablespace(
 		user may want to set the DISCARD flag in order to IMPORT
 		a new tablespace. */
 
-		if (dict_table->ibd_file_missing) {
+		if (!dict_table->is_readable()) {
 			ib_senderrf(
 				m_prebuilt->trx->mysql_thd,
 				IB_LOG_LEVEL_WARN, ER_TABLESPACE_MISSING,
@@ -13668,7 +13711,7 @@ ha_innobase::discard_or_import_tablespace(
 		err = row_discard_tablespace_for_mysql(
 			dict_table->name.m_name, m_prebuilt->trx);
 
-	} else if (!dict_table->ibd_file_missing) {
+	} else if (dict_table->is_readable()) {
 		/* Commit the transaction in order to
 		release the table lock. */
 		trx_commit_for_mysql(m_prebuilt->trx);
@@ -13809,7 +13852,8 @@ ha_innobase::delete_table(
 	extension, in contrast to ::create */
 	normalize_table_name(norm_name, name);
 
-	if (srv_read_only_mode) {
+	if (srv_read_only_mode
+	    || srv_force_recovery >= SRV_FORCE_NO_UNDO_LOG_SCAN) {
 		DBUG_RETURN(HA_ERR_TABLE_READONLY);
 	}
 
@@ -14240,116 +14284,6 @@ ha_innobase::rename_table(
 
 	DBUG_RETURN(convert_error_code_to_mysql(error, 0, NULL));
 }
-
-/*********************************************************************//**
-Returns the exact number of records that this client can see using this
-handler object.
-@return Error code in case something goes wrong.
-These errors will abort the current query:
-      case HA_ERR_LOCK_DEADLOCK:
-      case HA_ERR_LOCK_TABLE_FULL:
-      case HA_ERR_LOCK_WAIT_TIMEOUT:
-      case HA_ERR_QUERY_INTERRUPTED:
-For other error codes, the server will fall back to counting records. */
-
-#ifdef MYSQL_57_SELECT_COUNT_OPTIMIZATION
-int
-ha_innobase::records(
-/*==================*/
-	ha_rows*			num_rows) /*!< out: number of rows */
-{
-	DBUG_ENTER("ha_innobase::records()");
-
-	dberr_t		ret;
-	ulint		n_rows = 0;	/* Record count in this view */
-
-	update_thd();
-
-	if (dict_table_is_discarded(m_prebuilt->table)) {
-		ib_senderrf(
-			m_user_thd,
-			IB_LOG_LEVEL_ERROR,
-			ER_TABLESPACE_DISCARDED,
-			table->s->table_name.str);
-
-		*num_rows = HA_POS_ERROR;
-		DBUG_RETURN(HA_ERR_NO_SUCH_TABLE);
-
-	} else if (m_prebuilt->table->ibd_file_missing) {
-		ib_senderrf(
-			m_user_thd, IB_LOG_LEVEL_ERROR,
-			ER_TABLESPACE_MISSING,
-			table->s->table_name.str);
-
-		*num_rows = HA_POS_ERROR;
-		DBUG_RETURN(HA_ERR_TABLESPACE_MISSING);
-
-	} else if (m_prebuilt->table->corrupted) {
-		ib_errf(m_user_thd, IB_LOG_LEVEL_WARN,
-			ER_INNODB_INDEX_CORRUPT,
-			"Table '%s' is corrupt.",
-			table->s->table_name.str);
-
-		*num_rows = HA_POS_ERROR;
-		DBUG_RETURN(HA_ERR_INDEX_CORRUPT);
-	}
-
-	TrxInInnoDB	trx_in_innodb(m_prebuilt->trx);
-
-	m_prebuilt->trx->op_info = "counting records";
-
-	dict_index_t*	index = dict_table_get_first_index(m_prebuilt->table);
-
-	ut_ad(dict_index_is_clust(index));
-
-	m_prebuilt->index_usable = row_merge_is_index_usable(
-		m_prebuilt->trx, index);
-
-	if (!m_prebuilt->index_usable) {
-		*num_rows = HA_POS_ERROR;
-		DBUG_RETURN(HA_ERR_TABLE_DEF_CHANGED);
-	}
-
-	/* (Re)Build the m_prebuilt->mysql_template if it is null to use
-	the clustered index and just the key, no off-record data. */
-	m_prebuilt->index = index;
-	dtuple_set_n_fields(m_prebuilt->search_tuple, 0);
-	m_prebuilt->read_just_key = 1;
-	build_template(false);
-
-	/* Count the records in the clustered index */
-	ret = row_scan_index_for_mysql(m_prebuilt, index, false, &n_rows);
-	reset_template();
-	switch (ret) {
-	case DB_SUCCESS:
-		break;
-	case DB_DEADLOCK:
-	case DB_LOCK_TABLE_FULL:
-	case DB_LOCK_WAIT_TIMEOUT:
-		*num_rows = HA_POS_ERROR;
-		DBUG_RETURN(convert_error_code_to_mysql(ret, 0, m_user_thd));
-	case DB_INTERRUPTED:
-		*num_rows = HA_POS_ERROR;
-		DBUG_RETURN(HA_ERR_QUERY_INTERRUPTED);
-	default:
-		/* No other error besides the three below is returned from
-		row_scan_index_for_mysql(). Make a debug catch. */
-		*num_rows = HA_POS_ERROR;
-		ut_ad(0);
-		DBUG_RETURN(-1);
-	}
-
-	m_prebuilt->trx->op_info = "";
-
-	if (thd_killed(m_user_thd)) {
-		*num_rows = HA_POS_ERROR;
-		DBUG_RETURN(HA_ERR_QUERY_INTERRUPTED);
-	}
-
-	*num_rows= n_rows;
-	DBUG_RETURN(0);
-}
-#endif /* MYSQL_57_SELECT_COUNT_OPTIMIZATION */
 
 /*********************************************************************//**
 Estimates the number of index records in a range.
@@ -15369,7 +15303,8 @@ ha_innobase::optimize(
 	This works OK otherwise, but MySQL locks the entire table during
 	calls to OPTIMIZE, which is undesirable. */
 
-	if (srv_defragment) {
+	/* TODO: Defragment is disabled for now */
+	if (0) {
 		int err;
 
 		err = defragment_table(m_prebuilt->table->name.m_name, NULL, false);
@@ -15446,7 +15381,8 @@ ha_innobase::check(
 
 		DBUG_RETURN(HA_ADMIN_CORRUPT);
 
-	} else if (m_prebuilt->table->ibd_file_missing) {
+	} else if (!m_prebuilt->table->is_readable() &&
+		   !fil_space_get(m_prebuilt->table->space)) {
 
 		ib_senderrf(
 			thd, IB_LOG_LEVEL_ERROR,
@@ -15597,7 +15533,7 @@ ha_innobase::check(
 			ret = row_count_rtree_recs(m_prebuilt, &n_rows);
 		} else {
 			ret = row_scan_index_for_mysql(
-				m_prebuilt, index, true, &n_rows);
+				m_prebuilt, index, &n_rows);
 		}
 
 		DBUG_EXECUTE_IF(
@@ -15873,6 +15809,28 @@ get_foreign_key_info(
 		f_key_info.update_method = FK_OPTION_NO_ACTION;
 	} else {
 		f_key_info.update_method = FK_OPTION_RESTRICT;
+	}
+
+	/* Load referenced table to update FK referenced key name. */
+	if (foreign->referenced_table == NULL) {
+
+		dict_table_t*	ref_table;
+
+		ut_ad(mutex_own(&dict_sys->mutex));
+		ref_table = dict_table_open_on_name(
+			foreign->referenced_table_name_lookup,
+			TRUE, FALSE, DICT_ERR_IGNORE_NONE);
+
+		if (ref_table == NULL) {
+
+			ib::info() << "Foreign Key referenced table "
+				   << foreign->referenced_table_name
+				   << " not found for foreign table "
+				   << foreign->foreign_table_name;
+		} else {
+
+			dict_table_close(ref_table, TRUE, FALSE);
+		}
 	}
 
 	if (foreign->referenced_index
@@ -16741,6 +16699,8 @@ innodb_show_status(
 	if (srv_read_only_mode) {
 		DBUG_RETURN(0);
 	}
+
+	srv_wake_purge_thread_if_not_active();
 
 	trx_t*	trx = check_trx_exists(thd);
 
@@ -17666,6 +17626,37 @@ ha_innobase::get_auto_increment(
 	/* We need the upper limit of the col type to check for
 	whether we update the table autoinc counter or not. */
 	ulonglong	col_max_value = innobase_get_int_col_max_value(table->next_number_field);
+
+	/** The following logic is needed to avoid duplicate key error
+	for autoincrement column.
+
+	(1) InnoDB gives the current autoincrement value with respect
+	to increment and offset value.
+
+	(2) Basically it does compute_next_insert_id() logic inside InnoDB
+	to avoid the current auto increment value changed by handler layer.
+
+	(3) It is restricted only for insert operations. */
+
+	if (increment > 1 && thd_sql_command(m_user_thd) != SQLCOM_ALTER_TABLE
+	    && autoinc < col_max_value) {
+
+		ulonglong	prev_auto_inc = autoinc;
+
+		autoinc = ((autoinc - 1) + increment - offset)/ increment;
+
+		autoinc = autoinc * increment + offset;
+
+		/* If autoinc exceeds the col_max_value then reset
+		to old autoinc value. Because in case of non-strict
+		sql mode, boundary value is not considered as error. */
+
+		if (autoinc >= col_max_value) {
+			autoinc = prev_auto_inc;
+		}
+
+		ut_ad(autoinc > 0);
+	}
 
 	/* Called for the first time ? */
 	if (trx->n_autoinc_rows == 0) {
@@ -18770,6 +18761,41 @@ innodb_internal_table_validate(
 	}
 
 	return(ret);
+}
+
+/****************************************************************//**
+Update global variable "fts_internal_tbl_name" with the "saved"
+stopword table name value. This function is registered as a callback
+with MySQL. */
+static
+void
+innodb_internal_table_update(
+/*=========================*/
+	THD*				thd,	/*!< in: thread handle */
+	struct st_mysql_sys_var*	var,	/*!< in: pointer to
+						system variable */
+	void*				var_ptr,/*!< out: where the
+						formal string goes */
+	const void*			save)	/*!< in: immediate result
+						from check function */
+{
+	const char*	table_name;
+	char*		old;
+
+	ut_a(save != NULL);
+	ut_a(var_ptr != NULL);
+
+	table_name = *static_cast<const char*const*>(save);
+	old = *(char**) var_ptr;
+	*(char**) var_ptr = table_name ? my_strdup(table_name, MYF(0)) : NULL;
+	my_free(old);
+
+	fts_internal_tbl_name2 = *(char**) var_ptr;
+	if (fts_internal_tbl_name2 == NULL) {
+		fts_internal_tbl_name = const_cast<char*>("default");
+	} else {
+		fts_internal_tbl_name = fts_internal_tbl_name2;
+	}
 }
 
 #ifdef BTR_CUR_HASH_ADAPT
@@ -20703,6 +20729,12 @@ static MYSQL_SYSVAR_BOOL(use_fallocate, innobase_use_fallocate,
   "Use posix_fallocate() to allocate files. DEPRECATED, has no effect.",
   NULL, NULL, FALSE);
 
+static MYSQL_SYSVAR_BOOL(stats_include_delete_marked,
+  srv_stats_include_delete_marked,
+  PLUGIN_VAR_OPCMDARG,
+  "Include delete marked records when calculating persistent statistics",
+  NULL, NULL, FALSE);
+
 static MYSQL_SYSVAR_ULONG(io_capacity, srv_io_capacity,
   PLUGIN_VAR_RQCMDARG,
   "Number of IOPs the server can do. Tunes the background IO rate",
@@ -21211,6 +21243,13 @@ static MYSQL_SYSVAR_ULONG(concurrency_tickets, srv_n_free_tickets_to_enter,
   "Number of times a thread is allowed to enter InnoDB within the same SQL query after it has once got the ticket",
   NULL, NULL, 5000L, 1L, ~0UL, 0);
 
+static MYSQL_SYSVAR_BOOL(deadlock_detect, innobase_deadlock_detect,
+  PLUGIN_VAR_NOCMDARG,
+  "Enable/disable InnoDB deadlock detector (default ON)."
+  " if set to OFF, deadlock detection is skipped,"
+  " and we rely on innodb_lock_wait_timeout in case of deadlock.",
+  NULL, NULL, TRUE);
+
 static MYSQL_SYSVAR_LONG(fill_factor, innobase_fill_factor,
   PLUGIN_VAR_RQCMDARG,
   "Percentage of B-tree page filled during bulk insert",
@@ -21226,11 +21265,11 @@ static MYSQL_SYSVAR_BOOL(disable_sort_file_cache, srv_disable_sort_file_cache,
   "Whether to disable OS system file cache for sort I/O",
   NULL, NULL, FALSE);
 
-static MYSQL_SYSVAR_STR(ft_aux_table, fts_internal_tbl_name,
-  PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_MEMALLOC,
+static MYSQL_SYSVAR_STR(ft_aux_table, fts_internal_tbl_name2,
+  PLUGIN_VAR_RQCMDARG,
   "FTS internal auxiliary table to be checked",
   innodb_internal_table_validate,
-  NULL, NULL);
+  innodb_internal_table_update, NULL);
 
 static MYSQL_SYSVAR_ULONG(ft_cache_size, fts_max_cache_size,
   PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
@@ -21398,11 +21437,11 @@ static MYSQL_SYSVAR_STR(undo_directory, srv_undo_dir,
 
 static MYSQL_SYSVAR_ULONG(undo_tablespaces, srv_undo_tablespaces,
   PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
-  "Number of undo tablespaces to use. ",
+  "Number of undo tablespaces to use.",
   NULL, NULL,
   0L,			/* Default seting */
   0L,			/* Minimum value */
-  95L, 0);		/* Maximum value */
+  TRX_SYS_MAX_UNDO_SPACES, 0); /* Maximum value */
 
 static MYSQL_SYSVAR_ULONG(undo_logs, srv_undo_logs,
   PLUGIN_VAR_OPCMDARG,
@@ -21414,12 +21453,10 @@ static MYSQL_SYSVAR_ULONG(undo_logs, srv_undo_logs,
 
 static MYSQL_SYSVAR_ULONGLONG(max_undo_log_size, srv_max_undo_log_size,
   PLUGIN_VAR_OPCMDARG,
-  "Maximum size of UNDO tablespace in MB (If UNDO tablespace grows"
-  " beyond this size it will be truncated in due course). ",
+  "Desired maximum UNDO tablespace size in bytes",
   NULL, NULL,
-  1024 * 1024 * 1024L,
-  10 * 1024 * 1024L,
-  ~0ULL, 0);
+  10 << 20, 10 << 20,
+  1ULL << (32 + UNIV_PAGE_SIZE_SHIFT_MAX), 0);
 
 static MYSQL_SYSVAR_ULONG(purge_rseg_truncate_frequency,
   srv_purge_rseg_truncate_frequency,
@@ -21859,6 +21896,8 @@ static MYSQL_SYSVAR_BOOL(instrument_semaphores, innodb_instrument_semaphores,
   "DEPRECATED. This setting has no effect.",
   NULL, innodb_instrument_semaphores_update, FALSE);
 
+#include "ha_xtradb.h"
+
 static struct st_mysql_sys_var* innobase_system_variables[]= {
   MYSQL_SYSVAR(autoextend_increment),
   MYSQL_SYSVAR(buffer_pool_size),
@@ -21892,6 +21931,7 @@ static struct st_mysql_sys_var* innobase_system_variables[]= {
   MYSQL_SYSVAR(temp_data_file_path),
   MYSQL_SYSVAR(data_home_dir),
   MYSQL_SYSVAR(doublewrite),
+  MYSQL_SYSVAR(stats_include_delete_marked),
   MYSQL_SYSVAR(use_atomic_writes),
   MYSQL_SYSVAR(use_fallocate),
   MYSQL_SYSVAR(fast_shutdown),
@@ -21919,6 +21959,7 @@ static struct st_mysql_sys_var* innobase_system_variables[]= {
   MYSQL_SYSVAR(lock_schedule_algorithm),
   MYSQL_SYSVAR(locks_unsafe_for_binlog),
   MYSQL_SYSVAR(lock_wait_timeout),
+  MYSQL_SYSVAR(deadlock_detect),
   MYSQL_SYSVAR(page_size),
   MYSQL_SYSVAR(log_buffer_size),
   MYSQL_SYSVAR(log_file_size),
@@ -22069,6 +22110,11 @@ static struct st_mysql_sys_var* innobase_system_variables[]= {
   MYSQL_SYSVAR(instrument_semaphores),
   MYSQL_SYSVAR(buf_dump_status_frequency),
   MYSQL_SYSVAR(background_thread),
+
+  /* XtraDB compatibility system variables */
+#define HA_XTRADB_SYSVARS
+#include "ha_xtradb.h"
+
   NULL
 };
 
@@ -22141,19 +22187,25 @@ innobase_commit_concurrency_init_default()
 		= innobase_commit_concurrency;
 }
 
-/** @brief Initialize the default and max value of innodb_undo_logs.
-
-Once InnoDB is running, the default value and the max value of
-innodb_undo_logs must be equal to the available undo logs,
-given by srv_available_undo_logs. */
+/** @brief Adjust some InnoDB startup parameters based on file contents
+or innodb_page_size. */
 static
 void
-innobase_undo_logs_init_default_max()
-/*=================================*/
+innodb_params_adjust()
 {
+	/* The default value and the max value of
+	innodb_undo_logs must be equal to the available undo logs. */
 	MYSQL_SYSVAR_NAME(undo_logs).max_val
 		= MYSQL_SYSVAR_NAME(undo_logs).def_val
 		= srv_available_undo_logs;
+	MYSQL_SYSVAR_NAME(max_undo_log_size).max_val
+		= 1ULL << (32 + UNIV_PAGE_SIZE_SHIFT);
+	MYSQL_SYSVAR_NAME(max_undo_log_size).min_val
+		= MYSQL_SYSVAR_NAME(max_undo_log_size).def_val
+		= ulonglong(SRV_UNDO_TABLESPACE_SIZE_IN_PAGES)
+		* srv_page_size;
+	MYSQL_SYSVAR_NAME(max_undo_log_size).max_val
+		= 1ULL << (32 + UNIV_PAGE_SIZE_SHIFT);
 }
 
 /****************************************************************************

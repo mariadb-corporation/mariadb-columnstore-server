@@ -2,7 +2,7 @@
 
 Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2012, Facebook Inc.
-Copyright (c) 2017, MariaDB Corporation.
+Copyright (c) 2013, 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -810,7 +810,12 @@ dict_mem_fill_vcol_from_v_indexes(
 		index;
 		index = dict_table_get_next_index(index)) {
 
-		if (!dict_index_has_virtual(index)) {
+		/* Skip if the index have newly added
+		virtual column because field name is NULL.
+		Later virtual column set will be
+		refreshed during loading of table. */
+		if (!dict_index_has_virtual(index)
+		    || index->has_new_v_col) {
 			continue;
 		}
 

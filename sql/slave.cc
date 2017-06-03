@@ -40,6 +40,7 @@
 #include <my_dir.h>
 #include <sql_common.h>
 #include <errmsg.h>
+#include <ssl_compat.h>
 #include <mysqld_error.h>
 #include <mysys_err.h>
 #include "rpl_handler.h"
@@ -59,7 +60,6 @@
 #include "rpl_tblmap.h"
 #include "debug_sync.h"
 #include "rpl_parallel.h"
-
 
 #define FLAGSTR(V,F) ((V)&(F)?#F" ":"")
 
@@ -3977,7 +3977,8 @@ static int exec_relay_log_event(THD* thd, Relay_log_info* rli,
         DBUG_RETURN(1);
       }
 
-      if (opt_gtid_ignore_duplicates)
+      if (opt_gtid_ignore_duplicates &&
+          rli->mi->using_gtid != Master_info::USE_GTID_NO)
       {
         int res= rpl_global_gtid_slave_state->check_duplicate_gtid
           (&serial_rgi->current_gtid, serial_rgi);
@@ -4671,9 +4672,7 @@ err_during_init:
 
   DBUG_LEAVE;                                   // Must match DBUG_ENTER()
   my_thread_end();
-#ifdef HAVE_OPENSSL
   ERR_remove_state(0);
-#endif
   pthread_exit(0);
   return 0;                                     // Avoid compiler warnings
 }
@@ -5336,9 +5335,7 @@ err_during_init:
 
   DBUG_LEAVE;                                   // Must match DBUG_ENTER()
   my_thread_end();
-#ifdef HAVE_OPENSSL
   ERR_remove_state(0);
-#endif
   pthread_exit(0);
   return 0;                                     // Avoid compiler warnings
 }
