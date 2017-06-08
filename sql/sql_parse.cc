@@ -10687,7 +10687,7 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 
 					// phase 4. drop vtable -- Now done first
 					thd->infinidb_vtable.drop_vtable_query.free();
-					thd->infinidb_vtable.drop_vtable_query.append(STRING_WITH_LEN("drop table if exists "));
+					thd->infinidb_vtable.drop_vtable_query.append(STRING_WITH_LEN("drop temporary table if exists "));
 					thd->infinidb_vtable.drop_vtable_query.append(vtable_name.c_str(), vtable_name.length());
 					thd->infinidb_vtable.drop_vtable_query.append(STRING_WITH_LEN(" restrict"));
 
