@@ -105,6 +105,11 @@ apt-get install build-essential automake libboost-all-dev bison cmake libncurses
 
 ```bash
 apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev libkrb5-dev flex libpam-dev libkrb5-dev lib-snappy-dev
+
+### For Debian 9
+
+```bash
+apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev libkrb5-dev flex libpam-dev libkrb5-dev libsnappy-dev
 ```
 ### For Suse 12
 
@@ -255,6 +260,13 @@ These packages need to be installed:
 
 ```bash
 apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1 net-tools
+```
+## For Debian 9
+
+These packages need to be installed:
+
+```bash
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync  net-tools libsnappy1v5
 ```
 ## For SUSE 12
 
