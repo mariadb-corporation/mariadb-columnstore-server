@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1995, 2017, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2014, 2017, MariaDB Corporation. All Rights Reserved.
+Copyright (c) 2014, 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -653,12 +653,10 @@ fil_node_open_file(
 
 		/* Try to read crypt_data from page 0 if it is not yet
 		read. */
-		if (!node->space->page_0_crypt_read) {
-			ulint offset = fsp_header_get_crypt_offset(
-				fsp_flags_get_zip_size(flags));
-			ut_ad(node->space->crypt_data == NULL);
+		if (!node->space->crypt_data) {
+			const ulint offset = fsp_header_get_crypt_offset(
+					fsp_flags_get_zip_size(flags));
 			node->space->crypt_data = fil_space_read_crypt_data(space_id, page, offset);
-			node->space->page_0_crypt_read = true;
 		}
 
 		ut_free(buf2);
@@ -1557,22 +1555,6 @@ fil_space_create(
 	space->magic_n = FIL_SPACE_MAGIC_N;
 	space->crypt_data = crypt_data;
 
-	/* In create table we write page 0 so we have already
-	"read" it and for system tablespaces we have read
-	crypt data at startup. */
-	if (create_table || crypt_data != NULL) {
-		space->page_0_crypt_read = true;
-	}
-
-#ifdef UNIV_DEBUG
-	ib_logf(IB_LOG_LEVEL_INFO,
-		"Created tablespace for space %lu name %s key_id %u encryption %d.",
-		space->id,
-		space->name,
-		space->crypt_data ? space->crypt_data->key_id : 0,
-		space->crypt_data ? space->crypt_data->encryption : 0);
-#endif
-
 	rw_lock_create(fil_space_latch_key, &space->latch, SYNC_FSP);
 
 	HASH_INSERT(fil_space_t, hash, fil_system->spaces, id, space);
@@ -2211,99 +2193,70 @@ fil_set_max_space_id_if_bigger(
 	mutex_exit(&fil_system->mutex);
 }
 
-/****************************************************************//**
-Writes the flushed lsn and the latest archived log number to the page header
-of the first page of a data file of the system tablespace (space 0),
-which is uncompressed. */
-static MY_ATTRIBUTE((warn_unused_result))
+/** Write the flushed LSN to the page header of the first page in the
+system tablespace.
+@param[in]	lsn	flushed LSN
+@return DB_SUCCESS or error number */
 dberr_t
-fil_write_lsn_and_arch_no_to_file(
-/*==============================*/
-	ulint	space,		/*!< in: space to write to */
-	ulint	sum_of_sizes,	/*!< in: combined size of previous files
-				in space, in database pages */
-	lsn_t	lsn,		/*!< in: lsn to write */
-	ulint	arch_log_no MY_ATTRIBUTE((unused)))
-				/*!< in: archived log number to write */
+fil_write_flushed_lsn(
+	lsn_t	lsn)
 {
 	byte*	buf1;
 	byte*	buf;
 	dberr_t	err;
 
-	buf1 = static_cast<byte*>(mem_alloc(2 * UNIV_PAGE_SIZE));
+	buf1 = static_cast<byte*>(ut_malloc(2 * UNIV_PAGE_SIZE));
 	buf = static_cast<byte*>(ut_align(buf1, UNIV_PAGE_SIZE));
 
-	err = fil_read(TRUE, space, 0, sum_of_sizes, 0,
-		       UNIV_PAGE_SIZE, buf, NULL, 0);
-	if (err == DB_SUCCESS) {
-		mach_write_to_8(buf + FIL_PAGE_FILE_FLUSH_LSN_OR_KEY_VERSION,
-				lsn);
+	/* Acquire system tablespace */
+	fil_space_t* space = fil_space_acquire(0);
 
-		err = fil_write(TRUE, space, 0, sum_of_sizes, 0,
-			        UNIV_PAGE_SIZE, buf, NULL, 0);
-	}
+	/* If tablespace is not encrypted, stamp flush_lsn to
+	first page of all system tablespace datafiles to avoid
+	unnecessary error messages on possible downgrade. */
+	if (space->crypt_data->min_key_version == 0) {
+		fil_node_t*     node;
+		ulint   sum_of_sizes = 0;
 
-	mem_free(buf1);
+		for (node = UT_LIST_GET_FIRST(space->chain);
+		     node != NULL;
+		     node = UT_LIST_GET_NEXT(chain, node)) {
 
-	return(err);
-}
+			err = fil_read(TRUE, 0, 0, sum_of_sizes, 0,
+				       UNIV_PAGE_SIZE, buf, NULL, 0);
 
-/****************************************************************//**
-Writes the flushed lsn and the latest archived log number to the page
-header of the first page of each data file in the system tablespace.
-@return	DB_SUCCESS or error number */
-UNIV_INTERN
-dberr_t
-fil_write_flushed_lsn_to_data_files(
-/*================================*/
-	lsn_t	lsn,		/*!< in: lsn to write */
-	ulint	arch_log_no)	/*!< in: latest archived log file number */
-{
-	fil_space_t*	space;
-	fil_node_t*	node;
-	dberr_t		err;
+			if (err == DB_SUCCESS) {
+				mach_write_to_8(buf + FIL_PAGE_FILE_FLUSH_LSN_OR_KEY_VERSION,
+					lsn);
 
-	mutex_enter(&fil_system->mutex);
-
-	for (space = UT_LIST_GET_FIRST(fil_system->space_list);
-	     space != NULL;
-	     space = UT_LIST_GET_NEXT(space_list, space)) {
-
-		/* We only write the lsn to all existing data files which have
-		been open during the lifetime of the mysqld process; they are
-		represented by the space objects in the tablespace memory
-		cache. Note that all data files in the system tablespace 0
-		and the UNDO log tablespaces (if separate) are always open. */
-
-		if (space->purpose == FIL_TABLESPACE
-		    && !fil_is_user_tablespace_id(space->id)) {
-			ulint	sum_of_sizes = 0;
-
-			for (node = UT_LIST_GET_FIRST(space->chain);
-			     node != NULL;
-			     node = UT_LIST_GET_NEXT(chain, node)) {
-
-				mutex_exit(&fil_system->mutex);
-
-				err = fil_write_lsn_and_arch_no_to_file(
-					space->id, sum_of_sizes, lsn,
-					arch_log_no);
-
-				if (err != DB_SUCCESS) {
-
-					return(err);
-				}
-
-				mutex_enter(&fil_system->mutex);
+				err = fil_write(TRUE, 0, 0, sum_of_sizes, 0,
+						UNIV_PAGE_SIZE, buf, NULL, 0);
 
 				sum_of_sizes += node->size;
 			}
 		}
+	} else {
+		/* When system tablespace is encrypted stamp flush_lsn to
+		only the first page of the first datafile (rest of pages
+		are encrypted). */
+		err = fil_read(TRUE, 0, 0, 0, 0,
+			       UNIV_PAGE_SIZE, buf, NULL, 0);
+
+		if (err == DB_SUCCESS) {
+			mach_write_to_8(buf + FIL_PAGE_FILE_FLUSH_LSN_OR_KEY_VERSION,
+					lsn);
+
+			err = fil_write(TRUE, 0, 0, 0, 0,
+					UNIV_PAGE_SIZE, buf, NULL, 0);
+		}
 	}
 
-	mutex_exit(&fil_system->mutex);
+	fil_flush_file_spaces(FIL_TABLESPACE);
+	fil_space_release(space);
 
-	return(DB_SUCCESS);
+	ut_free(buf1);
+
+	return(err);
 }
 
 /** Check the consistency of the first data page of a tablespace
@@ -2356,36 +2309,37 @@ fil_check_first_page(const page_t* page, ulint space_id, ulint flags)
 	return("inconsistent data in space header");
 }
 
-/*******************************************************************//**
-Reads the flushed lsn, arch no, space_id and tablespace flag fields from
-the first page of a data file at database startup.
+/** Reads the flushed lsn, arch no, space_id and tablespace flag fields from
+the first page of a first data file at database startup.
+@param[in]	data_file		open data file
+@param[in]	one_read_only		true if first datafile is already
+					read
+@param[out]	flags			FSP_SPACE_FLAGS
+@param[out]	space_id		tablepspace ID
+@param[out]	min_arch_log_no		min of archived log numbers in
+					data files
+@param[out]	max_arch_log_no		max of archived log numbers in
+					data files
+@param[out]	flushed_lsn		flushed lsn value
+@param[out]	crypt_data		encryption crypt data
 @retval NULL on success, or if innodb_force_recovery is set
 @return pointer to an error message string */
 UNIV_INTERN
 const char*
 fil_read_first_page(
-/*================*/
-	pfs_os_file_t	data_file,		/*!< in: open data file */
-	ibool		one_read_already,	/*!< in: TRUE if min and max
-						parameters below already
-						contain sensible data */
-	ulint*		flags,			/*!< out: FSP_SPACE_FLAGS */
-	ulint*		space_id,		/*!< out: tablespace ID */
+	pfs_os_file_t	data_file,
+	ibool		one_read_already,
+	ulint*		flags,
+	ulint*		space_id,
 #ifdef UNIV_LOG_ARCHIVE
-	ulint*		min_arch_log_no,	/*!< out: min of archived
-						log numbers in data files */
-	ulint*		max_arch_log_no,	/*!< out: max of archived
-						log numbers in data files */
+	ulint*		min_arch_log_no,
+	ulint*		max_arch_log_no,
 #endif /* UNIV_LOG_ARCHIVE */
-	lsn_t*		min_flushed_lsn,	/*!< out: min of flushed
-						lsn values in data files */
-	lsn_t*		max_flushed_lsn,	/*!< out: max of flushed
-						lsn values in data files */
-	fil_space_crypt_t**   crypt_data)       /*<  out: crypt data */
+	lsn_t*		flushed_lsn,
+	fil_space_crypt_t**   crypt_data)
 {
 	byte*		buf;
 	byte*		page;
-	lsn_t		flushed_lsn;
 	const char*	check_msg = NULL;
 	fil_space_crypt_t* cdata;
 
@@ -2407,6 +2361,11 @@ fil_read_first_page(
 		*space_id = fsp_header_get_space_id(page);
 		*flags = fsp_header_get_flags(page);
 
+		if (flushed_lsn) {
+			*flushed_lsn = mach_read_from_8(page +
+				       FIL_PAGE_FILE_FLUSH_LSN_OR_KEY_VERSION);
+		}
+
 		if (!fsp_flags_is_valid(*flags)) {
 			ulint cflags = fsp_flags_convert_from_101(*flags);
 			if (cflags == ULINT_UNDEFINED) {
@@ -2420,33 +2379,33 @@ fil_read_first_page(
 		}
 
 		check_msg = fil_check_first_page(page, *space_id, *flags);
-	}
 
-	flushed_lsn = mach_read_from_8(page +
-				       FIL_PAGE_FILE_FLUSH_LSN_OR_KEY_VERSION);
+		/* Possible encryption crypt data is also stored only to first page
+		of the first datafile. */
 
-	ulint space = fsp_header_get_space_id(page);
-	ulint offset = fsp_header_get_crypt_offset(
-		fsp_flags_get_zip_size(*flags));
+		const ulint offset = fsp_header_get_crypt_offset(
+					fsp_flags_get_zip_size(*flags));
 
-	cdata = fil_space_read_crypt_data(space, page, offset);
+		cdata = fil_space_read_crypt_data(*space_id, page, offset);
 
-	if (crypt_data) {
-		*crypt_data = cdata;
-	}
+		if (crypt_data) {
+			*crypt_data = cdata;
+		}
 
-	/* If file space is encrypted we need to have at least some
-	encryption service available where to get keys */
-	if (cdata && cdata->should_encrypt()) {
+		/* If file space is encrypted we need to have at least some
+		encryption service available where to get keys */
+		if (cdata && cdata->should_encrypt()) {
 
-		if (!encryption_key_id_exists(cdata->key_id)) {
-			ib_logf(IB_LOG_LEVEL_ERROR,
-				"Tablespace id %ld is encrypted but encryption service"
-				" or used key_id %u is not available. Can't continue opening tablespace.",
-				space, cdata->key_id);
+			if (!encryption_key_id_exists(cdata->key_id)) {
+				ib_logf(IB_LOG_LEVEL_ERROR,
+					"Tablespace id " ULINTPF
+					" is encrypted but encryption service"
+					" or used key_id %u is not available. "
+					"Can't continue opening tablespace.",
+					*space_id, cdata->key_id);
 
-			return ("table encrypted but encryption service not available.");
-
+				return ("table encrypted but encryption service not available.");
+			}
 		}
 	}
 
@@ -2457,8 +2416,6 @@ fil_read_first_page(
 	}
 
 	if (!one_read_already) {
-		*min_flushed_lsn = flushed_lsn;
-		*max_flushed_lsn = flushed_lsn;
 #ifdef UNIV_LOG_ARCHIVE
 		*min_arch_log_no = arch_log_no;
 		*max_arch_log_no = arch_log_no;
@@ -2466,16 +2423,11 @@ fil_read_first_page(
 		return(NULL);
 	}
 
-	if (*min_flushed_lsn > flushed_lsn) {
-		*min_flushed_lsn = flushed_lsn;
-	}
-	if (*max_flushed_lsn < flushed_lsn) {
-		*max_flushed_lsn = flushed_lsn;
-	}
 #ifdef UNIV_LOG_ARCHIVE
 	if (*min_arch_log_no > arch_log_no) {
 		*min_arch_log_no = arch_log_no;
 	}
+
 	if (*max_arch_log_no < arch_log_no) {
 		*max_arch_log_no = arch_log_no;
 	}
@@ -4048,6 +4000,7 @@ fsp_flags_try_adjust(ulint space_id, ulint flags)
 					 flags, MLOG_4BYTES, &mtr);
 		}
 	}
+
 	mtr_commit(&mtr);
 }
 
@@ -4083,8 +4036,7 @@ fil_open_single_table_tablespace(
 	ulint		flags,		/*!< in: expected FSP_SPACE_FLAGS */
 	const char*	tablename,	/*!< in: table name in the
 					databasename/tablename format */
-	const char*	path_in,	/*!< in: tablespace filepath */
-	dict_table_t*	table)		/*!< in: table */
+	const char*	path_in)	/*!< in: table */
 {
 	dberr_t		err = DB_SUCCESS;
 	bool		dict_filepath_same_as_default = false;
@@ -4173,6 +4125,7 @@ fil_open_single_table_tablespace(
 	def.file = os_file_create_simple_no_error_handling(
 		innodb_file_data_key, def.filepath, OS_FILE_OPEN,
 		OS_FILE_READ_ONLY, &def.success, atomic_writes);
+
 	if (def.success) {
 		tablespaces_found++;
 	}
@@ -4187,19 +4140,15 @@ fil_open_single_table_tablespace(
 	/* Read the first page of the datadir tablespace, if found. */
 	if (def.success) {
 		def.check_msg = fil_read_first_page(
-			def.file, FALSE, &def.flags, &def.id,
+			def.file, false, &def.flags, &def.id,
 #ifdef UNIV_LOG_ARCHIVE
 			&space_arch_log_no, &space_arch_log_no,
 #endif /* UNIV_LOG_ARCHIVE */
-			&def.lsn, &def.lsn, &def.crypt_data);
-
-		if (table) {
-			table->crypt_data = def.crypt_data;
-			table->page_0_read = true;
-		}
+			NULL, &def.crypt_data);
 
 		def.valid = !def.check_msg && def.id == id
 			&& fsp_flags_match(flags, def.flags);
+
 		if (def.valid) {
 			valid_tablespaces_found++;
 		} else {
@@ -4213,20 +4162,16 @@ fil_open_single_table_tablespace(
 	/* Read the first page of the remote tablespace */
 	if (remote.success) {
 		remote.check_msg = fil_read_first_page(
-			remote.file, FALSE, &remote.flags, &remote.id,
+			remote.file, false, &remote.flags, &remote.id,
 #ifdef UNIV_LOG_ARCHIVE
 			&remote.arch_log_no, &remote.arch_log_no,
 #endif /* UNIV_LOG_ARCHIVE */
-			&remote.lsn, &remote.lsn, &remote.crypt_data);
-
-		if (table) {
-			table->crypt_data = remote.crypt_data;
-			table->page_0_read = true;
-		}
+			NULL, &remote.crypt_data);
 
 		/* Validate this single-table-tablespace with SYS_TABLES. */
 		remote.valid = !remote.check_msg && remote.id == id
 			&& fsp_flags_match(flags, remote.flags);
+
 		if (remote.valid) {
 			valid_tablespaces_found++;
 		} else {
@@ -4241,16 +4186,11 @@ fil_open_single_table_tablespace(
 	/* Read the first page of the datadir tablespace, if found. */
 	if (dict.success) {
 		dict.check_msg = fil_read_first_page(
-			dict.file, FALSE, &dict.flags, &dict.id,
+			dict.file, false, &dict.flags, &dict.id,
 #ifdef UNIV_LOG_ARCHIVE
 			&dict.arch_log_no, &dict.arch_log_no,
 #endif /* UNIV_LOG_ARCHIVE */
-			&dict.lsn, &dict.lsn, &dict.crypt_data);
-
-		if (table) {
-			table->crypt_data = dict.crypt_data;
-			table->page_0_read = true;
-		}
+			NULL, &dict.crypt_data);
 
 		/* Validate this single-table-tablespace with SYS_TABLES. */
 		dict.valid = !dict.check_msg && dict.id == id
@@ -4289,26 +4229,32 @@ fil_open_single_table_tablespace(
 		ib_logf(IB_LOG_LEVEL_ERROR,
 			"A tablespace for %s has been found in "
 			"multiple places;", tablename);
+
 		if (def.success) {
 			ib_logf(IB_LOG_LEVEL_ERROR,
-				"Default location; %s, LSN=" LSN_PF
-				", Space ID=%lu, Flags=%lu",
-				def.filepath, def.lsn,
-				(ulong) def.id, (ulong) def.flags);
+				"Default location; %s"
+				", Space ID=" ULINTPF " , Flags=" ULINTPF " .",
+				def.filepath,
+				def.id,
+				def.flags);
 		}
+
 		if (remote.success) {
 			ib_logf(IB_LOG_LEVEL_ERROR,
-				"Remote location; %s, LSN=" LSN_PF
-				", Space ID=%lu, Flags=%lu",
-				remote.filepath, remote.lsn,
-				(ulong) remote.id, (ulong) remote.flags);
+				"Remote location; %s"
+				", Space ID=" ULINTPF " , Flags=" ULINTPF " .",
+				remote.filepath,
+				remote.id,
+				remote.flags);
 		}
+
 		if (dict.success) {
 			ib_logf(IB_LOG_LEVEL_ERROR,
-				"Dictionary location; %s, LSN=" LSN_PF
-				", Space ID=%lu, Flags=%lu",
-				dict.filepath, dict.lsn,
-				(ulong) dict.id, (ulong) dict.flags);
+				"Dictionary location; %s"
+				", Space ID=" ULINTPF " , Flags=" ULINTPF " .",
+				dict.filepath,
+				dict.id,
+				dict.flags);
 		}
 
 		/* Force-recovery will allow some tablespaces to be
@@ -4341,6 +4287,7 @@ fil_open_single_table_tablespace(
 			os_file_close(def.file);
 			tablespaces_found--;
 		}
+
 		if (dict.success && !dict.valid) {
 			dict.success = false;
 			os_file_close(dict.file);
@@ -4348,6 +4295,7 @@ fil_open_single_table_tablespace(
 			can be corrected below. */
 			tablespaces_found--;
 		}
+
 		if (remote.success && !remote.valid) {
 			remote.success = false;
 			os_file_close(remote.file);
@@ -4456,7 +4404,17 @@ cleanup_and_exit:
 
 	mem_free(def.filepath);
 
-	if (err == DB_SUCCESS && !srv_read_only_mode) {
+	/* We need to check fsp flags when no errors has happened and
+	server was not started on read only mode and tablespace validation
+	was requested or flags contain other table options except
+	low order bits to FSP_FLAGS_POS_PAGE_SSIZE position.
+	Note that flag comparison is pessimistic. Adjust is required
+	only when flags contain buggy MariaDB 10.1.0 -
+	MariaDB 10.1.20 flags.  */
+	if (err == DB_SUCCESS
+	    && !srv_read_only_mode
+	    && (validate
+		|| flags >= (1U << FSP_FLAGS_POS_PAGE_SSIZE))) {
 		fsp_flags_try_adjust(id, flags & ~FSP_FLAGS_MEM_MASK);
 	}
 
@@ -4698,7 +4656,7 @@ check_first_page:
 #ifdef UNIV_LOG_ARCHIVE
 		    &fsp->arch_log_no, &fsp->arch_log_no,
 #endif /* UNIV_LOG_ARCHIVE */
-		    &fsp->lsn, &fsp->lsn, &fsp->crypt_data)) {
+		    NULL, &fsp->crypt_data)) {
 		ib_logf(IB_LOG_LEVEL_ERROR,
 			"%s in tablespace %s (table %s)",
 			check_msg, fsp->filepath, tablename);
@@ -4928,11 +4886,11 @@ will_not_choose:
 	if (def.success && remote.success) {
 		ib_logf(IB_LOG_LEVEL_ERROR,
 			"Tablespaces for %s have been found in two places;\n"
-			"Location 1: SpaceID: %lu  LSN: %lu  File: %s\n"
-			"Location 2: SpaceID: %lu  LSN: %lu  File: %s\n"
+			"Location 1: SpaceID: " ULINTPF " File: %s\n"
+			"Location 2: SpaceID: " ULINTPF " File: %s\n"
 			"You must delete one of them.",
-			tablename, (ulong) def.id, (ulong) def.lsn,
-			def.filepath, (ulong) remote.id, (ulong) remote.lsn,
+			tablename, def.id,
+			def.filepath, remote.id,
 			remote.filepath);
 
 		def.success = FALSE;
@@ -5831,19 +5789,19 @@ fil_report_invalid_page_access(
 	ulint		len,		/*!< in: I/O length */
 	ulint		type)		/*!< in: I/O type */
 {
-	fprintf(stderr,
-		"InnoDB: Error: trying to access page number %lu"
-		" in space %lu,\n"
-		"InnoDB: space name %s,\n"
-		"InnoDB: which is outside the tablespace bounds.\n"
-		"InnoDB: Byte offset %lu, len %lu, i/o type %lu.\n"
-		"InnoDB: If you get this error at mysqld startup,"
-		" please check that\n"
-		"InnoDB: your my.cnf matches the ibdata files"
-		" that you have in the\n"
-		"InnoDB: MySQL server.\n",
-		(ulong) block_offset, (ulong) space_id, space_name,
-		(ulong) byte_offset, (ulong) len, (ulong) type);
+	ib_logf(IB_LOG_LEVEL_FATAL,
+		"Trying to access page number " ULINTPF
+		" in space " ULINTPF
+		" space name %s,"
+		" which is outside the tablespace bounds."
+		" Byte offset " ULINTPF ", len " ULINTPF
+		" i/o type " ULINTPF ".%s",
+		block_offset, space_id, space_name,
+		byte_offset, len, type,
+		space_id == 0 && !srv_was_started
+		? "Please check that the configuration matches"
+		" the InnoDB system tablespace location (ibdata files)"
+		: "");
 }
 
 /********************************************************************//**
@@ -6062,11 +6020,10 @@ fil_io(
 			mutex_exit(&fil_system->mutex);
 			return(DB_ERROR);
 		}
+
 		fil_report_invalid_page_access(
 				block_offset, space_id, space->name,
 				byte_offset, len, type);
-
-		ut_error;
 	}
 
 	/* Open file if closed */
@@ -6078,10 +6035,11 @@ fil_io(
 			ib_logf(IB_LOG_LEVEL_ERROR,
 				"Trying to do i/o to a tablespace which "
 				"exists without .ibd data file. "
-				"i/o type %lu, space id %lu, page no %lu, "
-				"i/o length %lu bytes",
-				(ulong) type, (ulong) space_id,
-				(ulong) block_offset, (ulong) len);
+				"i/o type " ULINTPF ", space id "
+				ULINTPF ", page no " ULINTPF ", "
+				"i/o length " ULINTPF " bytes",
+				type, space_id,
+				block_offset, len);
 
 			return(DB_TABLESPACE_DELETED);
 		}
@@ -6101,8 +6059,6 @@ fil_io(
 		fil_report_invalid_page_access(
 			block_offset, space_id, space->name, byte_offset,
 			len, type);
-
-		ut_error;
 	}
 
 	/* Now we have made the changes in the data structures of fil_system */
