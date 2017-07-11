@@ -9868,7 +9868,7 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
                             parser_state.init(thd, thd->query(), thd->query_length());
                             parse_sql(thd, &parser_state, NULL, true);
 
-                            if (thd->lex->sql_command != SQLCOM_SELECT)
+                            if ((thd->lex->sql_command != SQLCOM_SELECT) && (thd->lex->sql_command != SQLCOM_INSERT_SELECT))
                             {
                                 INFINIDB_execute = false;
                                 if ( thd->lex->sql_command != SQLCOM_DELETE )
@@ -9881,6 +9881,10 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
                                 thd->infinidb_vtable.autoswitch = false;
                                 isSqlExecute = true;
                             }
+                            else if (thd->lex->sql_command == SQLCOM_INSERT_SELECT)
+				            {
+            					thd->infinidb_vtable.isInsertSelect = true;
+				            }
                         }
 					}
 					else
