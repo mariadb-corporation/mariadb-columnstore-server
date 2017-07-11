@@ -2072,7 +2072,6 @@ os_file_create_func(
 			file = INVALID_HANDLE_VALUE;
 		}
 	}
-
 #else /* __WIN__ */
 	int		create_flag;
 	const char*	mode_str	= NULL;
@@ -4401,7 +4400,7 @@ os_aio_init(
 #ifdef _WIN32
 	ut_a(completion_port == 0 && read_completion_port == 0);
 	completion_port = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
-	read_completion_port = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
+	read_completion_port = srv_read_only_mode? completion_port : CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
 	ut_a(completion_port && read_completion_port);
 #endif
 
