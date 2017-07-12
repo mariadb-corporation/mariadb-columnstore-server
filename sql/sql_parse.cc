@@ -10381,7 +10381,7 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 						{
 							INFINIDB_execute = false;
 							// set original query back
-							thd->set_query(query, query_length);
+							alloc_query(thd, query, query_length);
 							break;
 						}
 						break;
@@ -10455,7 +10455,7 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
                                 if ( thd->lex->sql_command != SQLCOM_DELETE )
                                 {
                                     // set original query back
-                                    thd->set_query(query, query_length);
+                                    alloc_query(thd, query, query_length);
                                 }
                                 //Set to table mode for DML statement
                                 thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
@@ -10753,7 +10753,7 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 						idb_parse_vtable(thd, thd->infinidb_vtable.drop_vtable_query, THD::INFINIDB_DROP_VTABLE);
 
 						// Not an InfiniDB query. Normal mysql processing
-						thd->set_query(thd->infinidb_vtable.original_query.c_ptr(),
+						alloc_query(thd, thd->infinidb_vtable.original_query.c_ptr(),
 									   thd->infinidb_vtable.original_query.length());
 	#ifdef INFINIDB_DEBUG
 						printf("<<< Non InfiniDB query: %s\n", thd->query());
