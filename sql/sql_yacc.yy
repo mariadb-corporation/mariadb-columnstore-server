@@ -1017,6 +1017,7 @@ Virtual_column_info *add_virtual_expression(THD *thd, Item *expr)
 bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
 %}
 
+%error-verbose
 %pure-parser                                    /* We have threads */
 %parse-param { THD *thd }
 %lex-param { THD *thd }
@@ -10498,6 +10499,20 @@ window_func:
         |
           sum_expr
           {
+            ((Item_sum *) $1)->mark_as_window_func_sum_expr();
+          }
+        |
+          function_call_generic
+          {
+            /*
+            We want to allow UDF aggregate (UDAF) functions as Window functions.
+            function_call_generic handles UDAF, so we leverage
+            that and then filter out anything that isn't a UDAF.
+            */
+            if (((Item *) $1)->type() != Item::SUM_FUNC_ITEM)
+              MYSQL_YYABORT;
+            if (((Item_sum *) $1)->sum_func() != Item_sum::UDF_SUM_FUNC)
+              MYSQL_YYABORT;
             ((Item_sum *) $1)->mark_as_window_func_sum_expr();
           }
         ;
