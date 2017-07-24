@@ -10377,7 +10377,11 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 							parse_sql(thd, &parser_state, NULL, true);
 						}
 
-						if (thd->lex->sql_command != SQLCOM_SELECT /*&&  thd->lex->sql_command != SQLCOM_END*/)
+        				if (thd->lex->sql_command == SQLCOM_INSERT_SELECT)
+		        		{
+				        	thd->infinidb_vtable.isInsertSelect = true;
+        				}
+                        else if (thd->lex->sql_command != SQLCOM_SELECT /*&&  thd->lex->sql_command != SQLCOM_END*/)
 						{
 							INFINIDB_execute = false;
 							// set original query back
