@@ -245,7 +245,7 @@ yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio rs
 These packages need to be installed:
 
 ```bash
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync snappy libdbd-mysql-perl
 ```
 
 ## For Debian 8
