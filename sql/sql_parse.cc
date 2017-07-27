@@ -410,7 +410,7 @@ const LEX_STRING command_name[257]={
   { 0, 0 }, //247
   { 0, 0 }, //248
   { 0, 0 }, //249
-  { 0, 0 }, //250
+  { C_STRING_WITH_LEN("Bulk_execute") }, //250
   { C_STRING_WITH_LEN("Slave_worker") }, //251
   { C_STRING_WITH_LEN("Slave_IO") }, //252
   { C_STRING_WITH_LEN("Slave_SQL") }, //253
@@ -1768,6 +1768,11 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
     }
     break;
   }
+  case COM_STMT_BULK_EXECUTE:
+  {
+    mysqld_stmt_bulk_execute(thd, packet, packet_length);
+    break;
+  }
   case COM_STMT_EXECUTE:
   {
     mysqld_stmt_execute(thd, packet, packet_length);
@@ -2824,6 +2829,7 @@ retry:
                ! table->prelocking_placeholder &&
                table->table->file->lock_count() == 0)
       {
+        enum enum_mdl_type lock_type;
         /*
           In case when LOCK TABLE ... READ LOCAL was issued for table with
           storage engine which doesn't support READ LOCAL option and doesn't
@@ -2836,9 +2842,12 @@ retry:
         deadlock_handler.init();
         thd->push_internal_handler(&deadlock_handler);
 
+        lock_type= table->table->mdl_ticket->get_type() == MDL_SHARED_WRITE ?
+                   MDL_SHARED_NO_READ_WRITE : MDL_SHARED_READ_ONLY;
+
         bool result= thd->mdl_context.upgrade_shared_lock(
                                         table->table->mdl_ticket,
-                                        MDL_SHARED_READ_ONLY,
+                                        lock_type,
                                         thd->variables.lock_wait_timeout);
 
         thd->pop_internal_handler();
@@ -3358,6 +3367,7 @@ mysql_execute_command(THD *thd)
         goto error;
       }
     }
+    thd->transaction.stmt.mark_trans_did_ddl();
   }
 
 #ifndef DBUG_OFF
@@ -3443,8 +3453,8 @@ mysql_execute_command(THD *thd)
 		 MYF(0));
       goto error;
     }
-    /* no break; fall through */
   }
+    /* fall through */
   case SQLCOM_SHOW_STATUS_PROC:
   case SQLCOM_SHOW_STATUS_FUNC:
   case SQLCOM_SHOW_DATABASES:
@@ -3458,7 +3468,7 @@ mysql_execute_command(THD *thd)
   case SQLCOM_SELECT:
     if (WSREP_CLIENT(thd) && wsrep_sync_wait(thd))
       goto error;
-
+    /* fall through */
   case SQLCOM_SHOW_PLUGINS:
   case SQLCOM_SHOW_VARIABLES:
   case SQLCOM_SHOW_CHARSETS:
@@ -4299,8 +4309,8 @@ end_with_restore_list:
     /* mysql_update return 2 if we need to switch to multi-update */
     if (up_result != 2)
       break;
-    /* Fall through */
   }
+    /* Fall through */
   case SQLCOM_UPDATE_MULTI:
   {
     DBUG_ASSERT(first_table == all_tables && first_table != 0);
@@ -4418,6 +4428,7 @@ end_with_restore_list:
     }
 #endif
   }
+  /* fall through */
   case SQLCOM_INSERT:
   {
     DBUG_ASSERT(first_table == all_tables && first_table != 0);
@@ -5346,6 +5357,7 @@ end_with_restore_list:
       initialize this variable because RESET shares the same code as FLUSH
     */
     lex->no_write_to_binlog= 1;
+    /* fall through */
   case SQLCOM_FLUSH:
   {
     int write_to_binlog;
@@ -7347,12 +7359,6 @@ bool check_fk_parent_table_access(THD *thd,
 ****************************************************************************/
 
 
-#if STACK_DIRECTION < 0
-#define used_stack(A,B) (long) (A - B)
-#else
-#define used_stack(A,B) (long) (B - A)
-#endif
-
 #ifndef DBUG_OFF
 long max_stack_used;
 #endif
@@ -7369,7 +7375,7 @@ bool check_stack_overrun(THD *thd, long margin,
 {
   long stack_used;
   DBUG_ASSERT(thd == current_thd);
-  if ((stack_used=used_stack(thd->thread_stack,(char*) &stack_used)) >=
+  if ((stack_used= available_stack_size(thd->thread_stack, &stack_used)) >=
       (long) (my_thread_stack_size - margin))
   {
     thd->is_fatal_error= 1;
@@ -7493,8 +7499,7 @@ void THD::reset_for_next_command()
   if (!thd->in_multi_stmt_transaction_mode())
   {
     thd->variables.option_bits&= ~OPTION_KEEP_LOG;
-    thd->transaction.all.modified_non_trans_table= FALSE;
-    thd->transaction.all.m_unsafe_rollback_flags&= ~THD_TRANS::DID_WAIT;
+    thd->transaction.all.reset();
   }
   DBUG_ASSERT(thd->security_ctx== &thd->main_security_ctx);
   thd->thread_specific_used= FALSE;

@@ -724,6 +724,7 @@ THD::THD(my_thread_id id, bool is_wsrep_applier)
    debug_sync_control(0),
 #endif /* defined(ENABLED_DEBUG_SYNC) */
    wait_for_commit_ptr(0),
+   m_internal_handler(0),
    main_da(0, false, false),
    m_stmt_da(&main_da),
    tdc_hash_pins(0),
@@ -916,7 +917,6 @@ THD::THD(my_thread_id id, bool is_wsrep_applier)
                                               MYF(MY_WME|MY_THREAD_SPECIFIC));
   }
 
-  m_internal_handler= NULL;
   m_binlog_invoker= INVOKER_NONE;
   memset(&invoker_user, 0, sizeof(invoker_user));
   memset(&invoker_host, 0, sizeof(invoker_host));
@@ -1252,6 +1252,8 @@ void THD::init(void)
   server_status= SERVER_STATUS_AUTOCOMMIT;
   if (variables.sql_mode & MODE_NO_BACKSLASH_ESCAPES)
     server_status|= SERVER_STATUS_NO_BACKSLASH_ESCAPES;
+  if (variables.sql_mode & MODE_ANSI_QUOTES)
+    server_status|= SERVER_STATUS_ANSI_QUOTES;
 
   transaction.all.modified_non_trans_table=
     transaction.stmt.modified_non_trans_table= FALSE;
@@ -2755,13 +2757,6 @@ int select_send::send_data(List<Item> &items)
   if (thd->killed == ABORT_QUERY)
     DBUG_RETURN(FALSE);
 
-  /*
-    We may be passing the control from mysqld to the client: release the
-    InnoDB adaptive hash S-latch to avoid thread deadlocks if it was reserved
-    by thd
-  */
-  ha_release_temporary_latches(thd);
-
   protocol->prepare_for_resend();
   if (protocol->send_result_set_row(&items))
   {
@@ -2780,13 +2775,6 @@ int select_send::send_data(List<Item> &items)
 
 bool select_send::send_eof()
 {
-  /* 
-    We may be passing the control from mysqld to the client: release the
-    InnoDB adaptive hash S-latch to avoid thread deadlocks if it was reserved
-    by thd 
-  */
-  ha_release_temporary_latches(thd);
-
   /* 
     Don't send EOF if we're in error condition (which implies we've already
     sent or are sending an error)
@@ -4057,7 +4045,7 @@ void Security_context::destroy()
   if (external_user)
   {
     my_free(external_user);
-    user= NULL;
+    external_user= NULL;
   }
 
   my_free(ip);
@@ -4275,6 +4263,10 @@ extern "C" enum thd_kill_levels thd_kill_level(const MYSQL_THD thd)
    however not more often than global.progress_report_time.
    If global.progress_report_time is 0, then don't send progress reports, but
    check every second if the value has changed
+
+  We clear any errors that we get from sending the progress packet to
+  the client as we don't want to set an error without the caller knowing
+  about it.
 */
 
 static void thd_send_progress(THD *thd)
@@ -4291,8 +4283,12 @@ static void thd_send_progress(THD *thd)
     thd->progress.next_report_time= (report_time +
                                      seconds_to_next * 1000000000ULL);
     if (global_system_variables.progress_report_time &&
-        thd->variables.progress_report_time)
+        thd->variables.progress_report_time && !thd->is_error())
+    {
       net_send_progress_packet(thd);
+      if (thd->is_error())
+        thd->clear_error();
+    }
   }
 }
 
@@ -4466,6 +4462,14 @@ TABLE *open_purge_table(THD *thd, const char *db, size_t dblen,
   DBUG_RETURN(error ? NULL : tl->table);
 }
 
+TABLE *get_purge_table(THD *thd)
+{
+  /* see above, at most one table can be opened */
+  DBUG_ASSERT(thd->open_tables == NULL || thd->open_tables->next == NULL);
+  return thd->open_tables;
+}
+
+
 /** Find an open table in the list of prelocked tabled
 
   Used for foreign key actions, for example, in UPDATE t1 SET a=1;
@@ -4527,25 +4531,46 @@ extern "C" const struct charset_info_st *thd_charset(MYSQL_THD thd)
   return(thd->charset());
 }
 
-/**
-  OBSOLETE : there's no way to ensure the string is null terminated.
-  Use thd_query_string instead()
-*/
-extern "C" char **thd_query(MYSQL_THD thd)
-{
-  return (&thd->query_string.string.str);
-}
 
 /**
   Get the current query string for the thread.
+
+  This function is not thread safe and can be used only by thd owner thread.
 
   @param The MySQL internal thread pointer
   @return query string and length. May be non-null-terminated.
 */
 extern "C" LEX_STRING * thd_query_string (MYSQL_THD thd)
 {
+  DBUG_ASSERT(thd == current_thd);
   return(&thd->query_string.string);
 }
+
+
+/**
+  Get the current query string for the thread.
+
+  @param thd     The MySQL internal thread pointer
+  @param buf     Buffer where the query string will be copied
+  @param buflen  Length of the buffer
+
+  @return Length of the query
+
+  @note This function is thread safe as the query string is
+        accessed under mutex protection and the string is copied
+        into the provided buffer. @see thd_query_string().
+*/
+
+extern "C" size_t thd_query_safe(MYSQL_THD thd, char *buf, size_t buflen)
+{
+  mysql_mutex_lock(&thd->LOCK_thd_data);
+  size_t len= MY_MIN(buflen - 1, thd->query_length());
+  memcpy(buf, thd->query(), len);
+  mysql_mutex_unlock(&thd->LOCK_thd_data);
+  buf[len]= '\0';
+  return len;
+}
+
 
 extern "C" int thd_slave_thread(const MYSQL_THD thd)
 {
@@ -5505,6 +5530,7 @@ bool xid_cache_insert(THD *thd, XID_STATE *xid_state)
     break;
   case 1:
     my_error(ER_XAER_DUPID, MYF(0));
+    /* fall through */
   default:
     xid_state->xid_cache_element= 0;
   }

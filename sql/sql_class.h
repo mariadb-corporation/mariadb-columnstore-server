@@ -153,7 +153,7 @@ extern MYSQL_PLUGIN_IMPORT const char **errmesg;
 extern bool volatile shutdown_in_progress;
 
 extern "C" LEX_STRING * thd_query_string (MYSQL_THD thd);
-extern "C" char **thd_query(MYSQL_THD thd);
+extern "C" size_t thd_query_safe(MYSQL_THD thd, char *buf, size_t buflen);
 
 /**
   @class CSET_STRING
@@ -183,7 +183,6 @@ public:
   CHARSET_INFO *charset() const { return cs; }
 
   friend LEX_STRING * thd_query_string (MYSQL_THD thd);
-  friend char **thd_query(MYSQL_THD thd);
 };
 
 
@@ -537,7 +536,8 @@ typedef struct system_variables
   uint dynamic_variables_size;    /* how many bytes are in use */
   
   ulonglong max_heap_table_size;
-  ulonglong tmp_table_size;
+  ulonglong tmp_memory_table_size;
+  ulonglong tmp_disk_table_size;
   ulonglong long_query_time;
   ulonglong max_statement_time;
   ulonglong optimizer_switch;
@@ -4380,7 +4380,16 @@ public:
   {
     main_lex.restore_set_statement_var();
   }
-
+  /* Copy relevant `stmt` transaction flags to `all` transaction. */
+  void merge_unsafe_rollback_flags()
+  {
+    if (transaction.stmt.modified_non_trans_table)
+      transaction.all.modified_non_trans_table= TRUE;
+    transaction.all.m_unsafe_rollback_flags|=
+      (transaction.stmt.m_unsafe_rollback_flags &
+       (THD_TRANS::DID_WAIT | THD_TRANS::CREATED_TEMP_TABLE |
+        THD_TRANS::DROPPED_TEMP_TABLE | THD_TRANS::DID_DDL));
+  }
   /*
     Reset current_linfo
     Setting current_linfo to 0 needs to be done with LOCK_thread_count to
@@ -4654,7 +4663,7 @@ public:
     select_result(thd_arg), suppress_my_ok(false)
   {
     DBUG_ENTER("select_result_interceptor::select_result_interceptor");
-    DBUG_PRINT("enter", ("this 0x%lx", (ulong) this));
+    DBUG_PRINT("enter", ("this %p", this));
     DBUG_VOID_RETURN;
   }              /* Remove gcc warning */
   uint field_count(List<Item> &fields) const { return 0; }

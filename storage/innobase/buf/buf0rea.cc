@@ -752,14 +752,9 @@ buf_read_ahead_linear(
 			switch (err) {
 			case DB_SUCCESS:
 			case DB_TABLESPACE_TRUNCATED:
+			case DB_TABLESPACE_DELETED:
 			case DB_ERROR:
 				break;
-			case DB_TABLESPACE_DELETED:
-				ib::info() << "linear readahead trying to"
-					" access page "
-					<< page_id_t(page_id.space(), i)
-					<< " in nonexisting or being-dropped"
-					" tablespace";
 			case DB_DECRYPTION_FAILED:
 				ib::error() << "linear readahead failed to"
 					" decrypt page "
@@ -778,11 +773,11 @@ buf_read_ahead_linear(
 	os_aio_simulated_wake_handler_threads();
 
 	if (count) {
-		DBUG_PRINT("ib_buf", ("linear read-ahead %lu pages, "
-				      "%lu:%lu",
+		DBUG_PRINT("ib_buf", ("linear read-ahead " ULINTPF " pages, "
+				      "%u:%u",
 				      count,
-				      (ulint)page_id.space(),
-				      (ulint)page_id.page_no()));
+				      page_id.space(),
+				      page_id.page_no()));
 	}
 
 	/* Read ahead is considered one I/O operation for the purpose of
@@ -818,22 +813,25 @@ buf_read_ibuf_merge_pages(
 #endif
 
 	for (ulint i = 0; i < n_stored; i++) {
-		const page_id_t	page_id(space_ids[i], page_nos[i]);
-
-		buf_pool_t*	buf_pool = buf_pool_get(page_id);
-
 		bool			found;
 		const page_size_t	page_size(fil_space_get_page_size(
 			space_ids[i], &found));
 
 		if (!found) {
 tablespace_deleted:
-			/* The tablespace was not found, remove the
-			entries for that page */
-			ibuf_merge_or_delete_for_page(NULL, page_id,
-						      NULL, FALSE);
+			/* The tablespace was not found: remove all
+			entries for it */
+			ibuf_delete_for_discarded_space(space_ids[i]);
+			while (i + 1 < n_stored
+			       && space_ids[i + 1] == space_ids[i]) {
+				i++;
+			}
 			continue;
 		}
+
+		const page_id_t	page_id(space_ids[i], page_nos[i]);
+
+		buf_pool_t*	buf_pool = buf_pool_get(page_id);
 
 		while (buf_pool->n_pend_reads
 		       > buf_pool->curr_size / BUF_READ_AHEAD_PEND_LIMIT) {

@@ -272,8 +272,6 @@ struct TrxFactory {
 
 		ut_a(trx->lock.wait_lock == NULL);
 		ut_a(trx->lock.wait_thr == NULL);
-
-		trx_assert_no_search_latch(trx);
 		ut_a(trx->dict_operation_lock_mode == 0);
 
 		if (trx->lock.lock_heap != NULL) {
@@ -341,9 +339,6 @@ struct TrxFactory {
 
 		ut_a(trx->lock.wait_thr == NULL);
 		ut_a(trx->lock.wait_lock == NULL);
-
-		trx_assert_no_search_latch(trx);
-
 		ut_a(trx->dict_operation_lock_mode == 0);
 
 		ut_a(UT_LIST_GET_LEN(trx->lock.trx_locks) == 0);
@@ -553,6 +548,10 @@ static
 void
 trx_validate_state_before_free(trx_t* trx)
 {
+	ut_ad(!trx->declared_to_be_inside_innodb);
+	ut_ad(!trx->n_mysql_tables_in_use);
+	ut_ad(!trx->mysql_n_tables_locked);
+
 	if (trx->declared_to_be_inside_innodb) {
 
 		ib::error() << "Freeing a trx (" << trx << ", "
@@ -563,7 +562,7 @@ trx_validate_state_before_free(trx_t* trx)
 		putc('\n', stderr);
 
 		/* This is an error but not a fatal error. We must keep
-		the counters like srv_conc_n_threads accurate. */
+		the counters like srv_conc.n_active accurate. */
 		srv_conc_force_exit_innodb(trx);
 	}
 
@@ -773,8 +772,7 @@ trx_resurrect_table_locks(
 	     i != tables.end(); i++) {
 		if (dict_table_t* table = dict_table_open_on_id(
 			    *i, FALSE, DICT_TABLE_OP_LOAD_TABLESPACE)) {
-			if (!table->is_readable()
-			    || dict_table_is_temporary(table)) {
+			if (!table->is_readable()) {
 				mutex_enter(&dict_sys->mutex);
 				dict_table_close(table, TRUE, FALSE);
 				dict_table_remove_from_cache(table);
@@ -1497,7 +1495,6 @@ trx_write_serialisation_history(
 		trx_sys_update_mysql_binlog_offset(
 			trx->mysql_log_file_name,
 			trx->mysql_log_offset,
-			TRX_SYS_MYSQL_LOG_INFO,
 			sys_header,
 			mtr);
 
@@ -2413,13 +2410,6 @@ state_ok:
 			(ulong) n_rec_locks);
 	}
 
-#ifdef BTR_CUR_HASH_ADAPT
-	if (trx->has_search_latch) {
-		newline = TRUE;
-		fputs(", holds adaptive hash latch", f);
-	}
-#endif /* BTR_CUR_HASH_ADAPT */
-
 	if (trx->undo_no != 0) {
 		newline = TRUE;
 		fprintf(f, ", undo log entries " TRX_ID_FMT, trx->undo_no);
@@ -2549,11 +2539,6 @@ state_ok:
 		fputs("COMMITTING ", f); break;
 	default:
 		fprintf(f, "que state %lu ", (ulong) trx->lock.que_state);
-	}
-
-	if (trx->has_search_latch) {
-		newline = TRUE;
-		fputs(", holds adaptive hash latch", f);
 	}
 
 	if (trx->undo_no != 0) {

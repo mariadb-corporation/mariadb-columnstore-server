@@ -2891,22 +2891,9 @@ dict_index_add_col(
 	field = dict_index_get_nth_field(index, index->n_def - 1);
 
 	field->col = col;
-	/* DATA_POINT is a special type, whose fixed_len should be:
-	1) DATA_MBR_LEN, when it's indexed in R-TREE. In this case,
-	it must be the first col to be added.
-	2) DATA_POINT_LEN(be equal to fixed size of column), when it's
-	indexed in B-TREE,
-	3) DATA_POINT_LEN, if a POINT col is the PRIMARY KEY, and we are
-	adding the PK col to other B-TREE/R-TREE. */
-	/* TODO: We suppose the dimension is 2 now. */
-	if (dict_index_is_spatial(index) && DATA_POINT_MTYPE(col->mtype)
-	    && index->n_def == 1) {
-		field->fixed_len = DATA_MBR_LEN;
-	} else {
-		field->fixed_len = static_cast<unsigned int>(
-					dict_col_get_fixed_size(
-					col, dict_table_is_comp(table)));
-	}
+	field->fixed_len = static_cast<unsigned int>(
+		dict_col_get_fixed_size(
+			col, dict_table_is_comp(table)));
 
 	if (prefix_len && field->fixed_len > prefix_len) {
 		field->fixed_len = (unsigned int) prefix_len;
@@ -4366,7 +4353,7 @@ dict_table_get_highest_foreign_id(
 	}
 
 	DBUG_PRINT("dict_table_get_highest_foreign_id",
-		   ("id: %lu", biggest_id));
+		   ("id: " ULINTPF, biggest_id));
 
 	DBUG_RETURN(biggest_id);
 }
@@ -6113,14 +6100,7 @@ dict_set_corrupted(
 	ut_ad(mutex_own(&dict_sys->mutex));
 	ut_ad(!dict_table_is_comp(dict_sys->sys_tables));
 	ut_ad(!dict_table_is_comp(dict_sys->sys_indexes));
-
-#ifdef UNIV_DEBUG
-	{
-		dict_sync_check	check(true);
-
-		ut_ad(!sync_check_iterate(check));
-	}
-#endif /* UNIV_DEBUG */
+	ut_ad(!sync_check_iterate(dict_sync_check()));
 
 	/* Mark the table as corrupted only if the clustered index
 	is corrupted */
@@ -6611,7 +6591,8 @@ dict_table_schema_check(
 	if ((ulint) table->n_def - n_sys_cols != req_schema->n_cols) {
 		/* the table has a different number of columns than required */
 		ut_snprintf(errstr, errstr_sz,
-			    "%s has %lu columns but should have " ULINTPF ".",
+			    "%s has " ULINTPF " columns but should have "
+			    ULINTPF ".",
 			    ut_format_name(req_schema->table_name,
 					   buf, sizeof(buf)),
 			    table->n_def - n_sys_cols,

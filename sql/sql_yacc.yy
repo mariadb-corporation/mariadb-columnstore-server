@@ -4774,9 +4774,11 @@ size_number:
                 case 'g':
                 case 'G':
                   text_shift_number+=10;
+                  /* fall through */
                 case 'm':
                 case 'M':
                   text_shift_number+=10;
+                  /* fall through */
                 case 'k':
                 case 'K':
                   text_shift_number+=10;
@@ -6476,6 +6478,8 @@ field_type:
           { $$.set(MYSQL_TYPE_SET); }
         | LONG_SYM opt_binary
           { $$.set(MYSQL_TYPE_MEDIUM_BLOB); }
+        | JSON_SYM opt_binary
+          { $$.set(MYSQL_TYPE_BLOB); }
         ;
 
 spatial_type:
@@ -6631,19 +6635,7 @@ serial_attribute:
             lex->last_field->flags|= PRI_KEY_FLAG | NOT_NULL_FLAG;
             lex->alter_info.flags|= Alter_info::ALTER_ADD_INDEX;
           }
-        | UNIQUE_SYM
-          {
-            LEX *lex=Lex;
-            lex->last_field->flags|= UNIQUE_KEY_FLAG;
-            lex->alter_info.flags|= Alter_info::ALTER_ADD_INDEX;
-          }
-        | UNIQUE_SYM KEY_SYM
-          {
-            LEX *lex=Lex;
-            lex->last_field->flags|= UNIQUE_KEY_FLAG;
-            lex->alter_info.flags|= Alter_info::ALTER_ADD_INDEX; 
-          }
-        | COMMENT_SYM TEXT_STRING_sys { Lex->last_field->comment= $2; }
+        | vcol_attribute
         | IDENT_sys equal TEXT_STRING_sys
           {
             if ($3.length > ENGINE_OPTION_MAX_LENGTH)
@@ -14996,8 +14988,9 @@ set_stmt_option_value_following_option_type_list:
        */
           option_value_following_option_type
         | set_stmt_option_value_following_option_type_list ',' option_value_following_option_type
+        ;
 
-// Start of option value list
+/* Start of option value list */
 start_option_value_list:
           option_value_no_option_type
           {
@@ -15022,7 +15015,7 @@ start_option_value_list:
         ;
 
 
-// Start of option value list, option_type was given
+/* Start of option value list, option_type was given */
 start_option_value_list_following_option_type:
           option_value_following_option_type
           {
@@ -15037,13 +15030,13 @@ start_option_value_list_following_option_type:
           }
         ;
 
-// Remainder of the option value list after first option value.
+/* Remainder of the option value list after first option value. */
 option_value_list_continued:
           /* empty */
         | ',' option_value_list
         ;
 
-// Repeating list of option values after first option value.
+/* Repeating list of option values after first option value. */
 option_value_list:
           {
             sp_create_assignment_lex(thd, yychar == YYEMPTY);
@@ -15064,7 +15057,7 @@ option_value_list:
           }
         ;
 
-// Wrapper around option values following the first option value in the stmt.
+/* Wrapper around option values following the first option value in the stmt. */
 option_value:
           option_type
           {
@@ -15094,7 +15087,7 @@ opt_var_ident_type:
         | SESSION_SYM '.' { $$=OPT_SESSION; }
         ;
 
-// Option values with preceding option_type.
+/* Option values with preceding option_type. */
 option_value_following_option_type:
           internal_variable_name equal set_expr_or_default
           {
@@ -15118,7 +15111,7 @@ option_value_following_option_type:
           }
         ;
 
-// Option values without preceding option_type.
+/* Option values without preceding option_type. */
 option_value_no_option_type:
           internal_variable_name equal set_expr_or_default
           {

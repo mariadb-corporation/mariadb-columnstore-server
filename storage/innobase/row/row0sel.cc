@@ -183,6 +183,9 @@ row_sel_sec_rec_is_for_clust_rec(
 
 	if (rec_get_deleted_flag(clust_rec,
 				 dict_table_is_comp(clust_index->table))) {
+		/* In delete-marked records, DB_TRX_ID must
+		always refer to an existing undo log record. */
+		ut_ad(rec_get_trx_id(clust_rec, clust_index));
 
 		/* The clustered index record is delete-marked;
 		it is not visible in the read view.  Besides,
@@ -2042,6 +2045,11 @@ skip_lock:
 
 		if (rec_get_deleted_flag(clust_rec,
 					 dict_table_is_comp(plan->table))) {
+			/* In delete-marked records, DB_TRX_ID must
+			always refer to an existing update_undo log record. */
+			ut_ad(rec_get_trx_id(clust_rec,
+					     dict_table_get_first_index(
+						     plan->table)));
 
 			/* The record is delete marked: we can skip it */
 
@@ -2231,16 +2239,7 @@ stop_for_a_while:
 	btr_pcur_store_position(&(plan->pcur), &mtr);
 
 	mtr_commit(&mtr);
-
-#ifdef BTR_CUR_HASH_ADAPT
-# ifdef UNIV_DEBUG
-	{
-		btrsea_sync_check	check(true);
-
-		ut_ad(!sync_check_iterate(check));
-	}
-# endif /* UNIV_DEBUG */
-#endif /* BTR_CUR_HASH_ADAPT */
+	ut_ad(!sync_check_iterate(sync_check()));
 
 	err = DB_SUCCESS;
 	goto func_exit;
@@ -2258,14 +2257,7 @@ commit_mtr_for_a_while:
 	mtr_commit(&mtr);
 
 	mtr_has_extra_clust_latch = FALSE;
-
-#ifdef UNIV_DEBUG
-	{
-		dict_sync_check	check(true);
-
-		ut_ad(!sync_check_iterate(check));
-	}
-#endif /* UNIV_DEBUG */
+	ut_ad(!sync_check_iterate(dict_sync_check()));
 
 	goto table_loop;
 
@@ -2280,20 +2272,13 @@ lock_wait_or_error:
 
 	mtr_commit(&mtr);
 
-#ifdef UNIV_DEBUG
-	{
-		dict_sync_check	check(true);
-
-		ut_ad(!sync_check_iterate(check));
-	}
-#endif /* UNIV_DEBUG */
-
 func_exit:
 #ifdef BTR_CUR_HASH_ADAPT
 	if (search_latch_locked) {
 		btr_search_s_unlock(index);
 	}
 #endif /* BTR_CUR_HASH_ADAPT */
+	ut_ad(!sync_check_iterate(dict_sync_check()));
 
 	if (heap != NULL) {
 		mem_heap_free(heap);
@@ -2634,10 +2619,9 @@ row_sel_convert_mysql_key_to_innobase(
 				data_field_len = data_offset + data_len;
 			} else {
 				/* The key field is a column prefix of a BLOB
-				or TEXT, except DATA_POINT of GEOMETRY. */
+				or TEXT. */
 
-				ut_a(field->prefix_len > 0
-				     || DATA_POINT_MTYPE(type));
+				ut_a(field->prefix_len > 0);
 
 				/* MySQL stores the actual data length to the
 				first 2 bytes after the optional SQL NULL
@@ -2647,18 +2631,12 @@ row_sel_convert_mysql_key_to_innobase(
 				seems to reserve field->prefix_len bytes for
 				storing this field in the key value buffer,
 				even though the actual value only takes data
-				len bytes from the start.
-				For POINT of GEOMETRY, which has no prefix
-				because it's now a fixed length type in
-				InnoDB, we have to get DATA_POINT_LEN bytes,
-				which is original prefix length of POINT. */
+				len bytes from the start. */
 
 				data_len = key_ptr[data_offset]
 					   + 256 * key_ptr[data_offset + 1];
 				data_field_len = data_offset + 2
-						 + (type == DATA_POINT
-						    ? DATA_POINT_LEN
-						    : field->prefix_len);
+					+ field->prefix_len;
 
 				data_offset += 2;
 
@@ -2920,8 +2898,6 @@ row_sel_field_store_in_mysql_format_func(
 					 len);
 		break;
 
-	case DATA_POINT:
-	case DATA_VAR_POINT:
 	case DATA_GEOMETRY:
 		/* We store all geometry data as BLOB data at server layer. */
 		row_mysql_store_geometry(dest, templ->mysql_col_len, data, len);
@@ -2995,27 +2971,32 @@ row_sel_field_store_in_mysql_format_func(
 # define row_sel_store_mysql_field(m,p,r,i,o,f,t) \
 	row_sel_store_mysql_field_func(m,p,r,o,f,t)
 #endif /* UNIV_DEBUG */
-/**************************************************************//**
-Convert a field in the Innobase format to a field in the MySQL format. */
+/** Convert a field in the Innobase format to a field in the MySQL format.
+@param[out]	mysql_rec		record in the MySQL format
+@param[in,out]	prebuilt		prebuilt struct
+@param[in]	rec			InnoDB record; must be protected
+					by a page latch
+@param[in]	index			index of rec
+@param[in]	offsets			array returned by rec_get_offsets()
+@param[in]	field_no		templ->rec_field_no or
+					templ->clust_rec_field_no
+					or templ->icp_rec_field_no
+					or sec field no if clust_templ_for_sec
+					is TRUE
+@param[in]	templ			row template
+*/
 static MY_ATTRIBUTE((warn_unused_result))
 ibool
 row_sel_store_mysql_field_func(
-/*===========================*/
-	byte*			mysql_rec,	/*!< out: record in the
-						MySQL format */
-	row_prebuilt_t*		prebuilt,	/*!< in/out: prebuilt struct */
-	const rec_t*		rec,		/*!< in: InnoDB record;
-						must be protected by
-						a page latch */
+	byte*			mysql_rec,
+	row_prebuilt_t*		prebuilt,
+	const rec_t*		rec,
 #ifdef UNIV_DEBUG
-	const dict_index_t*	index,		/*!< in: index of rec */
-#endif /* UNIV_DEBUG */
-	const ulint*		offsets,	/*!< in: array returned by
-						rec_get_offsets() */
-	ulint			field_no,	/*!< in: templ->rec_field_no or
-						templ->clust_rec_field_no or
-						templ->icp_rec_field_no */
-	const mysql_row_templ_t*templ)		/*!< in: row template */
+	const dict_index_t*	index,
+#endif
+	const ulint*		offsets,
+	ulint			field_no,
+	const mysql_row_templ_t*templ)
 {
 	DBUG_ENTER("row_sel_store_mysql_field_func");
 
@@ -3036,9 +3017,7 @@ row_sel_store_mysql_field_func(
 		mem_heap_t*	heap;
 		/* Copy an externally stored field to a temporary heap */
 
-		trx_assert_no_search_latch(prebuilt->trx);
 		ut_ad(field_no == templ->clust_rec_field_no);
-		ut_ad(templ->type != DATA_POINT);
 
 		if (DATA_LARGE_MTYPE(templ->type)) {
 			if (prebuilt->blob_heap == NULL) {
@@ -3118,10 +3097,7 @@ row_sel_store_mysql_field_func(
 			will be invalid as soon as the
 			mini-transaction is committed and the page
 			latch on the clustered index page is
-			released.
-			For DATA_POINT, it's stored like CHAR in InnoDB,
-			but it should be a BLOB field in MySQL layer. So we
-			still treated it as BLOB here. */
+			released. */
 
 			if (prebuilt->blob_heap == NULL) {
 				prebuilt->blob_heap = mem_heap_create(
@@ -3151,31 +3127,36 @@ row_sel_store_mysql_field_func(
 	DBUG_RETURN(TRUE);
 }
 
-/**************************************************************//**
-Convert a row in the Innobase format to a row in the MySQL format.
+/** Convert a row in the Innobase format to a row in the MySQL format.
 Note that the template in prebuilt may advise us to copy only a few
 columns to mysql_rec, other columns are left blank. All columns may not
 be needed in the query.
+@param[out]	mysql_rec		row in the MySQL format
+@param[in]	prebuilt		prebuilt structure
+@param[in]	rec			Innobase record in the index
+					which was described in prebuilt's
+					template, or in the clustered index;
+					must be protected by a page latch
+@param[in]	vrow			virtual columns
+@param[in]	rec_clust		whether the rec in the clustered index
+@param[in]	index			index of rec
+@param[in]	offsets			array returned by rec_get_offsets(rec)
+@param[in]	clust_templ_for_sec	TRUE if rec belongs to secondary index
+					but the prebuilt->template is in
+					clustered index format and it is
+					used only for end range comparison
 @return TRUE on success, FALSE if not all columns could be retrieved */
 static MY_ATTRIBUTE((warn_unused_result))
 ibool
 row_sel_store_mysql_rec(
-/*====================*/
-	byte*		mysql_rec,	/*!< out: row in the MySQL format */
-	row_prebuilt_t*	prebuilt,	/*!< in: prebuilt struct */
-	const rec_t*	rec,		/*!< in: Innobase record in the index
-					which was described in prebuilt's
-					template, or in the clustered index;
-					must be protected by a page latch */
-	const dtuple_t*	vrow,		/*!< in: virtual columns */
-	ibool		rec_clust,	/*!< in: TRUE if rec is in the
-					clustered index instead of
-					prebuilt->index */
-	const dict_index_t* index,	/*!< in: index of rec */
-	const ulint*	offsets)	/*!< in: array returned by
-					rec_get_offsets(rec) */
+	byte*		mysql_rec,
+	row_prebuilt_t*	prebuilt,
+	const rec_t*	rec,
+	const dtuple_t*	vrow,
+	bool		rec_clust,
+	const dict_index_t* index,
+	const ulint*	offsets)
 {
-	ulint		i;
 	DBUG_ENTER("row_sel_store_mysql_rec");
 
 	ut_ad(rec_clust || index == prebuilt->index);
@@ -3185,7 +3166,7 @@ row_sel_store_mysql_rec(
 		row_mysql_prebuilt_free_blob_heap(prebuilt);
 	}
 
-	for (i = 0; i < prebuilt->n_template; i++) {
+	for (ulint i = 0; i < prebuilt->n_template; i++) {
 		const mysql_row_templ_t*templ = &prebuilt->mysql_template[i];
 
 		if (templ->is_virtual && dict_index_is_clust(index)) {
@@ -3918,11 +3899,7 @@ row_sel_try_search_shortcut_for_mysql(
 	ut_ad(!prebuilt->templ_contains_blob);
 
 	btr_pcur_open_with_no_init(index, search_tuple, PAGE_CUR_GE,
-				   BTR_SEARCH_LEAF, pcur,
-				   (trx->has_search_latch)
-				    ? RW_S_LATCH
-				    : 0,
-				   mtr);
+				   BTR_SEARCH_LEAF, pcur, RW_S_LATCH, mtr);
 	rec = btr_pcur_get_rec(pcur);
 
 	if (!page_rec_is_user_rec(rec)) {
@@ -3952,6 +3929,9 @@ row_sel_try_search_shortcut_for_mysql(
 	}
 
 	if (rec_get_deleted_flag(rec, dict_table_is_comp(index->table))) {
+		/* In delete-marked records, DB_TRX_ID must
+		always refer to an existing undo log record. */
+		ut_ad(row_get_rec_trx_id(rec, index, *offsets));
 
 		return(SEL_EXHAUSTED);
 	}
@@ -4027,7 +4007,7 @@ row_search_idx_cond_check(
 		if (!prebuilt->need_to_access_clustered
 		    || dict_index_is_clust(prebuilt->index)) {
 			if (!row_sel_store_mysql_rec(
-				    mysql_rec, prebuilt, rec, NULL, FALSE,
+				    mysql_rec, prebuilt, rec, NULL, false,
 				    prebuilt->index, offsets)) {
 				ut_ad(dict_index_is_clust(prebuilt->index));
 				return(ICP_NO_MATCH);
@@ -4179,14 +4159,7 @@ row_search_mvcc(
 		DBUG_RETURN(DB_END_OF_INDEX);
 	}
 
-#ifdef BTR_CUR_HASH_ADAPT
-# ifdef UNIV_DEBUG
-	{
-		btrsea_sync_check	check(trx->has_search_latch);
-		ut_ad(!sync_check_iterate(check));
-	}
-# endif /* UNIV_DEBUG */
-#endif /* BTR_CUR_HASH_ADAPT */
+	ut_ad(!sync_check_iterate(sync_check()));
 
 	if (dict_table_is_discarded(prebuilt->table)) {
 
@@ -4210,8 +4183,6 @@ row_search_mvcc(
 	bool    need_vrow = dict_index_has_virtual(prebuilt->index)
 		&& (prebuilt->read_just_key
 		    || prebuilt->m_read_virtual_key);
-
-	trx_assert_no_search_latch(trx);
 
 	/* Reset the new record lock info if srv_locks_unsafe_for_binlog
 	is set or session is using a READ COMMITED isolation level. Then
@@ -4367,9 +4338,7 @@ row_search_mvcc(
 			and if we try that, we can deadlock on the adaptive
 			hash index semaphore! */
 
-			trx_assert_no_search_latch(trx);
 			rw_lock_s_lock(btr_get_search_latch(index));
-			trx->has_search_latch = true;
 
 			switch (row_sel_try_search_shortcut_for_mysql(
 					&rec, prebuilt, &offsets, &heap,
@@ -4398,7 +4367,8 @@ row_search_mvcc(
 
 				if (!row_sel_store_mysql_rec(
 					    buf, prebuilt,
-					    rec, NULL, FALSE, index, offsets)) {
+					    rec, NULL, false, index,
+					    offsets)) {
 					/* Only fresh inserts may contain
 					incomplete externally stored
 					columns. Pretend that such
@@ -4423,7 +4393,6 @@ row_search_mvcc(
 				err = DB_SUCCESS;
 
 				rw_lock_s_unlock(btr_get_search_latch(index));
-				trx->has_search_latch = false;
 
 				goto func_exit;
 
@@ -4434,7 +4403,6 @@ row_search_mvcc(
 				err = DB_RECORD_NOT_FOUND;
 
 				rw_lock_s_unlock(btr_get_search_latch(index));
-				trx->has_search_latch = false;
 
 				/* NOTE that we do NOT store the cursor
 				position */
@@ -4452,15 +4420,12 @@ row_search_mvcc(
 			mtr_start(&mtr);
 
                         rw_lock_s_unlock(btr_get_search_latch(index));
-                        trx->has_search_latch = false;
 		}
 	}
 #endif /* BTR_CUR_HASH_ADAPT */
 
 	/*-------------------------------------------------------------*/
 	/* PHASE 3: Open or restore index cursor position */
-
-	trx_assert_no_search_latch(trx);
 
 	spatial_search = dict_index_is_spatial(index)
 			 && mode >= PAGE_CUR_CONTAIN;
@@ -5152,6 +5117,10 @@ locks_ok:
 	page_rec_is_comp() cannot be used! */
 
 	if (rec_get_deleted_flag(rec, comp)) {
+		/* In delete-marked records, DB_TRX_ID must
+		always refer to an existing undo log record. */
+		ut_ad(index != clust_index
+		      || row_get_rec_trx_id(rec, index, offsets));
 
 		/* The record is delete-marked: we can skip it */
 
@@ -5361,7 +5330,7 @@ requires_clust_rec:
 			appropriate version of the clustered index record. */
 			if (!row_sel_store_mysql_rec(
 				    buf, prebuilt, result_rec, vrow,
-				    TRUE, clust_index, offsets)) {
+				    true, clust_index, offsets)) {
 				goto next_rec;
 			}
 		}
@@ -5387,7 +5356,6 @@ requires_clust_rec:
 	    && prebuilt->select_lock_type == LOCK_NONE
 	    && !prebuilt->m_no_prefetch
 	    && !prebuilt->templ_contains_blob
-	    && !prebuilt->templ_contains_fixed_point
 	    && !prebuilt->clust_index_was_generated
 	    && !prebuilt->used_in_HANDLER
 	    && prebuilt->template_type != ROW_MYSQL_DUMMY_TEMPLATE
@@ -5766,15 +5734,7 @@ func_exit:
 		}
 	}
 
-#ifdef BTR_CUR_HASH_ADAPT
-# ifdef UNIV_DEBUG
-	{
-		btrsea_sync_check	check(trx->has_search_latch);
-
-		ut_ad(!sync_check_iterate(check));
-	}
-# endif /* UNIV_DEBUG */
-#endif /* BTR_CUR_HASH_ADAPT */
+	ut_ad(!sync_check_iterate(sync_check()));
 
 	DEBUG_SYNC_C("innodb_row_search_for_mysql_exit");
 

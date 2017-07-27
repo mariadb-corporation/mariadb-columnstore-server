@@ -70,11 +70,6 @@ Created 9/17/2000 Heikki Tuuri
 #include <deque>
 #include <vector>
 
-static const char* MODIFICATIONS_NOT_ALLOWED_MSG_FORCE_RECOVERY =
-	"innodb_force_recovery is on. We do not allow database modifications"
-	" by the user. Shut down mysqld and edit my.cnf to set"
-	" innodb_force_recovery=0";
-
 /** Provide optional 4.x backwards compatibility for 5.0 and above */
 ibool	row_rollback_on_timeout	= FALSE;
 
@@ -633,8 +628,6 @@ row_mysql_store_col_in_innobase_format(
 
 		ptr = row_mysql_read_blob_ref(&col_len, mysql_data, col_len);
 	} else if (DATA_GEOMETRY_MTYPE(type)) {
-		/* We use blob to store geometry data except DATA_POINT
-		internally, but in MySQL Layer the datatype is always blob. */
 		ptr = row_mysql_read_geometry(&col_len, mysql_data, col_len);
 	}
 
@@ -1197,58 +1190,6 @@ row_get_prebuilt_insert_row(
 }
 
 /*********************************************************************//**
-Updates the table modification counter and calculates new estimates
-for table and index statistics if necessary. */
-UNIV_INLINE
-void
-row_update_statistics_if_needed(
-/*============================*/
-	dict_table_t*	table)	/*!< in: table */
-{
-	ib_uint64_t	counter;
-	ib_uint64_t	n_rows;
-
-	if (!table->stat_initialized) {
-		DBUG_EXECUTE_IF(
-			"test_upd_stats_if_needed_not_inited",
-			fprintf(stderr, "test_upd_stats_if_needed_not_inited"
-				" was executed\n");
-		);
-		return;
-	}
-
-	counter = table->stat_modified_counter++;
-	n_rows = dict_table_get_n_rows(table);
-
-	if (dict_stats_is_persistent_enabled(table)) {
-		if (counter > n_rows / 10 /* 10% */
-		    && dict_stats_auto_recalc_is_enabled(table)) {
-
-			dict_stats_recalc_pool_add(table);
-			table->stat_modified_counter = 0;
-		}
-		return;
-	}
-
-	/* Calculate new statistics if 1 / 16 of table has been modified
-	since the last time a statistics batch was run.
-	We calculate statistics at most every 16th round, since we may have
-	a counter table which is very small and updated very often. */
-	ib_uint64_t threshold= 16 + n_rows / 16; /* 6.25% */
-
-	if (srv_stats_modified_counter) {
-		threshold= ut_min((ib_uint64_t)srv_stats_modified_counter, threshold);
-	}
-
-	if (counter > threshold) {
-
-		ut_ad(!mutex_own(&dict_sys->mutex));
-		/* this will reset table->stat_modified_counter to 0 */
-		dict_stats_update(table, DICT_STATS_RECALC_TRANSIENT);
-	}
-}
-
-/*********************************************************************//**
 Sets an AUTO_INC type lock on the table mentioned in prebuilt. The
 AUTO_INC lock gives exclusive access to the auto-inc counter of the
 table. The lock is reserved only for the duration of an SQL statement.
@@ -1484,9 +1425,7 @@ row_insert_for_mysql(
 
 	} else if (!prebuilt->table->is_readable()) {
 		return(row_mysql_get_table_status(prebuilt->table, trx, true));
-	} else if (srv_force_recovery) {
-
-		ib::error() << MODIFICATIONS_NOT_ALLOWED_MSG_FORCE_RECOVERY;
+	} else if (high_level_read_only) {
 		return(DB_READ_ONLY);
 	}
 	DBUG_EXECUTE_IF("mark_table_corrupted", {
@@ -1649,7 +1588,7 @@ error_exit:
 		ut_memcpy(prebuilt->row_id, node->row_id_buf, DATA_ROW_ID_LEN);
 	}
 
-	row_update_statistics_if_needed(table);
+	dict_stats_update_if_needed(table);
 	trx->op_info = "";
 
 	if (blob_heap != NULL) {
@@ -1895,15 +1834,15 @@ row_update_for_mysql_using_upd_graph(
 	ut_ad(trx);
 	ut_a(prebuilt->magic_n == ROW_PREBUILT_ALLOCATED);
 	ut_a(prebuilt->magic_n2 == ROW_PREBUILT_ALLOCATED);
+	ut_ad(table->stat_initialized);
 	UT_NOT_USED(mysql_rec);
 
 	if (!table->is_readable()) {
 		return(row_mysql_get_table_status(table, trx, true));
 	}
 
-	if(srv_force_recovery) {
-		ib::error() << MODIFICATIONS_NOT_ALLOWED_MSG_FORCE_RECOVERY;
-		DBUG_RETURN(DB_READ_ONLY);
+	if (high_level_read_only) {
+		return(DB_READ_ONLY);
 	}
 
 	DEBUG_SYNC_C("innodb_row_update_for_mysql_begin");
@@ -1929,6 +1868,8 @@ row_update_for_mysql_using_upd_graph(
 	}
 
 	node = prebuilt->upd_node;
+	const bool is_delete = node->is_delete;
+	ut_ad(node->table == table);
 
 	if (node->cascade_heap) {
 		mem_heap_empty(node->cascade_heap);
@@ -2099,8 +2040,11 @@ run_again:
 
 	thr->fk_cascade_depth = 0;
 
-	/* Update the statistics only after completing all cascaded
-	operations */
+	/* Update the statistics of each involved table
+	only after completing all operations, including
+	FOREIGN KEY...ON...CASCADE|SET NULL. */
+	bool	update_statistics;
+
 	for (upd_cascade_t::iterator i = processed_cascades->begin();
 	     i != processed_cascades->end();
 	     ++i) {
@@ -2114,16 +2058,25 @@ run_again:
 			than protecting the following code with a latch. */
 			dict_table_n_rows_dec(node->table);
 
+			update_statistics = !srv_stats_include_delete_marked;
 			srv_stats.n_rows_deleted.inc(size_t(trx->id));
 		} else {
+			update_statistics
+				= !(node->cmpl_info & UPD_NODE_NO_ORD_CHANGE);
 			srv_stats.n_rows_updated.inc(size_t(trx->id));
 		}
 
-		row_update_statistics_if_needed(node->table);
+		if (update_statistics) {
+			dict_stats_update_if_needed(node->table);
+		} else {
+			/* Always update the table modification counter. */
+			node->table->stat_modified_counter++;
+		}
+
 		que_graph_free_recursive(node);
 	}
 
-	if (node->is_delete) {
+	if (is_delete) {
 		/* Not protected by dict_table_stats_lock() for performance
 		reasons, we would rather get garbage in stat_n_rows (which is
 		just an estimate anyway) than protecting the following code
@@ -2135,25 +2088,24 @@ run_again:
 		} else {
 			srv_stats.n_rows_deleted.inc(size_t(trx->id));
 		}
+
+		update_statistics = !srv_stats_include_delete_marked;
 	} else {
 		if (table->is_system_db) {
 			srv_stats.n_system_rows_updated.inc(size_t(trx->id));
 		} else {
 			srv_stats.n_rows_updated.inc(size_t(trx->id));
 		}
+
+		update_statistics
+			= !(node->cmpl_info & UPD_NODE_NO_ORD_CHANGE);
 	}
 
-	/* We update table statistics only if it is a DELETE or UPDATE
-	that changes indexed columns, UPDATEs that change only non-indexed
-	columns would not affect statistics. */
-	if (node->is_delete || !(node->cmpl_info & UPD_NODE_NO_ORD_CHANGE)) {
-		row_update_statistics_if_needed(prebuilt->table);
+	if (update_statistics) {
+		dict_stats_update_if_needed(prebuilt->table);
 	} else {
-		/* Update the table modification counter even when
-		non-indexed columns change if statistics is initialized. */
-		if (prebuilt->table->stat_initialized) {
-			prebuilt->table->stat_modified_counter++;
-		}
+		/* Always update the table modification counter. */
+		prebuilt->table->stat_modified_counter++;
 	}
 
 	trx->op_info = "";
@@ -3594,8 +3546,7 @@ row_drop_single_table_tablespace(
 
 	/* If the tablespace is not in the cache, just delete the file. */
 	if (!fil_space_for_table_exists_in_mem(
-		    space_id, tablename, true, false, NULL, 0, NULL,
-		    table_flags)) {
+		    space_id, tablename, true, false, NULL, 0, table_flags)) {
 
 		/* Force a delete of any discarded or temporary files. */
 		fil_delete_file(filepath);
@@ -3932,19 +3883,6 @@ row_drop_table_for_mysql(
 	/* As we don't insert entries to SYSTEM TABLES for temp-tables
 	we need to avoid running removal of these entries. */
 	if (!dict_table_is_temporary(table)) {
-
-		/* If table has not yet have crypt_data, try to read it to
-		make freeing the table easier. */
-		if (!table->crypt_data) {
-			if (fil_space_t* space = fil_space_acquire_silent(
-				    table->space)) {
-				/* We use crypt data in dict_table_t
-				in ha_innodb.cc to push warnings to
-				user thread. */
-				table->crypt_data = space->crypt_data;
-				fil_space_release(space);
-			}
-		}
 
 		/* We use the private SQL parser of Innobase to generate the
 		query graphs needed in deleting the dictionary data from system
@@ -4524,10 +4462,8 @@ row_rename_table_for_mysql(
 	ut_a(new_name != NULL);
 	ut_ad(trx->state == TRX_STATE_ACTIVE);
 
-	if (srv_force_recovery) {
-		ib::info() << MODIFICATIONS_NOT_ALLOWED_MSG_FORCE_RECOVERY;
-		err = DB_READ_ONLY;
-		goto funct_exit;
+	if (high_level_read_only) {
+		return(DB_READ_ONLY);
 
 	} else if (row_mysql_is_system_table(new_name)) {
 
@@ -5120,12 +5056,10 @@ loop:
 	case DB_INTERRUPTED:
 		goto func_exit;
 	default:
-	{
-		const char* doing = "CHECK TABLE";
-		ib::warn() << doing << " on index " << index->name << " of"
+		ib::warn() << "CHECK TABLE on index " << index->name << " of"
 			" table " << index->table->name << " returned " << ret;
-		/* fall through (this error is ignored by CHECK TABLE) */
-	}
+		/* (this error is ignored by CHECK TABLE) */
+		/* fall through */
 	case DB_END_OF_INDEX:
 		ret = DB_SUCCESS;
 func_exit:

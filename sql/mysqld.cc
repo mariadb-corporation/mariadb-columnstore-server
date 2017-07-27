@@ -79,6 +79,10 @@
 #include "sql_callback.h"
 #include "threadpool.h"
 
+#ifdef HAVE_OPENSSL
+#include <ssl_compat.h>
+#endif
+
 #ifdef WITH_PERFSCHEMA_STORAGE_ENGINE
 #include "../storage/perfschema/pfs_server.h"
 #endif /* WITH_PERFSCHEMA_STORAGE_ENGINE */
@@ -105,6 +109,7 @@
 #include "sp_rcontext.h"
 #include "sp_cache.h"
 #include "sql_reload.h"  // reload_acl_and_cache
+#include "pcre.h"
 
 #ifdef HAVE_POLL_H
 #include <poll.h>
@@ -337,12 +342,8 @@ static PSI_thread_key key_thread_handle_con_sockets;
 static PSI_thread_key key_thread_handle_shutdown;
 #endif /* __WIN__ */
 
-#ifdef HAVE_OPENSSL
-#include <ssl_compat.h>
-
 #ifdef HAVE_OPENSSL10
 static PSI_rwlock_key key_rwlock_openssl;
-#endif
 #endif
 #endif /* HAVE_PSI_INTERFACE */
 
@@ -364,6 +365,7 @@ static bool volatile select_thread_in_use, signal_thread_in_use;
 static volatile bool ready_to_exit;
 static my_bool opt_debugging= 0, opt_external_locking= 0, opt_console= 0;
 static my_bool opt_short_log_format= 0, opt_silent_startup= 0;
+bool my_disable_leak_check= false;
 
 uint kill_cached_threads;
 static uint wake_thread;
@@ -2154,7 +2156,7 @@ static void mysqld_exit(int exit_code)
   shutdown_performance_schema();        // we do it as late as possible
 #endif
   set_malloc_size_cb(NULL);
-  if (!opt_debugging)
+  if (!opt_debugging && !my_disable_leak_check)
   {
     DBUG_ASSERT(global_status_var.global_memory_used == 0);
   }
@@ -3724,6 +3726,7 @@ static void init_libstrings()
 #endif
 }
 
+ulonglong my_pcre_frame_size;
 
 static void init_pcre()
 {
@@ -3731,6 +3734,8 @@ static void init_pcre()
   pcre_free= pcre_stack_free= my_str_free_mysqld;
 #ifndef EMBEDDED_LIBRARY
   pcre_stack_guard= check_enough_stack_size_slow;
+  /* See http://pcre.org/original/doc/html/pcrestack.html */
+  my_pcre_frame_size= -pcre_exec(NULL, NULL, NULL, -999, -999, 0, NULL, 0) + 16;
 #endif
 }
 
@@ -4032,8 +4037,9 @@ static void my_malloc_size_cb_func(long long size, my_bool is_thread_specific)
                         (longlong) thd->status_var.local_memory_used,
                         size));
     thd->status_var.local_memory_used+= size;
-    if (thd->status_var.local_memory_used > (int64)thd->variables.max_mem_used &&
-        !thd->killed)
+    if (size > 0 &&
+        thd->status_var.local_memory_used > (int64)thd->variables.max_mem_used &&
+        !thd->killed && !thd->get_stmt_da()->is_set())
     {
       char buf[1024];
       thd->killed= KILL_QUERY;
@@ -4122,7 +4128,6 @@ static int init_common_variables()
   init_libstrings();
   tzset();			// Set tzname
 
-  sf_leaking_memory= 0; // no memory leaks from now on
 #ifdef SAFEMALLOC
   sf_malloc_dbug_id= mariadb_dbug_id;
 #endif
@@ -4136,23 +4141,22 @@ static int init_common_variables()
   if (!global_rpl_filter || !binlog_filter)
   {
     sql_perror("Could not allocate replication and binlog filters");
-    return 1;
+    exit(1);
   }
 
 #ifdef HAVE_OPENSSL
   if (check_openssl_compatibility())
   {
     sql_print_error("Incompatible OpenSSL version. Cannot continue...");
-    return 1;
+    exit(1);
   }
 #endif
 
-  if (init_thread_environment() ||
-      mysql_init_variables())
-    return 1;
+  if (init_thread_environment() || mysql_init_variables())
+    exit(1);
 
   if (ignore_db_dirs_init())
-    return 1;
+    exit(1);
 
 #ifdef HAVE_TZNAME
   struct tm tm_tmp;
@@ -4206,7 +4210,7 @@ static int init_common_variables()
   if (!IS_TIME_T_VALID_FOR_TIMESTAMP(server_start_time))
   {
     sql_print_error("This MySQL server doesn't support dates later then 2038");
-    return 1;
+    exit(1);
   }
 
   opt_log_basename= const_cast<char *>("mysql");
@@ -4255,7 +4259,7 @@ static int init_common_variables()
     new entries could be added to that list.
   */
   if (add_status_vars(status_vars))
-    return 1; // an error was already reported
+    exit(1); // an error was already reported
 
 #ifndef DBUG_OFF
   /*
@@ -4286,7 +4290,7 @@ static int init_common_variables()
 #endif
 
   if (get_options(&remaining_argc, &remaining_argv))
-    return 1;
+    exit(1);
   if (IS_SYSVAR_AUTOSIZE(&server_version_ptr))
     set_server_version(server_version, sizeof(server_version));
 
@@ -4304,6 +4308,8 @@ static int init_common_variables()
                             (ulong) getpid());
     }
   }
+
+  sf_leaking_memory= 0; // no memory leaks from now on
 
 #ifndef EMBEDDED_LIBRARY
   if (opt_abort && !opt_verbose)
@@ -8245,7 +8251,7 @@ static int show_default_keycache(THD *thd, SHOW_VAR *var, char *buff,
 {
   struct st_data {
     KEY_CACHE_STATISTICS stats;
-    SHOW_VAR var[8];
+    SHOW_VAR var[9];
   } *data;
   SHOW_VAR *v;
 
@@ -9355,7 +9361,10 @@ mysql_getopt_value(const char *name, uint length,
       return (uchar**) &key_cache->changed_blocks_hash_size;
     }
   }
+  /* We return in all cases above. Let us silence -Wimplicit-fallthrough */
+  DBUG_ASSERT(0);
 #ifdef HAVE_REPLICATION
+  /* fall through */
   case OPT_REPLICATE_DO_DB:
   case OPT_REPLICATE_DO_TABLE:
   case OPT_REPLICATE_IGNORE_DB:

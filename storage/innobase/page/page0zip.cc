@@ -66,12 +66,12 @@ page_zip_stat_t		page_zip_stat[PAGE_ZIP_SSIZE_MAX];
 /** Statistics on compression, indexed by index->id */
 page_zip_stat_per_index_t	page_zip_stat_per_index;
 
-/* Compression level to be used by zlib. Settable by user. */
-uint	page_zip_level = DEFAULT_COMPRESSION_LEVEL;
+/** Compression level to be used by zlib. Settable by user. */
+uint	page_zip_level;
 
-/* Whether or not to log compressed page images to avoid possible
+/** Whether or not to log compressed page images to avoid possible
 compression algorithm changes in zlib. */
-my_bool	page_zip_log_pages = true;
+my_bool	page_zip_log_pages;
 
 /* Please refer to ../include/page0zip.ic for a description of the
 compressed page format. */
@@ -3711,6 +3711,10 @@ page_zip_write_rec(
 	ut_a(slot);
 	/* Copy the delete mark. */
 	if (rec_get_deleted_flag(rec, TRUE)) {
+		/* In delete-marked records, DB_TRX_ID must
+		always refer to an existing undo log record. */
+		ut_ad(!dict_index_is_clust(index)
+		      || row_get_rec_trx_id(rec, index, offsets));
 		*slot |= PAGE_ZIP_DIR_SLOT_DEL >> 8;
 	} else {
 		*slot &= ~(PAGE_ZIP_DIR_SLOT_DEL >> 8);

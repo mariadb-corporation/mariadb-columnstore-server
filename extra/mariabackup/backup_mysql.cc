@@ -54,6 +54,7 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 #include "mysqld.h"
 #include "encryption_plugin.h"
 #include <sstream>
+#include <sql_error.h>
 
 
 char *tool_name;
@@ -344,7 +345,8 @@ get_mysql_vars(MYSQL *connection)
 	char *innodb_data_home_dir_var = NULL;
 	char *innodb_undo_directory_var = NULL;
 	char *innodb_page_size_var = NULL;
-
+	char *innodb_undo_tablespaces_var = NULL;
+	char *endptr;
 	unsigned long server_version = mysql_get_server_version(connection);
 
 	bool ret = true;
@@ -372,6 +374,7 @@ get_mysql_vars(MYSQL *connection)
 		{"innodb_data_home_dir", &innodb_data_home_dir_var},
 		{"innodb_undo_directory", &innodb_undo_directory_var},
 		{"innodb_page_size", &innodb_page_size_var},
+		{"innodb_undo_tablespaces", &innodb_undo_tablespaces_var},
 		{NULL, NULL}
 	};
 
@@ -460,59 +463,52 @@ get_mysql_vars(MYSQL *connection)
 	}
 
 	/* get some default values is they are missing from my.cnf */
-	if (!check_if_param_set("datadir") && datadir_var && *datadir_var) {
+	if (datadir_var && *datadir_var) {
 		strmake(mysql_real_data_home, datadir_var, FN_REFLEN - 1);
 		mysql_data_home= mysql_real_data_home;
 	}
 
-	if (!check_if_param_set("innodb_data_file_path")
-	    && innodb_data_file_path_var && *innodb_data_file_path_var) {
+	if (innodb_data_file_path_var && *innodb_data_file_path_var) {
 		innobase_data_file_path = my_strdup(
 			innodb_data_file_path_var, MYF(MY_FAE));
 	}
 
-	if (!check_if_param_set("innodb_data_home_dir")
-	    && innodb_data_home_dir_var && *innodb_data_home_dir_var) {
+	if (innodb_data_home_dir_var && *innodb_data_home_dir_var) {
 		innobase_data_home_dir = my_strdup(
 			innodb_data_home_dir_var, MYF(MY_FAE));
 	}
 
-	if (!check_if_param_set("innodb_log_group_home_dir")
-	    && innodb_log_group_home_dir_var
+	if (innodb_log_group_home_dir_var
 	    && *innodb_log_group_home_dir_var) {
 		srv_log_group_home_dir = my_strdup(
 			innodb_log_group_home_dir_var, MYF(MY_FAE));
 	}
 
-	if (!check_if_param_set("innodb_undo_directory")
-	    && innodb_undo_directory_var && *innodb_undo_directory_var) {
+	if (innodb_undo_directory_var && *innodb_undo_directory_var) {
 		srv_undo_dir = my_strdup(
 			innodb_undo_directory_var, MYF(MY_FAE));
 	}
 
-	if (!check_if_param_set("innodb_log_files_in_group")
-	    && innodb_log_files_in_group_var) {
-		char *endptr;
-
-		innobase_log_files_in_group = strtol(
+	if (innodb_log_files_in_group_var) {
+		srv_n_log_files = strtol(
 			innodb_log_files_in_group_var, &endptr, 10);
 		ut_ad(*endptr == 0);
 	}
 
-	if (!check_if_param_set("innodb_log_file_size")
-	    && innodb_log_file_size_var) {
-		char *endptr;
-
-		innobase_log_file_size = strtoll(
+	if (innodb_log_file_size_var) {
+		srv_log_file_size = strtoll(
 			innodb_log_file_size_var, &endptr, 10);
 		ut_ad(*endptr == 0);
 	}
 
-	if (!check_if_param_set("innodb_page_size") && innodb_page_size_var) {
-		char *endptr;
-
+	if (innodb_page_size_var) {
 		innobase_page_size = strtoll(
 			innodb_page_size_var, &endptr, 10);
+		ut_ad(*endptr == 0);
+	}
+
+	if (innodb_undo_tablespaces_var) {
+		srv_undo_tablespaces = strtoul(innodb_undo_tablespaces_var, &endptr, 10);
 		ut_ad(*endptr == 0);
 	}
 
@@ -850,9 +846,9 @@ static
 void
 start_query_killer()
 {
-	kill_query_thread_stop		= os_event_create();
-	kill_query_thread_started	= os_event_create();
-	kill_query_thread_stopped	= os_event_create();
+	kill_query_thread_stop		= os_event_create(0);
+	kill_query_thread_started	= os_event_create(0);
+	kill_query_thread_stopped	= os_event_create(0);
 
 	os_thread_create(kill_query_thread, NULL, &kill_query_thread_id);
 
@@ -1368,17 +1364,27 @@ cleanup:
 	return(result);
 }
 
-static string escape_and_quote(MYSQL *mysql,const char *str)
+struct escape_and_quote
 {
-	if (!str)
-		return "NULL";
-	size_t len = strlen(str);
-	char* escaped = (char *)alloca(2 * len + 3);
-	escaped[0] = '\'';
-	size_t new_len = mysql_real_escape_string(mysql, escaped+1, str, len);
-	escaped[new_len + 1] = '\'';
-	escaped[new_len + 2] = 0;
-	return string(escaped);
+	escape_and_quote(MYSQL *mysql, const char *str)
+		: mysql(mysql), str(str) {}
+	MYSQL * const mysql;
+	const char * const str;
+};
+
+static
+std::ostream&
+operator<<(std::ostream& s, const escape_and_quote& eq)
+{
+	if (!eq.str)
+		return s << "NULL";
+	s << '\'';
+	size_t len = strlen(eq.str);
+	char* escaped = (char *)alloca(2 * len + 1);
+	len = mysql_real_escape_string(eq.mysql, escaped, eq.str, len);
+	s << std::string(escaped, len);
+	s << '\'';
+	return s;
 }
 
 /*********************************************************************//**
@@ -1395,11 +1401,8 @@ write_xtrabackup_info(MYSQL *connection)
 	char buf_start_time[100];
 	char buf_end_time[100];
 	tm tm;
-	ostringstream oss;
+	std::ostringstream oss;
 	const char *xb_stream_name[] = {"file", "tar", "xbstream"};
-
-
-	ut_ad(xtrabackup_stream_fmt < 3);
 
 	uuid = read_mysql_one_value(connection, "SELECT UUID()");
 	server_version = read_mysql_one_value(connection, "SELECT VERSION()");
@@ -1435,9 +1438,7 @@ write_xtrabackup_info(MYSQL *connection)
 		"partial = %s\n"
 		"incremental = %s\n"
 		"format = %s\n"
-		"compact = %s\n"
-		"compressed = %s\n"
-		"encrypted = %s\n",
+		"compressed = %s\n",
 		uuid, /* uuid */
 		opt_history ? opt_history : "",  /* name */
 		tool_name,  /* tool_name */
@@ -1455,9 +1456,7 @@ write_xtrabackup_info(MYSQL *connection)
 		is_partial? "Y" : "N",
 		xtrabackup_incremental ? "Y" : "N", /* incremental */
 		xb_stream_name[xtrabackup_stream_fmt], /* format */
-		"N", /* compact */
-		xtrabackup_compress ? "compressed" : "N", /* compressed */
-		xtrabackup_encrypt ? "Y" : "N"); /* encrypted */
+		xtrabackup_compress ? "compressed" : "N"); /* compressed */
 
 	if (!opt_history) {
 		goto cleanup;
@@ -1483,9 +1482,7 @@ write_xtrabackup_info(MYSQL *connection)
 		"partial ENUM('Y', 'N') DEFAULT NULL,"
 		"incremental ENUM('Y', 'N') DEFAULT NULL,"
 		"format ENUM('file', 'tar', 'xbstream') DEFAULT NULL,"
-		"compact ENUM('Y', 'N') DEFAULT NULL,"
-		"compressed ENUM('Y', 'N') DEFAULT NULL,"
-		"encrypted ENUM('Y', 'N') DEFAULT NULL"
+		"compressed ENUM('Y', 'N') DEFAULT NULL"
 		") CHARACTER SET utf8 ENGINE=innodb", false);
 
 
@@ -1495,8 +1492,8 @@ write_xtrabackup_info(MYSQL *connection)
 		<< "uuid, name, tool_name, tool_command, tool_version,"
 		<< "ibbackup_version, server_version, start_time, end_time,"
 		<< "lock_time, binlog_pos, innodb_from_lsn, innodb_to_lsn,"
-		<< "partial, incremental, format, compact, compressed, "
-		<< "encrypted) values("
+		<< "partial, incremental, format, compressed) "
+		<< "values("
 		<< escape_and_quote(connection, uuid) << ","
 		<< escape_and_quote(connection, opt_history) << ","
 		<< escape_and_quote(connection, tool_name) << ","
@@ -1513,9 +1510,7 @@ write_xtrabackup_info(MYSQL *connection)
 		<< ESCAPE_BOOL(is_partial) << ","
 		<< ESCAPE_BOOL(xtrabackup_incremental)<< ","
 		<< escape_and_quote(connection,xb_stream_name[xtrabackup_stream_fmt]) <<","
-		<< ESCAPE_BOOL(false) << ","
-		<< ESCAPE_BOOL(xtrabackup_compress) << ","
-		<< ESCAPE_BOOL(xtrabackup_encrypt) <<")";
+		<< ESCAPE_BOOL(xtrabackup_compress) << ")";
 
 	xb_mysql_query(mysql_connection, oss.str().c_str(), false);
 
@@ -1536,28 +1531,21 @@ bool write_backup_config_file()
 		"# The MySQL server\n"
 		"[mysqld]\n"
 		"innodb_checksum_algorithm=%s\n"
-		"innodb_log_checksum_algorithm=%s\n"
 		"innodb_data_file_path=%s\n"
 		"innodb_log_files_in_group=%lu\n"
-		"innodb_log_file_size=%lld\n"
+		"innodb_log_file_size=%llu\n"
 		"innodb_page_size=%lu\n"
-		"innodb_log_block_size=%lu\n"
 		"innodb_undo_directory=%s\n"
 		"innodb_undo_tablespaces=%lu\n"
 		"%s%s\n"
-		"%s%s\n"
 		"%s\n",
 		innodb_checksum_algorithm_names[srv_checksum_algorithm],
-		innodb_checksum_algorithm_names[srv_log_checksum_algorithm],
 		innobase_data_file_path,
 		srv_n_log_files,
-		innobase_log_file_size,
+		srv_log_file_size,
 		srv_page_size,
-		srv_log_block_size,
 		srv_undo_dir,
 		srv_undo_tablespaces,
-		innobase_doublewrite_file ? "innodb_doublewrite_file=" : "",
-		innobase_doublewrite_file ? innobase_doublewrite_file : "",
 		innobase_buffer_pool_filename ?
 			"innodb_buffer_pool_filename=" : "",
 		innobase_buffer_pool_filename ?
@@ -1580,14 +1568,6 @@ char *make_argv(char *buf, size_t len, int argc, char **argv)
 		arg = *argv;
 		if (strncmp(*argv, "--password", strlen("--password")) == 0) {
 			arg = "--password=...";
-		}
-		if (strncmp(*argv, "--encrypt-key",
-				strlen("--encrypt-key")) == 0) {
-			arg = "--encrypt-key=...";
-		}
-		if (strncmp(*argv, "--encrypt_key",
-				strlen("--encrypt_key")) == 0) {
-			arg = "--encrypt_key=...";
 		}
 		left-= ut_snprintf(buf + len - left, left,
 			"%s%c", arg, argc > 1 ? ' ' : 0);

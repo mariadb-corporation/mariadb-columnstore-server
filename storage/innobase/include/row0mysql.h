@@ -204,6 +204,7 @@ row_update_prebuilt_trx(
 	row_prebuilt_t*	prebuilt,	/*!< in/out: prebuilt struct
 					in MySQL handle */
 	trx_t*		trx);		/*!< in: transaction handle */
+
 /*********************************************************************//**
 Sets an AUTO_INC type lock on the table mentioned in prebuilt. The
 AUTO_INC lock gives exclusive access to the auto-inc counter of the
@@ -680,12 +681,6 @@ struct row_prebuilt_t {
 					not to be confused with InnoDB
 					externally stored columns
 					(VARCHAR can be off-page too) */
-	unsigned	templ_contains_fixed_point:1;/*!< TRUE if the
-					template contains a column with
-					DATA_POINT. Since InnoDB regards
-					DATA_POINT as non-BLOB type, the
-					templ_contains_blob can't tell us
-					if there is DATA_POINT */
 	mysql_row_templ_t* mysql_template;/*!< template used to transform
 					rows fast between MySQL and Innobase
 					formats; memory for this template

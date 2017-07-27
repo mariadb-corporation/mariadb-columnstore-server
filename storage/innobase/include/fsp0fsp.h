@@ -397,18 +397,12 @@ fsp_header_init_fields(
 	ulint	space_id,	/*!< in: space id */
 	ulint	flags);		/*!< in: tablespace flags (FSP_SPACE_FLAGS):
 				0, or table->flags if newer than COMPACT */
-
-/** Initializes the space header of a new created space and creates also the
-insert buffer tree root if space == 0.
+/** Initialize a tablespace header.
 @param[in]	space_id	space id
 @param[in]	size		current size in blocks
-@param[in,out]	mtr		min-transaction
-@return	true on success, otherwise false. */
-bool
-fsp_header_init(
-	ulint	space_id,
-	ulint	size,
-	mtr_t*	mtr);
+@param[in,out]	mtr		mini-transaction */
+void
+fsp_header_init(ulint space_id, ulint size, mtr_t* mtr);
 
 /**********************************************************************//**
 Increases the space size field of a space. */
@@ -785,7 +779,7 @@ fsp_flags_convert_from_101(ulint flags)
 	flags = ((flags & 0x3f) | ssize << FSP_FLAGS_POS_PAGE_SSIZE
 		 | FSP_FLAGS_GET_PAGE_COMPRESSION_MARIADB101(flags)
 		 << FSP_FLAGS_POS_PAGE_COMPRESSION);
-	ut_ad(fsp_flags_is_valid(flags));
+	ut_ad(fsp_flags_is_valid(flags, false));
 	return(flags);
 }
 
@@ -799,7 +793,7 @@ bool
 fsp_flags_match(ulint expected, ulint actual)
 {
 	expected &= ~FSP_FLAGS_MEM_MASK;
-	ut_ad(fsp_flags_is_valid(expected));
+	ut_ad(fsp_flags_is_valid(expected, false));
 
 	if (actual == expected) {
 		return(true);

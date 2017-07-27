@@ -1773,11 +1773,6 @@ public:
   Item_func_isnull(THD *thd, Item *a): Item_func_null_predicate(thd, a) {}
   longlong val_int();
   enum Functype functype() const { return ISNULL_FUNC; }
-  void fix_length_and_dec()
-  {
-    Item_func_null_predicate::fix_length_and_dec();
-    update_used_tables();
-  }
   const char *func_name() const { return "isnull"; }
   void print(String *str, enum_query_type query_type);
   enum precedence precedence() const { return CMP_PRECEDENCE; }
@@ -2015,6 +2010,7 @@ public:
 class Regexp_processor_pcre
 {
   pcre *m_pcre;
+  pcre_extra m_pcre_extra;
   bool m_conversion_is_needed;
   bool m_is_const;
   int m_library_flags;
@@ -2023,7 +2019,6 @@ class Regexp_processor_pcre
   String m_prev_pattern;
   int m_pcre_exec_rc;
   int m_SubStrVec[30];
-  uint m_subpatterns_needed;
   void pcre_exec_warn(int rc) const;
   int pcre_exec_with_warn(const pcre *code, const pcre_extra *extra,
                           const char *subject, int length, int startoffset,
@@ -2037,11 +2032,14 @@ public:
     m_pcre(NULL), m_conversion_is_needed(true), m_is_const(0),
     m_library_flags(0),
     m_data_charset(&my_charset_utf8_general_ci),
-    m_library_charset(&my_charset_utf8_general_ci),
-    m_subpatterns_needed(0)
-  {}
+    m_library_charset(&my_charset_utf8_general_ci)
+  {
+    m_pcre_extra.flags= PCRE_EXTRA_MATCH_LIMIT_RECURSION;
+    m_pcre_extra.match_limit_recursion= 100L;
+  }
   int default_regex_flags();
-  void init(CHARSET_INFO *data_charset, int extra_flags, uint nsubpatterns_arg)
+  void set_recursion_limit(THD *);
+  void init(CHARSET_INFO *data_charset, int extra_flags)
   {
     m_library_flags= default_regex_flags() | extra_flags |
                     (data_charset != &my_charset_bin ?
@@ -2055,7 +2053,6 @@ public:
 
     m_conversion_is_needed= (data_charset != &my_charset_bin) &&
                             !my_charset_same(data_charset, m_library_charset);
-    m_subpatterns_needed= nsubpatterns_arg;
   }
   void fix_owner(Item_func *owner, Item *subject_arg, Item *pattern_arg);
   bool compile(String *pattern, bool send_error);
@@ -2081,14 +2078,15 @@ public:
   {
     return subpattern_end(n) - subpattern_start(n);
   }
+  void reset()
+  {
+    m_pcre= NULL;
+    m_prev_pattern.length(0);
+  }
   void cleanup()
   {
-    if (m_pcre)
-    {
-      pcre_free(m_pcre);
-      m_pcre= NULL;
-    }
-    m_prev_pattern.length(0);
+    pcre_free(m_pcre);
+    reset();
   }
   bool is_compiled() const { return m_pcre != NULL; }
   bool is_const() const { return m_is_const; }
@@ -2117,6 +2115,13 @@ public:
   enum precedence precedence() const { return CMP_PRECEDENCE; }
   Item *get_copy(THD *thd, MEM_ROOT *mem_root)
   { return get_item_copy<Item_func_regex>(thd, mem_root, this); }
+  Item *build_clone(THD *thd, MEM_ROOT *mem_root)
+  {
+    Item_func_regex *clone= (Item_func_regex*) Item_bool_func::build_clone(thd, mem_root);
+    if (clone)
+      clone->re.reset();
+    return clone;
+  }
 
   void print(String *str, enum_query_type query_type)
   {
@@ -2397,6 +2402,14 @@ public:
   void set_context_field(Item_field *ctx_field) { context_field= ctx_field; }
   void set_link_equal_fields(bool flag) { link_equal_fields= flag; }
   Item* get_copy(THD *thd, MEM_ROOT *mem_root) { return 0; }
+  /*
+    This does not comply with the specification of the virtual method,
+    but Item_equal items are processed distinguishly anyway
+  */
+  bool excl_dep_on_table(table_map tab_map)
+  {
+    return used_tables() & tab_map;
+  }
   friend class Item_equal_fields_iterator;
   bool count_sargable_conds(void *arg);
   friend class Item_equal_iterator<List_iterator_fast,Item>;

@@ -2603,7 +2603,6 @@ static MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_upd_clust_rec_by_insert(
 /*========================*/
-	ulint		flags,  /*!< in: undo logging and locking flags */
 	upd_node_t*	node,	/*!< in/out: row update node */
 	dict_index_t*	index,	/*!< in: clustered index of the record */
 	que_thr_t*	thr,	/*!< in: query thread */
@@ -2664,7 +2663,8 @@ row_upd_clust_rec_by_insert(
 			marked, then we are here after a DB_LOCK_WAIT.
 			Skip delete marking clustered index and disowning
 			its blobs. */
-			ut_ad(rec_get_trx_id(rec, index) == trx->id);
+			ut_ad(row_get_rec_trx_id(rec, index, offsets)
+			      == trx->id);
 			ut_ad(!trx_undo_roll_ptr_is_insert(
 			              row_get_rec_roll_ptr(rec, index,
 							   offsets)));
@@ -2672,7 +2672,7 @@ row_upd_clust_rec_by_insert(
 		}
 
 		err = btr_cur_del_mark_set_clust_rec(
-			flags, btr_cur_get_block(btr_cur), rec, index, offsets,
+			btr_cur_get_block(btr_cur), rec, index, offsets,
 			thr, node->row, mtr);
 		if (err != DB_SUCCESS) {
 err_exit:
@@ -2913,7 +2913,6 @@ static MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_upd_del_mark_clust_rec(
 /*=======================*/
-	ulint		flags,  /*!< in: undo logging and locking flags */
 	upd_node_t*	node,	/*!< in: row update node */
 	dict_index_t*	index,	/*!< in: clustered index */
 	ulint*		offsets,/*!< in/out: rec_get_offsets() for the
@@ -2951,7 +2950,7 @@ row_upd_del_mark_clust_rec(
 	rec = btr_cur_get_rec(btr_cur);
 
 	err = btr_cur_del_mark_set_clust_rec(
-		flags, btr_cur_get_block(btr_cur), rec,
+		btr_cur_get_block(btr_cur), rec,
 		index, offsets, thr, node->row, mtr);
 
 	if (err == DB_SUCCESS && referenced) {
@@ -3020,7 +3019,6 @@ row_upd_clust_step(
 	ulint		offsets_[REC_OFFS_NORMAL_SIZE];
 	ulint*		offsets;
 	ibool		referenced;
-	ulint		flags;
 	ibool		foreign = FALSE;
 	trx_t*		trx = thr_get_trx(thr);
 
@@ -3046,11 +3044,10 @@ row_upd_clust_step(
 	server or connection lifetime and so REDO information is not needed
 	on restart for recovery.
 	Disable locking as temp-tables are not shared across connection. */
-	if (dict_table_is_temporary(index->table)) {
-		flags = BTR_NO_LOCKING_FLAG;
+	const ulint flags = dict_table_is_temporary(index->table)
+		? BTR_NO_LOCKING_FLAG : 0;
+	if (flags) {
 		mtr.set_log_mode(MTR_LOG_NO_REDO);
-	} else {
-		flags = 0;
 	}
 
 	/* If the restoration does not succeed, then the same
@@ -3118,9 +3115,9 @@ row_upd_clust_step(
 	offsets = rec_get_offsets(rec, index, offsets_,
 				  ULINT_UNDEFINED, &heap);
 
-	if (!node->has_clust_rec_x_lock) {
+	if (!flags && !node->has_clust_rec_x_lock) {
 		err = lock_clust_rec_modify_check_and_lock(
-			flags, btr_pcur_get_block(pcur),
+			0, btr_pcur_get_block(pcur),
 			rec, index, offsets, thr);
 		if (err != DB_SUCCESS) {
 			mtr_commit(&mtr);
@@ -3136,7 +3133,7 @@ row_upd_clust_step(
 
 	if (node->is_delete) {
 		err = row_upd_del_mark_clust_rec(
-			flags, node, index, offsets, thr, referenced, foreign, &mtr);
+			node, index, offsets, thr, referenced, foreign, &mtr);
 
 		if (err == DB_SUCCESS) {
 			node->state = UPD_NODE_UPDATE_ALL_SEC;
@@ -3182,7 +3179,7 @@ row_upd_clust_step(
 		externally! */
 
 		err = row_upd_clust_rec_by_insert(
-			flags, node, index, thr, referenced, foreign, &mtr);
+			node, index, thr, referenced, foreign, &mtr);
 		if (err != DB_SUCCESS) {
 
 			goto exit_func;
@@ -3229,7 +3226,7 @@ row_upd(
 	ut_ad(!thr_get_trx(thr)->in_rollback);
 
 	DBUG_PRINT("row_upd", ("table: %s", node->table->name.m_name));
-	DBUG_PRINT("row_upd", ("info bits in update vector: 0x%lx",
+	DBUG_PRINT("row_upd", ("info bits in update vector: 0x" ULINTPFx,
 			       node->update ? node->update->info_bits: 0));
 	DBUG_PRINT("row_upd", ("foreign_id: %s",
 			       node->foreign ? node->foreign->id: "NULL"));

@@ -82,7 +82,7 @@ static my_bool non_blocking_api_enabled= 0;
 #define MAX_DELIMITER_LENGTH 16
 #define DEFAULT_MAX_CONN        64
 
-#define DIE_BUFF_SIZE           8192
+#define DIE_BUFF_SIZE           256*1024
 
 /* Flags controlling send and reap */
 #define QUERY_SEND_FLAG  1
@@ -602,7 +602,7 @@ void do_eval(DYNAMIC_STRING *query_eval, const char *query,
 void str_to_file(const char *fname, char *str, int size);
 void str_to_file2(const char *fname, char *str, int size, my_bool append);
 
-void fix_win_paths(char *val, int len);
+void fix_win_paths(char *val, size_t len);
 const char *get_errname_from_code (uint error_code);
 int multi_reg_replace(struct st_replace_regex* r,char* val);
 
@@ -1721,12 +1721,22 @@ int cat_file(DYNAMIC_STRING* ds, const char* filename)
 {
   int fd;
   size_t len;
-  char buff[16384];
+  char *buff;
 
   if ((fd= my_open(filename, O_RDONLY, MYF(0))) < 0)
     return 1;
-  while((len= my_read(fd, (uchar*)&buff,
-                      sizeof(buff)-1, MYF(0))) > 0)
+
+  len= (size_t) my_seek(fd, 0, SEEK_END, MYF(0));
+  my_seek(fd, 0, SEEK_SET, MYF(0));
+  if (len == (size_t)MY_FILEPOS_ERROR ||
+      !(buff= (char*)my_malloc(len + 1, MYF(0))))
+  {
+    my_close(fd, MYF(0));
+    return 1;
+  }
+  len= my_read(fd, (uchar*)buff, len, MYF(0));
+  my_close(fd, MYF(0));
+
   {
     char *p= buff, *start= buff,*end=buff+len;
     while (p < end)
@@ -1749,7 +1759,7 @@ int cat_file(DYNAMIC_STRING* ds, const char* filename)
     *p= 0;
     replace_dynstr_append_mem(ds, start, p-start);
   }
-  my_close(fd, MYF(0));
+  my_free(buff);
   return 0;
 }
 
@@ -2642,6 +2652,7 @@ void var_query_set(VAR *var, const char *query, const char** query_end)
   if (!mysql)
   {
     struct st_command command;
+    DBUG_ASSERT(query_end);
     memset(&command, 0, sizeof(command));
     command.query= (char*)query;
     command.first_word_len= (*query_end - query);
@@ -6491,6 +6502,16 @@ my_bool end_of_query(int c)
 }
 
 
+static inline bool is_escape_char(char c, char in_string)
+{
+  if (c != '\\' || in_string == '`') return false;
+  if (!cur_con) return true;
+  uint server_status= cur_con->mysql->server_status;
+  if (server_status & SERVER_STATUS_NO_BACKSLASH_ESCAPES) return false;
+  return !(server_status & SERVER_STATUS_ANSI_QUOTES && in_string == '"');
+}
+
+
 /*
   Read one "line" from the file
 
@@ -6517,7 +6538,7 @@ my_bool end_of_query(int c)
 
 int read_line(char *buf, int size)
 {
-  char c, UNINIT_VAR(last_quote), last_char= 0;
+  char c, last_quote=0, last_char= 0;
   char *p= buf, *buf_end= buf + size - 1;
   int skip_char= 0;
   my_bool have_slash= FALSE;
@@ -6599,7 +6620,7 @@ int read_line(char *buf, int size)
 	  state= R_Q;
 	}
       }
-      have_slash= (c == '\\');
+      have_slash= is_escape_char(c, last_quote);
       break;
 
     case R_COMMENT:
@@ -6669,7 +6690,7 @@ int read_line(char *buf, int size)
     case R_Q:
       if (c == last_quote)
 	state= R_NORMAL;
-      else if (c == '\\')
+      else if (is_escape_char(c, last_quote))
 	state= R_SLASH_IN_Q;
       break;
 
@@ -7448,7 +7469,7 @@ void free_win_path_patterns()
   => all \ from c:\mysql\m... until next space is converted into /
 */
 
-void fix_win_paths(char *val, int len)
+void fix_win_paths(char *val, size_t len)
 {
 #ifdef _WIN32
   uint i;

@@ -25,6 +25,7 @@ Created 2/25/1997 Heikki Tuuri
 
 #include "row0uins.h"
 #include "dict0dict.h"
+#include "dict0stats.h"
 #include "dict0boot.h"
 #include "dict0crea.h"
 #include "trx0undo.h"
@@ -229,6 +230,14 @@ row_undo_ins_remove_sec_low(
 	case ROW_NOT_FOUND:
 		goto func_exit;
 	case ROW_FOUND:
+		if (dict_index_is_spatial(index)
+		    && rec_get_deleted_flag(
+			    btr_pcur_get_rec(&pcur),
+			    dict_table_is_comp(index->table))) {
+			ib::error() << "Record found in index " << index->name
+				<< " is deleted marked on insert rollback.";
+			ut_ad(0);
+		}
 		break;
 
 	case ROW_BUFFERED:
@@ -237,15 +246,6 @@ row_undo_ins_remove_sec_low(
 		to row_search_index_entry() did not include any of the
 		flags BTR_INSERT, BTR_DELETE, or BTR_DELETE_MARK. */
 		ut_error;
-	}
-
-	if (search_result == ROW_FOUND && dict_index_is_spatial(index)) {
-		rec_t*	rec = btr_pcur_get_rec(&pcur);
-		if (rec_get_deleted_flag(rec,
-					 dict_table_is_comp(index->table))) {
-			ib::error() << "Record found in index " << index->name
-				<< " is deleted marked on insert rollback.";
-		}
 	}
 
 	btr_cur = btr_pcur_get_btr_cur(&pcur);
@@ -507,6 +507,23 @@ row_undo_ins(
 		    && !dict_locked) {
 
 			mutex_exit(&dict_sys->mutex);
+		}
+
+		if (err == DB_SUCCESS && node->table->stat_initialized) {
+			/* Not protected by dict_table_stats_lock() for
+			performance reasons, we would rather get garbage
+			in stat_n_rows (which is just an estimate anyway)
+			than protecting the following code with a latch. */
+			dict_table_n_rows_dec(node->table);
+
+			/* Do not attempt to update statistics when
+			executing ROLLBACK in the InnoDB SQL
+			interpreter, because in that case we would
+			already be holding dict_sys->mutex, which
+			would be acquired when updating statistics. */
+			if (!dict_locked) {
+				dict_stats_update_if_needed(node->table);
+			}
 		}
 	}
 

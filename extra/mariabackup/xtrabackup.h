@@ -26,26 +26,14 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
 #include "xbstream.h"
 #include "changed_page_bitmap.h"
 
-#ifdef __WIN__
-#define XB_FILE_UNDEFINED NULL
-#else
-#define XB_FILE_UNDEFINED (-1)
-#endif
+struct xb_delta_info_t
+{
+	xb_delta_info_t(page_size_t page_size, ulint space_id)
+	: page_size(page_size), space_id(space_id) {}
 
-typedef struct {
-	ulint	page_size;
-	ulint	zip_size;
-	ulint	space_id;
-} xb_delta_info_t;
-
-/* ======== Datafiles iterator ======== */
-typedef struct {
-	fil_system_t	*system;
-	fil_space_t	*space;
-	fil_node_t	*node;
-	ibool		started;
-	os_ib_mutex_t	mutex;
-} datafiles_iter_t;
+	page_size_t	page_size;
+	ulint		space_id;
+};
 
 /* value of the --incremental option */
 extern lsn_t incremental_lsn;
@@ -81,25 +69,15 @@ extern char		*xtrabackup_tables_exclude;
 extern char		*xtrabackup_databases_exclude;
 
 extern ibool		xtrabackup_compress;
-extern ibool		xtrabackup_encrypt;
 
 extern my_bool		xtrabackup_backup;
 extern my_bool		xtrabackup_prepare;
-extern my_bool		xtrabackup_apply_log_only;
 extern my_bool		xtrabackup_copy_back;
 extern my_bool		xtrabackup_move_back;
 extern my_bool		xtrabackup_decrypt_decompress;
 
 extern char		*innobase_data_file_path;
-extern char		*innobase_doublewrite_file;
-extern char		*xtrabackup_encrypt_key;
-extern char		*xtrabackup_encrypt_key_file;
-extern longlong		innobase_log_file_size;
-extern long		innobase_log_files_in_group;
 extern longlong		innobase_page_size;
-
-extern const char	*xtrabackup_encrypt_algo_names[];
-extern TYPELIB		xtrabackup_encrypt_algo_typelib;
 
 extern int		xtrabackup_parallel;
 
@@ -113,13 +91,8 @@ extern "C"{
 #ifdef __cplusplus
 }
 #endif
-extern ulong		xtrabackup_encrypt_algo;
-extern uint		xtrabackup_encrypt_threads;
-extern ulonglong	xtrabackup_encrypt_chunk_size;
 extern my_bool		xtrabackup_export;
-extern char		*xtrabackup_incremental_basedir;
 extern char		*xtrabackup_extra_lsndir;
-extern char		*xtrabackup_incremental_dir;
 extern ulint		xtrabackup_log_copy_interval;
 extern char		*xtrabackup_stream_str;
 extern long		xtrabackup_throttle;
@@ -134,7 +107,6 @@ extern my_bool		opt_force_non_empty_dirs;
 extern my_bool		opt_noversioncheck;
 extern my_bool		opt_no_backup_locks;
 extern my_bool		opt_decompress;
-extern my_bool		opt_remove_original;
 
 extern char		*opt_incremental_history_name;
 extern char		*opt_incremental_history_uuid;
@@ -145,7 +117,6 @@ extern char		*opt_host;
 extern char		*opt_defaults_group;
 extern char		*opt_socket;
 extern uint		opt_port;
-extern char		*opt_login_path;
 extern char		*opt_log_bin;
 
 extern const char 	*query_type_names[];
@@ -158,8 +129,6 @@ extern TYPELIB		query_type_typelib;
 extern ulong		opt_lock_wait_query_type;
 extern ulong		opt_kill_long_query_type;
 
-extern ulong		opt_decrypt_algo;
-
 extern uint		opt_kill_long_queries_timeout;
 extern uint		opt_lock_wait_timeout;
 extern uint		opt_lock_wait_threshold;
@@ -167,7 +136,6 @@ extern uint		opt_debug_sleep_before_unlock;
 extern uint		opt_safe_slave_backup_timeout;
 
 extern const char	*opt_history;
-extern my_bool		opt_decrypt;
 
 enum binlog_info_enum { BINLOG_INFO_OFF, BINLOG_INFO_LOCKLESS, BINLOG_INFO_ON,
 			BINLOG_INFO_AUTO};
@@ -178,23 +146,9 @@ void xtrabackup_io_throttling(void);
 my_bool xb_write_delta_metadata(const char *filename,
 				const xb_delta_info_t *info);
 
-datafiles_iter_t *datafiles_iter_new(fil_system_t *f_system);
-fil_node_t *datafiles_iter_next(datafiles_iter_t *it);
-void datafiles_iter_free(datafiles_iter_t *it);
-
-/************************************************************************
-Initialize the tablespace memory cache and populate it by scanning for and
-opening data files */
-ulint xb_data_files_init(void);
-
-/************************************************************************
-Destroy the tablespace memory cache. */
-void xb_data_files_close(void);
-
-/***********************************************************************
-Reads the space flags from a given data file and returns the compressed
-page size, or 0 if the space is not compressed. */
-ulint xb_get_zip_size(os_file_t file);
+/** @return the tablespace flags from a given data file
+@retval	ULINT_UNDEFINED	if the file is not readable */
+ulint xb_get_space_flags(pfs_os_file_t file);
 
 /************************************************************************
 Checks if a table specified as a name in the form "database/name" (InnoDB 5.6)
@@ -225,16 +179,9 @@ bool
 check_if_param_set(const char *param);
 
 #if defined(HAVE_OPENSSL)
-extern my_bool opt_use_ssl;
 extern my_bool opt_ssl_verify_server_cert;
-#if !defined(HAVE_YASSL)
-extern char *opt_server_public_key;
-#endif
 #endif
 
-
-void
-xtrabackup_backup_func(void);
 
 my_bool
 xb_get_one_option(int optid,

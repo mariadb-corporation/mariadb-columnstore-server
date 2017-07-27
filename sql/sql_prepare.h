@@ -77,6 +77,7 @@ private:
 
 void mysqld_stmt_prepare(THD *thd, const char *packet, uint packet_length);
 void mysqld_stmt_execute(THD *thd, char *packet, uint packet_length);
+void mysqld_stmt_execute_bulk(THD *thd, char *packet, uint packet_length);
 void mysqld_stmt_bulk_execute(THD *thd, char *packet, uint packet_length);
 void mysqld_stmt_close(THD *thd, char *packet);
 void mysql_sql_stmt_prepare(THD *thd);
@@ -88,7 +89,7 @@ void mysqld_stmt_reset(THD *thd, char *packet);
 void mysql_stmt_get_longdata(THD *thd, char *pos, ulong packet_length);
 void reinit_stmt_before_use(THD *thd, LEX *lex);
 
-ulong bulk_parameters_iterations(THD *thd);
+my_bool bulk_parameters_iterations(THD *thd);
 my_bool bulk_parameters_set(THD *thd);
 /**
   Execute a fragment of server code in an isolated context, so that
@@ -408,7 +409,6 @@ public:
   Server_side_cursor *cursor;
   uchar *packet;
   uchar *packet_end;
-  ulong iterations;
   uint param_count;
   uint last_errno;
   uint flags;
@@ -427,7 +427,9 @@ public:
   */
   uint select_number_after_prepare;
   char last_error[MYSQL_ERRMSG_SIZE];
+  my_bool iterations;
   my_bool start_param;
+  my_bool read_types;
 #ifndef EMBEDDED_LIBRARY
   bool (*set_params)(Prepared_statement *st, uchar *data, uchar *data_end,
                      uchar *read_pos, String *expanded_query);
@@ -457,11 +459,10 @@ public:
                     uchar *packet_arg, uchar *packet_end_arg);
   bool execute_bulk_loop(String *expanded_query,
                          bool open_cursor,
-                         uchar *packet_arg, uchar *packet_end_arg,
-                         ulong iterations);
+                         uchar *packet_arg, uchar *packet_end_arg);
   bool execute_server_runnable(Server_runnable *server_runnable);
   my_bool set_bulk_parameters(bool reset);
-  ulong bulk_iterations();
+  bool bulk_iterations() { return iterations; };
   /* Destroy this statement */
   void deallocate();
   bool execute_immediate(const char *query, uint query_length);

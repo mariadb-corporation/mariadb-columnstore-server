@@ -171,7 +171,8 @@ btr_root_block_get(
 		if (index && index->table) {
 			index->table->file_unreadable = true;
 
-			ib_push_warning(index->table->thd, DB_DECRYPTION_FAILED,
+			ib_push_warning(
+				static_cast<THD*>(NULL), DB_DECRYPTION_FAILED,
 				"Table %s in tablespace %lu is encrypted but encryption service or"
 				" used key_id is not available. "
 				" Can't continue reading table.",
@@ -1133,9 +1134,7 @@ btr_create(
 	const btr_create_t*	btr_redo_create_info,
 	mtr_t*			mtr)
 {
-	ulint			page_no;
 	buf_block_t*		block;
-	buf_frame_t*		frame;
 	page_t*			page;
 	page_zip_des_t*		page_zip;
 
@@ -1170,33 +1169,28 @@ btr_create(
 			+ IBUF_HEADER + IBUF_TREE_SEG_HEADER,
 			IBUF_TREE_ROOT_PAGE_NO,
 			FSP_UP, mtr);
+
+		if (block == NULL) {
+			return(FIL_NULL);
+		}
+
 		ut_ad(block->page.id.page_no() == IBUF_TREE_ROOT_PAGE_NO);
+
+		buf_block_dbg_add_level(block, SYNC_IBUF_TREE_NODE_NEW);
+
+		flst_init(block->frame + PAGE_HEADER + PAGE_BTR_IBUF_FREE_LIST,
+			  mtr);
 	} else {
 		block = fseg_create(space, 0,
 				    PAGE_HEADER + PAGE_BTR_SEG_TOP, mtr);
-	}
 
-	if (block == NULL) {
+		if (block == NULL) {
+			return(FIL_NULL);
+		}
 
-		return(FIL_NULL);
-	}
-
-	page_no = block->page.id.page_no();
-	frame = buf_block_get_frame(block);
-
-	if (type & DICT_IBUF) {
-		/* It is an insert buffer tree: initialize the free list */
-		buf_block_dbg_add_level(block, SYNC_IBUF_TREE_NODE_NEW);
-
-		ut_ad(page_no == IBUF_TREE_ROOT_PAGE_NO);
-
-		flst_init(frame + PAGE_HEADER + PAGE_BTR_IBUF_FREE_LIST, mtr);
-	} else {
-		/* It is a non-ibuf tree: create a file segment for leaf
-		pages */
 		buf_block_dbg_add_level(block, SYNC_TREE_NODE_NEW);
 
-		if (!fseg_create(space, page_no,
+		if (!fseg_create(space, block->page.id.page_no(),
 				 PAGE_HEADER + PAGE_BTR_SEG_LEAF, mtr)) {
 			/* Not enough space for new segment, free root
 			segment before return. */
@@ -1287,7 +1281,7 @@ btr_create(
 
 	ut_ad(page_get_max_insert_size(page, 2) > 2 * BTR_PAGE_MAX_REC_SIZE);
 
-	return(page_no);
+	return(block->page.id.page_no());
 }
 
 /** Free a B-tree except the root page. The root page MUST be freed after
@@ -4679,28 +4673,11 @@ btr_index_rec_validate(
 		rec_get_nth_field_offs(offsets, i, &len);
 
 		/* Note that if fixed_size != 0, it equals the
-		length of a fixed-size column in the clustered index,
-		except the DATA_POINT, whose length would be MBR_LEN
-		when it's indexed in a R-TREE. We should adjust it here.
+		length of a fixed-size column in the clustered index.
+		We should adjust it here.
 		A prefix index of the column is of fixed, but different
 		length.  When fixed_size == 0, prefix_len is the maximum
 		length of the prefix index column. */
-
-		if (dict_field_get_col(field)->mtype == DATA_POINT) {
-			ut_ad(fixed_size == DATA_POINT_LEN);
-			if (dict_index_is_spatial(index)) {
-				/* For DATA_POINT data, when it has R-tree
-				index, the fixed_len is the MBR of the point.
-				But if it's a primary key and on R-TREE
-				as the PK pointer, the length shall be
-				DATA_POINT_LEN as well. */
-				ut_ad((field->fixed_len == DATA_MBR_LEN
-				       && i == 0)
-				      || (field->fixed_len == DATA_POINT_LEN
-					  && i != 0));
-				fixed_size = field->fixed_len;
-			}
-		}
 
 		if ((field->prefix_len == 0
 		     && len != UNIV_SQL_NULL && fixed_size
