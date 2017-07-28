@@ -259,8 +259,12 @@ apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libre
 
 These packages need to be installed:
 
+SUSEConnect -p sle-sdk/12.2/x86_64 
+
+zypper install boost-devel
+
 ```bash
-zypper install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio rsync boost snappy
+zypper install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio rsync snappy
 ```
 
 
