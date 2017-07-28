@@ -105,6 +105,7 @@
 #include "sp_rcontext.h"
 #include "sp_cache.h"
 #include "sql_reload.h"  // reload_acl_and_cache
+#include "pcre.h"
 
 #ifdef HAVE_POLL_H
 #include <poll.h>
@@ -3632,6 +3633,7 @@ static void init_libstrings()
 #endif
 }
 
+ulonglong my_pcre_frame_size;
 
 static void init_pcre()
 {
@@ -3639,6 +3641,8 @@ static void init_pcre()
   pcre_free= pcre_stack_free= my_str_free_mysqld;
 #ifndef EMBEDDED_LIBRARY
   pcre_stack_guard= check_enough_stack_size_slow;
+  /* See http://pcre.org/original/doc/html/pcrestack.html */
+  my_pcre_frame_size= -pcre_exec(NULL, NULL, NULL, -999, -999, 0, NULL, 0) + 16;
 #endif
 }
 
@@ -3936,8 +3940,9 @@ static void my_malloc_size_cb_func(long long size, my_bool is_thread_specific)
                         (longlong) thd->status_var.local_memory_used,
                         size));
     thd->status_var.local_memory_used+= size;
-    if (thd->status_var.local_memory_used > (int64)thd->variables.max_mem_used &&
-        !thd->killed)
+    if (size > 0 &&
+        thd->status_var.local_memory_used > (int64)thd->variables.max_mem_used &&
+        !thd->killed && !thd->get_stmt_da()->is_set())
     {
       char buf[1024];
       thd->killed= KILL_QUERY;
@@ -6645,11 +6650,12 @@ void handle_connections_sockets()
     */
 
     DBUG_PRINT("info", ("Creating THD for new connection"));
-    if (!(thd= new THD))
+    if (!(thd= new THD) || thd->is_error())
     {
       (void) mysql_socket_shutdown(new_sock, SHUT_RDWR);
       (void) mysql_socket_close(new_sock);
       statistic_increment(connection_errors_internal, &LOCK_status);
+      delete thd;
       continue;
     }
     /* Set to get io buffers to be part of THD */
@@ -8174,7 +8180,7 @@ static int show_default_keycache(THD *thd, SHOW_VAR *var, char *buff,
 {
   struct st_data {
     KEY_CACHE_STATISTICS stats;
-    SHOW_VAR var[8];
+    SHOW_VAR var[9];
   } *data;
   SHOW_VAR *v;
 
@@ -9273,7 +9279,10 @@ mysql_getopt_value(const char *name, uint length,
       return (uchar**) &key_cache->changed_blocks_hash_size;
     }
   }
+  /* We return in all cases above. Let us silence -Wimplicit-fallthrough */
+  DBUG_ASSERT(0);
 #ifdef HAVE_REPLICATION
+  /* fall through */
   case OPT_REPLICATE_DO_DB:
   case OPT_REPLICATE_DO_TABLE:
   case OPT_REPLICATE_IGNORE_DB:

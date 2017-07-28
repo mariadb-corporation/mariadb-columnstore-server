@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <mysqld_error.h>
+#include <my_sys.h>
 #include <map>
 #include <algorithm>
 #include <string>
@@ -153,7 +154,7 @@ static vector<string> traverse_current_directory()
   if (!dir)
     return v;
   struct dirent *e;
-  while ((e= readdir(dir))
+  while ((e= readdir(dir)))
     v.push_back(e->d_name);
   closedir(dir);
 #endif
@@ -194,7 +195,7 @@ static int plugin_init(void *p)
   client = new KMSClient(clientConfiguration);
   if (!client)
   {
-    my_printf_error(ER_UNKNOWN_ERROR, "Can not initialize KMS client", ME_ERROR_LOG,);
+    my_printf_error(ER_UNKNOWN_ERROR, "Can not initialize KMS client", ME_ERROR_LOG | ME_WARNING);
     return -1;
   }
   
@@ -259,12 +260,12 @@ static int load_key(KEY_INFO *info)
 
   if (!ret)
   {
-    my_printf_error(ER_UNKNOWN_ERROR, "AWS KMS plugin: loaded key %u, version %u, key length %u bit", ME_ERROR_LOG | ER_NOTE,
+    my_printf_error(ER_UNKNOWN_ERROR, "AWS KMS plugin: loaded key %u, version %u, key length %u bit", ME_ERROR_LOG | ME_NOTE,
       info->key_id, info->key_version,(uint)info->length*8);
   }
   else
   {
-    my_printf_error(ER_UNKNOWN_ERROR, "AWS KMS plugin: key %u, version %u could not be decrypted", ME_ERROR_LOG | ER_WARNING,
+    my_printf_error(ER_UNKNOWN_ERROR, "AWS KMS plugin: key %u, version %u could not be decrypted", ME_ERROR_LOG | ME_WARNING,
       info->key_id, info->key_version);
   }
   return ret;
@@ -421,7 +422,7 @@ static int aws_generate_datakey(uint keyid, uint version)
     return(-1);
   }
   close(fd);
-  my_printf_error(ER_UNKNOWN_ERROR, "AWS KMS plugin: generated encrypted datakey for key id=%u, version=%u", ME_ERROR_LOG | ER_NOTE,
+  my_printf_error(ER_UNKNOWN_ERROR, "AWS KMS plugin: generated encrypted datakey for key id=%u, version=%u", ME_ERROR_LOG | ME_NOTE,
     keyid, version);
   return(0);
 }
@@ -620,6 +621,6 @@ maria_declare_plugin(aws_key_management)
     NULL,
     settings,
     "1.0",
-    MariaDB_PLUGIN_MATURITY_BETA
+    MariaDB_PLUGIN_MATURITY_STABLE
 }
 maria_declare_plugin_end;

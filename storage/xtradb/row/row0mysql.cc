@@ -1514,11 +1514,10 @@ error_exit:
 	que_thr_stop_for_mysql_no_error(thr, trx);
 
 	if (UNIV_LIKELY(!(trx->fake_changes))) {
-
 		if (table->is_system_db) {
-			srv_stats.n_system_rows_inserted.add((size_t)trx->id, 1);
+			srv_stats.n_system_rows_inserted.inc(size_t(trx->id));
 		} else {
-			srv_stats.n_rows_inserted.add((size_t)trx->id, 1);
+			srv_stats.n_rows_inserted.inc(size_t(trx->id));
 		}
 
 		if (prebuilt->clust_index_was_generated) {
@@ -1907,17 +1906,15 @@ run_again:
 		dict_table_n_rows_dec(prebuilt->table);
 
 		if (table->is_system_db) {
-			srv_stats.n_system_rows_deleted.add(
-				(size_t)trx->id, 1);
+			srv_stats.n_system_rows_deleted.inc(size_t(trx->id));
 		} else {
-			srv_stats.n_rows_deleted.add((size_t)trx->id, 1);
+			srv_stats.n_rows_deleted.inc(size_t(trx->id));
 		}
 	} else {
 		if (table->is_system_db) {
-			srv_stats.n_system_rows_updated.add(
-				(size_t)trx->id, 1);
+			srv_stats.n_system_rows_updated.inc(size_t(trx->id));
 		} else {
-			srv_stats.n_rows_updated.add((size_t)trx->id, 1);
+			srv_stats.n_rows_updated.inc(size_t(trx->id));
 		}
 	}
 
@@ -2155,17 +2152,15 @@ run_again:
 		dict_table_n_rows_dec(table);
 
 		if (table->is_system_db) {
-			srv_stats.n_system_rows_deleted.add(
-				(size_t)trx->id, 1);
+			srv_stats.n_system_rows_deleted.inc(size_t(trx->id));
 		} else {
-			srv_stats.n_rows_deleted.add((size_t)trx->id, 1);
+			srv_stats.n_rows_deleted.inc(size_t(trx->id));
 		}
 	} else {
 		if (table->is_system_db) {
-			srv_stats.n_system_rows_updated.add(
-				(size_t)trx->id, 1);
+			srv_stats.n_system_rows_updated.inc(size_t(trx->id));
 		} else {
-			srv_stats.n_rows_updated.add((size_t)trx->id, 1);
+			srv_stats.n_rows_updated.inc(size_t(trx->id));
 		}
 	}
 
@@ -4277,18 +4272,6 @@ row_drop_table_for_mysql(
 		rw_lock_x_unlock(dict_index_get_lock(index));
 	}
 
-	/* If table has not yet have crypt_data, try to read it to
-	make freeing the table easier. */
-	if (!table->crypt_data) {
-
-		if (fil_space_t* space = fil_space_acquire_silent(table->space)) {
-			/* We use crypt data in dict_table_t in ha_innodb.cc
-			to push warnings to user thread. */
-			table->crypt_data = space->crypt_data;
-			fil_space_release(space);
-		}
-	}
-
 	/* We use the private SQL parser of Innobase to generate the
 	query graphs needed in deleting the dictionary data from system
 	tables in Innobase. Deleting a row from SYS_INDEXES table also
@@ -5547,7 +5530,8 @@ loop:
 		fputs("  InnoDB: Warning: CHECK TABLE on ", stderr);
 		dict_index_name_print(stderr, prebuilt->trx, index);
 		fprintf(stderr, " returned %lu\n", ret);
-		/* fall through (this error is ignored by CHECK TABLE) */
+		/* (this error is ignored by CHECK TABLE) */
+		/* fall through */
 	case DB_END_OF_INDEX:
 func_exit:
 		mem_free(buf);

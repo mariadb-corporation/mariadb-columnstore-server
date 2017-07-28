@@ -1722,12 +1722,22 @@ int cat_file(DYNAMIC_STRING* ds, const char* filename)
 {
   int fd;
   size_t len;
-  char buff[16384];
+  char *buff;
 
   if ((fd= my_open(filename, O_RDONLY, MYF(0))) < 0)
     return 1;
-  while((len= my_read(fd, (uchar*)&buff,
-                      sizeof(buff)-1, MYF(0))) > 0)
+
+  len= (size_t) my_seek(fd, 0, SEEK_END, MYF(0));
+  my_seek(fd, 0, SEEK_SET, MYF(0));
+  if (len == (size_t)MY_FILEPOS_ERROR ||
+      !(buff= (char*)my_malloc(len + 1, MYF(0))))
+  {
+    my_close(fd, MYF(0));
+    return 1;
+  }
+  len= my_read(fd, (uchar*)buff, len, MYF(0));
+  my_close(fd, MYF(0));
+
   {
     char *p= buff, *start= buff,*end=buff+len;
     while (p < end)
@@ -1750,7 +1760,7 @@ int cat_file(DYNAMIC_STRING* ds, const char* filename)
     *p= 0;
     replace_dynstr_append_mem(ds, start, p-start);
   }
-  my_close(fd, MYF(0));
+  my_free(buff);
   return 0;
 }
 
@@ -6510,6 +6520,16 @@ my_bool end_of_query(int c)
 }
 
 
+static inline bool is_escape_char(char c, char in_string)
+{
+  if (c != '\\' || in_string == '`') return false;
+  if (!cur_con) return true;
+  uint server_status= cur_con->mysql->server_status;
+  if (server_status & SERVER_STATUS_NO_BACKSLASH_ESCAPES) return false;
+  return !(server_status & SERVER_STATUS_ANSI_QUOTES && in_string == '"');
+}
+
+
 /*
   Read one "line" from the file
 
@@ -6536,7 +6556,7 @@ my_bool end_of_query(int c)
 
 int read_line(char *buf, int size)
 {
-  char c, UNINIT_VAR(last_quote), last_char= 0;
+  char c, last_quote=0, last_char= 0;
   char *p= buf, *buf_end= buf + size - 1;
   int skip_char= 0;
   my_bool have_slash= FALSE;
@@ -6618,7 +6638,7 @@ int read_line(char *buf, int size)
 	  state= R_Q;
 	}
       }
-      have_slash= (c == '\\');
+      have_slash= is_escape_char(c, last_quote);
       break;
 
     case R_COMMENT:
@@ -6688,7 +6708,7 @@ int read_line(char *buf, int size)
     case R_Q:
       if (c == last_quote)
 	state= R_NORMAL;
-      else if (c == '\\')
+      else if (is_escape_char(c, last_quote))
 	state= R_SLASH_IN_Q;
       break;
 
@@ -9994,25 +10014,39 @@ bool parse_re_part(char *start_re, char *end_re,
 
   Returns: st_replace_regex struct with pairs of substitutions
 */
+void append_replace_regex(char*, char*, struct st_replace_regex*, char**);
 
 struct st_replace_regex* init_replace_regex(char* expr)
 {
+  char *expr_end, *buf_p;
   struct st_replace_regex* res;
-  char* buf,*expr_end;
-  char* p, start_re, end_re= 1;
-  char* buf_p;
   uint expr_len= strlen(expr);
-  struct st_regex reg;
 
   /* my_malloc() will die on fail with MY_FAE */
   res=(struct st_replace_regex*)my_malloc(
-                                          sizeof(*res)+expr_len ,MYF(MY_FAE+MY_WME));
+                                          sizeof(*res)+8192 ,MYF(MY_FAE+MY_WME));
   my_init_dynamic_array(&res->regex_arr,sizeof(struct st_regex), 128, 128, MYF(0));
 
-  buf= (char*)res + sizeof(*res);
   expr_end= expr + expr_len;
+  buf_p= (char*)res + sizeof(*res);
+  append_replace_regex(expr, expr_end, res, &buf_p);
+
+  res->odd_buf_len= res->even_buf_len= 8192;
+  res->even_buf= (char*)my_malloc(res->even_buf_len,MYF(MY_WME+MY_FAE));
+  res->odd_buf= (char*)my_malloc(res->odd_buf_len,MYF(MY_WME+MY_FAE));
+  res->buf= res->even_buf;
+
+  return res;
+}
+
+
+void append_replace_regex(char* expr, char *expr_end, struct st_replace_regex* res,
+                          char **buf_p)
+{
+  char* p, start_re, end_re= 1;
+  struct st_regex reg;
+
   p= expr;
-  buf_p= buf;
 
   /* for each regexp substitution statement */
   while (p < expr_end)
@@ -10031,13 +10065,34 @@ struct st_replace_regex* init_replace_regex(char* expr)
     }
 
     start_re= 0;
-    reg.pattern= buf_p;
-    if (parse_re_part(&start_re, &end_re, &p, expr_end, &buf_p))
-      goto err;
+    reg.pattern= *buf_p;
 
-    reg.replace= buf_p;
-    if (parse_re_part(&start_re, &end_re, &p, expr_end, &buf_p))
-      goto err;
+    /* Allow variable for the *entire* list of replacements */
+    if (*p == '$')
+    {
+      const char *v_end;
+      VAR *val= var_get(p, &v_end, 0, 1);
+
+      if (val)
+      {
+        char *expr, *expr_end;
+        expr= val->str_val;
+        expr_end= expr + val->str_val_len;
+        append_replace_regex(expr, expr_end, res, buf_p);
+      }
+
+      p= (char *) v_end + 1;
+      continue;
+    }
+    else
+    {
+      if (parse_re_part(&start_re, &end_re, &p, expr_end, buf_p))
+        goto err;
+
+      reg.replace= *buf_p;
+      if (parse_re_part(&start_re, &end_re, &p, expr_end, buf_p))
+        goto err;
+    }
 
     /* Check if we should do matching case insensitive */
     if (p < expr_end && *p == 'i')
@@ -10050,17 +10105,12 @@ struct st_replace_regex* init_replace_regex(char* expr)
     if (insert_dynamic(&res->regex_arr,(uchar*) &reg))
       die("Out of memory");
   }
-  res->odd_buf_len= res->even_buf_len= 8192;
-  res->even_buf= (char*)my_malloc(res->even_buf_len,MYF(MY_WME+MY_FAE));
-  res->odd_buf= (char*)my_malloc(res->odd_buf_len,MYF(MY_WME+MY_FAE));
-  res->buf= res->even_buf;
 
-  return res;
+  return;
 
 err:
   my_free(res);
   die("Error parsing replace_regex \"%s\"", expr);
-  return 0;
 }
 
 /*
@@ -10140,12 +10190,6 @@ void do_get_replace_regex(struct st_command *command)
 {
   char *expr= command->first_argument;
   free_replace_regex();
-  /* Allow variable for the *entire* list of replacements */
-  if (*expr == '$') 
-  {
-    VAR *val= var_get(expr, NULL, 0, 1);
-    expr= val ? val->str_val : NULL;
-  }
   if (expr && *expr && !(glob_replace_regex=init_replace_regex(expr)))
     die("Could not init replace_regex");
   command->last_argument= command->end;
