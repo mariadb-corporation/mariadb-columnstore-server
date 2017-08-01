@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1997, 2017, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -27,6 +28,7 @@ Created 2/27/1997 Heikki Tuuri
 
 #include "row0umod.h"
 #include "dict0dict.h"
+#include "dict0stats.h"
 #include "dict0boot.h"
 #include "trx0undo.h"
 #include "trx0roll.h"
@@ -213,6 +215,9 @@ row_undo_mod_remove_clust_low(
 	than the rolling-back one. */
 	ut_ad(rec_get_deleted_flag(btr_cur_get_rec(btr_cur),
 				   dict_table_is_comp(node->table)));
+	/* In delete-marked records, DB_TRX_ID must
+	always refer to an existing update_undo log record. */
+	ut_ad(rec_get_trx_id(btr_cur_get_rec(btr_cur), btr_cur->index));
 
 	if (mode == BTR_MODIFY_LEAF) {
 		err = btr_cur_optimistic_delete(btr_cur, 0, mtr)
@@ -348,8 +353,9 @@ row_undo_mod_clust(
 	*   it can be reallocated at any time after this mtr-commits
 	*   which is just below
 	*/
-	ut_ad(srv_immediate_scrub_data_uncompressed ||
-	      rec_get_trx_id(btr_pcur_get_rec(pcur), index) == node->new_trx_id);
+	ut_ad(srv_immediate_scrub_data_uncompressed
+	      || row_get_rec_trx_id(btr_pcur_get_rec(pcur), index, offsets)
+	      == node->new_trx_id);
 
 	btr_pcur_commit_specify_mtr(pcur, &mtr);
 
@@ -513,6 +519,7 @@ row_undo_mod_del_mark_or_remove_sec_low(
 				ib::error() << "Record found in index "
 					<< index->name << " is deleted marked"
 					" on rollback update.";
+				ut_ad(0);
 			}
 		}
 
@@ -1251,8 +1258,38 @@ row_undo_mod(
 	}
 
 	if (err == DB_SUCCESS) {
-
 		err = row_undo_mod_clust(node, thr);
+
+		bool update_statistics
+			= !(node->cmpl_info & UPD_NODE_NO_ORD_CHANGE);
+
+		if (err == DB_SUCCESS && node->table->stat_initialized) {
+			switch (node->rec_type) {
+			case TRX_UNDO_UPD_EXIST_REC:
+				break;
+			case TRX_UNDO_DEL_MARK_REC:
+				dict_table_n_rows_inc(node->table);
+				update_statistics = update_statistics
+					|| !srv_stats_include_delete_marked;
+				break;
+			case TRX_UNDO_UPD_DEL_REC:
+				dict_table_n_rows_dec(node->table);
+				update_statistics = update_statistics
+					|| !srv_stats_include_delete_marked;
+				break;
+			}
+
+			/* Do not attempt to update statistics when
+			executing ROLLBACK in the InnoDB SQL
+			interpreter, because in that case we would
+			already be holding dict_sys->mutex, which
+			would be acquired when updating statistics. */
+			if (update_statistics && !dict_locked) {
+				dict_stats_update_if_needed(node->table);
+			} else {
+				node->table->stat_modified_counter++;
+			}
+		}
 	}
 
 	dict_table_close(node->table, dict_locked, FALSE);

@@ -1820,11 +1820,9 @@ bool mysql_write_frm(ALTER_PARTITION_PARAM_TYPE *lpt, uint flags)
       if (part_info)
       {
         if (!(part_syntax_buf= generate_partition_syntax(lpt->thd, part_info,
-                                                         &syntax_len,
-                                                         TRUE, TRUE,
+                                                         &syntax_len, TRUE,
                                                          lpt->create_info,
-                                                         lpt->alter_info,
-                                                         NULL)))
+                                                         lpt->alter_info)))
         {
           DBUG_RETURN(TRUE);
         }
@@ -1903,11 +1901,9 @@ bool mysql_write_frm(ALTER_PARTITION_PARAM_TYPE *lpt, uint flags)
       TABLE_SHARE *share= lpt->table->s;
       char *tmp_part_syntax_str;
       if (!(part_syntax_buf= generate_partition_syntax(lpt->thd, part_info,
-                                                       &syntax_len,
-                                                       TRUE, TRUE,
+                                                       &syntax_len, TRUE,
                                                        lpt->create_info,
-                                                       lpt->alter_info,
-                                                       NULL)))
+                                                       lpt->alter_info)))
       {
         error= 1;
         goto err;
@@ -2522,10 +2518,6 @@ int mysql_rm_table_no_locks(THD *thd, TABLE_LIST *tables, bool if_exists,
 
     DBUG_PRINT("table", ("table: 0x%lx  s: 0x%lx", (long) table->table,
                          table->table ? (long) table->table->s : (long) -1));
-
-    DBUG_EXECUTE_IF("bug43138",
-                    my_error(ER_BAD_TABLE_ERROR, MYF(0),
-                                    table->table_name););
   }
   DEBUG_SYNC(thd, "rm_table_no_locks_before_binlog");
   thd->thread_specific_used|= (trans_tmp_table_deleted ||
@@ -2557,6 +2549,9 @@ err:
   if (non_trans_tmp_table_deleted ||
       trans_tmp_table_deleted || non_tmp_table_deleted)
   {
+    if (non_trans_tmp_table_deleted || trans_tmp_table_deleted)
+      thd->transaction.stmt.mark_dropped_temp_table();
+
     query_cache_invalidate3(thd, tables, 0);
     if (!dont_log_query && mysql_bin_log.is_open())
     {
@@ -4576,12 +4571,12 @@ handler *mysql_create_frm_image(THD *thd,
       We reverse the partitioning parser and generate a standard format
       for syntax stored in frm file.
     */
-    if (!(part_syntax_buf= generate_partition_syntax(thd, part_info,
-                                                     &syntax_len,
-                                                     TRUE, TRUE,
-                                                     create_info,
-                                                     alter_info,
-                                                     NULL)))
+    sql_mode_t old_mode= thd->variables.sql_mode;
+    thd->variables.sql_mode &= ~MODE_ANSI_QUOTES;
+    part_syntax_buf= generate_partition_syntax(thd, part_info, &syntax_len,
+                                               true, create_info, alter_info);
+    thd->variables.sql_mode= old_mode;
+    if (!part_syntax_buf)
       goto err;
     part_info->part_info_string= part_syntax_buf;
     part_info->part_info_len= syntax_len;
@@ -5124,6 +5119,9 @@ err:
   if (thd->is_current_stmt_binlog_format_row() && create_info->tmp_table())
     DBUG_RETURN(result);
 
+  if (create_info->tmp_table())
+    thd->transaction.stmt.mark_created_temp_table();
+
   /* Write log if no error or if we already deleted a table */
   if (!result || thd->log_current_statement)
   {
@@ -5650,13 +5648,17 @@ bool mysql_create_like_table(THD* thd, TABLE_LIST* table,
     DBUG_PRINT("info",
                ("res: %d  tmp_table: %d  create_info->table: %p",
                 res, create_info->tmp_table(), local_create_info.table));
-    if (!res && create_info->tmp_table() && local_create_info.table)
+    if (create_info->tmp_table())
     {
-      /*
-        Remember that tmp table creation was logged so that we know if
-        we should log a delete of it.
-      */
-      local_create_info.table->s->table_creation_was_logged= 1;
+      thd->transaction.stmt.mark_created_temp_table();
+      if (!res && local_create_info.table)
+      {
+        /*
+          Remember that tmp table creation was logged so that we know if
+          we should log a delete of it.
+        */
+        local_create_info.table->s->table_creation_was_logged= 1;
+      }
     }
     do_logging= TRUE;
   }
@@ -7062,7 +7064,8 @@ bool alter_table_manage_keys(TABLE *table, int indexes_were_disabled,
   case Alter_info::LEAVE_AS_IS:
     if (!indexes_were_disabled)
       break;
-    /* fall-through: disabled indexes */
+    /* disabled indexes */
+    /* fall through */
   case Alter_info::DISABLE:
     error= table->file->ha_disable_indexes(HA_KEY_SWITCH_NONUNIQ_SAVE);
   }
@@ -9159,7 +9162,9 @@ bool mysql_alter_table(THD *thd,char *new_db, char *new_name,
 
          TODO don't create the frm in the first place
       */
-      deletefrm(alter_ctx.get_tmp_path());
+      const char *path= alter_ctx.get_tmp_path();
+      table->file->ha_create_partitioning_metadata(path, NULL, CHF_DELETE_FLAG);
+      deletefrm(path);
       my_free(const_cast<uchar*>(frm.str));
       goto end_inplace;
     }
@@ -9685,7 +9690,11 @@ bool mysql_trans_prepare_alter_copy_data(THD *thd)
 bool mysql_trans_commit_alter_copy_data(THD *thd)
 {
   bool error= FALSE;
+  uint save_unsafe_rollback_flags;
   DBUG_ENTER("mysql_trans_commit_alter_copy_data");
+
+  /* Save flags as transcommit_implicit_are_deleting_them */
+  save_unsafe_rollback_flags= thd->transaction.stmt.m_unsafe_rollback_flags;
 
   if (ha_enable_transaction(thd, TRUE))
     DBUG_RETURN(TRUE);
@@ -9701,6 +9710,7 @@ bool mysql_trans_commit_alter_copy_data(THD *thd)
   if (trans_commit_implicit(thd))
     error= TRUE;
 
+  thd->transaction.stmt.m_unsafe_rollback_flags= save_unsafe_rollback_flags;
   DBUG_RETURN(error);
 }
 
@@ -9968,7 +9978,9 @@ copy_data_between_tables(THD *thd, TABLE *from, TABLE *to,
   }
   if (to->file->ha_end_bulk_insert() && error <= 0)
   {
-    to->file->print_error(my_errno,MYF(0));
+    /* Give error, if not already given */
+    if (!thd->is_error())
+      to->file->print_error(my_errno,MYF(0));
     error= 1;
   }
   to->file->extra(HA_EXTRA_NO_IGNORE_DUP_KEY);

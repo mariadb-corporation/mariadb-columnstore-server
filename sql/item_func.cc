@@ -1,5 +1,5 @@
 /* Copyright (c) 2000, 2015, Oracle and/or its affiliates.
-   Copyright (c) 2009, 2015, MariaDB
+   Copyright (c) 2009, 2017, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -153,8 +153,9 @@ void Item_func::sync_with_sum_func_and_with_field(List<Item> &list)
     is to allow all Item_field() objects to setup pointers to the table fields.
 
     Sets as a side effect the following class variables:
-      maybe_null	Set if any argument may return NULL
-      with_sum_func	Set if any of the arguments contains a sum function
+      maybe_null        Set if any argument may return NULL
+      with_sum_func     Set if any of the arguments contains a sum function
+      with_window_func  Set if any of the arguments contain a window function
       with_field        Set if any of the arguments contains or is a field
       used_tables_cache Set to union of the tables used by arguments
 
@@ -1910,6 +1911,7 @@ my_decimal *Item_func_mod::decimal_op(my_decimal *decimal_value)
     return decimal_value;
   case E_DEC_DIV_ZERO:
     signal_divide_by_null();
+    /* fall through */
   default:
     null_value= 1;
     return 0;
@@ -3927,6 +3929,7 @@ longlong Item_master_gtid_wait::val_int()
 {
   DBUG_ASSERT(fixed == 1);
   longlong result= 0;
+  String *gtid_pos __attribute__((unused)) = args[0]->val_str(&value);
 
   if (args[0]->null_value)
   {
@@ -3938,7 +3941,6 @@ longlong Item_master_gtid_wait::val_int()
 #ifdef HAVE_REPLICATION
   THD* thd= current_thd;
   longlong timeout_us;
-  String *gtid_pos = args[0]->val_str(&value);
 
   if (arg_count==2 && !args[1]->null_value)
     timeout_us= (longlong)(1e6*args[1]->val_real());

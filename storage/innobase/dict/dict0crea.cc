@@ -460,14 +460,9 @@ dict_build_tablespace_for_table(
 		mtr_start(&mtr);
 		mtr.set_named_space(table->space);
 
-		bool ret = fsp_header_init(table->space,
-					   FIL_IBD_FILE_INITIAL_SIZE,
-					   &mtr);
+		fsp_header_init(table->space, FIL_IBD_FILE_INITIAL_SIZE, &mtr);
 
 		mtr_commit(&mtr);
-		if (!ret) {
-			return(DB_ERROR);
-		}
 	} else {
 		ut_ad(dict_tf_get_rec_format(table->flags)
 		      != REC_FORMAT_COMPRESSED);
@@ -2511,6 +2506,7 @@ dict_create_or_check_sys_tablespace(void)
 			<< ". Dropping incompletely created tables.";
 
 		ut_a(err == DB_OUT_OF_FILE_SPACE
+		     || err == DB_DUPLICATE_KEY
 		     || err == DB_TOO_MANY_CONCURRENT_TRXS);
 
 		row_drop_table_for_mysql("SYS_TABLESPACES", trx, TRUE, TRUE);
@@ -2538,11 +2534,11 @@ dict_create_or_check_sys_tablespace(void)
 
 	sys_tablespaces_err = dict_check_if_system_table_exists(
 		"SYS_TABLESPACES", DICT_NUM_FIELDS__SYS_TABLESPACES + 1, 1);
-	ut_a(sys_tablespaces_err == DB_SUCCESS);
+	ut_a(sys_tablespaces_err == DB_SUCCESS || err != DB_SUCCESS);
 
 	sys_datafiles_err = dict_check_if_system_table_exists(
 		"SYS_DATAFILES", DICT_NUM_FIELDS__SYS_DATAFILES + 1, 1);
-	ut_a(sys_datafiles_err == DB_SUCCESS);
+	ut_a(sys_datafiles_err == DB_SUCCESS || err != DB_SUCCESS);
 
 	return(err);
 }

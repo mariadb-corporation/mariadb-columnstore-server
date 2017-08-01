@@ -1,6 +1,6 @@
 /***********************************************************************
 
-Copyright (c) 1995, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1995, 2017, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2009, Percona Inc.
 Copyright (c) 2013, 2017, MariaDB Corporation.
 
@@ -107,9 +107,6 @@ static ulint	os_innodb_umask = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP;
 #else
 /** Umask for creating files */
 static ulint	os_innodb_umask	= 0;
-#ifndef ECANCELED
-#define ECANCELED  125
-#endif
 static HANDLE	completion_port;
 static HANDLE	read_completion_port;
 static DWORD	fls_sync_io  = FLS_OUT_OF_INDEXES;
@@ -226,7 +223,7 @@ struct Slot {
 	os_offset_t		offset;
 
 	/** file where to read or write */
-	os_file_t		file;
+	pfs_os_file_t		file;
 
 	/** file name or path */
 	const char*		name;
@@ -303,7 +300,7 @@ public:
 	/** Requests for a slot in the aio array. If no slot is available, waits
 	until not_full-event becomes signaled.
 
-	@param[in,out]	type	IO context
+	@param[in]	type	IO context
 	@param[in,out]	m1	message to be passed along with the AIO
 				operation
 	@param[in,out]	m2	message to be passed along with the AIO
@@ -316,14 +313,14 @@ public:
 	@param[in]	len	length of the block to read or write
 	@return pointer to slot */
 	Slot* reserve_slot(
-		IORequest&	type,
-		fil_node_t*	m1,
-		void*		m2,
-		os_file_t	file,
-		const char*	name,
-		void*		buf,
-		os_offset_t	offset,
-		ulint		len)
+		const IORequest&	type,
+		fil_node_t*		m1,
+		void*			m2,
+		pfs_os_file_t		file,
+		const char*		name,
+		void*			buf,
+		os_offset_t		offset,
+		ulint			len)
 		MY_ATTRIBUTE((warn_unused_result));
 
 	/** @return number of reserved slots */
@@ -510,14 +507,14 @@ public:
 		MY_ATTRIBUTE((warn_unused_result));
 
 	/** Select the IO slot array
-	@param[in]	type		Type of IO, READ or WRITE
+	@param[in,out]	type		Type of IO, READ or WRITE
 	@param[in]	read_only	true if running in read-only mode
 	@param[in]	mode		IO mode
 	@return slot array or NULL if invalid mode specified */
 	static AIO* select_slot_array(
-		IORequest&	type,
-		bool		read_only,
-		ulint		mode)
+		IORequest&		type,
+		bool			read_only,
+		ulint			mode)
 		MY_ATTRIBUTE((warn_unused_result));
 
 	/** Calculates segment number for a slot.
@@ -2248,7 +2245,7 @@ AIO::is_linux_native_aio_supported()
 
 		strcpy(name + dirnamelen, "ib_logfile0");
 
-		fd = ::open(name, O_RDONLY);
+		fd = open(name, O_RDONLY);
 
 		if (fd == -1) {
 
@@ -2578,7 +2575,7 @@ A simple function to open or create a file.
 @param[out]	success		true if succeed, false if error
 @return handle to the file, not defined if error, error number
 	can be retrieved with os_file_get_last_error */
-os_file_t
+pfs_os_file_t
 os_file_create_simple_func(
 	const char*	name,
 	ulint		create_mode,
@@ -2586,7 +2583,7 @@ os_file_create_simple_func(
 	bool		read_only,
 	bool*		success)
 {
-	os_file_t	file;
+	pfs_os_file_t	file;
 
 	*success = false;
 
@@ -2656,7 +2653,7 @@ os_file_create_simple_func(
 	bool	retry;
 
 	do {
-		file = ::open(name, create_flag, os_innodb_umask);
+		file = open(name, create_flag, os_innodb_umask);
 
 		if (file == -1) {
 			*success = false;
@@ -2871,7 +2868,7 @@ Opens an existing file or creates a new.
 @param[in]	success		true if succeeded
 @return handle to the file, not defined if error, error number
 	can be retrieved with os_file_get_last_error */
-os_file_t
+pfs_os_file_t
 os_file_create_func(
 	const char*	name,
 	ulint		create_mode,
@@ -2958,7 +2955,7 @@ os_file_create_func(
 	bool		retry;
 
 	do {
-		file = ::open(name, create_flag, os_innodb_umask);
+		file = open(name, create_flag, os_innodb_umask);
 
 		if (file == -1) {
 			const char*	operation;
@@ -3037,7 +3034,7 @@ A simple function to open or create a file.
 @param[out]	success		true if succeeded
 @return own: handle to the file, not defined if error, error number
 	can be retrieved with os_file_get_last_error */
-os_file_t
+pfs_os_file_t
 os_file_create_simple_no_error_handling_func(
 	const char*	name,
 	ulint		create_mode,
@@ -3092,7 +3089,7 @@ os_file_create_simple_no_error_handling_func(
 		return(OS_FILE_CLOSED);
 	}
 
-	file = ::open(name, create_flag, os_innodb_umask);
+	file = open(name, create_flag, os_innodb_umask);
 
 	*success = (file != -1);
 
@@ -3324,15 +3321,8 @@ os_file_get_status_posix(
 	    && (stat_info->type == OS_FILE_TYPE_FILE
 		|| stat_info->type == OS_FILE_TYPE_BLOCK)) {
 
-		int	access = !read_only ? O_RDWR : O_RDONLY;
-		int	fh = ::open(path, access, os_innodb_umask);
-
-		if (fh == -1) {
-			stat_info->rw_perm = false;
-		} else {
-			stat_info->rw_perm = true;
-			close(fh);
-		}
+		stat_info->rw_perm = !access(path, read_only
+					     ? R_OK : R_OK | W_OK);
 	}
 
 	return(DB_SUCCESS);
@@ -3788,7 +3778,7 @@ A simple function to open or create a file.
 @param[out]	success		true if succeed, false if error
 @return handle to the file, not defined if error, error number
 	can be retrieved with os_file_get_last_error */
-os_file_t
+pfs_os_file_t
 os_file_create_simple_func(
 	const char*	name,
 	ulint		create_mode,
@@ -3806,6 +3796,7 @@ os_file_create_simple_func(
 
 	ut_a(!(create_mode & OS_FILE_ON_ERROR_SILENT));
 	ut_a(!(create_mode & OS_FILE_ON_ERROR_NO_EXIT));
+	ut_ad(srv_operation == SRV_OPERATION_NORMAL);
 
 	if (create_mode == OS_FILE_OPEN) {
 
@@ -4105,7 +4096,7 @@ Opens an existing file or creates a new.
 @param[in]	success		true if succeeded
 @return handle to the file, not defined if error, error number
 	can be retrieved with os_file_get_last_error */
-os_file_t
+pfs_os_file_t
 os_file_create_func(
 	const char*	name,
 	ulint		create_mode,
@@ -4129,7 +4120,9 @@ os_file_create_func(
 	);
 
 	DWORD		create_flag;
-	DWORD		share_mode = FILE_SHARE_READ;
+	DWORD		share_mode = srv_operation != SRV_OPERATION_NORMAL
+		? FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
+		: FILE_SHARE_READ;
 
 	if (create_mode != OS_FILE_OPEN && create_mode != OS_FILE_OPEN_RAW) {
 		WAIT_ALLOW_WRITES();
@@ -4141,8 +4134,7 @@ os_file_create_func(
 	on_error_silent = create_mode & OS_FILE_ON_ERROR_SILENT
 		? true : false;
 
-	create_mode &= ~OS_FILE_ON_ERROR_NO_EXIT;
-	create_mode &= ~OS_FILE_ON_ERROR_SILENT;
+	create_mode &= ~(OS_FILE_ON_ERROR_NO_EXIT | OS_FILE_ON_ERROR_SILENT);
 
 	if (create_mode == OS_FILE_OPEN_RAW) {
 
@@ -4320,7 +4312,7 @@ A simple function to open or create a file.
 @param[out]	success		true if succeeded
 @return own: handle to the file, not defined if error, error number
 	can be retrieved with os_file_get_last_error */
-os_file_t
+pfs_os_file_t
 os_file_create_simple_no_error_handling_func(
 	const char*	name,
 	ulint		create_mode,
@@ -4335,7 +4327,9 @@ os_file_create_simple_no_error_handling_func(
 	DWORD		access;
 	DWORD		create_flag;
 	DWORD		attributes	= 0;
-	DWORD		share_mode	= FILE_SHARE_READ;
+	DWORD		share_mode = srv_operation != SRV_OPERATION_NORMAL
+		? FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
+		: FILE_SHARE_READ;
 
 	ut_a(name);
 
@@ -4384,7 +4378,8 @@ os_file_create_simple_no_error_handling_func(
 		/*!< A backup program has to give mysqld the maximum
 		freedom to do what it likes with the file */
 
-		share_mode |= FILE_SHARE_DELETE | FILE_SHARE_WRITE;
+		share_mode |= FILE_SHARE_DELETE | FILE_SHARE_WRITE
+			| FILE_SHARE_READ;
 	} else {
 
 		ib::error()
@@ -4686,7 +4681,8 @@ os_file_get_status_win32(
 			fh = CreateFile(
 				(LPCTSTR) path,		// File to open
 				access,
-				0,			// No sharing
+				FILE_SHARE_READ | FILE_SHARE_WRITE
+				| FILE_SHARE_DELETE,	// Full sharing
 				NULL,			// Default security
 				OPEN_EXISTING,		// Existing file only
 				FILE_ATTRIBUTE_NORMAL,	// Normal file
@@ -4931,14 +4927,15 @@ os_file_io(
 static MY_ATTRIBUTE((warn_unused_result))
 ssize_t
 os_file_pwrite(
-	IORequest&	type,
-	os_file_t	file,
-	const byte*	buf,
-	ulint		n,
-	os_offset_t	offset,
-	dberr_t*	err)
+	const IORequest&	type,
+	os_file_t		file,
+	const byte*		buf,
+	ulint			n,
+	os_offset_t		offset,
+	dberr_t*		err)
 {
 	ut_ad(type.validate());
+	ut_ad(type.is_write());
 
 	++os_n_file_writes;
 
@@ -4951,26 +4948,25 @@ os_file_pwrite(
 	return(n_bytes);
 }
 
-/** Requests a synchronous write operation.
+/** NOTE! Use the corresponding macro os_file_write(), not directly
+Requests a synchronous write operation.
 @param[in]	type		IO flags
 @param[in]	file		handle to an open file
 @param[out]	buf		buffer from which to write
 @param[in]	offset		file offset from the start where to read
 @param[in]	n		number of bytes to read, starting from offset
 @return DB_SUCCESS if request was successful, false if fail */
-static MY_ATTRIBUTE((warn_unused_result))
 dberr_t
-os_file_write_page(
-	IORequest&	type,
-	const char*	name,
-	os_file_t	file,
-	const void*	buf,
-	os_offset_t	offset,
-	ulint		n)
+os_file_write_func(
+	const IORequest&	type,
+	const char*		name,
+	os_file_t		file,
+	const void*		buf,
+	os_offset_t		offset,
+	ulint			n)
 {
 	dberr_t		err;
 
-	ut_ad(type.is_write());
 	ut_ad(type.validate());
 	ut_ad(n > 0);
 
@@ -5017,13 +5013,15 @@ os_file_write_page(
 static MY_ATTRIBUTE((warn_unused_result))
 ssize_t
 os_file_pread(
-	IORequest&	type,
-	os_file_t	file,
-	void*		buf,
-	ulint		n,
-	os_offset_t	offset,
-	dberr_t*	err)
+	const IORequest&	type,
+	os_file_t		file,
+	void*			buf,
+	ulint			n,
+	os_offset_t		offset,
+	dberr_t*		err)
 {
+	ut_ad(type.is_read());
+
 	++os_n_file_reads;
 
 	const bool monitor = MONITOR_IS_ON(MONITOR_OS_PENDING_READS);
@@ -5047,13 +5045,13 @@ os_file_pread(
 static MY_ATTRIBUTE((warn_unused_result))
 dberr_t
 os_file_read_page(
-	IORequest&	type,
-	os_file_t	file,
-	void*		buf,
-	os_offset_t	offset,
-	ulint		n,
-	ulint*		o,
-	bool		exit_on_err)
+	const IORequest&	type,
+	os_file_t		file,
+	void*			buf,
+	os_offset_t		offset,
+	ulint			n,
+	ulint*			o,
+	bool			exit_on_err)
 {
 	dberr_t		err;
 
@@ -5421,14 +5419,12 @@ Requests a synchronous positioned read operation.
 @return DB_SUCCESS or error code */
 dberr_t
 os_file_read_func(
-	IORequest&	type,
-	os_file_t	file,
-	void*		buf,
-	os_offset_t	offset,
-	ulint		n)
+	const IORequest&	type,
+	os_file_t		file,
+	void*			buf,
+	os_offset_t		offset,
+	ulint			n)
 {
-	ut_ad(type.is_read());
-
 	return(os_file_read_page(type, file, buf, offset, n, NULL, true));
 }
 
@@ -5445,41 +5441,14 @@ Requests a synchronous positioned read operation.
 @return DB_SUCCESS or error code */
 dberr_t
 os_file_read_no_error_handling_func(
-	IORequest&	type,
-	os_file_t	file,
-	void*		buf,
-	os_offset_t	offset,
-	ulint		n,
-	ulint*		o)
+	const IORequest&	type,
+	os_file_t		file,
+	void*			buf,
+	os_offset_t		offset,
+	ulint			n,
+	ulint*			o)
 {
-	ut_ad(type.is_read());
-
 	return(os_file_read_page(type, file, buf, offset, n, o, false));
-}
-
-/** NOTE! Use the corresponding macro os_file_write(), not directly
-Requests a synchronous write operation.
-@param[in]	type		IO flags
-@param[in]	file		handle to an open file
-@param[out]	buf		buffer from which to write
-@param[in]	offset		file offset from the start where to read
-@param[in]	n		number of bytes to read, starting from offset
-@return DB_SUCCESS if request was successful, false if fail */
-dberr_t
-os_file_write_func(
-	IORequest&	type,
-	const char*	name,
-	os_file_t	file,
-	const void*	buf,
-	os_offset_t	offset,
-	ulint		n)
-{
-	ut_ad(type.validate());
-	ut_ad(type.is_write());
-
-	const byte*	ptr = reinterpret_cast<const byte*>(buf);
-
-	return(os_file_write_page(type, name, file, ptr, offset, n));
 }
 
 /** Check the existence and type of the given file.
@@ -6146,7 +6115,7 @@ AIO::get_segment_no_from_slot(
 /** Requests for a slot in the aio array. If no slot is available, waits until
 not_full-event becomes signaled.
 
-@param[in,out]	type		IO context
+@param[in]	type		IO context
 @param[in,out]	m1		message to be passed along with the AIO
 				operation
 @param[in,out]	m2		message to be passed along with the AIO
@@ -6160,14 +6129,14 @@ not_full-event becomes signaled.
 @return pointer to slot */
 Slot*
 AIO::reserve_slot(
-	IORequest&	type,
-	fil_node_t*	m1,
-	void*		m2,
-	os_file_t	file,
-	const char*	name,
-	void*		buf,
-	os_offset_t	offset,
-	ulint		len)
+	const IORequest&	type,
+	fil_node_t*		m1,
+	void*			m2,
+	pfs_os_file_t		file,
+	const char*		name,
+	void*			buf,
+	os_offset_t		offset,
+	ulint			len)
 {
 #ifdef WIN_ASYNC_IO
 	ut_a((len & 0xFFFFFFFFUL) == len);
@@ -6378,7 +6347,7 @@ os_aio_simulated_wake_handler_threads()
 }
 
 /** Select the IO slot array
-@param[in]	type		Type of IO, READ or WRITE
+@param[in,out]	type		Type of IO, READ or WRITE
 @param[in]	read_only	true if running in read-only mode
 @param[in]	mode		IO mode
 @return slot array or NULL if invalid mode specified */
@@ -6555,10 +6524,11 @@ os_aio_windows_handler(
 		/* This read/write does not go through os_file_read
 		and os_file_write APIs, need to register with
 		performance schema explicitly here. */
+		PSI_file_locker_state	state;
 		struct PSI_file_locker* locker = NULL;
 
 		register_pfs_file_io_begin(
-			locker, slot->file, slot->len,
+			&state, locker, slot->file, slot->len,
 			slot->type.is_write()
 			? PSI_FILE_WRITE : PSI_FILE_READ, __FILE__, __LINE__);
 #endif /* UNIV_PFS_IO */
@@ -6594,7 +6564,7 @@ os_aio_windows_handler(
 /**
 NOTE! Use the corresponding macro os_aio(), not directly this function!
 Requests an asynchronous i/o operation.
-@param[in]	type		IO request context
+@param[in,out]	type		IO request context
 @param[in]	mode		IO mode
 @param[in]	name		Name of the file or path as NUL terminated
 				string
@@ -6616,7 +6586,7 @@ os_aio_func(
 	IORequest&	type,
 	ulint		mode,
 	const char*	name,
-	os_file_t	file,
+	pfs_os_file_t	file,
 	void*		buf,
 	os_offset_t	offset,
 	ulint		n,
@@ -6672,7 +6642,6 @@ try_again:
 			ret = ReadFile(
 				file, slot->ptr, slot->len,
 				&slot->n_bytes, &slot->control);
-
 #elif defined(LINUX_NATIVE_AIO)
 			if (!array->linux_dispatch(slot)) {
 				goto err_exit;
@@ -6691,7 +6660,6 @@ try_again:
 			ret = WriteFile(
 				file, slot->ptr, slot->len,
 				&slot->n_bytes, &slot->control);
-
 #elif defined(LINUX_NATIVE_AIO)
 			if (!array->linux_dispatch(slot)) {
 				goto err_exit;
@@ -7551,7 +7519,7 @@ AIO::to_file(FILE* file) const
 
 			fprintf(file,
 				"%s IO for %s (offset=" UINT64PF
-				", size=%lu)\n",
+				", size=" ULINTPF ")\n",
 				slot.type.is_read() ? "read" : "write",
 				slot.name, slot.offset, slot.len);
 		}

@@ -1,6 +1,6 @@
 /*
    Copyright (c) 2000, 2016, Oracle and/or its affiliates.
-   Copyright (c) 2010, 2016, MariaDB
+   Copyright (c) 2010, 2017, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -494,8 +494,7 @@ Item::Item(THD *thd):
   {
     enum_parsing_place place= 
       thd->lex->current_select->parsing_place;
-    if (place == SELECT_LIST ||
-	place == IN_HAVING)
+    if (place == SELECT_LIST || place == IN_HAVING)
       thd->lex->current_select->select_n_having_items++;
   }
 }
@@ -1921,6 +1920,9 @@ void Item::split_sum_func2(THD *thd, Ref_ptr_array ref_pointer_array,
       point to the temporary table.
     */
     split_sum_func(thd, ref_pointer_array, fields, split_flags);
+    if (type() == FUNC_ITEM) {
+      return;
+    }
   }
   else
   {
@@ -1980,9 +1982,6 @@ void Item::split_sum_func2(THD *thd, Ref_ptr_array ref_pointer_array,
                                         &ref_pointer_array[el], 0, name))))
       return;                                   // fatal_error is set
   }
-  else if (type() == FUNC_ITEM && 
-           ((Item_func *) this)->with_window_func)
-    return;
   else
   {
     if (!(item_ref= (new (thd->mem_root)
@@ -2718,22 +2717,21 @@ void Item_ident::print(String *str, enum_query_type query_type)
     use_db_name= !(cached_table && cached_table->belong_to_view &&
                    cached_table->belong_to_view->compact_view_format);
 
-  if (!use_db_name && use_table_name &&
-      (query_type & QT_ITEM_IDENT_SKIP_TABLE_NAMES))
+  if (use_table_name && (query_type & QT_ITEM_IDENT_SKIP_TABLE_NAMES))
   {
     /*
       Don't print the table name if it's the only table in the context
       XXX technically, that's a sufficient, but too strong condition
     */
     if (!context)
-      use_table_name= false;
+      use_db_name= use_table_name= false;
     else if (context->outer_context)
       use_table_name= true;
     else if (context->last_name_resolution_table == context->first_name_resolution_table)
-      use_table_name= false;
+      use_db_name= use_table_name= false;
     else if (!context->last_name_resolution_table &&
              !context->first_name_resolution_table->next_name_resolution_table)
-      use_table_name= false;
+      use_db_name= use_table_name= false;
   }
 
   if (!field_name || !field_name[0])
@@ -3394,7 +3392,7 @@ Item_param::Item_param(THD *thd, uint pos_in_query_arg):
   state(NO_VALUE),
   /* Don't pretend to be a literal unless value for this item is set. */
   item_type(PARAM_ITEM),
-  indicators(0), indicator(STMT_INDICATOR_NONE),
+  indicator(STMT_INDICATOR_NONE),
   set_param_func(default_set_param_func),
   m_out_param_info(NULL),
   /*
@@ -5285,6 +5283,12 @@ Item_field::fix_outer_field(THD *thd, Field **from_field, Item **reference)
                             ((ref_type == REF_ITEM || ref_type == FIELD_ITEM) ?
                              (Item_ident*) (*reference) :
                              0));
+          if (thd->lex->in_sum_func &&
+              thd->lex->in_sum_func->nest_level >= select->nest_level)
+          {
+            set_if_bigger(thd->lex->in_sum_func->max_arg_level,
+                          select->nest_level);
+          }
           /*
             A reference to a view field had been found and we
             substituted it instead of this Item (find_field_in_tables
@@ -5563,7 +5567,7 @@ bool Item_field::fix_fields(THD *thd, Item **reference)
            
             SELECT_LEX *select= thd->lex->current_select;
             thd->change_item_tree(reference,
-                                  select->parsing_place == IN_GROUP_BY && 
+                                  select->context_analysis_place == IN_GROUP_BY && 
 				  alias_name_used  ?  *rf->ref : rf);
 
             /*
@@ -6262,7 +6266,7 @@ Field *Item::tmp_table_field_from_field_type(TABLE *table,
         Field_string(max_length, maybe_null, name, collation.collation);
       break;
     }
-    /* Fall through to make_string_field() */
+    /* Fall through */
   case MYSQL_TYPE_ENUM:
   case MYSQL_TYPE_SET:
   case MYSQL_TYPE_VAR_STRING:
@@ -7203,120 +7207,180 @@ Item *Item_field::update_value_transformer(THD *thd, uchar *select_arg)
 }
 
 
-Item *Item_field::derived_field_transformer_for_having(THD *thd, uchar *arg)
+static
+Item *get_field_item_for_having(THD *thd, Item *item, st_select_lex *sel)
 {
-  st_select_lex *sl= (st_select_lex *)arg;
-  table_map map= sl->master_unit()->derived->table->map;
-  if (!((Item_field*)this)->item_equal)
-  {
-    if (used_tables() == map)
-    {
-      Item_ref *rf= 
-	new (thd->mem_root) Item_ref(thd, &sl->context, 
-	  	   	             NullS, NullS,
-				   ((Item_field*) this)->field_name);
-      if (!rf)
-	return 0;
-      return rf;
-    }
-  }
+  DBUG_ASSERT(item->type() == Item::FIELD_ITEM ||
+              (item->type() == Item::REF_ITEM &&
+               ((Item_ref *) item)->ref_type() == Item_ref::VIEW_REF)); 
+  Item_field *field_item= NULL;
+  table_map map= sel->master_unit()->derived->table->map;
+  Item_equal *item_equal= item->get_item_equal();
+  if (!item_equal)
+    field_item= (Item_field *)(item->real_item());
   else
   {
-    Item_equal *cond= (Item_equal *) ((Item_field*)this)->item_equal;
-    Item_equal_fields_iterator li(*cond);
-    Item *item;
-    while ((item=li++))
+    Item_equal_fields_iterator li(*item_equal);
+    Item *equal_item;
+    while ((equal_item= li++))
     {
-      if (item->used_tables() == map && item->real_item()->type() == FIELD_ITEM)
+      if (equal_item->used_tables() == map)
       {
-	Item_ref *rf= 
-	  new (thd->mem_root) Item_ref(thd, &sl->context, 
-				       NullS, NullS,
-			      ((Item_field*) (item->real_item()))->field_name);
-	if (!rf)
-	  return 0;
-	return rf;
+        field_item= (Item_field *)(equal_item->real_item());
+	break;
       }
     }
   }
-  return this;
+  if (field_item)
+  {
+    Item_ref *ref= new (thd->mem_root) Item_ref(thd, &sel->context,
+                                                NullS, NullS,
+                                                field_item->field_name);
+    return ref;
+  }
+  DBUG_ASSERT(0);
+  return NULL; 
 }
 
+
+Item *Item_field::derived_field_transformer_for_having(THD *thd, uchar *arg)
+{
+  st_select_lex *sel= (st_select_lex *)arg;
+  table_map tab_map= sel->master_unit()->derived->table->map;
+  if (item_equal && !(item_equal->used_tables() & tab_map))
+    return this;
+  if (!item_equal && used_tables() != tab_map)
+    return this;
+  return get_field_item_for_having(thd, this, sel);
+}
+
+
+Item *Item_direct_view_ref::derived_field_transformer_for_having(THD *thd,
+                                                                 uchar *arg)
+{
+  st_select_lex *sel= (st_select_lex *)arg;
+  table_map tab_map= sel->master_unit()->derived->table->map;
+  if ((item_equal && !(item_equal->used_tables() & tab_map)) ||
+      !item_equal)
+    return this;
+  return get_field_item_for_having(thd, this, sel);
+}
+
+
+static 
+Item *find_producing_item(Item *item, st_select_lex *sel)
+{
+  DBUG_ASSERT(item->type() == Item::FIELD_ITEM ||
+              (item->type() == Item::REF_ITEM &&
+               ((Item_ref *) item)->ref_type() == Item_ref::VIEW_REF)); 
+  Item *producing_item;
+  Item_field *field_item= NULL;
+  Item_equal *item_equal= item->get_item_equal();
+  table_map tab_map= sel->master_unit()->derived->table->map;
+  if (item->used_tables() == tab_map)
+    field_item= (Item_field *) (item->real_item());
+  if (!field_item && item_equal)
+  {
+    Item_equal_fields_iterator it(*item_equal);
+    Item *equal_item;
+    while ((equal_item= it++))
+    {
+      if (equal_item->used_tables() == tab_map)
+      {
+        field_item= (Item_field *) (equal_item->real_item());
+        break;
+      }
+    }
+  }
+  List_iterator_fast<Item> li(sel->item_list);
+  if (field_item)
+  {
+    uint field_no= field_item->field->field_index;
+    for (uint i= 0; i <= field_no; i++)
+      producing_item= li++;
+    return producing_item;
+  }
+  return NULL;
+}
 
 Item *Item_field::derived_field_transformer_for_where(THD *thd, uchar *arg)
 {
-  Item *producing_item;
-  st_select_lex *sl= (st_select_lex *)arg;
-  List_iterator_fast<Item> li(sl->item_list);
-  table_map map= sl->master_unit()->derived->table->map;
-  if (used_tables() == map)
-  {
-    uint field_no= ((Item_field*) this)->field->field_index;
-    for (uint i= 0; i <= field_no; i++)
-      producing_item= li++;
+  st_select_lex *sel= (st_select_lex *)arg;
+  Item *producing_item= find_producing_item(this, sel);
+  if (producing_item)
     return producing_item->build_clone(thd, thd->mem_root);
-  }
-  else if (((Item_field*)this)->item_equal)
+  return this;
+}
+
+Item *Item_direct_view_ref::derived_field_transformer_for_where(THD *thd,
+                                                                uchar *arg)
+{
+  if (item_equal)
   {
-    Item_equal *cond= (Item_equal *) ((Item_field*)this)->item_equal;
-    Item_equal_fields_iterator it(*cond);
-    Item *item;
-    while ((item=it++))
-    {
-      if (item->used_tables() == map && item->real_item()->type() == FIELD_ITEM)
-      {   
-	Item_field *field_item= (Item_field *) (item->real_item());
-	li.rewind();
-        uint field_no= field_item->field->field_index;
-        for (uint i= 0; i <= field_no; i++)
-          producing_item= li++;
-        return producing_item->build_clone(thd, thd->mem_root);
-      }
-    }
+    st_select_lex *sel= (st_select_lex *)arg;
+    Item *producing_item= find_producing_item(this, sel);
+    DBUG_ASSERT (producing_item != NULL);
+    return producing_item->build_clone(thd, thd->mem_root);
   }
   return this;
 }
 
+static
+Grouping_tmp_field *find_matching_grouping_field(Item *item,
+                                                 st_select_lex *sel)
+{
+  DBUG_ASSERT(item->type() == Item::FIELD_ITEM ||
+              (item->type() == Item::REF_ITEM &&
+               ((Item_ref *) item)->ref_type() == Item_ref::VIEW_REF)); 
+  List_iterator<Grouping_tmp_field> li(sel->grouping_tmp_fields);
+  Grouping_tmp_field *gr_field;
+  Item_field *field_item= (Item_field *) (item->real_item());
+  while ((gr_field= li++))
+  {
+    if (field_item->field == gr_field->tmp_field)
+      return gr_field;
+  }
+  Item_equal *item_equal= item->get_item_equal();
+  if (item_equal)
+  {
+    Item_equal_fields_iterator it(*item_equal);
+    Item *equal_item;
+    while ((equal_item= it++))
+    {
+      field_item= (Item_field *) (equal_item->real_item());
+      li.rewind();
+      while ((gr_field= li++))
+      {
+        if (field_item->field == gr_field->tmp_field)
+	  return gr_field;
+      }
+    }
+  }
+  return NULL;
+}
+    
 
 Item *Item_field::derived_grouping_field_transformer_for_where(THD *thd,
                                                                uchar *arg)
 {
-  st_select_lex *sl= (st_select_lex *)arg;
-  List_iterator<Grouping_tmp_field> li(sl->grouping_tmp_fields);
-  Grouping_tmp_field *field;
-  table_map map= sl->master_unit()->derived->table->map;
-  if (used_tables() == map)
-  {
-    while ((field=li++))
-    {
-      if (((Item_field*) this)->field == field->tmp_field)
-	return field->producing_item->build_clone(thd, thd->mem_root);
-    }
-  }
-  else if (((Item_field*)this)->item_equal)
-  {
-    Item_equal *cond= (Item_equal *) ((Item_field*)this)->item_equal;
-    Item_equal_fields_iterator it(*cond);
-    Item *item;
-    while ((item=it++))
-    {
-      if (item->used_tables() == map && item->real_item()->type() == FIELD_ITEM)
-      {   
-	Item_field *field_item= (Item_field *) (item->real_item());
-	li.rewind();
-        while ((field=li++))
-        {
-	  if (field_item->field == field->tmp_field)
-	  {
-	    return field->producing_item->build_clone(thd, thd->mem_root);
-	  }
-        }  
-      }
-    }
-  }
+  st_select_lex *sel= (st_select_lex *)arg;
+  Grouping_tmp_field *gr_field= find_matching_grouping_field(this, sel);
+  if (gr_field)
+    return gr_field->producing_item->build_clone(thd, thd->mem_root);
   return this;
 }
 
+
+Item *
+Item_direct_view_ref::derived_grouping_field_transformer_for_where(THD *thd,
+                                                                   uchar *arg)
+{
+  if (!item_equal)
+    return this;
+  st_select_lex *sel= (st_select_lex *)arg;
+  Grouping_tmp_field *gr_field= find_matching_grouping_field(this, sel);
+  return gr_field->producing_item->build_clone(thd, thd->mem_root);
+}
 
 void Item_field::print(String *str, enum_query_type query_type)
 {
@@ -8784,6 +8848,32 @@ Item *Item_direct_view_ref::replace_equal_field(THD *thd, uchar *arg)
   Item *item= field_item->replace_equal_field(thd, arg);
   field_item->set_item_equal(0);
   return item != field_item ? item : this;
+}
+
+
+bool Item_direct_view_ref::excl_dep_on_table(table_map tab_map)
+{
+  table_map used= used_tables();
+  if (used & OUTER_REF_TABLE_BIT)
+    return false;
+  if (!(used & ~tab_map))
+    return true; 
+  if (item_equal)
+  {
+    DBUG_ASSERT(real_item()->type() == Item::FIELD_ITEM);
+    return item_equal->used_tables() & tab_map;
+  }
+  return (*ref)->excl_dep_on_table(tab_map);
+}
+
+bool Item_direct_view_ref::excl_dep_on_grouping_fields(st_select_lex *sel)
+{
+  if (item_equal)
+  {
+    DBUG_ASSERT(real_item()->type() == Item::FIELD_ITEM);
+    return find_matching_grouping_field(this, sel) != NULL;
+  }    
+  return (*ref)->excl_dep_on_grouping_fields(sel);
 }
 
 
@@ -10698,61 +10788,20 @@ const char *dbug_print_unit(SELECT_LEX_UNIT *un)
 
 #endif /*DBUG_OFF*/
 
-bool Item_field::exclusive_dependence_on_table_processor(void *map)
+bool Item_field::excl_dep_on_table(table_map tab_map)
 {
-  table_map tab_map= *((table_map *) map);
-  return !((used_tables() == tab_map || 
-         (item_equal && item_equal->used_tables() & tab_map))); 
+  return used_tables() == tab_map || 
+         (item_equal && (item_equal->used_tables() & tab_map)); 
 }
 
-bool Item_field::exclusive_dependence_on_grouping_fields_processor(void *arg)
+bool
+Item_field::excl_dep_on_grouping_fields(st_select_lex *sel)
 {
-  st_select_lex *sl= (st_select_lex *)arg;
-  List_iterator<Grouping_tmp_field> li(sl->grouping_tmp_fields);
-  Grouping_tmp_field *field;
-  table_map map= sl->master_unit()->derived->table->map;
-  if (used_tables() == map)
-  {
-    while ((field=li++))
-    {
-      if (((Item_field*) this)->field == field->tmp_field)
-        return false;
-    }
-  }
-  else if (((Item_field*)this)->item_equal)
-  {
-    Item_equal *cond= (Item_equal *) ((Item_field*)this)->item_equal;
-    Item_equal_fields_iterator it(*cond);
-    Item *item;
-    while ((item=it++))
-    {
-      if (item->used_tables() == map && item->real_item()->type() == FIELD_ITEM)
-      {
-	li.rewind();
-        while ((field=li++))
-        {
-	  if (((Item_field *)(item->real_item()))->field == field->tmp_field)
-	    return false;
-	}
-      }
-    }
-  }
-  return true;
+  return find_matching_grouping_field(this, sel) != NULL;
 }
 
 void Item::register_in(THD *thd)
 {
   next= thd->free_list;
   thd->free_list= this;
-}
-
-void Virtual_column_info::print(String *str)
-{
-  expr->print_parenthesised(str,
-                   (enum_query_type)(QT_ITEM_ORIGINAL_FUNC_NULLIF |
-                                     QT_ITEM_IDENT_SKIP_DB_NAMES |
-                                     QT_ITEM_IDENT_SKIP_TABLE_NAMES |
-                                     QT_NO_DATA_EXPANSION |
-                                     QT_TO_SYSTEM_CHARSET),
-                   LOWEST_PRECEDENCE);
 }
