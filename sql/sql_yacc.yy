@@ -1017,7 +1017,6 @@ Virtual_column_info *add_virtual_expression(THD *thd, Item *expr)
 bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
 %}
 
-%error-verbose
 %pure-parser                                    /* We have threads */
 %parse-param { THD *thd }
 %lex-param { THD *thd }
@@ -10501,10 +10500,19 @@ window_func:
             function_call_generic handles UDAF, so we leverage
             that and then filter out anything that isn't a UDAF.
             */
-            if (((Item *) $1)->type() != Item::SUM_FUNC_ITEM)
+   	 Item* item = (Item*)$1;
+            if (item == NULL)
+   	 {
+              my_error(ER_SP_DOES_NOT_EXIST, MYF(0), "FUNCTION", "");
               MYSQL_YYABORT;
-            if (((Item_sum *) $1)->sum_func() != Item_sum::UDF_SUM_FUNC)
+   	 }
+            if ((item->type() != Item::SUM_FUNC_ITEM)
+   	 || (((Item_sum *)item)->sum_func() != Item_sum::UDF_SUM_FUNC))
+   	 {
+              my_error(ER_SP_DOES_NOT_EXIST, MYF(0), "FUNCTION", ((Item_func_sp*)item)->func_name());
               MYSQL_YYABORT;
+   	 }
+
             ((Item_sum *) $1)->mark_as_window_func_sum_expr();
           }
         ;
