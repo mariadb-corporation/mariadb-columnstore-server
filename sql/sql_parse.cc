@@ -10396,7 +10396,7 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 						break;
 					}
 				}
-        else if (thd->lex->sql_command == SQLCOM_EXECUTE || thd->get_command() == COM_STMT_EXECUTE)
+                else if (thd->lex->sql_command == SQLCOM_EXECUTE || thd->get_command() == COM_STMT_EXECUTE)
 				{
 					//@Bug 2703 Added the support of prepared statement with and without variables binding
 					//Save the query in case we need set it back
@@ -10417,6 +10417,13 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 					{
 						if ( stmt->param_count == lex->prepared_stmt_params.elements )
 						{
+							List_iterator<Item> param_it(thd->lex->prepared_stmt_params);
+							Item* item;
+							while ((item = param_it++))
+							{
+								item->fix_fields(thd, &item);
+							}
+
 							stmt->set_parameters(&expanded_query, NULL, NULL);
 						}
 						// replace ? with values

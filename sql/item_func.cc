@@ -236,7 +236,7 @@ Item_func::fix_fields(THD *thd, Item **ref)
   }
 
   // MariaDB bug 687. fix_length_and_dec() sometimes calls getSelectPlan() in the 
-  // InfiniDB connector. This in turn may incorrectly call fix_fields() recursively.
+  // Columnstore connector. This in turn may incorrectly call fix_fields() recursively.
   // By setting the fixed flag before the call to fix_length_and_dec(), we prevent
   // this behavior.
   fixed= 1;
