@@ -10492,6 +10492,29 @@ window_func:
           {
             ((Item_sum *) $1)->mark_as_window_func_sum_expr();
           }
+        |
+          function_call_generic
+          {
+            /*
+            We want to allow UDF aggregate (UDAF) functions as Window functions.
+            function_call_generic handles UDAF, so we leverage
+            that and then filter out anything that isn't a UDAF.
+            */
+   	 Item* item = (Item*)$1;
+            if (item == NULL)
+   	 {
+              my_error(ER_SP_DOES_NOT_EXIST, MYF(0), "FUNCTION", "");
+              MYSQL_YYABORT;
+   	 }
+            if ((item->type() != Item::SUM_FUNC_ITEM)
+   	 || (((Item_sum *)item)->sum_func() != Item_sum::UDF_SUM_FUNC))
+   	 {
+              my_error(ER_SP_DOES_NOT_EXIST, MYF(0), "FUNCTION", ((Item_func_sp*)item)->func_name());
+              MYSQL_YYABORT;
+   	 }
+
+            ((Item_sum *) $1)->mark_as_window_func_sum_expr();
+          }
         ;
 
 simple_window_func:

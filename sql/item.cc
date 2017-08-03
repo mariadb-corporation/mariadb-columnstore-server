@@ -508,9 +508,9 @@ Item::Item(THD *thd):
   tables.
 */
 Item::Item(THD *thd, Item *item):
-  m_thd(thd),
   Type_std_attributes(item),
   join_tab_idx(item->join_tab_idx),
+  m_thd(thd),
   is_expensive_cache(-1),
   rsize(0),
   str_value(item->str_value),
