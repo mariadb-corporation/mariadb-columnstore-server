@@ -1203,25 +1203,12 @@ static my_bool deny_updates_if_read_only_option(THD *thd,
   if (lex->sql_command == SQLCOM_UPDATE_MULTI)
     DBUG_RETURN(FALSE);
 
-<<<<<<< HEAD
-  const my_bool create_temp_tables=
-    (lex->sql_command == SQLCOM_CREATE_TABLE) && lex->tmp_table();
-
-  const my_bool drop_temp_tables=
-    (lex->sql_command == SQLCOM_DROP_TABLE) && lex->tmp_table();
-
-  const my_bool update_real_tables=
-    some_non_temp_table_to_be_updated(thd, all_tables) &&
-    !(create_temp_tables || drop_temp_tables);
-
-=======
   /*
     a table-to-be-created is not in the temp table list yet,
     so CREATE TABLE needs a special treatment
   */
   const bool update_real_tables= lex->sql_command == SQLCOM_CREATE_TABLE ?
         !lex->tmp_table() : some_non_temp_table_to_be_updated(thd, all_tables);
->>>>>>> mariadb-10.1.26
 
   const bool create_or_drop_databases=
     (lex->sql_command == SQLCOM_CREATE_DB) ||
