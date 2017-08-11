@@ -45,7 +45,7 @@ Created 1/20/1994 Heikki Tuuri
 
 #define INNODB_VERSION_MAJOR	5
 #define INNODB_VERSION_MINOR	6
-#define INNODB_VERSION_BUGFIX	36
+#define INNODB_VERSION_BUGFIX	37
 
 /* The following is the InnoDB version as shown in
 SELECT plugin_version FROM information_schema.plugins;
@@ -371,6 +371,8 @@ and 2 bits for flags. This limits the uncompressed page size to 16k.
 #define UNIV_PAGE_SIZE_SHIFT_DEF	14
 /** Original 16k InnoDB Page Size Shift, in case the default changes */
 #define UNIV_PAGE_SIZE_SHIFT_ORIG	14
+/** Original 16k InnoDB Page Size as an ssize (log2 - 9) */
+#define UNIV_PAGE_SSIZE_ORIG		(UNIV_PAGE_SIZE_SHIFT_ORIG - 9)
 
 /** Minimum page size InnoDB currently supports. */
 #define UNIV_PAGE_SIZE_MIN	(1 << UNIV_PAGE_SIZE_SHIFT_MIN)
@@ -481,6 +483,12 @@ typedef long int		lint;
 #ifndef UNIV_HOTBACKUP
 typedef unsigned long long int	ullint;
 #endif /* UNIV_HOTBACKUP */
+
+#ifdef UNIV_INNOCHECKSUM
+extern bool 			strict_verify;
+extern FILE* 			log_file;
+extern unsigned long long	cur_page_num;
+#endif /* UNIV_INNOCHECKSUM */
 
 #ifndef __WIN__
 #if SIZEOF_LONG != SIZEOF_VOIDP
