@@ -1994,6 +1994,7 @@ public:
     DBUG_VOID_RETURN;
   }
   longlong val_int();
+  bool fix_fields(THD *thd, Item **ref);
   void fix_length_and_dec();
   const char *func_name() const { return "regexp"; }
 
@@ -2021,6 +2022,7 @@ public:
     DBUG_VOID_RETURN;
   }
   longlong val_int();
+  bool fix_fields(THD *thd, Item **ref);
   void fix_length_and_dec();
   const char *func_name() const { return "regexp_instr"; }
 };

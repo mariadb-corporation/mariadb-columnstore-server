@@ -2,7 +2,7 @@
 
 Copyright (c) 2005, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2012, Facebook Inc.
-Copyright (c) 2017, MariaDB Corporation.
+Copyright (c) 2014, 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -82,12 +82,12 @@ UNIV_INTERN mysql_pfs_key_t		page_zip_stat_per_index_mutex_key;
 #endif /* HAVE_PSI_INTERFACE */
 #endif /* !UNIV_HOTBACKUP */
 
-/* Compression level to be used by zlib. Settable by user. */
-UNIV_INTERN uint	page_zip_level = DEFAULT_COMPRESSION_LEVEL;
+/** Compression level to be used by zlib. Settable by user. */
+UNIV_INTERN uint	page_zip_level;
 
-/* Whether or not to log compressed page images to avoid possible
+/** Whether or not to log compressed page images to avoid possible
 compression algorithm changes in zlib. */
-UNIV_INTERN my_bool	page_zip_log_pages = false;
+UNIV_INTERN my_bool	page_zip_log_pages;
 
 /* Please refer to ../include/page0zip.ic for a description of the
 compressed page format. */
@@ -4937,26 +4937,26 @@ page_zip_verify_checksum(
 #error "FIL_PAGE_LSN must be 64 bit aligned"
 #endif
 
-#ifndef UNIV_INNOCHECKSUM
-	/* innochecksum doesn't compile with ut_d. Since we don't
-	need to check for empty pages when running innochecksum,
-	just don't include this code. */
 	/* Check if page is empty */
 	if (stored == 0
 	    && *reinterpret_cast<const ib_uint64_t*>(static_cast<const char*>(
 		data)
 		+ FIL_PAGE_LSN) == 0) {
 		/* make sure that the page is really empty */
-		ulint i;
-		for (i = 0; i < size; i++) {
+		for (ulint i = 0; i < size; i++) {
 			if (*((const char*) data + i) != 0) {
 				return(FALSE);
 			}
 		}
+#ifdef UNIV_INNOCHECKSUM
+		if (log_file) {
+			fprintf(log_file, "Page::%llu is empty and"
+				" uncorrupted\n", cur_page_num);
+		}
+#endif /* UNIV_INNOCHECKSUM */
 		/* Empty page */
 		return(TRUE);
 	}
-#endif
 
 	const srv_checksum_algorithm_t	curr_algo =
 		static_cast<srv_checksum_algorithm_t>(srv_checksum_algorithm);
@@ -4967,6 +4967,33 @@ page_zip_verify_checksum(
 
 	calc = static_cast<ib_uint32_t>(page_zip_calc_checksum(
 		data, size, curr_algo));
+
+#ifdef UNIV_INNOCHECKSUM
+	if (log_file) {
+		fprintf(log_file, "page::%llu;"
+			" %s checksum: calculated = %u;"
+			" recorded = %u\n", cur_page_num,
+			buf_checksum_algorithm_name(
+				static_cast<srv_checksum_algorithm_t>(
+				srv_checksum_algorithm)),
+			calc, stored);
+	}
+
+	if (!strict_verify) {
+
+		const uint32_t	crc32 = page_zip_calc_checksum(
+			data, size, SRV_CHECKSUM_ALGORITHM_CRC32);
+
+		if (log_file) {
+			fprintf(log_file, "page::%llu: crc32 checksum:"
+				" calculated = %u; recorded = %u\n",
+				cur_page_num, crc32, stored);
+			fprintf(log_file, "page::%llu: none checksum:"
+				" calculated = %lu; recorded = %u\n",
+				cur_page_num, BUF_NO_CHECKSUM_MAGIC, stored);
+		}
+	}
+#endif /* UNIV_INNOCHECKSUM */
 
 	if (stored == calc) {
 		return(TRUE);
