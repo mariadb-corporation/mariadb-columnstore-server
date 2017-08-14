@@ -254,7 +254,7 @@ yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio rs
 These packages need to be installed:
 
 ```bash
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync snappy libdbd-mysql-perl
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1v5 libdbd-mysql-perl
 ```
 
 ## For Debian 8
@@ -262,7 +262,7 @@ apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libre
 These packages need to be installed:
 
 ```bash
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1v5
 ```
 
 ## For Debian 9
@@ -270,7 +270,7 @@ apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libre
 These packages need to be installed:
 
 ```bash
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1v5 libreadline5 libjemalloc-dev
 ```
 
 ## For SUSE 12
