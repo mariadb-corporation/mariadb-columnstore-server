@@ -12,7 +12,7 @@ Always match the server engine / git branch with the engine git branch.
 ##GA release notice
 MariaDB ColumnStore 1.0.11 is a GA release.
 
-Currently building has only been certified on CentOS 6 and 7, Ubuntu 16.04, Debain 8, and SUSE 12.. 
+Currently building has only been certified on CentOS 6 and 7, Ubuntu 16.04, Debain 8, Debian 9 and SUSE 12.. 
 Building on other platforms will be certified in a later release.
 
 ##Issue tracking
@@ -105,6 +105,15 @@ These packages need to be installed along with the group development packages:
 ```bash
 apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev libkrb5-dev flex libpam-dev libkrb5-dev
 ```
+
+### For Debian 9
+
+These packages need to be installed along with the group development packages:
+
+```bash
+apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl1.0-dev libxml2-dev libkrb5-dev flex libpam-dev libkrb5-dev
+```
+
 ### For SUSE 12
 
 These packages need to be install along with the group development packages:
@@ -255,6 +264,15 @@ These packages need to be installed:
 ```bash
 apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1
 ```
+
+## For Debian 9
+
+These packages need to be installed:
+
+```bash
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1
+```
+
 ## For SUSE 12
 
 These packages need to be installed:
