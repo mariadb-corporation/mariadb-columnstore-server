@@ -270,7 +270,7 @@ apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libre
 These packages need to be installed:
 
 ```bash
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1v5 libreadline5 libjemalloc-dev
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1v5 libreadline5 libjemalloc-dev libaio1
 ```
 
 ## For SUSE 12
