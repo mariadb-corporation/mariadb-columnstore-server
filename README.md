@@ -1,7 +1,7 @@
 #MariaDB ColumnStore Server (version 1.0)
-This is the server part of MariaDB ColumnStore 1.0.10.
-MariaDB ColumnStore 1.0.10 is a GA of MariaDB ColumnStore. 
-It is built by porting InfiniDB 4.6.7 on MariaDB 10.1.25 and adding entirely 
+This is the server part of MariaDB ColumnStore 1.0.11.
+MariaDB ColumnStore 1.0.11 is a GA of MariaDB ColumnStore. 
+It is built by porting InfiniDB 4.6.7 on MariaDB 10.1.26 and adding entirely 
 new features not found anywhere else.
 
 ##MariaDB ColumnStore Engine (version 1.0)
@@ -10,9 +10,9 @@ MariaDB ColumnStore also requires the matching engine version. This can be found
 Always match the server engine / git branch with the engine git branch.
 
 ##GA release notice
-MariaDB ColumnStore 1.0.10 is a GA release.
+MariaDB ColumnStore 1.0.11 is a GA release.
 
-Currently building has only been certified on CentOS 6 and 7, Ubuntu 16.04, Debain 8, and SUSE 12.. 
+Currently building has only been certified on CentOS 6 and 7, Ubuntu 16.04, Debain 8, Debian 9 and SUSE 12.. 
 Building on other platforms will be certified in a later release.
 
 ##Issue tracking
@@ -106,6 +106,20 @@ apt-get install build-essential automake libboost-all-dev bison cmake libncurses
 ```bash
 apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev libkrb5-dev flex libpam-dev libkrb5-dev
 ```
+<<<<<<< HEAD
+=======
+
+### For Debian 9
+
+These packages need to be installed along with the group development packages:
+
+```bash
+apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl1.0-dev libxml2-dev libkrb5-dev flex libpam-dev libkrb5-dev
+```
+
+### For SUSE 12
+
+>>>>>>> develop-1.0
 These packages need to be install along with the group development packages:
 
 ```bash
@@ -244,7 +258,7 @@ yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio rs
 These packages need to be installed:
 
 ```bash
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync snappy net-tools libdbd-mysql-perl
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1v5 libdbd-mysql-perl
 ```
 
 ## For Debian 8
@@ -252,8 +266,17 @@ apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libre
 These packages need to be installed:
 
 ```bash
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1 net-tools libdbd-mysql-perl
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1v5
 ```
+
+## For Debian 9
+
+These packages need to be installed:
+
+```bash
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1v5 libreadline5 libjemalloc-dev libaio1
+```
+
 ## For SUSE 12
 
 These packages need to be installed:
