@@ -520,6 +520,8 @@ bool mysql_derived_merge_for_insert(THD *thd, LEX *lex, TABLE_LIST *derived)
                       derived->merge_underlying_list != 0));
   if (derived->merged_for_insert)
     DBUG_RETURN(FALSE);
+  if (derived->init_derived(thd, FALSE))
+    DBUG_RETURN(TRUE);
   if (derived->is_materialized_derived())
     DBUG_RETURN(mysql_derived_prepare(thd, lex, derived));
   if ((thd->lex->sql_command == SQLCOM_UPDATE_MULTI ||
@@ -822,13 +824,14 @@ exit:
     table->derived_select_number= first_select->select_number;
     table->s->tmp_table= INTERNAL_TMP_TABLE;
 #ifndef NO_EMBEDDED_ACCESS_CHECKS
-    if (derived->referencing_view)
+    if (derived->is_view())
       table->grant= derived->grant;
     else
     {
+      DBUG_ASSERT(derived->is_derived());
+      DBUG_ASSERT(derived->is_anonymous_derived_table());
       table->grant.privilege= SELECT_ACL;
-      if (derived->is_derived())
-        derived->grant.privilege= SELECT_ACL;
+      derived->grant.privilege= SELECT_ACL;
     }
 #endif
     /* Add new temporary table to list of open derived tables */

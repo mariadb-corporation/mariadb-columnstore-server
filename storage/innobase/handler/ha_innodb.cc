@@ -351,10 +351,11 @@ thd_destructor_proxy(void *)
 	mysql_mutex_unlock(&thd_destructor_mutex);
 	srv_running = NULL;
 
-	if (srv_fast_shutdown == 0) {
-		while (trx_sys_any_active_transactions()) {
-			os_thread_sleep(1000);
-		}
+	while (srv_fast_shutdown == 0 &&
+	       (trx_sys_any_active_transactions() ||
+		(uint)thread_count > srv_n_purge_threads + 1)) {
+		thd_proc_info(thd, "InnoDB slow shutdown wait");
+		os_thread_sleep(1000);
 	}
 
 	/* Some background threads might generate undo pages that will
@@ -723,6 +724,7 @@ static PSI_file_info	all_innodb_files[] = {
 
 static void innodb_remember_check_sysvar_funcs();
 mysql_var_check_func check_sysvar_enum;
+mysql_var_check_func check_sysvar_int;
 
 // should page compression be used by default for new tables
 static MYSQL_THDVAR_BOOL(compression_default, PLUGIN_VAR_OPCMDARG,
@@ -1689,18 +1691,6 @@ thd_is_replication_slave_thread(
 }
 
 /******************************************************************//**
-Gets information on the durability property requested by thread.
-Used when writing either a prepare or commit record to the log
-buffer. @return the durability property. */
-enum durability_properties
-thd_requested_durability(
-/*=====================*/
-	const THD* thd)	/*!< in: thread handle */
-{
-	return(thd_get_durability_property(thd));
-}
-
-/******************************************************************//**
 Returns true if transaction should be flagged as read-only.
 @return true if the thd is marked as read-only */
 bool
@@ -1757,8 +1747,9 @@ innobase_reset_background_thd(MYSQL_THD thd)
 	ut_ad(THDVAR(thd, background_thread));
 
 	/* background purge thread */
+	const char *proc_info= thd_proc_info(thd, "reset");
 	reset_thd(thd);
-	thd_proc_info(thd, "");
+	thd_proc_info(thd, proc_info);
 }
 
 
@@ -2176,15 +2167,21 @@ convert_error_code_to_mysql(
 		locally for BLOB fields. Refer to dict_table_get_format().
 		We limit max record size to 16k for 64k page size. */
 		bool prefix = (dict_tf_get_format(flags) == UNIV_FORMAT_A);
+		bool comp = !!(flags & DICT_TF_COMPACT);
+		ulint free_space = page_get_free_space_of_empty(comp) / 2;
+
+		if (free_space >= (comp ? COMPRESSED_REC_MAX_DATA_SIZE :
+				          REDUNDANT_REC_MAX_DATA_SIZE)) {
+			free_space = (comp ? COMPRESSED_REC_MAX_DATA_SIZE :
+				REDUNDANT_REC_MAX_DATA_SIZE) - 1;
+		}
+
 		my_printf_error(ER_TOO_BIG_ROWSIZE,
-			"Row size too large (> %lu). Changing some columns"
-			" to TEXT or BLOB %smay help. In current row"
-			" format, BLOB prefix of %d bytes is stored inline.",
+			"Row size too large (> " ULINTPF "). Changing some columns "
+			"to TEXT or BLOB %smay help. In current row "
+			"format, BLOB prefix of %d bytes is stored inline.",
 			MYF(0),
-			srv_page_size == UNIV_PAGE_SIZE_MAX
-			? REC_MAX_DATA_SIZE - 1
-			: page_get_free_space_of_empty(flags &
-				DICT_TF_COMPACT) / 2,
+			free_space,
 			prefix
 			? "or using ROW_FORMAT=DYNAMIC or"
 			  " ROW_FORMAT=COMPRESSED "
@@ -4838,10 +4835,6 @@ innobase_commit(
 		visible to others. So we can wakeup other commits waiting for
 		this one, to allow then to group commit with us. */
 		thd_wakeup_subsequent_commits(thd, 0);
-
-		if (!read_only) {
-			trx->flush_log_later = false;
-		}
 
 		/* Now do a write + flush of logs. */
 		trx_commit_complete_for_mysql(trx);
@@ -9433,7 +9426,7 @@ ha_innobase::update_row(
 
 	innobase_srv_conc_enter_innodb(m_prebuilt);
 
-	error = row_update_for_mysql((byte*) old_row, m_prebuilt);
+	error = row_update_for_mysql(m_prebuilt);
 
 	if (error == DB_SUCCESS && autoinc) {
 		/* A value for an AUTO_INCREMENT column
@@ -9548,7 +9541,7 @@ ha_innobase::delete_row(
 
 	innobase_srv_conc_enter_innodb(m_prebuilt);
 
-	error = row_update_for_mysql((byte*) record, m_prebuilt);
+	error = row_update_for_mysql(m_prebuilt);
 
 	innobase_srv_conc_exit_innodb(m_prebuilt);
 
@@ -15653,10 +15646,14 @@ get_foreign_key_info(
 
 		if (ref_table == NULL) {
 
-			ib::info() << "Foreign Key referenced table "
-				   << foreign->referenced_table_name
-				   << " not found for foreign table "
-				   << foreign->foreign_table_name;
+			if (!thd_test_options(
+				thd, OPTION_NO_FOREIGN_KEY_CHECKS)) {
+				ib::info()
+					<< "Foreign Key referenced table "
+					<< foreign->referenced_table_name
+					<< " not found for foreign table "
+					<< foreign->foreign_table_name;
+			}
 		} else {
 
 			dict_table_close(ref_table, TRUE, FALSE);
@@ -18298,6 +18295,34 @@ innodb_file_format_name_validate(
 	return(1);
 }
 
+/*************************************************************//**
+Don't allow to set innodb_fast_shutdown=0 if purge threads are
+already down.
+@return 0 if innodb_fast_shutdown can be set */
+static
+int
+fast_shutdown_validate(
+/*=============================*/
+	THD*				thd,	/*!< in: thread handle */
+	struct st_mysql_sys_var*	var,	/*!< in: pointer to system
+						variable */
+	void*				save,	/*!< out: immediate result
+						for update function */
+	struct st_mysql_value*		value)	/*!< in: incoming string */
+{
+	if (check_sysvar_int(thd, var, save, value)) {
+		return(1);
+	}
+
+	uint new_val = *reinterpret_cast<uint*>(save);
+
+	if (srv_fast_shutdown && !new_val && !srv_running) {
+		return(1);
+	}
+
+	return(0);
+}
+
 /****************************************************************//**
 Update the system variable innodb_file_format using the "saved"
 value. This function is registered as a callback with MySQL. */
@@ -20640,7 +20665,7 @@ static MYSQL_SYSVAR_UINT(fast_shutdown, srv_fast_shutdown,
   PLUGIN_VAR_OPCMDARG,
   "Speeds up the shutdown process of the InnoDB storage engine. Possible"
   " values are 0, 1 (faster) or 2 (fastest - crash-like).",
-  NULL, NULL, 1, 0, 2, 0);
+  fast_shutdown_validate, NULL, 1, 0, 2, 0);
 
 static MYSQL_SYSVAR_BOOL(file_per_table, srv_file_per_table,
   PLUGIN_VAR_NOCMDARG,
@@ -22936,6 +22961,9 @@ static void innodb_remember_check_sysvar_funcs()
 	/* remember build-in sysvar check functions */
 	ut_ad((MYSQL_SYSVAR_NAME(checksum_algorithm).flags & 0x1FF) == PLUGIN_VAR_ENUM);
 	check_sysvar_enum = MYSQL_SYSVAR_NAME(checksum_algorithm).check;
+
+	ut_ad((MYSQL_SYSVAR_NAME(flush_log_at_timeout).flags & 15) == PLUGIN_VAR_INT);
+	check_sysvar_int = MYSQL_SYSVAR_NAME(flush_log_at_timeout).check;
 }
 
 /********************************************************************//**
