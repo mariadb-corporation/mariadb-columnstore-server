@@ -3644,8 +3644,14 @@ void JOIN::exec_inner()
 
   if (zero_result_cause)
   {
-    if (select_lex->have_window_funcs())
+    if (select_lex->have_window_funcs() && send_row_on_empty_set())
     {
+      /*
+        The query produces just one row but it has window functions.
+
+        The only way to compute the value of window function(s) is to
+        run the entire window function computation step (there is no shortcut).
+      */
       const_tables= table_count;
       first_select= sub_select_postjoin_aggr;
     }
@@ -4110,7 +4116,7 @@ make_join_statistics(JOIN *join, List<TABLE_LIST> &tables_list,
 #endif
 
     DBUG_EXECUTE_IF("bug11747970_raise_error",
-                    { join->thd->killed= KILL_QUERY_HARD; });
+                    { join->thd->set_killed(KILL_QUERY_HARD); });
     if (error)
     {
       table->file->print_error(error, MYF(0));
@@ -8915,7 +8921,7 @@ JOIN_TAB *first_top_level_tab(JOIN *join, enum enum_with_const_tables const_tbls
   JOIN_TAB *tab= join->join_tab;
   if (const_tbls == WITHOUT_CONST_TABLES)
   {
-    if (join->const_tables == join->table_count)
+    if (join->const_tables == join->table_count || !tab)
       return NULL;
     tab += join->const_tables;
   }
@@ -8938,6 +8944,10 @@ JOIN_TAB *first_linear_tab(JOIN *join,
                            enum enum_with_const_tables const_tbls)
 {
   JOIN_TAB *first= join->join_tab;
+
+  if (!first)
+    return NULL;
+
   if (const_tbls == WITHOUT_CONST_TABLES)
     first+= join->const_tables;
 
@@ -9024,7 +9034,7 @@ JOIN_TAB *first_depth_first_tab(JOIN* join)
 {
   JOIN_TAB* tab;
   /* This means we're starting the enumeration */
-  if (join->const_tables == join->top_join_tab_count)
+  if (join->const_tables == join->top_join_tab_count || !join->join_tab)
     return NULL;
 
   tab= join->join_tab + join->const_tables;
@@ -16860,7 +16870,12 @@ create_tmp_table(THD *thd, TMP_TABLE_PARAM *param, List<Item> &fields,
   Field **tmp_from_field=from_field;
   while ((item=li++))
   {
-    Item::Type type=item->type();
+    Item::Type type= item->type();
+    if (type == Item::COPY_STR_ITEM)
+    {
+      item= ((Item_copy *)item)->get_item();
+      type= item->type();
+    }
     if (not_all_columns)
     {
       if (item->with_sum_func && type != Item::SUM_FUNC_ITEM)

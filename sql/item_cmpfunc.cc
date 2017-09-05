@@ -627,6 +627,21 @@ int Arg_comparator::set_cmp_func(Item_func_or_sum *owner_arg,
     */
     if (owner->agg_arg_charsets_for_comparison(&m_compare_collation, a, b))
       return 1;
+
+    if ((*a)->type() == Item::FUNC_ITEM &&
+        ((Item_func *) (*a))->functype() == Item_func::JSON_EXTRACT_FUNC)
+    {
+      func= is_owner_equal_func() ? &Arg_comparator::compare_e_json_str:
+                                    &Arg_comparator::compare_json_str;
+      return 0;
+    }
+    else if ((*b)->type() == Item::FUNC_ITEM &&
+             ((Item_func *) (*b))->functype() == Item_func::JSON_EXTRACT_FUNC)
+    {
+      func= is_owner_equal_func() ? &Arg_comparator::compare_e_json_str:
+                                    &Arg_comparator::compare_str_json;
+      return 0;
+    }
   }
 
   if (m_compare_type == TIME_RESULT)
@@ -1157,6 +1172,30 @@ int Arg_comparator::compare_e_row()
       return 0;
   }
   return 1;
+}
+
+
+int Arg_comparator::compare_json_str()
+{
+  return compare_json_str_basic(*a, *b);
+}
+
+
+int Arg_comparator::compare_str_json()
+{
+  return -compare_json_str_basic(*b, *a);
+}
+
+
+int Arg_comparator::compare_e_json_str()
+{
+  return compare_e_json_str_basic(*a, *b);
+}
+
+
+int Arg_comparator::compare_e_str_json()
+{
+  return compare_e_json_str_basic(*b, *a);
 }
 
 
@@ -5365,7 +5404,7 @@ void Regexp_processor_pcre::set_recursion_limit(THD *thd)
   DBUG_ASSERT(thd == current_thd);
   stack_used= available_stack_size(thd->thread_stack, &stack_used);
   m_pcre_extra.match_limit_recursion=
-    (my_thread_stack_size - stack_used)/my_pcre_frame_size;
+    (my_thread_stack_size - STACK_MIN_SIZE - stack_used)/my_pcre_frame_size;
 }
 
 
@@ -5628,6 +5667,12 @@ void Regexp_processor_pcre::fix_owner(Item_func *owner,
 }
 
 
+bool Item_func_regex::fix_fields(THD *thd, Item **ref)
+{
+  re.set_recursion_limit(thd);
+  return Item_bool_func::fix_fields(thd, ref);
+}
+
 void
 Item_func_regex::fix_length_and_dec()
 {
@@ -5651,6 +5696,13 @@ longlong Item_func_regex::val_int()
     return 0;
 
   return re.match();
+}
+
+
+bool Item_func_regexp_instr::fix_fields(THD *thd, Item **ref)
+{
+  re.set_recursion_limit(thd);
+  return Item_int_func::fix_fields(thd, ref);
 }
 
 

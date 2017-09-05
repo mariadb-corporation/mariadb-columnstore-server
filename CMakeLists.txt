@@ -365,7 +365,7 @@ ENDIF()
 
 SET (MYSQLD_STATIC_PLUGIN_LIBS "" CACHE INTERNAL "")
 
-# mariadb_connector_c fetches submodules which is useful for plugins
+INCLUDE(submodules)
 INCLUDE(mariadb_connector_c) # this does ADD_SUBDIRECTORY(libmariadb)
 
 # Add storage engines and plugins.
@@ -462,7 +462,6 @@ INSTALL_DOCUMENTATION(README.md CREDITS COPYING COPYING.thirdparty
 #                      ${CMAKE_BINARY_DIR}/Docs/INFO_BIN)
 
 IF(UNIX)
-  INSTALL_DOCUMENTATION(Docs/INSTALL-BINARY COMPONENT Readme)
   INSTALL_DOCUMENTATION(Docs/INSTALL-BINARY Docs/README-wsrep COMPONENT Readme)
 ENDIF()
 

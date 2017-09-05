@@ -2238,7 +2238,7 @@ xtrabackup_copy_log(copy_logfile copy, lsn_t start_lsn, lsn_t end_lsn)
 
 	end_lsn = copy == COPY_LAST
 		? ut_uint64_align_up(scanned_lsn, OS_FILE_LOG_BLOCK_SIZE)
-		: scanned_lsn & ~(OS_FILE_LOG_BLOCK_SIZE - 1);
+		: scanned_lsn & ~lsn_t(OS_FILE_LOG_BLOCK_SIZE - 1);
 
 	if (ulint write_size = ulint(end_lsn - start_lsn)) {
 		if (srv_encrypt_log) {
@@ -5526,8 +5526,7 @@ handle_options(int argc, char **argv, char ***argv_client, char ***argv_server)
 	for (n = 0; (*argv_client)[n]; n++) {};
  	argc_client = n;
 
-	if (strcmp(base_name(my_progname), INNOBACKUPEX_BIN_NAME) == 0 &&
-	    argc_client > 0) {
+	if (innobackupex_mode && argc_client > 0) {
 		/* emulate innobackupex script */
 		innobackupex_mode = true;
 		if (!ibx_handle_options(&argc_client, argv_client)) {
@@ -5572,12 +5571,10 @@ static int main_low(char** argv);
 int main(int argc, char **argv)
 {
 	char **client_defaults, **server_defaults;
-	static char INNOBACKUPEX_EXE[]= "innobackupex";
 	if (argc > 1 && (strcmp(argv[1], "--innobackupex") == 0))
 	{
 		argv++;
 		argc--;
-		argv[0] = INNOBACKUPEX_EXE;
 		innobackupex_mode = true;
 	}
 
