@@ -1,6 +1,6 @@
 #MariaDB ColumnStore Server (version 1.1)
 This is the server part of MariaDB ColumnStore 1.1.0.
-MariaDB ColumnStore 1.1.0 is a GA of MariaDB ColumnStore. 
+MariaDB ColumnStore 1.1.0 is a Beta of MariaDB ColumnStore. 
 It is built by porting InfiniDB 4.6.7 on MariaDB 10.2 and adding entirely 
 new features not found anywhere else.
 
@@ -9,8 +9,8 @@ MariaDB ColumnStore also requires the matching engine version. This can be found
 
 Always match the server engine / git branch with the engine git branch.
 
-##GA release notice
-MariaDB ColumnStore 1.1.0 is an GA release.
+##BETA release notice
+MariaDB ColumnStore 1.1.0 is an BETA release.
 
 Currently building has only been certified on CentOS 6 and 7, Ubuntu 16.04, Debain 8, and SUSE 12.. 
 Building on other platforms will be certified in a later release.
@@ -276,7 +276,7 @@ SUSEConnect -p sle-sdk/12.2/x86_64
 zypper install boost-devel
 
 ```bash
-zypper install expect perl perl-DBI openssl file sudo libaio1 rsync net-tools libsnappy1 perl-DBD-mysql
+zypper install expect perl perl-DBI openssl file sudo libaio1 rsync net-tools libsnappy1
 ```
 
 ##MariaDB ColumnStore utilizes the System Logging for logging purposes
