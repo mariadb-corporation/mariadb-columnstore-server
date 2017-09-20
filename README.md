@@ -105,11 +105,12 @@ apt-get install build-essential automake libboost-all-dev bison cmake libncurses
 
 ```bash
 apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev libkrb5-dev flex libpam-dev libkrb5-dev libsnappy-dev
-
+```
 ### For Debian 9
 
 ```bash
-apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev libkrb5-dev flex libpam-dev libkrb5-dev libsnappy-dev libgmp-dev
+apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl1.0-dev libxml2-dev libkrb5-dev flex libpam-dev libkrb5-dev libsnappy-dev libgmp-dev
+apt-get install libxml2-dev lmodern openjdk-8-jdk openssl pkg-config scons texlive-latex-base texlive-latex-base-doc thrift-compiler ttf-dejavu ttf-dejavu-extra unixodbc-dev uuid-dev xfonts-encodings xfonts-utils zlib1g-dev
 ```
 ### For Suse 12
 
