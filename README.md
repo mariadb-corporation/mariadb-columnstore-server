@@ -104,7 +104,7 @@ apt-get install build-essential automake libboost-all-dev bison cmake libncurses
 ### For Debian 8
 
 ```bash
-apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev libkrb5-dev flex libpam-dev libkrb5-dev lib-snappy-dev
+apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev libkrb5-dev flex libpam-dev libkrb5-dev libsnappy-dev
 
 ### For Debian 9
 
