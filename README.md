@@ -117,7 +117,7 @@ apt-get install libxml2-dev lmodern openjdk-8-jdk openssl pkg-config scons texli
 These packages need to be install along with the group development packages:
 
 ```bash
-zypper groupinstall "Development Tools"
+zypper se -t pattern devel
 zypper install bison ncurses-devel readline-devel perl-devel openssl-devel cmake libxml2-devel gperf libaio-devel libevent-devel python-devel ruby-devel tree wget pam-devel snappy-devel
 ```
 
