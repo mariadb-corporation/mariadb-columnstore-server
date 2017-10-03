@@ -233,6 +233,7 @@ private:
   */
   uint32 unsafe_flags;
 
+  uint m_select_number;
 public:
   inline Stored_program_creation_ctx *get_creation_ctx()
   {
@@ -525,6 +526,7 @@ public:
   // InfiniDB adds accessor
   sp_pcontext* context() { return m_pcont; }
   uint sp_elements() {return m_instr.elements;}
+  void set_select_number(uint num) { m_select_number= num; }
 
 private:
 

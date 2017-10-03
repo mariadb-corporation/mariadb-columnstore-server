@@ -1539,6 +1539,7 @@ rec_loop:
 			switch (err) {
 			case DB_SUCCESS_LOCKED_REC:
 				err = DB_SUCCESS;
+				/* fall through */
 			case DB_SUCCESS:
 				break;
 			default:
@@ -1597,6 +1598,7 @@ skip_lock:
 		switch (err) {
 		case DB_SUCCESS_LOCKED_REC:
 			err = DB_SUCCESS;
+			/* fall through */
 		case DB_SUCCESS:
 			break;
 		default:
@@ -4220,6 +4222,7 @@ wait_table_again:
 			switch (err) {
 			case DB_SUCCESS_LOCKED_REC:
 				err = DB_SUCCESS;
+				/* fall through */
 			case DB_SUCCESS:
 				break;
 			default:
@@ -4310,6 +4313,7 @@ rec_loop:
 			switch (err) {
 			case DB_SUCCESS_LOCKED_REC:
 				err = DB_SUCCESS;
+				/* fall through */
 			case DB_SUCCESS:
 				break;
 			default:
@@ -4345,8 +4349,7 @@ rec_loop:
 wrong_offs:
 		if (srv_force_recovery == 0 || moves_up == FALSE) {
 			ut_print_timestamp(stderr);
-			buf_page_print(page_align(rec), 0,
-				       BUF_PAGE_PRINT_NO_CRASH);
+			buf_page_print(page_align(rec), 0);
 			fprintf(stderr,
 				"\nInnoDB: rec address %p,"
 				" buf block fix count %lu\n",
@@ -4591,6 +4594,7 @@ no_gap_lock:
 				prebuilt->new_rec_locks = 1;
 			}
 			err = DB_SUCCESS;
+			/* fall through */
 		case DB_SUCCESS:
 			break;
 		case DB_LOCK_WAIT:
@@ -5096,19 +5100,8 @@ idx_cond_failed:
 
 		btr_pcur_store_position(pcur, &mtr);
 
-		if (prebuilt->innodb_api
-		    && (btr_pcur_get_rec(pcur) != result_rec)) {
-			ulint rec_size =  rec_offs_size(offsets);
-			if (!prebuilt->innodb_api_rec_size ||
-			   (prebuilt->innodb_api_rec_size < rec_size)) {
-				prebuilt->innodb_api_buf =
-				  static_cast<byte*>
-				  (mem_heap_alloc(prebuilt->cursor_heap,rec_size));
-				prebuilt->innodb_api_rec_size = rec_size;
-			}
-			prebuilt->innodb_api_rec =
-			      rec_copy(
-			       prebuilt->innodb_api_buf, result_rec, offsets);
+		if (prebuilt->innodb_api) {
+			prebuilt->innodb_api_rec = result_rec;
 		}
 	}
 

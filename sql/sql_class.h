@@ -1568,6 +1568,29 @@ public:
 
 
 /**
+  Implements the trivial error handler which counts errors as they happen.
+*/
+
+class Counting_error_handler : public Internal_error_handler
+{
+public:
+  int errors;
+  bool handle_condition(THD *thd,
+                        uint sql_errno,
+                        const char* sqlstate,
+                        Sql_condition::enum_warning_level level,
+                        const char* msg,
+                        Sql_condition ** cond_hdl)
+  {
+    if (level == Sql_condition::WARN_LEVEL_ERROR)
+      errors++;
+    return false;
+  }
+  Counting_error_handler() : errors(0) {}
+};
+
+
+/**
   This class is an internal error handler implementation for
   DROP TABLE statements. The thing is that there may be warnings during
   execution of these statements, which should not be exposed to the user.
@@ -4153,6 +4176,8 @@ public:
   bool                      wsrep_ignore_table;
   wsrep_gtid_t              wsrep_sync_wait_gtid;
   ulong                     wsrep_affected_rows;
+  bool                      wsrep_replicate_GTID;
+  bool                      wsrep_skip_wsrep_GTID;
 #endif /* WITH_WSREP */
 
   /* Handling of timeouts for commands */
@@ -5185,7 +5210,7 @@ public:
   {
     DBUG_ENTER("unique_add");
     DBUG_PRINT("info", ("tree %u - %lu", tree.elements_in_tree, max_elements));
-    if (!(tree.flag & TREE_ONLY_DUPS) && 
+    if (!(tree.flag & TREE_ONLY_DUPS) &&
         tree.elements_in_tree >= max_elements && flush())
       DBUG_RETURN(1);
     DBUG_RETURN(!tree_insert(&tree, ptr, 0, tree.custom_arg));

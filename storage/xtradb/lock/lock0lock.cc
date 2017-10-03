@@ -1835,7 +1835,7 @@ lock_rec_other_has_conflicting(
 
 #ifdef WITH_WSREP
 		if (lock_rec_has_to_wait(TRUE, trx, mode, lock, is_supremum)) {
-			if (wsrep_on(trx->mysql_thd)) {
+			if (wsrep_on_trx(trx)) {
 				trx_mutex_enter(lock->trx);
 				wsrep_kill_victim(trx, lock);
 				trx_mutex_exit(lock->trx);
@@ -1921,7 +1921,7 @@ lock_sec_rec_some_has_impl(
 
 	} else if (!lock_check_trx_id_sanity(max_trx_id, rec, index, offsets)) {
 
-		buf_page_print(page, 0, 0);
+		buf_page_print(page, 0);
 
 		/* The page is corrupt: try to avoid a crash by returning 0 */
 		trx_id = 0;
@@ -2290,7 +2290,7 @@ lock_rec_create(
 
 #ifdef WITH_WSREP
 	if (c_lock                      &&
-	    wsrep_on(trx->mysql_thd)    &&
+	    wsrep_on_trx(trx)           &&
 	    wsrep_thd_is_BF(trx->mysql_thd, FALSE)) {
 		lock_t *hash	= (lock_t *)c_lock->hash;
 		lock_t *prev	= NULL;

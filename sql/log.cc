@@ -9355,8 +9355,10 @@ int TC_LOG_BINLOG::open(const char *opt_name)
 
   if (using_heuristic_recover())
   {
+    mysql_mutex_lock(&LOCK_log);
     /* generate a new binlog to mask a corrupted one */
     open(opt_name, LOG_BIN, 0, 0, WRITE_CACHE, max_binlog_size, 0, TRUE);
+    mysql_mutex_unlock(&LOCK_log);
     cleanup();
     return 1;
   }
@@ -9676,6 +9678,8 @@ binlog_background_thread(void *arg __attribute__((unused)))
     {
       THD_STAGE_INFO(thd, stage_binlog_processing_checkpoint_notify);
       DEBUG_SYNC(thd, "binlog_background_thread_before_mark_xid_done");
+      /* Set the thread start time */
+      thd->set_time();
       /* Grab next pointer first, as mark_xid_done() may free the element. */
       next= queue->next_in_queue;
       mysql_bin_log.mark_xid_done(queue->binlog_id, true);
