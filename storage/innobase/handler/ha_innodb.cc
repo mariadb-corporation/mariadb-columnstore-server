@@ -1087,6 +1087,18 @@ static SHOW_VAR innodb_status_variables[]= {
   {"encryption_key_rotation_list_length",
   (char*)&export_vars.innodb_key_rotation_list_length,
    SHOW_LONGLONG},
+  {"encryption_n_merge_blocks_encrypted",
+  (char*)&export_vars.innodb_n_merge_blocks_encrypted,
+   SHOW_LONGLONG},
+  {"encryption_n_merge_blocks_decrypted",
+  (char*)&export_vars.innodb_n_merge_blocks_decrypted,
+   SHOW_LONGLONG},
+  {"encryption_n_rowlog_blocks_encrypted",
+  (char*)&export_vars.innodb_n_rowlog_blocks_encrypted,
+   SHOW_LONGLONG},
+  {"encryption_n_rowlog_blocks_decrypted",
+  (char*)&export_vars.innodb_n_rowlog_blocks_decrypted,
+   SHOW_LONGLONG},
 
   /* scrubing */
   {"scrub_background_page_reorganizations",
@@ -4110,7 +4122,7 @@ innobase_commit_low(
 		trx_commit_for_mysql(trx);
 	}
 #ifdef WITH_WSREP
-	if (wsrep_on(thd)) { thd_proc_info(thd, tmp); }
+	if (thd && wsrep_on(thd)) { thd_proc_info(thd, tmp); }
 #endif /* WITH_WSREP */
 }
 
@@ -16429,6 +16441,10 @@ innobase_commit_by_xid(
 
 	DBUG_ASSERT(hton == innodb_hton_ptr);
 
+	if (high_level_read_only) {
+		return(XAER_RMFAIL);
+	}
+
 	trx = trx_get_trx_by_xid(xid);
 
 	if (trx) {
@@ -16456,8 +16472,11 @@ innobase_rollback_by_xid(
 
 	DBUG_ASSERT(hton == innodb_hton_ptr);
 
-	trx = trx_get_trx_by_xid(xid);
+	if (high_level_read_only) {
+		return(XAER_RMFAIL);
+	}
 
+	trx = trx_get_trx_by_xid(xid);
 	if (trx) {
 		int	ret = innobase_rollback_trx(trx);
 		trx_free_for_background(trx);
@@ -18823,7 +18842,7 @@ wsrep_fake_trx_id(
 	mutex_enter(&trx_sys->mutex);
 	trx_id_t trx_id = trx_sys_get_new_trx_id();
 	mutex_exit(&trx_sys->mutex);
-
+	WSREP_DEBUG("innodb fake trx id: %lu thd: %s", trx_id, wsrep_thd_query(thd));
 	wsrep_ws_handle_for_trx(wsrep_thd_ws_handle(thd), trx_id);
 }
 

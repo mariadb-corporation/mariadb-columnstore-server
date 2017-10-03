@@ -84,7 +84,7 @@ PGLOBAL CntExit(PGLOBAL g)
 /*  CntEndDB: DB termination semantic routine.                         */
 /***********************************************************************/
 void CntEndDB(PGLOBAL g)
-  {
+{
   PDBUSER dbuserp= PlgGetUser(g);
 
   if (dbuserp) {
@@ -92,9 +92,14 @@ void CntEndDB(PGLOBAL g)
       delete dbuserp->Catalog;
 
     free(dbuserp);
-    } // endif dbuserp
 
-  } // end of CntEndDB
+		if (trace)
+			htrc("CntEndDB: Freeing Dup\n");
+
+		g->Activityp->Aptr = NULL;
+	} // endif dbuserp
+
+} // end of CntEndDB
 
 /***********************************************************************/
 /*  CntCheckDB: Initialize a DB application session.                   */
