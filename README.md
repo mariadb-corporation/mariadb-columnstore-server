@@ -215,7 +215,7 @@ sudo make install
 ```
 
 To build a debug version
-  * Add `-DCMAKE_BUILD_TYPE=debug` to each of the cmake commands in the build process
+  * Add `-DCMAKE_BUILD_TYPE=debug -DPLUGIN_TOKUDB=NO` to each of the cmake commands in the build process
   * Do not mix release and debug versions of server and engine
 
 To develop a new branch/feature/pull request
