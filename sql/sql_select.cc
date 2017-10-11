@@ -1965,12 +1965,7 @@ JOIN::optimize_inner()
     }
   }
 
-  // @InfiniDB We don't need tmp table for vtable create phase. Plus
-  // to build tmp table may corrupt some field table_name & db_name (for some reason)
-  if (thd->infinidb_vtable.vtable_state == THD::INFINIDB_CREATE_VTABLE)
-  	need_tmp = false;
-  else
-	need_tmp= test_if_need_tmp_table();
+  need_tmp = test_if_need_tmp_table();
 
   //TODO this could probably go in test_if_need_tmp_table.
   if (this->select_lex->window_specs.elements > 0) {
@@ -1995,6 +1990,11 @@ JOIN::optimize_inner()
 
   if (make_join_readinfo(this, select_opts_for_readinfo, no_jbuf_after))
     DBUG_RETURN(1);
+
+  // @InfiniDB We don't need tmp table for vtable create phase. Plus
+  // to build tmp table may corrupt some field table_name & db_name (for some reason)
+  if (thd->infinidb_vtable.vtable_state == THD::INFINIDB_CREATE_VTABLE)
+	need_tmp = false;
 
   /* Perform FULLTEXT search before all regular searches */
   if (!(select_options & SELECT_DESCRIBE))
