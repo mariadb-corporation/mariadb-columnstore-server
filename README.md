@@ -1,24 +1,25 @@
-#MariaDB ColumnStore Server (version 1.1)
-This is the server part of MariaDB ColumnStore 1.1.0.
+# MariaDB ColumnStore Server (version 1.1)
+
+This is the server part of MariaDB ColumnStore 1.1.1.
 MariaDB ColumnStore 1.1.0 is a Beta of MariaDB ColumnStore. 
 It is built by porting InfiniDB 4.6.7 on MariaDB 10.2 and adding entirely 
 new features not found anywhere else.
 
-##MariaDB ColumnStore Engine (version 1.1)
+## MariaDB ColumnStore Engine (version 1.1)
+
 MariaDB ColumnStore also requires the matching engine version. This can be found at https://github.com/mariadb-corporation/mariadb-columnstore-engine.
 
 Always match the server engine / git branch with the engine git branch.
 
-##BETA release notice
-MariaDB ColumnStore 1.1.0 is an BETA release.
-
 Currently building has only been certified on CentOS 6 and 7, Ubuntu 16.04, Debain 8, and SUSE 12.. 
 Building on other platforms will be certified in a later release.
 
-##Issue tracking
+## Issue tracking
+
 Issue tracking of MariaDB ColumnStore happens in JIRA, https://jira.mariadb.org/browse/MCOL
 
-###The structure of this repository is:
+### The structure of this repository is:
+
 * Branch "master" - this is the latest released version of the source code.  Each major release is tagged.
 * Branch "develop-1.0" - this is the 1.0 mainline development branch.
 * Branch "develop" - this is the 1.1 unstable development branch.
@@ -26,13 +27,14 @@ Issue tracking of MariaDB ColumnStore happens in JIRA, https://jira.mariadb.org/
 
 MariaDB ColumnStore server and the engine are in separate repositories.
 
-##Contributing
+## Contributing
 
 To contribute to ColumnStore please see the [Contributions Documentation](CONTRIBUTING.md).
 
-##Build dependencies
+## Build dependencies
 
 ### Boost Libraries
+
 MariaDB ColumnStore requires that the boost package of 1.53 or newer is installed for both building and executing
 
 For CentOS 7, Ubuntu 16, Debian 8, SUSE 12 and other newer OS's, you can just install the boost packages via yum or apt-get.
@@ -123,10 +125,12 @@ zypper install bison ncurses-devel readline-devel perl-devel openssl-devel cmake
 ```
 
 
-##Building master branch
+## Building master branch
+
 The current master branch is the released version.
 
-##Building develop branch
+## Building develop branch
+
 The develop branch is used for develop updates
 
 Building can be done as a non-root user. If you do a "build install", it will install the binaries in `/usr/local/mariadb/columnstore`
@@ -181,7 +185,8 @@ SERVER_BUILD_INCLUDE_DIR=Path to the server build include directory.
 SERVER_SOURCE_ROOT_DIR=Path the directory the server source checked out from github.
 ```
 
-###Examples
+### Examples
+
 Engine not located inside server:
 
 ```bash
@@ -232,7 +237,7 @@ To develop a new branch/feature/pull request
   * Issue pull request for merge from new-branch-name into develop
   * MariaDB ColumnStore team will evaluate the changes and may request further development or changes before merge 
 
-##Run dependencies
+## Run dependencies
 
 ## For CentOS
 
@@ -281,12 +286,13 @@ zypper install boost-devel
 zypper install expect perl perl-DBI openssl file sudo libaio1 rsync net-tools libsnappy1
 ```
 
-##MariaDB ColumnStore utilizes the System Logging for logging purposes
+## MariaDB ColumnStore utilizes the System Logging for logging purposes
+
 So you will want to make sure that one of these system logging packages is installed:
 
   syslog, rsyslog, or syslog-ng
 
-##Configure and Starting of MariaDB ColumnStore
+## Configure and Starting of MariaDB ColumnStore
 
 Follow the binary package install instructions in the ColumnStore Getting Starter Guide:
 

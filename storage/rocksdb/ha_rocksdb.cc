@@ -173,7 +173,7 @@ Rdb_ddl_manager ddl_manager;
 const char *m_mysql_gtid;
 Rdb_binlog_manager binlog_manager;
 
-#ifndef _WIN32 
+#if !defined(_WIN32) && !defined(__APPLE__)
 Rdb_io_watchdog *io_watchdog = nullptr;
 #endif
 /**
@@ -554,7 +554,7 @@ static void rocksdb_set_io_write_timeout(
     void *const var_ptr MY_ATTRIBUTE((__unused__)), const void *const save) {
   DBUG_ASSERT(save != nullptr);
   DBUG_ASSERT(rdb != nullptr);
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__APPLE__)
   DBUG_ASSERT(io_watchdog != nullptr);
 #endif
 
@@ -563,7 +563,7 @@ static void rocksdb_set_io_write_timeout(
   const uint32_t new_val = *static_cast<const uint32_t *>(save);
 
   rocksdb_io_write_timeout_secs = new_val;
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__APPLE__)
   io_watchdog->reset_timeout(rocksdb_io_write_timeout_secs);
 #endif
   RDB_MUTEX_UNLOCK_CHECK(rdb_sysvars_mutex);
@@ -3984,7 +3984,7 @@ static int rocksdb_init_func(void *const p) {
     directories.push_back(myrocks::rocksdb_wal_dir);
   }
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__APPLE__)
   io_watchdog = new Rdb_io_watchdog(directories);
   io_watchdog->reset_timeout(rocksdb_io_write_timeout_secs);
 #endif
@@ -4076,7 +4076,7 @@ static int rocksdb_done_func(void *const p) {
   delete commit_latency_stats;
   commit_latency_stats = nullptr;
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__APPLE__)
   delete io_watchdog;
   io_watchdog = nullptr;
 #endif
@@ -9321,6 +9321,7 @@ const char *ha_rocksdb::thd_rocksdb_tmpdir() {
   return (tmp_dir);
 }
 
+
 /**
   @return
     HA_EXIT_SUCCESS  OK
@@ -9334,9 +9335,27 @@ int ha_rocksdb::external_lock(THD *const thd, int lock_type) {
   int res = HA_EXIT_SUCCESS;
   int binlog_format = my_core::thd_binlog_format(thd);
   bool unsafe_for_binlog = THDVAR(ha_thd(), unsafe_for_binlog);
+
+  /*
+    A note about (*) below: In fb/mysql, LOCK TABLE myrocks_table WRITE
+    - produces an error when @@binlog_format='ROW'.
+    - does not produce an error with @@binlog_format='STATEMENT'
+
+    We cannot easily provide this behavior in MariaDB, because LOCK ROWS
+    changes @@binlog_format for the duration of the statement.
+
+    Instead we will make the check in ha_rocksdb::start_stmt and will produce
+    an error in the first DML statement done under LOCK TABLE
+
+    (**) - The same happens for other "DDL-type" commands, so allow them here
+    as well.
+  */
   if (lock_type == F_WRLCK && !thd->rgi_slave && !unsafe_for_binlog &&
       binlog_format != BINLOG_FORMAT_ROW &&
       binlog_format != BINLOG_FORMAT_UNSPEC &&
+      thd->lex->sql_command != SQLCOM_LOCK_TABLES &&  // (*)
+      thd->lex->sql_command != SQLCOM_ANALYZE &&   // (**)
+      thd->lex->sql_command != SQLCOM_OPTIMIZE &&  // (**)
       my_core::thd_binlog_filter_ok(thd)) {
     my_error(ER_REQUIRE_ROW_BINLOG_FORMAT, MYF(0));
     DBUG_RETURN(HA_ERR_UNSUPPORTED);
@@ -9433,6 +9452,20 @@ int ha_rocksdb::external_lock(THD *const thd, int lock_type) {
 
 int ha_rocksdb::start_stmt(THD *const thd, thr_lock_type lock_type) {
   DBUG_ENTER_FUNC();
+
+  /*
+    MariaDB: the following is a copy of the check in ha_rocksdb::external_lock:
+  */
+  int binlog_format = my_core::thd_binlog_format(thd);
+  bool unsafe_for_binlog = THDVAR(ha_thd(), unsafe_for_binlog);
+  if (lock_type >= TL_WRITE_ALLOW_WRITE &&
+      !thd->rgi_slave && !unsafe_for_binlog &&
+      binlog_format != BINLOG_FORMAT_ROW &&
+      binlog_format != BINLOG_FORMAT_UNSPEC &&
+      my_core::thd_binlog_filter_ok(thd)) {
+    my_error(ER_REQUIRE_ROW_BINLOG_FORMAT, MYF(0));
+    DBUG_RETURN(HA_ERR_UNSUPPORTED);
+  }
 
   DBUG_ASSERT(thd != nullptr);
 

@@ -89,9 +89,15 @@ bool Sql_cmd_alter_table_exchange_partition::execute(THD *thd)
 
   /* Not allowed with EXCHANGE PARTITION */
   DBUG_ASSERT(!create_info.data_file_name && !create_info.index_file_name);
+  WSREP_TO_ISOLATION_BEGIN_WRTCHK(NULL, NULL, first_table);
 
   thd->enable_slow_log= opt_log_slow_admin_statements;
   DBUG_RETURN(exchange_partition(thd, first_table, &alter_info));
+#ifdef WITH_WSREP
+ error:
+  /* handle errors in TO_ISOLATION here */
+  DBUG_RETURN(true);
+#endif /* WITH_WSREP */
 }
 
 
@@ -172,7 +178,8 @@ static bool check_exchange_partition(TABLE *table, TABLE *part_table)
 */
 static bool compare_table_with_partition(THD *thd, TABLE *table,
                                          TABLE *part_table,
-                                         partition_element *part_elem)
+                                         partition_element *part_elem,
+                                         uint part_id)
 {
   HA_CREATE_INFO table_create_info, part_create_info;
   Alter_info part_alter_info;
@@ -197,6 +204,7 @@ static bool compare_table_with_partition(THD *thd, TABLE *table,
   }
   /* db_type is not set in prepare_alter_table */
   part_create_info.db_type= part_table->part_info->default_engine_type;
+  ((ha_partition*)(part_table->file))->update_part_create_info(&part_create_info, part_id);
   /*
     Since we exchange the partition with the table, allow exchanging
     auto_increment value as well.
@@ -532,21 +540,6 @@ bool Sql_cmd_alter_table_exchange_partition::
                   &alter_prelocking_strategy))
     DBUG_RETURN(true);
 
-#ifdef WITH_WSREP
-  if (WSREP_ON)
-  {
-    if ((!thd->is_current_stmt_binlog_format_row() ||
-         /* TODO: Do we really need to check for temp tables in this case? */
-         !thd->find_temporary_table(table_list)) &&
-        wsrep_to_isolation_begin(thd, table_list->db, table_list->table_name,
-                                 NULL))
-    {
-      WSREP_WARN("ALTER TABLE EXCHANGE PARTITION isolation failure");
-      DBUG_RETURN(TRUE);
-    }
-  }
-#endif /* WITH_WSREP */
-
   part_table= table_list->table;
   swap_table= swap_table_list->table;
 
@@ -604,7 +597,8 @@ bool Sql_cmd_alter_table_exchange_partition::
     DBUG_RETURN(TRUE);
   }
 
-  if (compare_table_with_partition(thd, swap_table, part_table, part_elem))
+  if (compare_table_with_partition(thd, swap_table, part_table, part_elem,
+                                   swap_part_id))
     DBUG_RETURN(TRUE);
 
   /* Table and partition has same structure/options, OK to exchange */
@@ -785,7 +779,7 @@ bool Sql_cmd_alter_table_truncate_partition::execute(THD *thd)
       (!thd->is_current_stmt_binlog_format_row() ||
        !thd->find_temporary_table(first_table))  &&
       wsrep_to_isolation_begin(
-        thd, first_table->db, first_table->table_name, NULL)
+          thd, first_table->db, first_table->table_name, NULL)
       )
   {
     WSREP_WARN("ALTER TABLE TRUNCATE PARTITION isolation failure");

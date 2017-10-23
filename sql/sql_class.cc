@@ -236,7 +236,7 @@ bool Foreign_key::validate(List<Create_field> &table_fields)
                          sql_field->field_name)) {}
     if (!sql_field)
     {
-      my_error(ER_KEY_COLUMN_DOES_NOT_EXITS, MYF(0), column->field_name);
+      my_error(ER_KEY_COLUMN_DOES_NOT_EXITS, MYF(0), column->field_name.str);
       DBUG_RETURN(TRUE);
     }
     if (type == Key::FOREIGN_KEY && sql_field->vcol_info)
@@ -698,6 +698,7 @@ THD::THD(my_thread_id id, bool is_wsrep_applier)
              /* statement id */ 0),
    rli_fake(0), rgi_fake(0), rgi_slave(NULL),
    protocol_text(this), protocol_binary(this),
+   m_current_stage_key(0),
    in_sub_stmt(0), log_all_errors(0),
    binlog_unsafe_warning_flags(0),
    binlog_table_maps(0),
@@ -873,6 +874,8 @@ THD::THD(my_thread_id id, bool is_wsrep_applier)
   wsrep_info[sizeof(wsrep_info) - 1] = '\0'; /* make sure it is 0-terminated */
   wsrep_sync_wait_gtid    = WSREP_GTID_UNDEFINED;
   wsrep_affected_rows     = 0;
+  wsrep_replicate_GTID    = false;
+  wsrep_skip_wsrep_GTID   = false;
 #endif
   /* Call to init() below requires fully initialized Open_tables_state. */
   reset_open_tables_state(this);
@@ -1304,6 +1307,8 @@ void THD::init(void)
   wsrep_TOI_pre_query_len = 0;
   wsrep_sync_wait_gtid    = WSREP_GTID_UNDEFINED;
   wsrep_affected_rows     = 0;
+  wsrep_replicate_GTID    = false;
+  wsrep_skip_wsrep_GTID   = false;
 #endif /* WITH_WSREP */
 
   if (variables.sql_log_bin)
@@ -2012,6 +2017,9 @@ int THD::killed_errno()
     DBUG_RETURN(ER_SERVER_SHUTDOWN);
   case KILL_SLAVE_SAME_ID:
     DBUG_RETURN(ER_SLAVE_SAME_ID);
+  case KILL_WAIT_TIMEOUT:
+  case KILL_WAIT_TIMEOUT_HARD:
+    DBUG_RETURN(ER_NET_READ_INTERRUPTED);
   }
   DBUG_RETURN(0);                               // Keep compiler happy
 }
@@ -4848,9 +4856,15 @@ extern "C" int thd_non_transactional_update(const MYSQL_THD thd)
 
 extern "C" int thd_binlog_format(const MYSQL_THD thd)
 {
-  if (((WSREP(thd) &&  wsrep_emulate_bin_log) || mysql_bin_log.is_open()) &&
-      thd->variables.option_bits & OPTION_BIN_LOG)
-    return (int) thd->wsrep_binlog_format();
+#ifdef WITH_WSREP
+  if (WSREP(thd))
+  {
+    /* for wsrep binlog format is meaningful also when binlogging is off */
+    return (int) WSREP_BINLOG_FORMAT(thd->variables.binlog_format);
+  }
+#endif /* WITH_WSREP */
+  if (mysql_bin_log.is_open() && (thd->variables.option_bits & OPTION_BIN_LOG))
+    return (int) thd->variables.binlog_format;
   else
     return BINLOG_FORMAT_UNSPEC;
 }

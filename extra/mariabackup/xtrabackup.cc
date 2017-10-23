@@ -119,6 +119,7 @@ my_bool xtrabackup_export;
 
 longlong xtrabackup_use_memory;
 
+uint opt_protocol;
 long xtrabackup_throttle; /* 0:unlimited */
 static lint io_ticket;
 static os_event_t wait_throttle;
@@ -137,6 +138,7 @@ char *xtrabackup_incremental_dir; /* for --prepare */
 char xtrabackup_real_incremental_basedir[FN_REFLEN];
 char xtrabackup_real_extra_lsndir[FN_REFLEN];
 char xtrabackup_real_incremental_dir[FN_REFLEN];
+
 
 char *xtrabackup_tmpdir;
 
@@ -294,6 +296,8 @@ my_bool opt_noversioncheck = FALSE;
 my_bool opt_no_backup_locks = FALSE;
 my_bool opt_decompress = FALSE;
 
+my_bool opt_lock_ddl_per_table = FALSE;
+
 static const char *binlog_info_values[] = {"off", "lockless", "on", "auto",
 					   NullS};
 static TYPELIB binlog_info_typelib = {array_elements(binlog_info_values)-1, "",
@@ -331,6 +335,9 @@ const char *opt_history = NULL;
 my_bool opt_ssl_verify_server_cert = FALSE;
 #endif
 
+char mariabackup_exe[FN_REFLEN];
+char orig_argv1[FN_REFLEN];
+
 /* Whether xtrabackup_binlog_info should be created on recovery */
 static bool recover_binlog_info;
 
@@ -346,6 +353,11 @@ xtrabackup_add_datasink(ds_ctxt_t *ds)
 	xb_ad(actual_datasinks < XTRABACKUP_MAX_DATASINKS);
 	datasinks[actual_datasinks] = ds; actual_datasinks++;
 }
+
+
+typedef void (*process_single_tablespace_func_t)(const char *dirname, const char *filname, bool is_remote);
+static dberr_t enumerate_ibd_files(process_single_tablespace_func_t callback);
+
 
 /* ======== Datafiles iterator ======== */
 struct datafiles_iter_t {
@@ -527,6 +539,8 @@ enum options_xtrabackup
 
   OPT_XTRA_TABLES_EXCLUDE,
   OPT_XTRA_DATABASES_EXCLUDE,
+  OPT_PROTOCOL,
+  OPT_LOCK_DDL_PER_TABLE
 };
 
 struct my_option xb_client_options[] =
@@ -758,6 +772,9 @@ struct my_option xb_client_options[] =
    "See mysql --help for details.",
    0, 0, 0, GET_STR,
    REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
+
+  {"protocol", OPT_PROTOCOL, "The protocol to use for connection (tcp, socket, pipe, memory).",
+   0, 0, 0, GET_STR, REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
 
   {"socket", 'S', "This option specifies the socket to use when "
    "connecting to the local database server with a UNIX domain socket.  "
@@ -1058,6 +1075,11 @@ struct my_option xb_server_options[] =
    (G_PTR*) &xb_open_files_limit, (G_PTR*) &xb_open_files_limit, 0, GET_ULONG,
    REQUIRED_ARG, 0, 0, UINT_MAX, 0, 1, 0},
 
+  {"lock-ddl-per-table", OPT_LOCK_DDL_PER_TABLE, "Lock DDL for each table "
+   "before xtrabackup starts to copy it and until the backup is completed.",
+   (uchar*) &opt_lock_ddl_per_table, (uchar*) &opt_lock_ddl_per_table, 0,
+   GET_BOOL, NO_ARG, 0, 0, 0, 0, 0, 0},
+
   { 0, 0, 0, 0, 0, 0, GET_NO_ARG, NO_ARG, 0, 0, 0, 0, 0, 0}
 };
 
@@ -1117,6 +1139,103 @@ debug_sync_point(const char *name)
 	my_delete(pid_path, MYF(MY_WME));
 #endif
 }
+
+
+static std::vector<std::string> tables_for_export;
+
+static void append_export_table(const char *dbname, const char *tablename, bool is_remote)
+{
+  if(dbname && tablename && !is_remote)
+  {
+    char buf[3*FN_REFLEN];
+    snprintf(buf,sizeof(buf),"%s/%s",dbname, tablename);
+    // trim .ibd
+    char *p=strrchr(buf, '.');
+    if (p) *p=0;
+
+    tables_for_export.push_back(ut_get_name(0,buf));
+  }
+}
+
+
+#define BOOTSTRAP_FILENAME "mariabackup_prepare_for_export.sql"
+
+static int create_bootstrap_file()
+{
+  FILE *f= fopen(BOOTSTRAP_FILENAME,"wb");
+  if(!f)
+   return -1;
+
+  fputs("SET NAMES UTF8;\n",f);
+  enumerate_ibd_files(append_export_table);
+  for (size_t i= 0; i < tables_for_export.size(); i++)
+  {
+     const char *tab = tables_for_export[i].c_str();
+     fprintf(f,
+     "BEGIN NOT ATOMIC "
+       "DECLARE CONTINUE HANDLER FOR NOT FOUND,SQLEXCEPTION BEGIN END;"
+       "FLUSH TABLES %s FOR EXPORT;"
+     "END;\n"
+     "UNLOCK TABLES;\n",
+      tab);
+  }
+  fclose(f);
+  return 0;
+}
+
+static int prepare_export()
+{
+  int err= -1;
+
+  char cmdline[2*FN_REFLEN];
+  FILE *outf;
+
+  if (create_bootstrap_file())
+    return -1;
+
+  // Process defaults-file , it can have some --lc-language stuff,
+  // which is* unfortunately* still necessary to get mysqld up
+  if (strncmp(orig_argv1,"--defaults-file=",16) == 0)
+  {
+    sprintf(cmdline, 
+     IF_WIN("\"","") "\"%s\" --mysqld \"%s\" --defaults-group-suffix=%s"
+      " --defaults-extra-file=./backup-my.cnf --datadir=."
+      " --innodb --innodb-fast-shutdown=0"
+      " --innodb_purge_rseg_truncate_frequency=1 --innodb-buffer-pool-size=%llu"
+      " --console  --skip-log-error --bootstrap  < "  BOOTSTRAP_FILENAME IF_WIN("\"",""),
+      mariabackup_exe, 
+      orig_argv1, (my_defaults_group_suffix?my_defaults_group_suffix:""),
+      xtrabackup_use_memory);
+  }
+  else
+  {
+    sprintf(cmdline,
+     IF_WIN("\"","") "\"%s\" --mysqld"
+      " --defaults-file=./backup-my.cnf --datadir=."
+      " --innodb --innodb-fast-shutdown=0"
+      " --innodb_purge_rseg_truncate_frequency=1 --innodb-buffer-pool-size=%llu"
+      " --console  --log-error= --bootstrap  < "  BOOTSTRAP_FILENAME IF_WIN("\"",""),
+      mariabackup_exe,
+      xtrabackup_use_memory);
+  }
+
+  msg("Prepare export : executing %s\n", cmdline);
+  fflush(stderr);
+
+  outf= popen(cmdline,"r");
+  if (!outf)
+    goto end;
+  
+  char outline[FN_REFLEN];
+  while(fgets(outline, sizeof(outline)-1, outf))
+    fprintf(stderr,"%s",outline);
+
+  err = pclose(outf);
+end:
+  unlink(BOOTSTRAP_FILENAME);
+  return err;
+}
+
 
 static const char *xb_client_default_groups[]=
 	{ "xtrabackup", "client", 0, 0, 0 };
@@ -1290,8 +1409,13 @@ xb_get_one_option(int optid,
         start[1]=0 ;
     }
     break;
-
-
+  case OPT_PROTOCOL:
+    if (argument)
+    {
+       opt_protocol= find_type_or_exit(argument, &sql_protocol_typelib,
+                                    opt->name);
+    }
+    break;
 #include "sslopt-case.h"
 
   case '?':
@@ -2084,6 +2208,10 @@ xtrabackup_copy_datafile(fil_node_t* node, uint thread_n)
 		return(FALSE);
 	}
 
+	if (opt_lock_ddl_per_table) {
+		mdl_lock_table(node->space->id);
+	}
+
 	if (!changed_page_bitmap) {
 		read_filter = &rf_pass_through;
 	}
@@ -2226,10 +2354,18 @@ xtrabackup_copy_log(copy_logfile copy, lsn_t start_lsn, lsn_t end_lsn)
 
 		scanned_checkpoint = checkpoint;
 		ulint	data_len = log_block_get_data_len(log_block);
-		scanned_lsn += data_len;
 
-		if (data_len != OS_FILE_LOG_BLOCK_SIZE) {
-			/* The current end of the log was reached. */
+		if (data_len == OS_FILE_LOG_BLOCK_SIZE) {
+			/* We got a full log block. */
+			scanned_lsn += data_len;
+		} else if (data_len
+			   >= OS_FILE_LOG_BLOCK_SIZE - LOG_BLOCK_TRL_SIZE
+			   || data_len <= LOG_BLOCK_HDR_SIZE) {
+			/* We got a garbage block (abrupt end of the log). */
+			break;
+		} else {
+			/* We got a partial block (abrupt end of the log). */
+			scanned_lsn += data_len;
 			break;
 		}
 	}
@@ -2242,7 +2378,7 @@ xtrabackup_copy_log(copy_logfile copy, lsn_t start_lsn, lsn_t end_lsn)
 
 	if (ulint write_size = ulint(end_lsn - start_lsn)) {
 		if (srv_encrypt_log) {
-			log_crypt(log_sys->buf, write_size);
+			log_crypt(log_sys->buf, start_lsn, write_size);
 		}
 
 		if (ds_write(dst_log_file, log_sys->buf, write_size)) {
@@ -2510,6 +2646,7 @@ xb_new_datafile(const char *name, bool is_remote)
 	}
 }
 
+
 static
 void
 xb_load_single_table_tablespace(
@@ -2517,9 +2654,11 @@ xb_load_single_table_tablespace(
 	const char *filname,
 	bool is_remote)
 {
+	ut_ad(srv_operation == SRV_OPERATION_BACKUP
+	      || srv_operation == SRV_OPERATION_RESTORE_DELTA);
 	/* Ignore .isl files on XtraBackup recovery. All tablespaces must be
 	local. */
-	if (is_remote && srv_operation == SRV_OPERATION_RESTORE) {
+	if (is_remote && srv_operation == SRV_OPERATION_RESTORE_DELTA) {
 		return;
 	}
 	if (check_if_skip_table(filname)) {
@@ -2569,7 +2708,7 @@ xb_load_single_table_tablespace(
 
 		ut_a(space != NULL);
 
-		if (!fil_node_create(file->filepath(), n_pages, space,
+		if (!fil_node_create(file->filepath(), ulint(n_pages), space,
 				     false, false)) {
 			ut_error;
 		}
@@ -2578,16 +2717,13 @@ xb_load_single_table_tablespace(
 		in the cache to be populated with fields from space header */
 		fil_space_open(space->name);
 
-		if (srv_operation == SRV_OPERATION_RESTORE || xb_close_files) {
+		if (srv_operation == SRV_OPERATION_RESTORE_DELTA
+		    || xb_close_files) {
 			fil_space_close(space->name);
 		}
 	}
 
 	ut_free(name);
-
-	if (fil_space_crypt_t* crypt_info = file->get_crypt_info()) {
-		fil_space_destroy_crypt_data(&crypt_info);
-	}
 
 	delete file;
 
@@ -2601,9 +2737,8 @@ xb_load_single_table_tablespace(
 /** Scan the database directories under the MySQL datadir, looking for
 .ibd files and determining the space id in each of them.
 @return	DB_SUCCESS or error number */
-static
-dberr_t
-xb_load_single_table_tablespaces()
+
+static dberr_t enumerate_ibd_files(process_single_tablespace_func_t callback)
 {
 	int		ret;
 	char*		dbpath		= NULL;
@@ -2613,6 +2748,7 @@ xb_load_single_table_tablespaces()
 	os_file_stat_t	dbinfo;
 	os_file_stat_t	fileinfo;
 	dberr_t		err		= DB_SUCCESS;
+	size_t len;
 
 	/* The datadir of MySQL is always the default directory of mysqld */
 
@@ -2631,18 +2767,15 @@ xb_load_single_table_tablespaces()
 	ret = fil_file_readdir_next_file(&err, fil_path_to_mysql_datadir, dir,
 					 &dbinfo);
 	while (ret == 0) {
-		size_t len = strlen(dbinfo.name);
 
 		/* General tablespaces are always at the first level of the
 		data home dir */
-		if (dbinfo.type == OS_FILE_TYPE_FILE && len > 4) {
-			bool is_isl = !strcmp(dbinfo.name + len - 4, ".isl");
-			bool is_ibd = !is_isl
-				&& !strcmp(dbinfo.name + len - 4, ".ibd");
+		if (dbinfo.type == OS_FILE_TYPE_FILE) {
+			bool is_isl = ends_with(dbinfo.name, ".isl");
+			bool is_ibd = !is_isl && ends_with(dbinfo.name,".ibd");
 
 			if (is_isl || is_ibd) {
-				xb_load_single_table_tablespace(
-					NULL, dbinfo.name, is_isl);
+				(*callback)(NULL, dbinfo.name, is_isl);
 			}
 		}
 
@@ -2695,21 +2828,17 @@ xb_load_single_table_tablespaces()
 					continue;
 				}
 
-				size_t len = strlen(fileinfo.name);
-
 				/* We found a symlink or a file */
-				if (len > 4
-				    && !strcmp(fileinfo.name + len - 4,
-					       ".ibd")) {
-					xb_load_single_table_tablespace(
-						dbinfo.name, fileinfo.name,
-						false);
+				if (strlen(fileinfo.name) > 4) {
+					bool is_isl= false;
+					if (ends_with(fileinfo.name, ".ibd") || ((is_isl = ends_with(fileinfo.name, ".ibd"))))
+						(*callback)(dbinfo.name, fileinfo.name, is_isl);
 				}
 			}
 
 			if (0 != os_file_closedir(dbdir)) {
 				fprintf(stderr, "InnoDB: Warning: could not"
-				      " close database directory %s\n",
+				 " close database directory %s\n",
 					dbpath);
 
 				err = DB_ERROR;
@@ -2753,7 +2882,7 @@ xb_load_tablespaces()
         lsn_t	flush_lsn;
 
 	ut_ad(srv_operation == SRV_OPERATION_BACKUP
-	      || srv_operation == SRV_OPERATION_RESTORE);
+	      || srv_operation == SRV_OPERATION_RESTORE_DELTA);
 
 	err = srv_sys_space.check_file_spec(&create_new_db, 0);
 
@@ -2798,7 +2927,7 @@ xb_load_tablespaces()
 
 	msg("xtrabackup: Generating a list of tablespaces\n");
 
-	err = xb_load_single_table_tablespaces();
+	err = enumerate_ibd_files(xb_load_single_table_tablespace);
 	if (err != DB_SUCCESS) {
 		return(err);
 	}
@@ -3223,7 +3352,7 @@ open_or_create_log_file(
 
 	ut_a(fil_validate());
 
-	ut_a(fil_node_create(name, srv_log_file_size >> srv_page_size_shift,
+	ut_a(fil_node_create(name, ulint(srv_log_file_size >> srv_page_size_shift),
 			     space, false, false));
 
 	return(DB_SUCCESS);
@@ -3323,6 +3452,74 @@ static void stop_backup_threads()
 	}
 }
 
+/** Implement the core of --backup
+@return	whether the operation succeeded */
+static
+bool
+xtrabackup_backup_low()
+{
+	/* read the latest checkpoint lsn */
+	{
+		ulint	max_cp_field;
+
+		log_mutex_enter();
+
+		if (recv_find_max_checkpoint(&max_cp_field) == DB_SUCCESS
+		    && log_sys->log.format != 0) {
+			metadata_to_lsn = mach_read_from_8(
+				log_sys->checkpoint_buf + LOG_CHECKPOINT_LSN);
+			msg("xtrabackup: The latest check point"
+			    " (for incremental): '" LSN_PF "'\n",
+			    metadata_to_lsn);
+		} else {
+			metadata_to_lsn = 0;
+			msg("xtrabackup: Error: recv_find_max_checkpoint() failed.\n");
+		}
+		log_mutex_exit();
+	}
+
+	stop_backup_threads();
+
+	if (!dst_log_file || xtrabackup_copy_logfile(COPY_LAST)) {
+		return false;
+	}
+
+	if (ds_close(dst_log_file)) {
+		dst_log_file = NULL;
+		return false;
+	}
+
+	dst_log_file = NULL;
+
+	if(!xtrabackup_incremental) {
+		strcpy(metadata_type, "full-backuped");
+		metadata_from_lsn = 0;
+	} else {
+		strcpy(metadata_type, "incremental");
+		metadata_from_lsn = incremental_lsn;
+	}
+	metadata_last_lsn = log_copy_scanned_lsn;
+
+	if (!xtrabackup_stream_metadata(ds_meta)) {
+		msg("xtrabackup: Error: failed to stream metadata.\n");
+		return false;
+	}
+	if (xtrabackup_extra_lsndir) {
+		char	filename[FN_REFLEN];
+
+		sprintf(filename, "%s/%s", xtrabackup_extra_lsndir,
+			XTRABACKUP_METADATA_FILENAME);
+		if (!xtrabackup_write_metadata(filename)) {
+			msg("xtrabackup: Error: failed to write metadata "
+			    "to '%s'.\n", filename);
+			return false;
+		}
+
+	}
+
+	return true;
+}
+
 /** Implement --backup
 @return	whether the operation succeeded */
 static
@@ -3330,7 +3527,6 @@ bool
 xtrabackup_backup_func()
 {
 	MY_STAT			 stat_info;
-	lsn_t			 latest_cp;
 	uint			 i;
 	uint			 count;
 	pthread_mutex_t		 count_mutex;
@@ -3367,6 +3563,10 @@ xtrabackup_backup_func()
 		    "at your own risk. If there are DDL operations like table DROP TABLE "
 		    "or RENAME TABLE during the backup, inconsistent backup will be "
 		    "produced.\n");
+
+	if (opt_lock_ddl_per_table) {
+		mdl_lock_init();
+	}
 
 	/* initialize components */
         if(innodb_init_param()) {
@@ -3557,10 +3757,10 @@ old_format:
 
 	const byte* buf = log_sys->checkpoint_buf;
 
-	checkpoint_lsn_start = mach_read_from_8(buf + LOG_CHECKPOINT_LSN);
-	checkpoint_no_start = mach_read_from_8(buf + LOG_CHECKPOINT_NO);
-
 reread_log_header:
+	checkpoint_lsn_start = log_sys->log.lsn;
+	checkpoint_no_start = log_sys->next_checkpoint_no;
+
 	err = recv_find_max_checkpoint(&max_cp_field);
 
 	if (err != DB_SUCCESS) {
@@ -3574,10 +3774,9 @@ reread_log_header:
 	ut_ad(!((log_sys->log.format ^ LOG_HEADER_FORMAT_CURRENT)
 		& ~LOG_HEADER_FORMAT_ENCRYPTED));
 
-	if (checkpoint_no_start != mach_read_from_8(buf + LOG_CHECKPOINT_NO)) {
+	log_group_header_read(&log_sys->log, max_cp_field);
 
-		checkpoint_lsn_start = mach_read_from_8(buf + LOG_CHECKPOINT_LSN);
-		checkpoint_no_start = mach_read_from_8(buf + LOG_CHECKPOINT_NO);
+	if (checkpoint_no_start != mach_read_from_8(buf + LOG_CHECKPOINT_NO)) {
 		goto reread_log_header;
 	}
 
@@ -3730,71 +3929,24 @@ reread_log_header:
 	}
 	}
 
-	if (!backup_start()) {
-		goto fail;
-	}
+	bool ok = backup_start();
 
-	/* read the latest checkpoint lsn */
-	{
-		ulint	max_cp_field;
+	if (ok) {
+		ok = xtrabackup_backup_low();
 
-		log_mutex_enter();
+		backup_release();
 
-		if (recv_find_max_checkpoint(&max_cp_field) == DB_SUCCESS
-		    && log_sys->log.format != 0) {
-			latest_cp = mach_read_from_8(log_sys->checkpoint_buf +
-						     LOG_CHECKPOINT_LSN);
-			msg("xtrabackup: The latest check point"
-			    " (for incremental): '" LSN_PF "'\n", latest_cp);
-		} else {
-			latest_cp = 0;
-			msg("xtrabackup: Error: recv_find_max_checkpoint() failed.\n");
+		if (ok) {
+			backup_finish();
 		}
-		log_mutex_exit();
 	}
 
-	stop_backup_threads();
-
-	if (!dst_log_file || xtrabackup_copy_logfile(COPY_LAST)) {
+	if (!ok) {
 		goto fail;
 	}
 
-	if (ds_close(dst_log_file)) {
-		dst_log_file = NULL;
-		goto fail;
-	}
-
-	dst_log_file = NULL;
-
-	if(!xtrabackup_incremental) {
-		strcpy(metadata_type, "full-backuped");
-		metadata_from_lsn = 0;
-	} else {
-		strcpy(metadata_type, "incremental");
-		metadata_from_lsn = incremental_lsn;
-	}
-	metadata_to_lsn = latest_cp;
-	metadata_last_lsn = log_copy_scanned_lsn;
-
-	if (!xtrabackup_stream_metadata(ds_meta)) {
-		msg("xtrabackup: Error: failed to stream metadata.\n");
-		goto fail;
-	}
-	if (xtrabackup_extra_lsndir) {
-		char	filename[FN_REFLEN];
-
-		sprintf(filename, "%s/%s", xtrabackup_extra_lsndir,
-			XTRABACKUP_METADATA_FILENAME);
-		if (!xtrabackup_write_metadata(filename)) {
-			msg("xtrabackup: Error: failed to write metadata "
-			    "to '%s'.\n", filename);
-			goto fail;
-		}
-
-	}
-
-	if (!backup_finish()) {
-		goto fail;
+	if (opt_lock_ddl_per_table) {
+		mdl_unlock_all();
 	}
 
 	xtrabackup_destroy_datasinks();
@@ -3806,10 +3958,10 @@ reread_log_header:
 	xb_data_files_close();
 
 	/* Make sure that the latest checkpoint was included */
-	if (latest_cp > log_copy_scanned_lsn) {
+	if (metadata_to_lsn > log_copy_scanned_lsn) {
 		msg("xtrabackup: error: failed to copy enough redo log ("
 		    "LSN=" LSN_PF "; checkpoint LSN=" LSN_PF ").\n",
-		    log_copy_scanned_lsn, latest_cp);
+		    log_copy_scanned_lsn, metadata_to_lsn);
 		goto fail;
 	}
 
@@ -4480,349 +4632,6 @@ xtrabackup_apply_deltas()
 		xtrabackup_apply_delta);
 }
 
-/*********************************************************************//**
-Write the meta data (index user fields) config file.
-@return true in case of success otherwise false. */
-static
-bool
-xb_export_cfg_write_index_fields(
-/*===========================*/
-	const dict_index_t*	index,	/*!< in: write the meta data for
-					this index */
-	FILE*			file)	/*!< in: file to write to */
-{
-	byte			row[sizeof(ib_uint32_t) * 2];
-
-	for (ulint i = 0; i < index->n_fields; ++i) {
-		byte*			ptr = row;
-		const dict_field_t*	field = &index->fields[i];
-
-		mach_write_to_4(ptr, field->prefix_len);
-		ptr += sizeof(ib_uint32_t);
-
-		mach_write_to_4(ptr, field->fixed_len);
-
-		if (fwrite(row, 1, sizeof(row), file) != sizeof(row)) {
-
-			msg("xtrabackup: Error: writing index fields.");
-
-			return(false);
-		}
-
-		/* Include the NUL byte in the length. */
-		ib_uint32_t	len = (ib_uint32_t)strlen(field->name) + 1;
-		ut_a(len > 1);
-
-		mach_write_to_4(row, len);
-
-		if (fwrite(row, 1,  sizeof(len), file) != sizeof(len)
-		    || fwrite(field->name, 1, len, file) != len) {
-
-			msg("xtrabackup: Error: writing index column.");
-
-			return(false);
-		}
-	}
-
-	return(true);
-}
-
-/*********************************************************************//**
-Write the meta data config file index information.
-@return true in case of success otherwise false. */
-static	__attribute__((nonnull, warn_unused_result))
-bool
-xb_export_cfg_write_indexes(
-/*======================*/
-	const dict_table_t*	table,	/*!< in: write the meta data for
-					this table */
-	FILE*			file)	/*!< in: file to write to */
-{
-	{
-		byte		row[sizeof(ib_uint32_t)];
-
-		/* Write the number of indexes in the table. */
-		mach_write_to_4(row, UT_LIST_GET_LEN(table->indexes));
-
-		if (fwrite(row, 1, sizeof(row), file) != sizeof(row)) {
-			msg("xtrabackup: Error: writing index count.");
-
-			return(false);
-		}
-	}
-
-	bool			ret = true;
-
-	/* Write the index meta data. */
-	for (const dict_index_t* index = UT_LIST_GET_FIRST(table->indexes);
-	     index != 0 && ret;
-	     index = UT_LIST_GET_NEXT(indexes, index)) {
-
-		byte*		ptr;
-		byte		row[sizeof(ib_uint64_t)
-				    + sizeof(ib_uint32_t) * 8];
-
-		ptr = row;
-
-		ut_ad(sizeof(ib_uint64_t) == 8);
-		mach_write_to_8(ptr, index->id);
-		ptr += sizeof(ib_uint64_t);
-
-		mach_write_to_4(ptr, index->space);
-		ptr += sizeof(ib_uint32_t);
-
-		mach_write_to_4(ptr, index->page);
-		ptr += sizeof(ib_uint32_t);
-
-		mach_write_to_4(ptr, index->type);
-		ptr += sizeof(ib_uint32_t);
-
-		mach_write_to_4(ptr, index->trx_id_offset);
-		ptr += sizeof(ib_uint32_t);
-
-		mach_write_to_4(ptr, index->n_user_defined_cols);
-		ptr += sizeof(ib_uint32_t);
-
-		mach_write_to_4(ptr, index->n_uniq);
-		ptr += sizeof(ib_uint32_t);
-
-		mach_write_to_4(ptr, index->n_nullable);
-		ptr += sizeof(ib_uint32_t);
-
-		mach_write_to_4(ptr, index->n_fields);
-
-		if (fwrite(row, 1, sizeof(row), file) != sizeof(row)) {
-
-			msg("xtrabackup: Error: writing index meta-data.");
-
-			return(false);
-		}
-
-		/* Write the length of the index name.
-		NUL byte is included in the length. */
-		ib_uint32_t	len = (ib_uint32_t)strlen(index->name) + 1;
-		ut_a(len > 1);
-
-		mach_write_to_4(row, len);
-
-		if (fwrite(row, 1, sizeof(len), file) != sizeof(len)
-		    || fwrite(index->name, 1, len, file) != len) {
-
-			msg("xtrabackup: Error: writing index name.");
-
-			return(false);
-		}
-
-		ret = xb_export_cfg_write_index_fields(index, file);
-	}
-
-	return(ret);
-}
-
-/*********************************************************************//**
-Write the meta data (table columns) config file. Serialise the contents of
-dict_col_t structure, along with the column name. All fields are serialized
-as ib_uint32_t.
-@return true in case of success otherwise false. */
-static	__attribute__((nonnull, warn_unused_result))
-bool
-xb_export_cfg_write_table(
-/*====================*/
-	const dict_table_t*	table,	/*!< in: write the meta data for
-					this table */
-	FILE*			file)	/*!< in: file to write to */
-{
-	dict_col_t*		col;
-	byte			row[sizeof(ib_uint32_t) * 7];
-
-	col = table->cols;
-
-	for (ulint i = 0; i < table->n_cols; ++i, ++col) {
-		byte*		ptr = row;
-
-		mach_write_to_4(ptr, col->prtype);
-		ptr += sizeof(ib_uint32_t);
-
-		mach_write_to_4(ptr, col->mtype);
-		ptr += sizeof(ib_uint32_t);
-
-		mach_write_to_4(ptr, col->len);
-		ptr += sizeof(ib_uint32_t);
-
-		mach_write_to_4(ptr, col->mbminmaxlen);
-		ptr += sizeof(ib_uint32_t);
-
-		mach_write_to_4(ptr, col->ind);
-		ptr += sizeof(ib_uint32_t);
-
-		mach_write_to_4(ptr, col->ord_part);
-		ptr += sizeof(ib_uint32_t);
-
-		mach_write_to_4(ptr, col->max_prefix);
-
-		if (fwrite(row, 1, sizeof(row), file) != sizeof(row)) {
-			msg("xtrabackup: Error: writing table column data.");
-
-			return(false);
-		}
-
-		/* Write out the column name as [len, byte array]. The len
-		includes the NUL byte. */
-		ib_uint32_t	len;
-		const char*	col_name;
-
-		col_name = dict_table_get_col_name(table, dict_col_get_no(col));
-
-		/* Include the NUL byte in the length. */
-		len = (ib_uint32_t)strlen(col_name) + 1;
-		ut_a(len > 1);
-
-		mach_write_to_4(row, len);
-
-		if (fwrite(row, 1,  sizeof(len), file) != sizeof(len)
-		    || fwrite(col_name, 1, len, file) != len) {
-
-			msg("xtrabackup: Error: writing column name.");
-
-			return(false);
-		}
-	}
-
-	return(true);
-}
-
-/*********************************************************************//**
-Write the meta data config file header.
-@return true in case of success otherwise false. */
-static	__attribute__((nonnull, warn_unused_result))
-bool
-xb_export_cfg_write_header(
-/*=====================*/
-	const dict_table_t*	table,	/*!< in: write the meta data for
-					this table */
-	FILE*			file)	/*!< in: file to write to */
-{
-	byte			value[sizeof(ib_uint32_t)];
-
-	/* Write the meta-data version number. */
-	mach_write_to_4(value, IB_EXPORT_CFG_VERSION_V1);
-
-	if (fwrite(&value, 1, sizeof(value), file) != sizeof(value)) {
-		msg("xtrabackup: Error: writing meta-data version number.");
-
-		return(false);
-	}
-
-	/* Write the server hostname. */
-	ib_uint32_t		len;
-	const char*		hostname = "Hostname unknown";
-
-	/* The server hostname includes the NUL byte. */
-	len = (ib_uint32_t)strlen(hostname) + 1;
-	mach_write_to_4(value, len);
-
-	if (fwrite(&value, 1,  sizeof(value), file) != sizeof(value)
-	    || fwrite(hostname, 1,  len, file) != len) {
-
-		msg("xtrabackup: Error: writing hostname.");
-
-		return(false);
-	}
-
-	/* The table name includes the NUL byte. */
-	const char*	table_name = table->name.m_name;
-	ut_a(table_name != 0);
-	len = (ib_uint32_t)strlen(table_name) + 1;
-
-	/* Write the table name. */
-	mach_write_to_4(value, len);
-
-	if (fwrite(&value, 1,  sizeof(value), file) != sizeof(value)
-	    || fwrite(table_name, 1,  len, file) != len) {
-
-		msg("xtrabackup: Error: writing table name.");
-
-		return(false);
-	}
-
-	byte		row[sizeof(ib_uint32_t) * 3];
-
-	/* Write the next autoinc value. */
-	mach_write_to_8(row, table->autoinc);
-
-	if (fwrite(row, 1, sizeof(ib_uint64_t), file) != sizeof(ib_uint64_t)) {
-		msg("xtrabackup: Error: writing table autoinc value.");
-
-		return(false);
-	}
-
-	byte*		ptr = row;
-
-	/* Write the system page size. */
-	mach_write_to_4(ptr, UNIV_PAGE_SIZE);
-	ptr += sizeof(ib_uint32_t);
-
-	/* Write the table->flags. */
-	mach_write_to_4(ptr, table->flags);
-	ptr += sizeof(ib_uint32_t);
-
-	/* Write the number of columns in the table. */
-	mach_write_to_4(ptr, table->n_cols);
-
-	if (fwrite(row, 1,  sizeof(row), file) != sizeof(row)) {
-		msg("xtrabackup: Error: writing table meta-data.");
-
-		return(false);
-	}
-
-	return(true);
-}
-
-/*********************************************************************//**
-Write MySQL 5.6-style meta data config file.
-@return true in case of success otherwise false. */
-static
-bool
-xb_export_cfg_write(
-	const fil_node_t*	node,
-	const dict_table_t*	table)	/*!< in: write the meta data for
-					this table */
-{
-	char	file_path[FN_REFLEN];
-	FILE*	file;
-	bool	success;
-
-	strcpy(file_path, node->name);
-	strcpy(file_path + strlen(file_path) - 4, ".cfg");
-
-	file = fopen(file_path, "w+b");
-
-	if (file == NULL) {
-		msg("xtrabackup: Error: cannot open %s\n", node->name);
-
-		success = false;
-	} else {
-
-		success = xb_export_cfg_write_header(table, file);
-
-		if (success) {
-			success = xb_export_cfg_write_table(table, file);
-		}
-
-		if (success) {
-			success = xb_export_cfg_write_indexes(table, file);
-		}
-
-		if (fclose(file) != 0) {
-			msg("xtrabackup: Error: cannot close %s\n", node->name);
-			success = false;
-		}
-
-	}
-
-	return(success);
-
-}
 
 static
 void
@@ -4859,7 +4668,6 @@ store_binlog_info(const char* filename, const char* name, ulonglong pos)
 static bool
 xtrabackup_prepare_func(char** argv)
 {
-	datafiles_iter_t	*it;
 	char			 metadata_path[FN_REFLEN];
 
 	/* cd to target-dir */
@@ -4878,6 +4686,8 @@ xtrabackup_prepare_func(char** argv)
 	xtrabackup_target_dir= mysql_data_home_buff;
 	xtrabackup_target_dir[0]=FN_CURLIB;		// all paths are relative from here
 	xtrabackup_target_dir[1]=0;
+	const lsn_t target_lsn = xtrabackup_incremental
+		? incremental_to_lsn : metadata_to_lsn;
 
 	/*
 	  read metadata of target
@@ -4925,10 +4735,10 @@ xtrabackup_prepare_func(char** argv)
 	srv_thread_concurrency = 1;
 
 	if (xtrabackup_incremental) {
+		srv_operation = SRV_OPERATION_RESTORE_DELTA;
+
 		if (innodb_init_param()) {
-error_cleanup:
-			xb_filters_free();
-			return(false);
+			goto error_cleanup;
 		}
 
 		xb_normalize_init_values();
@@ -4943,7 +4753,6 @@ error_cleanup:
 		srv_allow_writes_event = os_event_create(0);
 		os_event_set(srv_allow_writes_event);
 #endif
-
 		dberr_t err = xb_data_files_init();
 		if (err != DB_SUCCESS) {
 			msg("xtrabackup: error: xb_data_files_init() failed "
@@ -4976,6 +4785,8 @@ error_cleanup:
 		if (!ok) goto error_cleanup;
 	}
 
+	srv_operation = SRV_OPERATION_RESTORE;
+
 	if (innodb_init_param()) {
 		goto error_cleanup;
 	}
@@ -5000,169 +4811,6 @@ error_cleanup:
 		goto error_cleanup;
 	}
 
-	if (xtrabackup_export) {
-#if 1 // FIXME: remove the option or fix the logic
-		/* In MariaDB 10.2, undo log processing would need the
-		ability to evaluate indexed virtual columns, and we
-		have not initialized the necessary infrastructure. */
-		msg("xtrabackup: --export does not work!\n");
-		ok = false;
-	} else if (xtrabackup_export) {
-#endif
-		msg("xtrabackup: export option is specified.\n");
-
-		/* To allow subsequent MariaDB server startup independent
-		of the value of --innodb-log-checksums,
-		unconditionally enable redo log checksums. */
-		log_checksum_algorithm_ptr = log_block_calc_checksum_crc32;
-
-		pfs_os_file_t	info_file;
-		char		info_file_path[FN_REFLEN];
-		bool		success;
-		char		table_name[FN_REFLEN];
-
-		byte*		page;
-		byte*		buf = NULL;
-
-		buf = static_cast<byte *>(malloc(UNIV_PAGE_SIZE * 2));
-		page = static_cast<byte *>(ut_align(buf, UNIV_PAGE_SIZE));
-
-		it = datafiles_iter_new(fil_system);
-		if (it == NULL) {
-			msg("xtrabackup: Error: datafiles_iter_new() "
-			    "failed.\n");
-			ok = false;
-		} else
-		while (fil_node_t *node = datafiles_iter_next(it)) {
-			int		 len;
-			char		*next, *prev, *p;
-			dict_table_t*	 table;
-			dict_index_t*	 index;
-			ulint		 n_index;
-
-			const fil_space_t* space = node->space;
-
-			/* treat file_per_table only */
-			if (!fil_is_user_tablespace_id(space->id)) {
-				continue;
-			}
-
-			/* node exist == file exist, here */
-			strcpy(info_file_path, node->name);
-#ifdef _WIN32
-			for (int i = 0; info_file_path[i]; i++)
-				if (info_file_path[i] == '\\')
-					info_file_path[i]= '/';
-#endif
-			strcpy(info_file_path +
-			       strlen(info_file_path) -
-			       4, ".exp");
-
-			len =(ib_uint32_t)strlen(info_file_path);
-
-			p = info_file_path;
-			prev = NULL;
-			while ((next = strchr(p, '/')) != NULL)
-			{
-				prev = p;
-				p = next + 1;
-			}
-			info_file_path[len - 4] = 0;
-			strncpy(table_name, prev, FN_REFLEN);
-
-			info_file_path[len - 4] = '.';
-
-			mutex_enter(&(dict_sys->mutex));
-
-			table = dict_table_get_low(table_name);
-			if (!table) {
-				msg("xtrabackup: error: "
-				    "cannot find dictionary "
-				    "record of table %s\n",
-				    table_name);
-				goto next_node;
-			}
-
-			/* Write MySQL 5.6 .cfg file */
-			if (!xb_export_cfg_write(node, table)) {
-				goto next_node;
-			}
-
-			index = dict_table_get_first_index(table);
-			n_index = UT_LIST_GET_LEN(table->indexes);
-			if (n_index > 31) {
-				msg("xtrabackup: warning: table '%s' has more "
-				    "than 31 indexes, .exp file was not "
-				    "generated. Table will fail to import "
-				    "on server version prior to 5.6.\n",
-				    table->name.m_name);
-				goto next_node;
-			}
-
-			/* init exp file */
-			memcpy(page, "xportinf", 8);
-			mach_write_to_4(page + 8, n_index);
-			memset(page + 12, 0, UNIV_PAGE_SIZE - 12);
-			strncpy((char *) page + 12,
-				table_name, 500);
-
-			msg("xtrabackup: export metadata of "
-			    "table '%s' to file `%s` "
-			    "(%lu indexes)\n",
-			    table_name, info_file_path,
-			    n_index);
-
-			n_index = 1;
-			while (index) {
-				mach_write_to_8(page + n_index * 512, index->id);
-				mach_write_to_4(page + n_index * 512 + 8,
-						index->page);
-				strncpy((char *) page + n_index * 512 +
-					12, index->name, 500);
-
-				msg("xtrabackup:     name=%s, "
-				    "id.low=%lu, page=%lu\n",
-				    index->name(),
-				    (ulint)(index->id &
-					    0xFFFFFFFFUL),
-				    (ulint) index->page);
-				index = dict_table_get_next_index(index);
-				n_index++;
-			}
-
-			os_normalize_path(info_file_path);
-			info_file = os_file_create(
-				0,
-				info_file_path,
-				OS_FILE_OVERWRITE,
-				OS_FILE_NORMAL, OS_DATA_FILE,
-				false, &success);
-			if (!success) {
-				os_file_get_last_error(TRUE);
-				goto next_node;
-			}
-			success = os_file_write(IORequestWrite, info_file_path,
-						info_file, page,
-						0, UNIV_PAGE_SIZE);
-			if (!success) {
-				os_file_get_last_error(TRUE);
-				goto next_node;
-			}
-			success = os_file_flush(info_file);
-			if (!success) {
-				os_file_get_last_error(TRUE);
-				goto next_node;
-			}
-next_node:
-			if (info_file != OS_FILE_CLOSED) {
-				os_file_close(info_file);
-				info_file = OS_FILE_CLOSED;
-			}
-			mutex_exit(&(dict_sys->mutex));
-		}
-
-		free(buf);
-	}
 
 	if (ok) {
 		mtr_t			mtr;
@@ -5199,8 +4847,6 @@ next_node:
 	}
 
 	/* Check whether the log is applied enough or not. */
-	const lsn_t target_lsn = xtrabackup_incremental
-		? incremental_to_lsn : metadata_to_lsn;
 	if ((srv_start_lsn || fil_space_get(SRV_LOG_SPACE_FIRST_ID))
 	    && srv_start_lsn < target_lsn) {
 		msg("xtrabackup: error: "
@@ -5247,6 +4893,10 @@ next_node:
 
 	if (ok) ok = apply_log_finish();
 
+	if (ok && xtrabackup_export)
+		ok= (prepare_export() == 0);
+
+error_cleanup:
 	xb_filters_free();
 	return ok;
 }
@@ -5396,7 +5046,7 @@ handle_options(int argc, char **argv, char ***argv_client, char ***argv_server)
 	my_sigset(SIGINT, SIG_DFL);
 #endif
 
-	sf_leaking_memory = 0; /* don't report memory leaks on early exist */
+	sf_leaking_memory = 1; /* don't report memory leaks on early exist */
 
 	int i;
 	int ho_error;
@@ -5566,17 +5216,41 @@ handle_options(int argc, char **argv, char ***argv_client, char ***argv_server)
 }
 
 static int main_low(char** argv);
+static int get_exepath(char *buf, size_t size, const char *argv0);
 
 /* ================= main =================== */
 int main(int argc, char **argv)
 {
 	char **client_defaults, **server_defaults;
-	if (argc > 1 && (strcmp(argv[1], "--innobackupex") == 0))
+
+	if (get_exepath(mariabackup_exe,FN_REFLEN, argv[0]))
+    strncpy(mariabackup_exe,argv[0], FN_REFLEN-1);
+
+
+	if (argc > 1 )
 	{
-		argv++;
-		argc--;
-		innobackupex_mode = true;
+		/* In "prepare export", we need  to start mysqld 
+		Since it is not always be installed on the machine,
+		we start "mariabackup --mysqld", which acts as mysqld
+		*/
+		if (strcmp(argv[1], "--mysqld") == 0)
+		{
+			extern int mysqld_main(int argc, char **argv);
+			argc--;
+			argv++;
+			argv[0]+=2;
+			return mysqld_main(argc, argv);
+		}
+		if(strcmp(argv[1], "--innobackupex") == 0)
+		{
+			argv++;
+			argc--;
+			innobackupex_mode = true;
+		}
 	}
+  
+	if (argc > 1)
+		strncpy(orig_argv1,argv[1],sizeof(orig_argv1) -1);
 
 	init_signals();
 	MY_INIT(argv[0]);
@@ -5832,3 +5506,20 @@ static int main_low(char** argv)
 
 	return(EXIT_SUCCESS);
 }
+
+
+static int get_exepath(char *buf, size_t size, const char *argv0)
+{
+#ifdef _WIN32
+  DWORD ret = GetModuleFileNameA(NULL, buf, size);
+  if (ret > 0)
+    return 0;
+#elif defined(__linux__)
+  ssize_t ret = readlink("/proc/self/exe", buf, size-1);
+  if(ret > 0)
+    return 0;
+#endif
+
+  return my_realpath(buf, argv0, 0);
+}
+

@@ -2029,7 +2029,6 @@ run_again:
 		node->cascade_upd_nodes = cascade_upd_nodes;
 		cascade_upd_nodes->pop_front();
 		thr->fk_cascade_depth++;
-		prebuilt->m_mysql_table = NULL;
 
 		goto run_again;
 	}
@@ -2243,7 +2242,7 @@ row_unlock_for_mysql(
 			ulint*	offsets				= offsets_;
 
 			rec_offs_init(offsets_);
-			offsets = rec_get_offsets(rec, index, offsets,
+			offsets = rec_get_offsets(rec, index, offsets, true,
 						  ULINT_UNDEFINED, &heap);
 
 			rec_trx_id = row_get_rec_trx_id(rec, index, offsets);
@@ -2281,22 +2280,6 @@ no_unlock:
 	}
 
 	trx->op_info = "";
-}
-
-/*********************************************************************//**
-Checks if a table is such that we automatically created a clustered
-index on it (on row id).
-@return TRUE if the clustered index was generated automatically */
-ibool
-row_table_got_default_clust_index(
-/*==============================*/
-	const dict_table_t*	table)	/*!< in: table */
-{
-	const dict_index_t*	clust_index;
-
-	clust_index = dict_table_get_first_index(table);
-
-	return(dict_index_get_nth_col(clust_index, 0)->mtype == DATA_SYS);
 }
 
 /*********************************************************************//**
@@ -3666,7 +3649,13 @@ row_drop_table_for_mysql(
 
 		dict_stats_recalc_pool_del(table);
 		dict_stats_defrag_pool_del(table, NULL);
-		btr_defragment_remove_table(table);
+		if (btr_defragment_thread_active) {
+			/* During fts_drop_orphaned_tables() in
+			recv_recovery_rollback_active() the
+			btr_defragment_mutex has not yet been
+			initialized by btr_defragment_init(). */
+			btr_defragment_remove_table(table);
+		}
 
 		/* Remove stats for this table and all of its indexes from the
 		persistent storage if it exists and if there are stats for this
@@ -5077,7 +5066,7 @@ func_exit:
 
 	rec = buf + mach_read_from_4(buf);
 
-	offsets = rec_get_offsets(rec, index, offsets_,
+	offsets = rec_get_offsets(rec, index, offsets_, true,
 				  ULINT_UNDEFINED, &heap);
 
 	if (prev_entry != NULL) {

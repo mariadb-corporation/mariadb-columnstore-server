@@ -129,6 +129,14 @@ struct srv_stats_t
 	ulint_ctr_64_t          pages_encrypted;
    	/* Number of pages decrypted */
 	ulint_ctr_64_t          pages_decrypted;
+	/* Number of merge blocks encrypted */
+	ulint_ctr_64_t          n_merge_blocks_encrypted;
+	/* Number of merge blocks decrypted */
+	ulint_ctr_64_t          n_merge_blocks_decrypted;
+	/* Number of row log blocks encrypted */
+	ulint_ctr_64_t          n_rowlog_blocks_encrypted;
+	/* Number of row log blocks decrypted */
+	ulint_ctr_64_t          n_rowlog_blocks_decrypted;
 
 	/** Number of data read in total (in bytes) */
 	ulint_ctr_1_t		data_read;
@@ -227,12 +235,6 @@ extern ib_mutex_t	page_zip_stat_per_index_mutex;
 extern ib_mutex_t	srv_monitor_file_mutex;
 /* Temporary file for innodb monitor output */
 extern FILE*	srv_monitor_file;
-/* Mutex for locking srv_dict_tmpfile. Only created if !srv_read_only_mode.
-This mutex has a very high rank; threads reserving it should not
-be holding any InnoDB latches. */
-extern ib_mutex_t	srv_dict_tmpfile_mutex;
-/* Temporary file for output from the data dictionary */
-extern FILE*	srv_dict_tmpfile;
 /* Mutex for locking srv_misc_tmpfile. Only created if !srv_read_only_mode.
 This mutex has a very low rank; threads reserving it should not
 acquire any further latches or sleep before releasing this one. */
@@ -507,7 +509,9 @@ enum srv_operation_mode {
 	/** Mariabackup taking a backup */
 	SRV_OPERATION_BACKUP,
 	/** Mariabackup restoring a backup */
-	SRV_OPERATION_RESTORE
+	SRV_OPERATION_RESTORE,
+	/** Mariabackup restoring the incremental part of a backup */
+	SRV_OPERATION_RESTORE_DELTA
 };
 
 /** Current mode of operation */
@@ -1055,6 +1059,15 @@ struct export_var_t{
 						encrypted */
 	int64_t innodb_pages_decrypted;      /*!< Number of pages
 						decrypted */
+
+	/*!< Number of merge blocks encrypted */
+	ib_int64_t innodb_n_merge_blocks_encrypted;
+	/*!< Number of merge blocks decrypted */
+	ib_int64_t innodb_n_merge_blocks_decrypted;
+	/*!< Number of row log blocks encrypted */
+	ib_int64_t innodb_n_rowlog_blocks_encrypted;
+	/*!< Number of row log blocks decrypted */
+	ib_int64_t innodb_n_rowlog_blocks_decrypted;
 
 	ulint innodb_sec_rec_cluster_reads;	/*!< srv_sec_rec_cluster_reads */
 	ulint innodb_sec_rec_cluster_reads_avoided;/*!< srv_sec_rec_cluster_reads_avoided */
