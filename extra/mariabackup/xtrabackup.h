@@ -43,6 +43,8 @@ extern char		*xtrabackup_incremental_dir;
 extern char		*xtrabackup_incremental_basedir;
 extern char		*innobase_data_home_dir;
 extern char		*innobase_buffer_pool_filename;
+extern char		*xb_plugin_dir;
+extern uint		opt_protocol;
 extern ds_ctxt_t	*ds_meta;
 extern ds_ctxt_t	*ds_data;
 
@@ -191,4 +193,8 @@ xb_get_one_option(int optid,
 const char*
 xb_get_copy_action(const char *dflt = "Copying");
 
+void mdl_lock_init();
+void mdl_lock_table(ulint space_id);
+void mdl_unlock_all();
+bool ends_with(const char *str, const char *suffix);
 #endif /* XB_XTRABACKUP_H */

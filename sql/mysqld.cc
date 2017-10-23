@@ -1570,7 +1570,7 @@ static void close_server_sock();
 static void clean_up_mutexes(void);
 static void wait_for_signal_thread_to_end(void);
 static void create_pid_file();
-static void mysqld_exit(int exit_code) __attribute__((noreturn));
+ATTRIBUTE_NORETURN static void mysqld_exit(int exit_code);
 #endif
 static void delete_pid_file(myf flags);
 static void end_ssl();
@@ -4984,6 +4984,11 @@ static int init_server_components()
     help information. Since the implementation of plugin server
     variables the help output is now written much later.
   */
+#ifdef _WIN32
+  if (opt_console)
+   opt_error_log= false;
+#endif
+
   if (opt_error_log && !opt_abort)
   {
     if (!log_error_file_ptr[0])
@@ -8145,7 +8150,7 @@ static int show_ssl_get_cipher_list(THD *thd, SHOW_VAR *var, char *buff,
 #ifdef HAVE_YASSL
 
 static char *
-my_asn1_time_to_string(ASN1_TIME *time, char *buf, size_t len)
+my_asn1_time_to_string(const ASN1_TIME *time, char *buf, size_t len)
 {
   return yaSSL_ASN1_TIME_to_string(time, buf, len);
 }
@@ -8153,7 +8158,7 @@ my_asn1_time_to_string(ASN1_TIME *time, char *buf, size_t len)
 #else /* openssl */
 
 static char *
-my_asn1_time_to_string(ASN1_TIME *time, char *buf, size_t len)
+my_asn1_time_to_string(const ASN1_TIME *time, char *buf, size_t len)
 {
   int n_read;
   char *res= NULL;
@@ -8201,7 +8206,7 @@ show_ssl_get_server_not_before(THD *thd, SHOW_VAR *var, char *buff,
   {
     SSL *ssl= (SSL*) thd->net.vio->ssl_arg;
     X509 *cert= SSL_get_certificate(ssl);
-    ASN1_TIME *not_before= X509_get_notBefore(cert);
+    const ASN1_TIME *not_before= X509_get0_notBefore(cert);
 
     var->value= my_asn1_time_to_string(not_before, buff,
                                        SHOW_VAR_FUNC_BUFF_SIZE);
@@ -8235,7 +8240,7 @@ show_ssl_get_server_not_after(THD *thd, SHOW_VAR *var, char *buff,
   {
     SSL *ssl= (SSL*) thd->net.vio->ssl_arg;
     X509 *cert= SSL_get_certificate(ssl);
-    ASN1_TIME *not_after= X509_get_notAfter(cert);
+    const ASN1_TIME *not_after= X509_get0_notAfter(cert);
 
     var->value= my_asn1_time_to_string(not_after, buff,
                                        SHOW_VAR_FUNC_BUFF_SIZE);
@@ -9311,8 +9316,29 @@ mysqld_get_one_option(int optid, const struct my_option *opt, char *argument)
   }
 #ifdef WITH_WSREP
   case OPT_WSREP_CAUSAL_READS:
-    wsrep_causal_reads_update(&global_system_variables);
+  {
+    if (global_system_variables.wsrep_causal_reads)
+    {
+      WSREP_WARN("option --wsrep-causal-reads is deprecated");
+      if (!(global_system_variables.wsrep_sync_wait & WSREP_SYNC_WAIT_BEFORE_READ))
+      {
+        WSREP_WARN("--wsrep-causal-reads=ON takes precedence over --wsrep-sync-wait=%u. "
+                     "WSREP_SYNC_WAIT_BEFORE_READ is on",
+                     global_system_variables.wsrep_sync_wait);
+        global_system_variables.wsrep_sync_wait |= WSREP_SYNC_WAIT_BEFORE_READ;
+      }
+    }
+    else
+    {
+      if (global_system_variables.wsrep_sync_wait & WSREP_SYNC_WAIT_BEFORE_READ) {
+          WSREP_WARN("--wsrep-sync-wait=%u takes precedence over --wsrep-causal-reads=OFF. "
+                     "WSREP_SYNC_WAIT_BEFORE_READ is on",
+                     global_system_variables.wsrep_sync_wait);
+          global_system_variables.wsrep_causal_reads = 1;
+      }
+    }
     break;
+  }
   case OPT_WSREP_SYNC_WAIT:
     global_system_variables.wsrep_causal_reads=
       MY_TEST(global_system_variables.wsrep_sync_wait &
