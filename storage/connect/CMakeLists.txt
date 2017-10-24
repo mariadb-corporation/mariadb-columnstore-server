@@ -245,9 +245,9 @@ int main() {
 ENDIF(CONNECT_WITH_ODBC)
 
 #
-# JDBC and MongoDB Java Driver
+# JDBC with MongoDB Java Driver included but disabled
 #
-OPTION(CONNECT_WITH_MONGO "Compile CONNECT storage engine with MONGO support" ON)
+#OPTION(CONNECT_WITH_MONGO "Compile CONNECT storage engine with MONGO support" ON)
 OPTION(CONNECT_WITH_JDBC "Compile CONNECT storage engine with JDBC support" ON)
 
 IF(CONNECT_WITH_JDBC)
@@ -264,21 +264,14 @@ IF(CONNECT_WITH_JDBC)
     JdbcInterface.java ApacheInterface.java MariadbInterface.java
     MysqlInterface.java OracleInterface.java PostgresqlInterface.java
     JavaWrappers.jar)
-    # TODO: Find how to compile and install the java wrapper classes
-    # Find required libraries and include directories
-    SET (JAVA_SOURCES JdbcInterface.java)
-    add_jar(JdbcInterface ${JAVA_SOURCES})
-    INSTALL(FILES ${CMAKE_CURRENT_SOURCE_DIR}/JavaWrappers.jar
-      ${CMAKE_CURRENT_BINARY_DIR}/JdbcInterface.jar
-      DESTINATION ${INSTALL_PLUGINDIR} COMPONENT connect-engine)
     add_definitions(-DJDBC_SUPPORT)
-		IF(CONNECT_WITH_MONGO)
+    IF(CONNECT_WITH_MONGO)
       SET(CONNECT_SOURCES ${CONNECT_SOURCES}
       jmgfam.cpp jmgoconn.cpp mongo.cpp tabjmg.cpp
       jmgfam.h jmgoconn.h mongo.h tabjmg.h
       Mongo2Interface.java Mongo3Interface.java)
-      add_definitions(-DMONGO_SUPPORT)
-		ENDIF()
+      add_definitions(-DMONGO_SUPPORT -DMONGO_ENABLED=0)
+    ENDIF()
   ELSE()
     SET(JDBC_LIBRARY "")
   ENDIF()
@@ -297,33 +290,36 @@ IF(CONNECT_WITH_ZIP)
 ENDIF(CONNECT_WITH_ZIP)
 
 #
-# MONGO C Driver (CMAKE NOT YET WORKING)
+# MONGO C Driver
 #
 
-#IF(CONNECT_WITH_MONGO)
-#  IF(WIN32)
-#    # Adding some typical places to search in
-#    SET(PC_MONGO_INCLUDE_DIRS
-#        C:/mongo-c-driver/include
-#        D:/mongo-c-driver/include)
-#    SET(PC_MONGO_LIBRARY_DIRS
-#        C:/mongo-c-driver/lib
-#        D:/mongo-c-driver/lib)
-#  ENDIF(WIN32)
-#  FIND_PACKAGE(libmongoc 1.7)
-#  IF (MONGO_FOUND)
-#    INCLUDE_DIRECTORIES(${MONGO_INCLUDE_DIR})
-#    SET(MONGO_LIBRARY   ${MONGO_LIBRARIES})
-#    SET(CONNECT_SOURCES ${CONNECT_SOURCES} 
-#    cmgoconn.cpp cmgfam.cpp tabcmg.cpp
-#    cmgoconn.h cmgfam.h tabcmg.h)
-#    add_definitions(-DCMGO_SUPPORT)
-#    IF (NOT JAVA_FOUND AND JNI_FOUND)
-#      SET(CONNECT_SOURCES ${CONNECT_SOURCES} mongo.cpp mongo.h)
-#      add_definitions(-DMONGO_SUPPORT)
-#    ENDIF (NOT JAVA_FOUND AND JNI_FOUND)
-#  ENDIF(MONGO_FOUND)
-#ENDIF(CONNECT_WITH_MONGO)
+IF(CONNECT_WITH_MONGO)
+  IF(WIN32)
+    # Adding some typical places to search in
+    SET(PC_MONGO_INCLUDE_DIRS
+        C:/mongo-c-driver/include
+        D:/mongo-c-driver/include)
+    SET(PC_MONGO_LIBRARY_DIRS
+        C:/mongo-c-driver/lib
+        D:/mongo-c-driver/lib)
+  ENDIF(WIN32)
+  FIND_PACKAGE(libmongoc-1.0 1.7 QUIET)
+  IF (libmongoc-1.0_FOUND)
+    INCLUDE_DIRECTORIES(${MONGOC_INCLUDE_DIRS})
+    SET(MONGOC_LIBRARY  ${MONGOC_LIBRARIES})
+    SET(CONNECT_SOURCES ${CONNECT_SOURCES}
+    cmgoconn.cpp cmgfam.cpp tabcmg.cpp
+    cmgoconn.h cmgfam.h tabcmg.h)
+    add_definitions(-DCMGO_SUPPORT)
+    IF (NOT JAVA_FOUND AND JNI_FOUND)
+      SET(CONNECT_SOURCES ${CONNECT_SOURCES} mongo.cpp mongo.h)
+      add_definitions(-DMONGO_SUPPORT -DMONGO_ENABLED=1)
+    ELSE ()
+      remove_definitions(-DMONGO_ENABLED=0)
+      add_definitions(-DMONGO_ENABLED=1)
+    ENDIF (NOT JAVA_FOUND AND JNI_FOUND)
+  ENDIF(libmongoc-1.0_FOUND)
+ENDIF(CONNECT_WITH_MONGO)
 
 
 #
@@ -344,8 +340,50 @@ MYSQL_ADD_PLUGIN(connect ${CONNECT_SOURCES}
   STORAGE_ENGINE
   COMPONENT connect-engine
   RECOMPILE_FOR_EMBEDDED
-#  LINK_LIBRARIES ${ZLIB_LIBRARY} ${XML_LIBRARY} ${ICONV_LIBRARY} $(MONGO_LIBRARY)
   LINK_LIBRARIES ${ZLIB_LIBRARY} ${XML_LIBRARY} ${ICONV_LIBRARY}
-                 ${ODBC_LIBRARY} ${JDBC_LIBRARY} ${IPHLPAPI_LIBRARY})
+    ${ODBC_LIBRARY} ${JDBC_LIBRARY} ${MONGOC_LIBRARY} ${IPHLPAPI_LIBRARY})
 
+IF(NOT TARGET connect)
+  RETURN()
+ENDIF()
 
+# Install some extra files that belong to connect engine
+IF(WIN32)
+  # install ha_connect.lib
+  GET_TARGET_PROPERTY(CONNECT_LOCATION connect LOCATION)
+  STRING(REPLACE "dll" "lib" CONNECT_LIB ${CONNECT_LOCATION})
+  IF(CMAKE_CONFIGURATION_TYPES)
+    STRING(REPLACE "${CMAKE_CFG_INTDIR}" "\${CMAKE_INSTALL_CONFIG_NAME}"
+      CONNECT_LIB ${CONNECT_LIB})
+  ENDIF()
+  INSTALL(FILES ${CONNECT_LIB}
+    DESTINATION ${INSTALL_PLUGINDIR} COMPONENT connect-engine)
+ENDIF(WIN32)
+
+IF(NOT TARGET connect)
+  RETURN()
+ENDIF()
+
+# Install some extra files that belong to connect engine
+IF(WIN32)
+  # install ha_connect.lib
+  GET_TARGET_PROPERTY(CONNECT_LOCATION connect LOCATION)
+  STRING(REPLACE "dll" "lib" CONNECT_LIB ${CONNECT_LOCATION})
+  IF(CMAKE_CONFIGURATION_TYPES)
+    STRING(REPLACE "${CMAKE_CFG_INTDIR}" "\${CMAKE_INSTALL_CONFIG_NAME}"
+      CONNECT_LIB ${CONNECT_LIB})
+  ENDIF()
+  INSTALL(FILES ${CONNECT_LIB}
+    DESTINATION ${INSTALL_PLUGINDIR} COMPONENT connect-engine)
+ENDIF(WIN32)
+
+IF(CONNECT_WITH_JDBC AND JAVA_FOUND AND JNI_FOUND)
+  # TODO: Find how to compile and install the java wrapper classes
+  # Find required libraries and include directories
+  SET (JAVA_SOURCES JdbcInterface.java)
+  add_jar(JdbcInterface ${JAVA_SOURCES})
+  INSTALL(FILES
+    ${CMAKE_CURRENT_SOURCE_DIR}/JavaWrappers.jar
+    ${CMAKE_CURRENT_BINARY_DIR}/JdbcInterface.jar
+    DESTINATION ${INSTALL_PLUGINDIR} COMPONENT connect-engine)
+ENDIF()

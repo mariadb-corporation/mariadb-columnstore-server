@@ -62,6 +62,7 @@
 #include "sql_repl.h"
 #include "opt_range.h"
 #include "rpl_parallel.h"
+#include <ssl_compat.h>
 
 /*
   The rule for this file: everything should be 'static'. When a sys_var
@@ -3657,16 +3658,6 @@ static Sys_var_charptr Sys_malloc_library(
        READ_ONLY GLOBAL_VAR(malloc_library), CMD_LINE_HELP_ONLY,
        IN_SYSTEM_CHARSET, DEFAULT(guess_malloc_library()));
 
-#ifdef HAVE_YASSL
-#include <openssl/ssl.h>
-#define SSL_LIBRARY "YaSSL " YASSL_VERSION
-#elif HAVE_OPENSSL
-#include <openssl/crypto.h>
-#define SSL_LIBRARY SSLeay_version(SSLEAY_VERSION)
-#else
-#error No SSL?
-#endif
-
 static char *ssl_library;
 static Sys_var_charptr Sys_ssl_library(
        "version_ssl_library", "Version of the used SSL library",
@@ -5065,7 +5056,7 @@ static Sys_var_ulong Sys_wsrep_slave_threads(
        GLOBAL_VAR(wsrep_slave_threads), CMD_LINE(REQUIRED_ARG),
        VALID_RANGE(1, 512), DEFAULT(1), BLOCK_SIZE(1),
        &PLock_wsrep_slave_threads, NOT_IN_BINLOG,
-       ON_CHECK(wsrep_slave_threads_check), 
+       ON_CHECK(NULL),
        ON_UPDATE(wsrep_slave_threads_update));
 
 static Sys_var_charptr Sys_wsrep_dbug_option(
@@ -5177,21 +5168,13 @@ static Sys_var_mybool Sys_wsrep_certify_nonPK(
        GLOBAL_VAR(wsrep_certify_nonPK), 
        CMD_LINE(OPT_ARG), DEFAULT(TRUE));
 
-static bool fix_wsrep_causal_reads(sys_var *self, THD* thd, enum_var_type var_type)
-{
-  if (var_type == OPT_GLOBAL)
-    wsrep_causal_reads_update(&global_system_variables);
-  else
-    wsrep_causal_reads_update(&thd->variables);
-  return false;
-}
 static Sys_var_mybool Sys_wsrep_causal_reads(
        "wsrep_causal_reads", "Setting this variable is equivalent "
        "to setting wsrep_sync_wait READ flag",
        SESSION_VAR(wsrep_causal_reads),
        CMD_LINE(OPT_ARG, OPT_WSREP_CAUSAL_READS), DEFAULT(FALSE),
        NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(0),
-       ON_UPDATE(fix_wsrep_causal_reads),
+       ON_UPDATE(wsrep_causal_reads_update),
        DEPRECATED("'@@wsrep_sync_wait=1'"));
 
 static Sys_var_uint Sys_wsrep_sync_wait(

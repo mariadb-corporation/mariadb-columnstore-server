@@ -477,14 +477,14 @@ static bool make_date_time(DATE_TIME_FORMAT *format, MYSQL_TIME *l_time,
     {
       switch (*++ptr) {
       case 'M':
-        if (!l_time->month)
+        if (type == MYSQL_TIMESTAMP_TIME || !l_time->month)
           return 1;
         str->append(locale->month_names->type_names[l_time->month-1],
                     (uint) strlen(locale->month_names->type_names[l_time->month-1]),
                     system_charset_info);
         break;
       case 'b':
-        if (!l_time->month)
+        if (type == MYSQL_TIMESTAMP_TIME || !l_time->month)
           return 1;
         str->append(locale->ab_month_names->type_names[l_time->month-1],
                     (uint) strlen(locale->ab_month_names->type_names[l_time->month-1]),
@@ -534,26 +534,38 @@ static bool make_date_time(DATE_TIME_FORMAT *format, MYSQL_TIME *l_time,
 	}
 	break;
       case 'Y':
+        if (type == MYSQL_TIMESTAMP_TIME)
+          return 1;
 	length= (uint) (int10_to_str(l_time->year, intbuff, 10) - intbuff);
 	str->append_with_prefill(intbuff, length, 4, '0');
 	break;
       case 'y':
+        if (type == MYSQL_TIMESTAMP_TIME)
+          return 1;
 	length= (uint) (int10_to_str(l_time->year%100, intbuff, 10) - intbuff);
 	str->append_with_prefill(intbuff, length, 2, '0');
 	break;
       case 'm':
+        if (type == MYSQL_TIMESTAMP_TIME)
+          return 1;
 	length= (uint) (int10_to_str(l_time->month, intbuff, 10) - intbuff);
 	str->append_with_prefill(intbuff, length, 2, '0');
 	break;
       case 'c':
+        if (type == MYSQL_TIMESTAMP_TIME)
+          return 1;
 	length= (uint) (int10_to_str(l_time->month, intbuff, 10) - intbuff);
 	str->append_with_prefill(intbuff, length, 1, '0');
 	break;
       case 'd':
+	if (type == MYSQL_TIMESTAMP_TIME)
+	  return 1;
 	length= (uint) (int10_to_str(l_time->day, intbuff, 10) - intbuff);
 	str->append_with_prefill(intbuff, length, 2, '0');
 	break;
       case 'e':
+	if (type == MYSQL_TIMESTAMP_TIME)
+	  return 1;
 	length= (uint) (int10_to_str(l_time->day, intbuff, 10) - intbuff);
 	str->append_with_prefill(intbuff, length, 1, '0');
 	break;
@@ -1722,6 +1734,25 @@ void Item_func_now::print(String *str, enum_query_type query_type)
   str->append(')');
 }
 
+
+int Item_func_now_local::save_in_field(Field *field, bool no_conversions)
+{
+  if (field->type() == MYSQL_TYPE_TIMESTAMP)
+  {
+    THD *thd= field->get_thd();
+    my_time_t ts= thd->query_start();
+    uint dec= MY_MIN(decimals, field->decimals());
+    ulong sec_part= dec ? thd->query_start_sec_part() : 0;
+    sec_part-= my_time_fraction_remainder(sec_part, dec);
+    field->set_notnull();
+    ((Field_timestamp*)field)->store_TIME(ts, sec_part);
+    return 0;
+  }
+  else
+    return Item_temporal_func::save_in_field(field, no_conversions);
+}
+
+
 /**
     Converts current time in my_time_t to MYSQL_TIME represenatation for local
     time zone. Defines time zone (local) used for whole NOW function.
@@ -2422,7 +2453,7 @@ String *Item_char_typecast::copy(String *str, CHARSET_INFO *strcs)
   if (copier.copy_with_warn(cast_cs, &tmp_value, strcs,
                             str->ptr(), str->length(), cast_length))
   {
-    null_value= 1; // In strict mode: malformed data or could not convert
+    null_value= 1; // EOM
     return 0;
   }
   check_truncation_with_warn(str, copier.source_end_pos() - str->ptr());

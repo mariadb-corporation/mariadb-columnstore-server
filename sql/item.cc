@@ -1447,9 +1447,9 @@ static inline
 void mark_unsupported_func(const char *where, const char *processor_name)
 {
   char buff[64];
-  sprintf(buff, "%s::%s", where ? where: "", processor_name);
+  my_snprintf(buff, sizeof(buff), "%s::%s", where ? where: "", processor_name);
   DBUG_ENTER(buff);
-  sprintf(buff, "%s returns TRUE: unsupported function", processor_name);
+  my_snprintf(buff, sizeof(buff), "%s returns TRUE: unsupported function", processor_name);
   DBUG_PRINT("info", ("%s", buff));
   DBUG_VOID_RETURN;
 }
@@ -1829,7 +1829,10 @@ bool Item_name_const::fix_fields(THD *thd, Item **ref)
     set_name(thd, item_name->ptr(), (uint) item_name->length(),
              system_charset_info);
   }
-  collation.set(value_item->collation.collation, DERIVATION_IMPLICIT);
+  if (value_item->collation.derivation == DERIVATION_NUMERIC)
+    collation.set_numeric();
+  else
+    collation.set(value_item->collation.collation, DERIVATION_IMPLICIT);
   max_length= value_item->max_length;
   decimals= value_item->decimals;
   fixed= 1;
@@ -6033,7 +6036,7 @@ String_copier_for_item::copy_with_warn(CHARSET_INFO *dstcs, String *dst,
                         srccs == &my_charset_bin ?
                         dstcs->csname : srccs->csname,
                         err.ptr());
-    return m_thd->is_strict_mode();
+    return false;
   }
   if (const char *pos= cannot_convert_error_pos())
   {
@@ -6045,7 +6048,7 @@ String_copier_for_item::copy_with_warn(CHARSET_INFO *dstcs, String *dst,
                         ER_CANNOT_CONVERT_CHARACTER,
                         ER_THD(m_thd, ER_CANNOT_CONVERT_CHARACTER),
                         srccs->csname, buf, dstcs->csname);
-    return m_thd->is_strict_mode();
+    return false;
   }
   return false;
 }

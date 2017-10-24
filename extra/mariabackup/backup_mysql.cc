@@ -55,6 +55,7 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 #include "encryption_plugin.h"
 #include <sstream>
 #include <sql_error.h>
+#include <ut0ut.h>
 
 
 char *tool_name;
@@ -112,6 +113,12 @@ xb_mysql_connect()
 		mysql_options(connection, MYSQL_SECURE_AUTH,
 			      (char *) &opt_secure_auth);
 	}
+
+	if (xb_plugin_dir && *xb_plugin_dir){
+		mysql_options(connection, MYSQL_PLUGIN_DIR, xb_plugin_dir);
+	}
+	mysql_options(connection, MYSQL_OPT_PROTOCOL, &opt_protocol);
+	mysql_options(connection,MYSQL_SET_CHARSET_NAME, "utf8");
 
 	msg_ts("Connecting to MySQL server host: %s, user: %s, password: %s, "
 	       "port: %s, socket: %s\n", opt_host ? opt_host : "localhost",
@@ -575,7 +582,6 @@ bool
 select_incremental_lsn_from_history(lsn_t *incremental_lsn)
 {
 	MYSQL_RES *mysql_result;
-	MYSQL_ROW row;
 	char query[1000];
 	char buf[100];
 
@@ -608,27 +614,27 @@ select_incremental_lsn_from_history(lsn_t *incremental_lsn)
 	mysql_result = xb_mysql_query(mysql_connection, query, true);
 
 	ut_ad(mysql_num_fields(mysql_result) == 1);
-	if (!(row = mysql_fetch_row(mysql_result))) {
+	const MYSQL_ROW row = mysql_fetch_row(mysql_result);
+	if (row) {
+		*incremental_lsn = strtoull(row[0], NULL, 10);
+		msg("Found and using lsn: " LSN_PF " for %s %s\n",
+		    *incremental_lsn,
+		    opt_incremental_history_uuid ? "uuid" : "name",
+		    opt_incremental_history_uuid ?
+		    opt_incremental_history_uuid :
+		    opt_incremental_history_name);
+	} else {
 		msg("Error while attempting to find history record "
 			"for %s %s\n",
 			opt_incremental_history_uuid ? "uuid" : "name",
 			opt_incremental_history_uuid ?
 		    		opt_incremental_history_uuid :
 		    		opt_incremental_history_name);
-		return(false);
 	}
-
-	*incremental_lsn = strtoull(row[0], NULL, 10);
 
 	mysql_free_result(mysql_result);
 
-	msg("Found and using lsn: " LSN_PF " for %s %s\n", *incremental_lsn,
-		opt_incremental_history_uuid ? "uuid" : "name",
-		opt_incremental_history_uuid ?
-	    		opt_incremental_history_uuid :
-	    		opt_incremental_history_name);
-
-	return(true);
+	return(row != NULL);
 }
 
 static
@@ -715,14 +721,12 @@ static
 bool
 have_queries_to_wait_for(MYSQL *connection, uint threshold)
 {
-	MYSQL_RES *result;
-	MYSQL_ROW row;
-	bool all_queries;
+	MYSQL_RES *result = xb_mysql_query(connection, "SHOW FULL PROCESSLIST",
+					   true);
+	const bool all_queries = (opt_lock_wait_query_type == QUERY_TYPE_ALL);
+	bool have_to_wait = false;
 
-	result = xb_mysql_query(connection, "SHOW FULL PROCESSLIST", true);
-
-	all_queries = (opt_lock_wait_query_type == QUERY_TYPE_ALL);
-	while ((row = mysql_fetch_row(result)) != NULL) {
+	while (MYSQL_ROW row = mysql_fetch_row(result)) {
 		const char	*info		= row[7];
 		int		duration	= row[5] ? atoi(row[5]) : 0;
 		char		*id		= row[0];
@@ -733,26 +737,25 @@ have_queries_to_wait_for(MYSQL *connection, uint threshold)
 		    	|| is_update_query(info))) {
 			msg_ts("Waiting for query %s (duration %d sec): %s",
 			       id, duration, info);
-			return(true);
+			have_to_wait = true;
+			break;
 		}
 	}
 
-	return(false);
+	mysql_free_result(result);
+	return(have_to_wait);
 }
 
 static
 void
 kill_long_queries(MYSQL *connection, time_t timeout)
 {
-	MYSQL_RES *result;
-	MYSQL_ROW row;
-	bool all_queries;
 	char kill_stmt[100];
 
-	result = xb_mysql_query(connection, "SHOW FULL PROCESSLIST", true);
-
-	all_queries = (opt_kill_long_query_type == QUERY_TYPE_ALL);
-	while ((row = mysql_fetch_row(result)) != NULL) {
+	MYSQL_RES *result = xb_mysql_query(connection, "SHOW FULL PROCESSLIST",
+					   true);
+	const bool all_queries = (opt_kill_long_query_type == QUERY_TYPE_ALL);
+	while (MYSQL_ROW row = mysql_fetch_row(result)) {
 		const char	*info		= row[7];
 		long long		duration	= row[5]? atoll(row[5]) : 0;
 		char		*id		= row[0];
@@ -768,6 +771,8 @@ kill_long_queries(MYSQL *connection, time_t timeout)
 			xb_mysql_query(connection, kill_stmt, false, false);
 		}
 	}
+
+	mysql_free_result(result);
 }
 
 static
@@ -837,7 +842,7 @@ stop_thread:
 
 	os_event_set(kill_query_thread_stopped);
 
-	os_thread_exit(NULL);
+	os_thread_exit();
 	OS_THREAD_DUMMY_RETURN;
 }
 
@@ -1626,3 +1631,76 @@ backup_cleanup()
 		mysql_close(mysql_connection);
 	}
 }
+
+
+static pthread_mutex_t mdl_lock_con_mutex;
+static MYSQL *mdl_con = NULL;
+
+void
+mdl_lock_init()
+{
+  pthread_mutex_init(&mdl_lock_con_mutex, NULL);
+  mdl_con = xb_mysql_connect();
+  if (mdl_con)
+  {
+    xb_mysql_query(mdl_con, "BEGIN", false, true);
+  }
+}
+
+#ifndef DBUG_OFF
+/* Test  that table is really locked, if lock_ddl_per_table is set.
+   The test is executed in DBUG_EXECUTE_IF block inside mdl_lock_table().
+*/
+static void check_mdl_lock_works(const char *table_name)
+{
+  MYSQL *test_con=  xb_mysql_connect();
+  char *query;
+  xb_a(asprintf(&query,
+    "SET STATEMENT max_statement_time=1 FOR ALTER TABLE %s"
+    " ADD COLUMN mdl_lock_column int", table_name));
+  int err = mysql_query(test_con, query);
+  DBUG_ASSERT(err);
+  int err_no = mysql_errno(test_con);
+  DBUG_ASSERT(err_no == ER_STATEMENT_TIMEOUT);
+  mysql_close(test_con);
+  free(query);
+}
+#endif
+void
+mdl_lock_table(ulint space_id)
+{
+  std::ostringstream oss;
+  oss << "SELECT NAME "
+    "FROM INFORMATION_SCHEMA.INNODB_SYS_TABLES "
+    "WHERE SPACE = " << space_id << " AND NAME LIKE '%%/%%'";
+
+  pthread_mutex_lock(&mdl_lock_con_mutex);
+
+  MYSQL_RES *mysql_result = xb_mysql_query(mdl_con, oss.str().c_str(), true, true);
+
+  while (MYSQL_ROW row = mysql_fetch_row(mysql_result)) {
+    std::string full_table_name =  ut_get_name(0,row[0]);
+    std::ostringstream lock_query;
+    lock_query << "SELECT * FROM " << full_table_name  << " LIMIT 0";
+
+    msg_ts("Locking MDL for %s\n", full_table_name.c_str());
+    xb_mysql_query(mdl_con, lock_query.str().c_str(), false, false);
+
+    DBUG_EXECUTE_IF("check_mdl_lock_works",
+      check_mdl_lock_works(full_table_name.c_str()););
+  }
+
+  pthread_mutex_unlock(&mdl_lock_con_mutex);
+  mysql_free_result(mysql_result);
+}
+
+
+void
+mdl_unlock_all()
+{
+  msg_ts("Unlocking MDL for all tables\n");
+  xb_mysql_query(mdl_con, "COMMIT", false, true);
+  mysql_close(mdl_con);
+  pthread_mutex_destroy(&mdl_lock_con_mutex);
+}
+

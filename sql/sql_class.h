@@ -492,6 +492,11 @@ enum killed_state
   KILL_SYSTEM_THREAD_HARD= 15,
   KILL_SERVER= 16,
   KILL_SERVER_HARD= 17,
+  /*
+    Used in threadpool to signal wait timeout.
+  */
+  KILL_WAIT_TIMEOUT= 18,
+  KILL_WAIT_TIMEOUT_HARD= 19
 
 };
 
@@ -1661,6 +1666,29 @@ public:
     return TRUE;
   }
   Dummy_error_handler() {}                    /* Remove gcc warning */
+};
+
+
+/**
+  Implements the trivial error handler which counts errors as they happen.
+*/
+
+class Counting_error_handler : public Internal_error_handler
+{
+public:
+  int errors;
+  bool handle_condition(THD *thd,
+                        uint sql_errno,
+                        const char* sqlstate,
+                        Sql_condition::enum_warning_level *level,
+                        const char* msg,
+                        Sql_condition ** cond_hdl)
+  {
+    if (*level == Sql_condition::WARN_LEVEL_ERROR)
+      errors++;
+    return false;
+  }
+  Counting_error_handler() : errors(0) {}
 };
 
 
@@ -4404,6 +4432,8 @@ public:
   bool                      wsrep_ignore_table;
   wsrep_gtid_t              wsrep_sync_wait_gtid;
   ulong                     wsrep_affected_rows;
+  bool                      wsrep_replicate_GTID;
+  bool                      wsrep_skip_wsrep_GTID;
 #endif /* WITH_WSREP */
 
   /* Handling of timeouts for commands */
@@ -5465,7 +5495,6 @@ user_var_entry *get_variable(HASH *hash, LEX_STRING &name,
 				    bool create_if_not_exists);
 
 class SORT_INFO;
-
 class multi_delete :public select_result_interceptor
 {
   TABLE_LIST *delete_tables, *table_being_deleted;
