@@ -158,7 +158,7 @@ TODO: Remove this function. Everything should use MYSQL_TYPE_NEWDECIMAL.
 @param[in] b_length length of b, in bytes (not UNIV_SQL_NULL)
 @return positive, 0, negative, if a is greater, equal, less than b,
 respectively */
-static UNIV_COLD
+static ATTRIBUTE_COLD
 int
 cmp_decimal(
 	const byte*	a,
@@ -797,7 +797,6 @@ cmp_dtuple_rec_with_match_bytes(
 
 	ut_ad(dtuple_check_typed(dtuple));
 	ut_ad(rec_offs_validate(rec, index, offsets));
-	//ut_ad(page_is_leaf(page_align(rec)));
 	ut_ad(!(REC_INFO_MIN_REC_FLAG
 		& dtuple_get_info_bits(dtuple)));
 	ut_ad(!(REC_INFO_MIN_REC_FLAG

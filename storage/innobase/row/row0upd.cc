@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1996, 2017, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2015, 2016, MariaDB Corporation.
+Copyright (c) 2015, 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -460,19 +460,18 @@ func_exit:
 @param[in]	node	query node
 @param[in]	trx	transaction
 @return	whether the node cannot be ignored */
-static
+inline
 bool
 wsrep_must_process_fk(const upd_node_t* node, const trx_t* trx)
 {
-	if (que_node_get_type(node->common.parent) != QUE_NODE_UPDATE
-	    || !wsrep_on(trx->mysql_thd)) {
+	if (que_node_get_type(node->common.parent) != QUE_NODE_UPDATE ||
+	    !wsrep_on(trx->mysql_thd)) {
 		return false;
 	}
 
-	const upd_cascade_t&	nodes = *static_cast<const upd_node_t*>(
-		node->common.parent)->cascade_upd_nodes;
-	const upd_cascade_t::const_iterator end = nodes.end();
-	return std::find(nodes.begin(), end, node) == end;
+	const upd_node_t* parent = static_cast<const upd_node_t*>(node->common.parent);
+
+	return parent->cascade_upd_nodes->empty();
 }
 #endif /* WITH_WSREP */
 
@@ -1070,7 +1069,7 @@ row_upd_build_difference_binary(
 	      == trx_id_pos + 1);
 
 	if (!offsets) {
-		offsets = rec_get_offsets(rec, index, offsets_,
+		offsets = rec_get_offsets(rec, index, offsets_, true,
 					  ULINT_UNDEFINED, &heap);
 	} else {
 		ut_ad(rec_offs_validate(rec, index, offsets));
@@ -2197,7 +2196,7 @@ row_upd_store_row(
 
 	rec = btr_pcur_get_rec(node->pcur);
 
-	offsets = rec_get_offsets(rec, clust_index, offsets_,
+	offsets = rec_get_offsets(rec, clust_index, offsets_, true,
 				  ULINT_UNDEFINED, &heap);
 
 	if (dict_table_get_format(node->table) >= UNIV_FORMAT_B) {
@@ -2300,17 +2299,18 @@ row_upd_sec_index_entry(
 			    "before_row_upd_sec_index_entry");
 
 	mtr_start_trx(&mtr, trx);
-	mtr.set_named_space(index->space);
 
-	/* Disable REDO logging as lifetime of temp-tables is limited to
-	server or connection lifetime and so REDO information is not needed
-	on restart for recovery.
-	Disable locking as temp-tables are not shared across connection. */
-	if (dict_table_is_temporary(index->table)) {
-		flags = BTR_NO_LOCKING_FLAG;
+	switch (index->space) {
+	case SRV_TMP_SPACE_ID:
 		mtr.set_log_mode(MTR_LOG_NO_REDO);
-	} else {
+		flags = BTR_NO_LOCKING_FLAG;
+		break;
+	default:
+		mtr.set_named_space(index->space);
+		/* fall through */
+	case IBUF_SPACE_ID:
 		flags = 0;
+		break;
 	}
 
 	if (!index->is_committed()) {
@@ -2442,9 +2442,10 @@ row_upd_sec_index_entry(
 			if (!referenced && foreign
 			    && wsrep_must_process_fk(node, trx)
 			    && !wsrep_thd_is_BF(trx->mysql_thd, FALSE)) {
+
 				ulint*	offsets = rec_get_offsets(
-					rec, index, NULL, ULINT_UNDEFINED,
-					&heap);
+					rec, index, NULL, true,
+					ULINT_UNDEFINED, &heap);
 
 				err = wsrep_row_upd_check_foreign_constraints(
 					node, &pcur, index->table,
@@ -2480,7 +2481,7 @@ row_upd_sec_index_entry(
 			ulint*	offsets;
 
 			offsets = rec_get_offsets(
-				rec, index, NULL, ULINT_UNDEFINED,
+				rec, index, NULL, true, ULINT_UNDEFINED,
 				&heap);
 
 			/* NOTE that the following call loses
@@ -2690,7 +2691,7 @@ row_upd_clust_rec_by_insert(
 		we update the primary key.  Delete-mark the old record
 		in the clustered index and prepare to insert a new entry. */
 		rec = btr_cur_get_rec(btr_cur);
-		offsets = rec_get_offsets(rec, index, NULL,
+		offsets = rec_get_offsets(rec, index, NULL, true,
 					  ULINT_UNDEFINED, &heap);
 		ut_ad(page_rec_is_user_rec(rec));
 
@@ -2748,6 +2749,9 @@ check_fk:
 			}
 #ifdef WITH_WSREP
 		} else if (foreign && wsrep_must_process_fk(node, trx)) {
+			err = wsrep_row_upd_check_foreign_constraints(
+				node, pcur, table, index, offsets, thr, mtr);
+
 			switch (err) {
 			case DB_SUCCESS:
 			case DB_NO_REFERENCED_ROW:
@@ -2759,16 +2763,11 @@ check_fk:
 						   << " index " << index->name
 						   << " table " << index->table->name;
 				}
-				break;
+				goto err_exit;
 			default:
 				ib::error() << "WSREP: referenced FK check fail: " << ut_strerr(err)
 					    << " index " << index->name
 					    << " table " << index->table->name;
-
-				break;
-			}
-
-			if (err != DB_SUCCESS) {
 				goto err_exit;
 			}
 #endif /* WITH_WSREP */
@@ -2955,6 +2954,7 @@ row_upd_del_mark_clust_rec(
 	dberr_t		err;
 	rec_t*		rec;
 	trx_t*		trx = thr_get_trx(thr);
+
 	ut_ad(node);
 	ut_ad(dict_index_is_clust(index));
 	ut_ad(node->is_delete);
@@ -2966,7 +2966,8 @@ row_upd_del_mark_clust_rec(
 	entries */
 
 	row_upd_store_row(node, trx->mysql_thd,
-			  thr->prebuilt ? thr->prebuilt->m_mysql_table : NULL);
+			  thr->prebuilt  && thr->prebuilt->table == node->table
+			  ? thr->prebuilt->m_mysql_table : NULL);
 
 	/* Mark the clustered index record deleted; we do not have to check
 	locks, because we assume that we have an x-lock on the record */
@@ -2987,6 +2988,7 @@ row_upd_del_mark_clust_rec(
 	} else if (foreign && wsrep_must_process_fk(node, trx)) {
 		err = wsrep_row_upd_check_foreign_constraints(
 			node, pcur, index->table, index, offsets, thr, mtr);
+
 		switch (err) {
 		case DB_SUCCESS:
 		case DB_NO_REFERENCED_ROW:
@@ -3128,7 +3130,7 @@ row_upd_clust_step(
 	}
 
 	rec = btr_pcur_get_rec(pcur);
-	offsets = rec_get_offsets(rec, index, offsets_,
+	offsets = rec_get_offsets(rec, index, offsets_, true,
 				  ULINT_UNDEFINED, &heap);
 
 	if (!flags && !node->has_clust_rec_x_lock) {
