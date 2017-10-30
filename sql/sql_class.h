@@ -2961,7 +2961,6 @@ public:
   	infinidb_state vtable_state;  // flag for InfiniDB MySQL virtual table structure
   	bool autoswitch;
   	bool has_order_by;
-  	bool mysql_optimizer_off;
   	bool duplicate_field_name; // @bug 1928. duplicate field name in create_phase will be ingored.
   	bool call_sp;
   	bool override_largeside_estimate;
@@ -2973,12 +2972,12 @@ public:
 	bool isInfiniDBDML; // default false
   	bool hasInfiniDBTable; // default false
 	bool isNewQuery;
+    int redo_count;
 	INFINIDB_VTABLE() : cal_conn_info(NULL) {init();}
 	void init()
 	{
 		autoswitch = false;
 		has_order_by = false;
-		mysql_optimizer_off = false;
 		duplicate_field_name = false;
 		call_sp = false;
 		override_largeside_estimate = false;
@@ -3000,6 +2999,7 @@ public:
 		isInfiniDBDML = false;
 		hasInfiniDBTable = false;
 		isNewQuery = true;
+        redo_count = 0;
 	}
   };			   
    

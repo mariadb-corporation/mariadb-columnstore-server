@@ -10715,7 +10715,6 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 					thd->infinidb_vtable.vtable_state = THD::INFINIDB_INIT;
 					thd->infinidb_vtable.duplicate_field_name = false;
 					thd->infinidb_vtable.isUnion = false;
-					thd->infinidb_vtable.mysql_optimizer_off = false;
 					thd->infinidb_vtable.impossibleWhereOnUnion = false;
 					thd->infinidb_vtable.isInfiniDBDML = false;
 					thd->infinidb_vtable.hasInfiniDBTable = false;
@@ -10730,6 +10729,7 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 					else if (thd->infinidb_vtable.vtable_state == THD::INFINIDB_REDO_PHASE1)
 					{
 						// redo phase 1;
+                        thd->infinidb_vtable.redo_count = 0;
 						while (thd->infinidb_vtable.vtable_state == THD::INFINIDB_REDO_PHASE1)
 						{
 							idb_parse_vtable(thd, thd->infinidb_vtable.drop_vtable_query, THD::INFINIDB_DROP_VTABLE);
@@ -10737,26 +10737,27 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 							// If the execution plan failed InfiniDB, turn off the optimizer constant re-write
 							// and let the query go through optimizer again. Change it to CREATE_PHASE
 							// because we want to re-generate and send InfiniDB plan.
-							if (thd->infinidb_vtable.mysql_optimizer_off)
-							{
-								thd->infinidb_vtable.vtable_state = THD::INFINIDB_CREATE_VTABLE;
-								thd->infinidb_vtable.create_vtable_query.free();
-								thd->infinidb_vtable.create_vtable_query.append(create.c_str(), create.length());
-								thd->infinidb_vtable.select_vtable_query.free();
-								thd->infinidb_vtable.select_vtable_query.append(select.c_str(), select.length());
-							}
+                            thd->infinidb_vtable.vtable_state = THD::INFINIDB_CREATE_VTABLE;
+                            thd->infinidb_vtable.create_vtable_query.free();
+                            thd->infinidb_vtable.create_vtable_query.append(create.c_str(), create.length());
+                            thd->infinidb_vtable.select_vtable_query.free();
+                            thd->infinidb_vtable.select_vtable_query.append(select.c_str(), select.length());
 							thd->infinidb_vtable.isUnion = false; // make state change to create_vtable in sql_select
 	#ifdef INFINIDB_DEBUG
 							printf("<<< V-TABLE Redo Phase 1: %s\n", thd->query());
 	#endif
 							idb_parse_vtable(thd, thd->infinidb_vtable.create_vtable_query, THD::INFINIDB_CREATE_VTABLE);
-							if (thd->infinidb_vtable.mysql_optimizer_off)
-								thd->infinidb_vtable.mysql_optimizer_off = false;
 							if ((thd->get_stmt_da()->is_error()) || ( thd->killed > 0 )) //@Bug 2974 Handle ctrl-c
 							{
 								thd->infinidb_vtable.vtable_state = THD::INFINIDB_ERROR;
 								break;
 							}
+                            if (thd->infinidb_vtable.redo_count > 3)
+                            {
+                                // If we don't get it after three tries, give up.
+                                thd->infinidb_vtable.vtable_state = THD::INFINIDB_ERROR;
+                                break;
+                            }
 						}
 					}
 					else if (thd->infinidb_vtable.vtable_state == THD::INFINIDB_REDO_QUERY)
@@ -10856,8 +10857,12 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 		}
 
 		thd->lex->restore_backup_query_tables_list(&backup);
-		//------------------ End InfiniDB -------------------------------
 	}
+    if (thd->killed == KILL_QUERY)
+    {
+        thd->get_stmt_da()->set_overwrite_status(true);
+        thd->raise_error_printf(ER_INTERNAL_ERROR, "Query cannot be processed using operational mode 1 (vtable mode)");
+    }
 	DBUG_RETURN(0);
 }
 
