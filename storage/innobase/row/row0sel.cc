@@ -1657,8 +1657,7 @@ table_loop:
 
 #ifdef BTR_CUR_HASH_ADAPT
 	if (consistent_read && plan->unique_search && !plan->pcur_is_open
-	    && !plan->must_get_clust
-	    && !plan->table->big_rows) {
+	    && !plan->must_get_clust) {
 		if (!search_latch_locked) {
 			btr_search_s_lock(index);
 
@@ -2085,8 +2084,7 @@ skip_lock:
 	ut_ad(plan->pcur.latch_mode == BTR_SEARCH_LEAF);
 
 	if ((plan->n_rows_fetched <= SEL_PREFETCH_LIMIT)
-	    || plan->unique_search || plan->no_prefetch
-	    || plan->table->big_rows) {
+	    || plan->unique_search || plan->no_prefetch) {
 
 		/* No prefetch in operation: go to the next table */
 
@@ -2935,6 +2933,7 @@ row_sel_field_store_in_mysql_format_func(
 	case DATA_SYS:
 		/* These column types should never be shipped to MySQL. */
 		ut_ad(0);
+		/* fall through */
 
 	case DATA_CHAR:
 	case DATA_FIXBINARY:
@@ -3437,7 +3436,7 @@ row_sel_get_clust_rec_for_mysql(
 			trx_print(stderr, trx, 600);
 			fputs("\n"
 			      "InnoDB: Submit a detailed bug report"
-			      " to http://bugs.mysql.com\n", stderr);
+			      " to https://jira.mariadb.org/\n", stderr);
 			ut_ad(0);
 		}
 

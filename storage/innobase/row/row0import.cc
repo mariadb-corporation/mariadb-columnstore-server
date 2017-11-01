@@ -1716,16 +1716,12 @@ PageConverter::update_records(
 
 	m_rec_iter.open(block);
 
+	if (!page_is_leaf(block->frame)) {
+		return DB_SUCCESS;
+	}
+
 	while (!m_rec_iter.end()) {
-
 		rec_t*	rec = m_rec_iter.current();
-
-		/* FIXME: Move out of the loop */
-
-		if (rec_get_status(rec) == REC_STATUS_NODE_PTR) {
-			break;
-		}
-
 		ibool	deleted = rec_get_deleted_flag(rec, comp);
 
 		/* For the clustered index we have to adjust the BLOB
@@ -3598,10 +3594,6 @@ row_import_for_mysql(
 
 	DBUG_EXECUTE_IF("ib_import_cluster_root_adjust_failure",
 			err = DB_CORRUPTION;);
-
-	if (err != DB_SUCCESS) {
-		return(row_import_error(prebuilt, trx, err));
-	}
 
 	if (err != DB_SUCCESS) {
 		return(row_import_error(prebuilt, trx, err));

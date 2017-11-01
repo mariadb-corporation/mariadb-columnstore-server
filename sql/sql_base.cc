@@ -325,7 +325,7 @@ OPEN_TABLE_LIST *list_open_tables(THD *thd, const char *db, const char *wild)
 
 struct close_cached_tables_arg
 {
-  ulong refresh_version;
+  tdc_version_t refresh_version;
   TDC_element *element;
 };
 
@@ -351,7 +351,7 @@ bool close_cached_tables(THD *thd, TABLE_LIST *tables,
 {
   bool result= FALSE;
   struct timespec abstime;
-  ulong refresh_version;
+  tdc_version_t refresh_version;
   DBUG_ENTER("close_cached_tables");
   DBUG_ASSERT(thd || (!wait_for_refresh && !tables));
 
@@ -716,8 +716,8 @@ void close_thread_tables(THD *thd)
 #ifdef EXTRA_DEBUG
   DBUG_PRINT("tcache", ("open tables:"));
   for (table= thd->open_tables; table; table= table->next)
-    DBUG_PRINT("tcache", ("table: '%s'.'%s' 0x%lx", table->s->db.str,
-                          table->s->table_name.str, (long) table));
+    DBUG_PRINT("tcache", ("table: '%s'.'%s' %p", table->s->db.str,
+                          table->s->table_name.str, table));
 #endif
 
 #if defined(ENABLED_DEBUG_SYNC)
@@ -857,8 +857,8 @@ void close_thread_table(THD *thd, TABLE **table_ptr)
 {
   TABLE *table= *table_ptr;
   DBUG_ENTER("close_thread_table");
-  DBUG_PRINT("tcache", ("table: '%s'.'%s' 0x%lx", table->s->db.str,
-                        table->s->table_name.str, (long) table));
+  DBUG_PRINT("tcache", ("table: '%s'.'%s' %p", table->s->db.str,
+                        table->s->table_name.str, table));
   DBUG_ASSERT(!table->file->keyread_enabled());
   DBUG_ASSERT(!table->file || table->file->inited == handler::NONE);
 
@@ -1192,8 +1192,8 @@ bool wait_while_table_is_used(THD *thd, TABLE *table,
 {
   DBUG_ENTER("wait_while_table_is_used");
   DBUG_ASSERT(!table->s->tmp_table);
-  DBUG_PRINT("enter", ("table: '%s'  share: 0x%lx  db_stat: %u  version: %lu",
-                       table->s->table_name.str, (ulong) table->s,
+  DBUG_PRINT("enter", ("table: '%s'  share: %p  db_stat: %u  version: %lld",
+                       table->s->table_name.str, table->s,
                        table->db_stat, table->s->tdc->version));
 
   if (thd->mdl_context.upgrade_shared_lock(
@@ -1812,7 +1812,7 @@ retry_share:
   {
     if (share->tdc->flushed)
     {
-      DBUG_PRINT("info", ("Found old share version: %lu  current: %lu",
+      DBUG_PRINT("info", ("Found old share version: %lld  current: %lld",
                           share->tdc->version, tdc_refresh_version()));
       /*
         We already have an MDL lock. But we have encountered an old
@@ -5192,8 +5192,8 @@ find_field_in_view(THD *thd, TABLE_LIST *table_list,
 {
   DBUG_ENTER("find_field_in_view");
   DBUG_PRINT("enter",
-             ("view: '%s', field name: '%s', item name: '%s', ref 0x%lx",
-              table_list->alias, name, item_name, (ulong) ref));
+             ("view: '%s', field name: '%s', item name: '%s', ref %p",
+              table_list->alias, name, item_name, ref));
   Field_iterator_view field_it;
   field_it.set(table_list);
   Query_arena *arena= 0, backup;  
@@ -5294,8 +5294,8 @@ find_field_in_natural_join(THD *thd, TABLE_LIST *table_ref, const char *name,
   Field *UNINIT_VAR(found_field);
   Query_arena *UNINIT_VAR(arena), backup;
   DBUG_ENTER("find_field_in_natural_join");
-  DBUG_PRINT("enter", ("field name: '%s', ref 0x%lx",
-		       name, (ulong) ref));
+  DBUG_PRINT("enter", ("field name: '%s', ref %p",
+		       name, ref));
   DBUG_ASSERT(table_ref->is_natural_join && table_ref->join_columns);
   DBUG_ASSERT(*actual_table == NULL);
 
@@ -5448,7 +5448,7 @@ find_field_in_table(THD *thd, TABLE *table, const char *name, uint length,
 
   if (field_ptr && *field_ptr)
   {
-    *cached_field_index_ptr= field_ptr - table->field;
+    *cached_field_index_ptr= (uint)(field_ptr - table->field);
     field= *field_ptr;
   }
   else
@@ -5525,8 +5525,8 @@ find_field_in_table_ref(THD *thd, TABLE_LIST *table_list,
   DBUG_ASSERT(name);
   DBUG_ASSERT(item_name);
   DBUG_PRINT("enter",
-             ("table: '%s'  field name: '%s'  item name: '%s'  ref 0x%lx",
-              table_list->alias, name, item_name, (ulong) ref));
+             ("table: '%s'  field name: '%s'  item name: '%s'  ref %p",
+              table_list->alias, name, item_name, ref));
 
   /*
     Check that the table and database that qualify the current field name
@@ -6998,13 +6998,15 @@ int setup_wild(THD *thd, TABLE_LIST *tables, List<Item> &fields,
 
 bool setup_fields(THD *thd, Ref_ptr_array ref_pointer_array,
                   List<Item> &fields, enum_mark_columns mark_used_columns,
-                  List<Item> *sum_func_list, bool allow_sum_func)
+                  List<Item> *sum_func_list, List<Item> *pre_fix,
+                  bool allow_sum_func)
 {
   reg2 Item *item;
   enum_mark_columns save_mark_used_columns= thd->mark_used_columns;
   nesting_map save_allow_sum_func= thd->lex->allow_sum_func;
   List_iterator<Item> it(fields);
   bool save_is_item_list_lookup;
+  bool make_pre_fix= (pre_fix && (pre_fix->elements == 0));
   DBUG_ENTER("setup_fields");
   DBUG_PRINT("enter", ("ref_pointer_array: %p", ref_pointer_array.array()));
 
@@ -7054,6 +7056,9 @@ bool setup_fields(THD *thd, Ref_ptr_array ref_pointer_array,
   thd->lex->current_select->cur_pos_in_select_list= 0;
   while ((item= it++))
   {
+    if (make_pre_fix)
+      pre_fix->push_back(item, thd->stmt_arena->mem_root);
+
     if ((!item->fixed && item->fix_fields(thd, it.ref())) ||
 	(item= *(it.ref()))->check_cols(1))
     {
@@ -7416,7 +7421,7 @@ insert_fields(THD *thd, Name_resolution_context *context, const char *db_name,
   bool found;
   char name_buff[SAFE_NAME_LEN+1];
   DBUG_ENTER("insert_fields");
-  DBUG_PRINT("arena", ("stmt arena: 0x%lx", (ulong)thd->stmt_arena));
+  DBUG_PRINT("arena", ("stmt arena: %p",thd->stmt_arena));
 
   if (db_name && lower_case_table_names)
   {

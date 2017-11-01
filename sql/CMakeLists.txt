@@ -240,6 +240,7 @@ IF(MSVC AND NOT WITHOUT_DYNAMIC_PLUGINS)
   SET(CMAKE_CONFIGURABLE_FILE_CONTENT "
     IF ((mysqld_lib.def IS_NEWER_THAN mysqld_lib.lib) OR
         (mysqld_lib.def IS_NEWER_THAN mysqld_lib.exp))
+      FILE(REMOVE mysqld_lib.lib mysqld_lib.exp)
       SET(ENV{VS_UNICODE_OUTPUT})
       EXECUTE_PROCESS (
         COMMAND \"${CMAKE_LINKER}\" /lib /NAME:mysqld.exe \"/DEF:${MYSQLD_DEF}\" /MACHINE:${_PLATFORM}
@@ -374,18 +375,9 @@ ADD_CUSTOM_TARGET(
 SET_TARGET_PROPERTIES(GenServerSource PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 IF(WIN32 OR HAVE_DLOPEN AND NOT DISABLE_SHARED)
-  ADD_LIBRARY(udf_example MODULE udf_example.c)
+  ADD_LIBRARY(udf_example MODULE udf_example.c udf_example.def)
   SET_TARGET_PROPERTIES(udf_example PROPERTIES PREFIX "")
-  # udf_example depends on strings 
-  IF(WIN32)
-    IF(MSVC)
-     SET_TARGET_PROPERTIES(udf_example PROPERTIES LINK_FLAGS "/DEF:${CMAKE_CURRENT_SOURCE_DIR}/udf_example.def")
-    ENDIF()
-    TARGET_LINK_LIBRARIES(udf_example strings)
-  ELSE()
-    # udf_example is using safemutex exported by mysqld
-    TARGET_LINK_LIBRARIES(udf_example mysqld)
-  ENDIF()
+  TARGET_LINK_LIBRARIES(udf_example strings)
 ENDIF()
 
 CONFIGURE_FILE(

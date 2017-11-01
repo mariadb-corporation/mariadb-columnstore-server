@@ -452,35 +452,6 @@ recv_sys_close()
 	recv_spaces.clear();
 }
 
-/********************************************************//**
-Frees the recovery system memory. */
-void
-recv_sys_mem_free(void)
-/*===================*/
-{
-	if (recv_sys != NULL) {
-		if (recv_sys->addr_hash != NULL) {
-			hash_table_free(recv_sys->addr_hash);
-		}
-
-		if (recv_sys->heap != NULL) {
-			mem_heap_free(recv_sys->heap);
-		}
-
-		if (recv_sys->flush_start != NULL) {
-			os_event_destroy(recv_sys->flush_start);
-		}
-
-		if (recv_sys->flush_end != NULL) {
-			os_event_destroy(recv_sys->flush_end);
-		}
-
-		ut_free(recv_sys->buf);
-		ut_free(recv_sys);
-		recv_sys = NULL;
-	}
-}
-
 /************************************************************
 Reset the state of the recovery system variables. */
 void
@@ -1363,10 +1334,6 @@ parse_log:
 		/* Allow anything in page_type when creating a page. */
 		ptr = trx_undo_parse_page_init(ptr, end_ptr, page, mtr);
 		break;
-	case MLOG_UNDO_HDR_DISCARD:
-		ut_ad(!page || page_type == FIL_PAGE_UNDO_LOG);
-		ptr = trx_undo_parse_discard_latest(ptr, end_ptr, page, mtr);
-		break;
 	case MLOG_UNDO_HDR_CREATE:
 	case MLOG_UNDO_HDR_REUSE:
 		ut_ad(!page || page_type == FIL_PAGE_UNDO_LOG);
@@ -1922,7 +1889,8 @@ void
 recv_apply_hashed_log_recs(bool last_batch)
 {
 	ut_ad(srv_operation == SRV_OPERATION_NORMAL
-	      || srv_operation == SRV_OPERATION_RESTORE);
+	      || srv_operation == SRV_OPERATION_RESTORE
+	      || srv_operation == SRV_OPERATION_RESTORE_EXPORT);
 
 	mutex_enter(&recv_sys->mutex);
 
@@ -1941,7 +1909,8 @@ recv_apply_hashed_log_recs(bool last_batch)
 	ut_ad(!last_batch == log_mutex_own());
 
 	recv_no_ibuf_operations = !last_batch
-		|| srv_operation == SRV_OPERATION_RESTORE;
+		|| srv_operation == SRV_OPERATION_RESTORE
+		|| srv_operation == SRV_OPERATION_RESTORE_EXPORT;
 
 	ut_d(recv_no_log_write = recv_no_ibuf_operations);
 
@@ -2960,7 +2929,8 @@ static
 dberr_t
 recv_init_missing_space(dberr_t err, const recv_spaces_t::const_iterator& i)
 {
-	if (srv_operation == SRV_OPERATION_RESTORE) {
+	if (srv_operation == SRV_OPERATION_RESTORE
+	    || srv_operation == SRV_OPERATION_RESTORE_EXPORT) {
 		ib::warn() << "Tablespace " << i->first << " was not"
 			" found at " << i->second.name << " when"
 			" restoring a (partial?) backup. All redo log"
@@ -3118,7 +3088,8 @@ recv_recovery_from_checkpoint_start(lsn_t flush_lsn)
 	dberr_t		err = DB_SUCCESS;
 
 	ut_ad(srv_operation == SRV_OPERATION_NORMAL
-	      || srv_operation == SRV_OPERATION_RESTORE);
+	      || srv_operation == SRV_OPERATION_RESTORE
+	      || srv_operation == SRV_OPERATION_RESTORE_EXPORT);
 
 	/* Initialize red-black tree for fast insertions into the
 	flush_list during recovery process. */
@@ -3588,9 +3559,6 @@ get_mlog_string(mlog_id_t type)
 
 	case MLOG_UNDO_INIT:
 		return("MLOG_UNDO_INIT");
-
-	case MLOG_UNDO_HDR_DISCARD:
-		return("MLOG_UNDO_HDR_DISCARD");
 
 	case MLOG_UNDO_HDR_REUSE:
 		return("MLOG_UNDO_HDR_REUSE");

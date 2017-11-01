@@ -1433,8 +1433,7 @@ out:
     @retval FALSE The statement isn't updating any relevant tables.
 */
 
-static my_bool deny_updates_if_read_only_option(THD *thd,
-                                                TABLE_LIST *all_tables)
+static bool deny_updates_if_read_only_option(THD *thd, TABLE_LIST *all_tables)
 {
   DBUG_ENTER("deny_updates_if_read_only_option");
 
@@ -1443,11 +1442,7 @@ static my_bool deny_updates_if_read_only_option(THD *thd,
 
   LEX *lex= thd->lex;
 
-  const my_bool user_is_super=
-    ((ulong)(thd->security_ctx->master_access & SUPER_ACL) ==
-     (ulong)SUPER_ACL);
-
-  if (user_is_super)
+  if (thd->security_ctx->master_access & SUPER_ACL)
     DBUG_RETURN(FALSE);
 
   if (!(sql_command_flags[lex->sql_command] & CF_CHANGES_DATA))
@@ -1457,28 +1452,26 @@ static my_bool deny_updates_if_read_only_option(THD *thd,
   if (lex->sql_command == SQLCOM_UPDATE_MULTI)
     DBUG_RETURN(FALSE);
 
+  if (lex->sql_command == SQLCOM_CREATE_DB ||
+      lex->sql_command == SQLCOM_DROP_DB)
+    DBUG_RETURN(TRUE);
+
   /*
     a table-to-be-created is not in the temp table list yet,
     so CREATE TABLE needs a special treatment
   */
-  const bool update_real_tables= lex->sql_command == SQLCOM_CREATE_TABLE ?
-        !lex->tmp_table() : some_non_temp_table_to_be_updated(thd, all_tables);
+  if (lex->sql_command == SQLCOM_CREATE_TABLE)
+    DBUG_RETURN(!lex->tmp_table());
 
-  const bool create_or_drop_databases=
-    (lex->sql_command == SQLCOM_CREATE_DB) ||
-    (lex->sql_command == SQLCOM_DROP_DB);
+  /*
+    a table-to-be-dropped might not exist (DROP TEMPORARY TABLE IF EXISTS),
+    cannot use the temp table list either.
+  */
+  if (lex->sql_command == SQLCOM_DROP_TABLE && lex->tmp_table())
+    DBUG_RETURN(FALSE);
 
-  if (update_real_tables || create_or_drop_databases)
-  {
-      /*
-        An attempt was made to modify one or more non-temporary tables.
-      */
-      DBUG_RETURN(TRUE);
-  }
-
-
-  /* Assuming that only temporary tables are modified. */
-  DBUG_RETURN(FALSE);
+  /* Now, check thd->temporary_tables list */
+  DBUG_RETURN(some_non_temp_table_to_be_updated(thd, all_tables));
 }
 
 
@@ -1501,10 +1494,10 @@ uint maria_multi_check(THD *thd, char *packet, uint packet_length)
   {
     char *packet_start= packet;
     size_t subpacket_length= net_field_length((uchar **)&packet_start);
-    uint length_length= packet_start - packet;
+    size_t length_length= packet_start - packet;
     // length of command + 3 bytes where that length was stored
-    DBUG_PRINT("info", ("sub-packet length: %ld + %d  command: %x",
-                        (ulong)subpacket_length, length_length,
+    DBUG_PRINT("info", ("sub-packet length: %zu + %zu  command: %x",
+                        subpacket_length, length_length,
                         packet_start[3]));
 
     if (subpacket_length == 0 ||
@@ -1964,7 +1957,7 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
       (The packet is guaranteed to end with an end zero)
     */
     arg_end= strend(packet);
-    uint arg_length= arg_end - packet;
+    uint arg_length= (uint)(arg_end - packet);
 
     /* Check given table name length. */
     if (packet_length - arg_length > NAME_LEN + 1 || arg_length > SAFE_NAME_LEN)
@@ -2205,7 +2198,7 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
 
     length= my_snprintf(buff, buff_len - 1,
                         "Uptime: %lu  Threads: %d  Questions: %lu  "
-                        "Slow queries: %lu  Opens: %lu  Flush tables: %lu  "
+                        "Slow queries: %lu  Opens: %lu  Flush tables: %lld  "
                         "Open tables: %u  Queries per second avg: %u.%03u",
                         uptime,
                         (int) thread_count, (ulong) thd->query_id,
@@ -2294,7 +2287,7 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
       char *packet_start= packet;
       /* We have to store next length because it will be destroyed by '\0' */
       size_t next_subpacket_length= net_field_length((uchar **)&packet_start);
-      uint next_length_length= packet_start - packet;
+      size_t next_length_length= packet_start - packet;
       unsigned char *readbuff= net->buff;
 
       if (net_allocate_new_packet(net, thd, MYF(0)))
@@ -2309,7 +2302,7 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
       {
         current_com++;
         size_t subpacket_length= next_subpacket_length + next_length_length;
-        uint length_length= next_length_length;
+        size_t length_length= next_length_length;
         if (subpacket_length < packet_length)
         {
           packet_start= packet + subpacket_length;
@@ -3836,7 +3829,7 @@ mysql_execute_command(THD *thd)
 #ifdef WITH_PARTITION_STORAGE_ENGINE
     {
       partition_info *part_info= thd->lex->part_info;
-      if (part_info && !(part_info= thd->lex->part_info->get_clone(thd)))
+      if (part_info && !(part_info= part_info->get_clone(thd)))
       {
         res= -1;
         goto end_with_restore_list;
@@ -4313,7 +4306,7 @@ end_with_restore_list:
     if (up_result != 2)
       break;
   }
-    /* Fall through */
+  /* fall through */
   case SQLCOM_UPDATE_MULTI:
   {
     DBUG_ASSERT(first_table == all_tables && first_table != 0);
@@ -4424,7 +4417,7 @@ end_with_restore_list:
       DBUG_PRINT("debug", ("Just after generate_incident()"));
     }
 #endif
-  /* fall through */
+    /* fall through */
   case SQLCOM_INSERT:
   {
     WSREP_SYNC_WAIT(thd, WSREP_SYNC_WAIT_BEFORE_INSERT_REPLACE);
@@ -5114,7 +5107,6 @@ end_with_restore_list:
     if (res)
       break;
 
-    WSREP_TO_ISOLATION_BEGIN(WSREP_MYSQL_DB, NULL, NULL)
     switch (lex->sql_command) {
     case SQLCOM_CREATE_EVENT:
     {
@@ -5148,7 +5140,6 @@ end_with_restore_list:
                                    lex->spname->m_name);
     break;
   case SQLCOM_DROP_EVENT:
-    WSREP_TO_ISOLATION_BEGIN(WSREP_MYSQL_DB, NULL, NULL)
     if (!(res= Events::drop_event(thd,
                                   lex->spname->m_db, lex->spname->m_name,
                                   lex->if_exists())))
@@ -6061,7 +6052,6 @@ end_with_restore_list:
         Note: SQLCOM_CREATE_VIEW also handles 'ALTER VIEW' commands
         as specified through the thd->lex->create_view_mode flag.
       */
-      WSREP_TO_ISOLATION_BEGIN(WSREP_MYSQL_DB, NULL, NULL)
       res= mysql_create_view(thd, first_table, thd->lex->create_view_mode);
       break;
     }
@@ -6077,7 +6067,6 @@ end_with_restore_list:
   case SQLCOM_CREATE_TRIGGER:
   {
     /* Conditionally writes to binlog. */
-    WSREP_TO_ISOLATION_BEGIN(WSREP_MYSQL_DB, NULL, NULL)
     res= mysql_create_or_drop_trigger(thd, all_tables, 1);
 
     break;
@@ -6085,7 +6074,6 @@ end_with_restore_list:
   case SQLCOM_DROP_TRIGGER:
   {
     /* Conditionally writes to binlog. */
-    WSREP_TO_ISOLATION_BEGIN(WSREP_MYSQL_DB, NULL, NULL)
     res= mysql_create_or_drop_trigger(thd, all_tables, 0);
     break;
   }
@@ -6150,13 +6138,11 @@ end_with_restore_list:
       my_ok(thd);
     break;
   case SQLCOM_INSTALL_PLUGIN:
-    WSREP_TO_ISOLATION_BEGIN(WSREP_MYSQL_DB, NULL, NULL)
     if (! (res= mysql_install_plugin(thd, &thd->lex->comment,
                                      &thd->lex->ident)))
       my_ok(thd);
     break;
   case SQLCOM_UNINSTALL_PLUGIN:
-    WSREP_TO_ISOLATION_BEGIN(WSREP_MYSQL_DB, NULL, NULL)
     if (! (res= mysql_uninstall_plugin(thd, &thd->lex->comment,
                                        &thd->lex->ident)))
       my_ok(thd);
@@ -7687,7 +7673,7 @@ void create_select_for_variable(const char *var_name)
   if ((var= get_system_var(thd, OPT_SESSION, tmp, null_lex_str)))
   {
     end= strxmov(buff, "@@session.", var_name, NullS);
-    var->set_name(thd, buff, end-buff, system_charset_info);
+    var->set_name(thd, buff, (uint)(end-buff), system_charset_info);
     add_item_to_list(thd, var);
   }
   DBUG_VOID_RETURN;

@@ -1455,7 +1455,7 @@ lock_rec_other_has_conflicting(
 
 		if (lock_rec_has_to_wait(true, trx, mode, lock, is_supremum)) {
 #ifdef WITH_WSREP
-			if (wsrep_on(trx->mysql_thd)) {
+			if (wsrep_on_trx(trx)) {
 				trx_mutex_enter(lock->trx);
 				wsrep_kill_victim((trx_t *)trx, (lock_t *)lock);
 				trx_mutex_exit(lock->trx);
@@ -1985,8 +1985,7 @@ RecLock::create(
 	}
 
 #ifdef WITH_WSREP
-	if (c_lock                      &&
-	    wsrep_on(trx->mysql_thd)    &&
+	if (c_lock && wsrep_on_trx(trx) &&
 	    wsrep_thd_is_BF(trx->mysql_thd, FALSE)) {
 		lock_t *hash	= (lock_t *)c_lock->hash;
 		lock_t *prev	= NULL;
@@ -6615,15 +6614,15 @@ lock_validate()
 	Release both mutexes during the validation check. */
 
 	for (ulint i = 0; i < hash_get_n_cells(lock_sys->rec_hash); i++) {
-		const lock_t*	lock;
 		ib_uint64_t	limit = 0;
 
-		while ((lock = lock_rec_validate(i, &limit)) != 0) {
-
-			ulint	space = lock->un_member.rec_lock.space;
-			ulint	page_no = lock->un_member.rec_lock.page_no;
-
-			pages.insert(std::make_pair(space, page_no));
+		while (const lock_t* lock = lock_rec_validate(i, &limit)) {
+			if (lock_rec_find_set_bit(lock) == ULINT_UNDEFINED) {
+				/* The lock bitmap is empty; ignore it. */
+				continue;
+			}
+			const lock_rec_t& l = lock->un_member.rec_lock;
+			pages.insert(std::make_pair(l.space, l.page_no));
 		}
 	}
 

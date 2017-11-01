@@ -1,8 +1,8 @@
 #ifndef SQL_ITEM_INCLUDED
 #define SQL_ITEM_INCLUDED
 
-/* Copyright (c) 2000, 2015, Oracle and/or its affiliates.
-   Copyright (c) 2009, 2017, MariaDB Corporation.
+/* Copyright (c) 2000, 2017, Oracle and/or its affiliates.
+   Copyright (c) 2009, 2017, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -3432,7 +3432,7 @@ public:
     Item_string(thd, str, length, system_charset_info)
   { }
   Item_string_sys(THD *thd, const char *str):
-    Item_string(thd, str, strlen(str), system_charset_info)
+    Item_string(thd, str, (uint) strlen(str), system_charset_info)
   { }
 };
 
@@ -3445,7 +3445,7 @@ public:
                 DERIVATION_COERCIBLE, MY_REPERTOIRE_ASCII)
   { }
   Item_string_ascii(THD *thd, const char *str):
-    Item_string(thd, str, strlen(str), &my_charset_latin1,
+    Item_string(thd, str, (uint)strlen(str), &my_charset_latin1,
                 DERIVATION_COERCIBLE, MY_REPERTOIRE_ASCII)
   { }
 };
@@ -3519,7 +3519,7 @@ class Item_blob :public Item_partition_func_safe_string
 {
 public:
   Item_blob(THD *thd, const char *name_arg, uint length):
-    Item_partition_func_safe_string(thd, name_arg, strlen(name_arg), &my_charset_bin)
+    Item_partition_func_safe_string(thd, name_arg, (uint) strlen(name_arg), &my_charset_bin)
   { max_length= length; }
   enum Type type() const { return TYPE_HOLDER; }
   enum_field_types field_type() const { return MYSQL_TYPE_BLOB; }
@@ -4520,6 +4520,8 @@ public:
 
   bool fix_fields(THD *thd, Item **it);
   void cleanup();
+
+  Item *get_orig_item() const { return orig_item; }
 
   /* Methods of getting value which should be cached in the cache */
   void save_val(Field *to);

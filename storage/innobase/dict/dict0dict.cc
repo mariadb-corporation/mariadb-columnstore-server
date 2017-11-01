@@ -501,15 +501,14 @@ dict_table_close(
 	ut_ad(mutex_own(&dict_sys->mutex));
 	ut_a(table->get_ref_count() > 0);
 
-	table->release();
+	const bool last_handle = table->release();
 
 	/* Force persistent stats re-read upon next open of the table
 	so that FLUSH TABLE can be used to forcibly fetch stats from disk
 	if they have been manually modified. We reset table->stat_initialized
 	only if table reference count is 0 because we do not want too frequent
 	stats re-reads (e.g. in other cases than FLUSH TABLE). */
-	if (strchr(table->name.m_name, '/') != NULL
-	    && table->get_ref_count() == 0
+	if (last_handle && strchr(table->name.m_name, '/') != NULL
 	    && dict_stats_is_persistent_enabled(table)) {
 
 		dict_stats_deinit(table);
@@ -529,11 +528,8 @@ dict_table_close(
 
 	if (!dict_locked) {
 		table_id_t	table_id	= table->id;
-		ibool		drop_aborted;
-
-		drop_aborted = try_drop
+		const bool	drop_aborted	= last_handle && try_drop
 			&& table->drop_aborted
-			&& table->get_ref_count() == 1
 			&& dict_table_get_first_index(table);
 
 		mutex_exit(&dict_sys->mutex);
@@ -912,8 +908,7 @@ dict_index_contains_col_or_prefix(
 	ut_ad(index->magic_n == DICT_INDEX_MAGIC_N);
 
 	if (dict_index_is_clust(index)) {
-
-		return(TRUE);
+		return(!is_virtual);
 	}
 
 	if (is_virtual) {
@@ -1275,31 +1270,6 @@ dict_table_add_system_columns(
 #endif
 }
 
-/** Mark if table has big rows.
-@param[in,out]	table	table handler */
-void
-dict_table_set_big_rows(
-	dict_table_t*	table)
-{
-	ulint	row_len = 0;
-	for (ulint i = 0; i < table->n_def; i++) {
-		ulint	col_len = dict_col_get_max_size(
-			dict_table_get_nth_col(table, i));
-
-		row_len += col_len;
-
-		/* If we have a single unbounded field, or several gigantic
-		fields, mark the maximum row size as BIG_ROW_SIZE. */
-		if (row_len >= BIG_ROW_SIZE || col_len >= BIG_ROW_SIZE) {
-			row_len = BIG_ROW_SIZE;
-
-			break;
-		}
-	}
-
-	table->big_rows = (row_len >= BIG_ROW_SIZE) ? TRUE : FALSE;
-}
-
 /**********************************************************************//**
 Adds a table object to the dictionary cache. */
 void
@@ -1321,8 +1291,6 @@ dict_table_add_to_cache(
 
 	fold = ut_fold_string(table->name.m_name);
 	id_fold = ut_fold_ull(table->id);
-
-	dict_table_set_big_rows(table);
 
 	/* Look for a table with the same name: error if such exists */
 	{
@@ -2095,8 +2063,9 @@ dict_table_remove_from_cache_low(
 	ut_ad(dict_lru_validate());
 
 	if (lru_evict && table->drop_aborted) {
-		/* Do as dict_table_try_drop_aborted() does. */
-
+		/* When evicting the table definition,
+		drop the orphan indexes from the data dictionary
+		and free the index pages. */
 		trx_t* trx = trx_allocate_for_background();
 
 		ut_ad(mutex_own(&dict_sys->mutex));
@@ -2106,12 +2075,7 @@ dict_table_remove_from_cache_low(
 		trx->dict_operation_lock_mode = RW_X_LATCH;
 
 		trx_set_dict_operation(trx, TRX_DICT_OP_INDEX);
-
-		/* Silence a debug assertion in row_merge_drop_indexes(). */
-		ut_d(table->acquire());
-		row_merge_drop_indexes(trx, table, TRUE);
-		ut_d(table->release());
-		ut_ad(table->get_ref_count() == 0);
+		row_merge_drop_indexes_dict(trx, table->id);
 		trx_commit_for_mysql(trx);
 		trx->dict_operation_lock_mode = 0;
 		trx_free_for_background(trx);

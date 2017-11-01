@@ -1274,7 +1274,8 @@ static bool mysql_test_insert(Prepared_statement *stmt,
         my_error(ER_WRONG_VALUE_COUNT_ON_ROW, MYF(0), counter);
         goto error;
       }
-      if (setup_fields(thd, Ref_ptr_array(), *values, MARK_COLUMNS_NONE, 0, 0))
+      if (setup_fields(thd, Ref_ptr_array(),
+                       *values, MARK_COLUMNS_NONE, 0, NULL, 0))
         goto error;
     }
   }
@@ -1365,7 +1366,7 @@ static int mysql_test_update(Prepared_statement *stmt,
 #endif
   thd->lex->select_lex.no_wrap_view_item= TRUE;
   res= setup_fields(thd, Ref_ptr_array(),
-                    select->item_list, MARK_COLUMNS_READ, 0, 0);
+                    select->item_list, MARK_COLUMNS_READ, 0, NULL, 0);
   thd->lex->select_lex.no_wrap_view_item= FALSE;
   if (res)
     goto error;
@@ -1377,7 +1378,7 @@ static int mysql_test_update(Prepared_statement *stmt,
   table_list->register_want_access(SELECT_ACL);
 #endif
   if (setup_fields(thd, Ref_ptr_array(),
-                   stmt->lex->value_list, MARK_COLUMNS_NONE, 0, 0) ||
+                   stmt->lex->value_list, MARK_COLUMNS_NONE, 0, NULL, 0) ||
       check_unique_table(thd, table_list))
     goto error;
   /* TODO: here we should send types of placeholders to the client. */
@@ -1550,7 +1551,7 @@ static bool mysql_test_do_fields(Prepared_statement *stmt,
                                      DT_PREPARE | DT_CREATE))
     DBUG_RETURN(TRUE);
   DBUG_RETURN(setup_fields(thd, Ref_ptr_array(),
-                           *values, MARK_COLUMNS_NONE, 0, 0));
+                           *values, MARK_COLUMNS_NONE, 0, NULL, 0));
 }
 
 
@@ -3131,7 +3132,7 @@ void mysql_sql_stmt_execute(THD *thd)
     DBUG_VOID_RETURN;
   }
 
-  DBUG_PRINT("info",("stmt: 0x%lx", (long) stmt));
+  DBUG_PRINT("info",("stmt: %p", stmt));
 
   if (lex->prepared_stmt_params_fix_fields(thd))
     DBUG_VOID_RETURN;
@@ -3658,8 +3659,8 @@ void Prepared_statement::setup_set_params()
 Prepared_statement::~Prepared_statement()
 {
   DBUG_ENTER("Prepared_statement::~Prepared_statement");
-  DBUG_PRINT("enter",("stmt: 0x%lx  cursor: 0x%lx",
-                      (long) this, (long) cursor));
+  DBUG_PRINT("enter",("stmt: %p  cursor: %p",
+                      this, cursor));
   delete cursor;
   /*
     We have to call free on the items even if cleanup is called as some items,
@@ -3686,7 +3687,7 @@ Query_arena::Type Prepared_statement::type() const
 void Prepared_statement::cleanup_stmt()
 {
   DBUG_ENTER("Prepared_statement::cleanup_stmt");
-  DBUG_PRINT("enter",("stmt: 0x%lx", (long) this));
+  DBUG_PRINT("enter",("stmt: %p", this));
   thd->restore_set_statement_var();
   cleanup_items(free_list);
   thd->cleanup_after_query();

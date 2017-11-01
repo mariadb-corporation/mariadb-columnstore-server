@@ -561,6 +561,7 @@ public:
   }
   st_select_lex_node *insert_chain_before(st_select_lex_node **ptr_pos_to_insert,
                                           st_select_lex_node *end_chain_node);
+  void move_as_slave(st_select_lex_node *new_master);
   friend class st_select_lex_unit;
   friend bool mysql_new_select(LEX *lex, bool move_down);
   friend bool mysql_make_view(THD *thd, TABLE_SHARE *share, TABLE_LIST *table,
@@ -782,6 +783,7 @@ public:
   Group_list_ptrs        *group_list_ptrs;
 
   List<Item>          item_list;  /* list of fields & expressions */
+  List<Item>          pre_fix; /* above list before fix_fields */
   bool	              is_item_list_lookup;
   /* 
     Usualy it is pointer to ftfunc_list_alloc, but in union used to create fake

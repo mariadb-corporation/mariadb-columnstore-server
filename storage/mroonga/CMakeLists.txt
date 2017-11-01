@@ -293,6 +293,9 @@ link_directories(
 
 if(MRN_BUNDLED)
   target_link_libraries(mroonga ${MRN_LIBRARIES})
+  if(NOT TARGET mroonga)
+    return()
+  endif()
 else()
   add_library(mroonga MODULE ${MRN_ALL_SOURCES})
 
@@ -340,6 +343,7 @@ else()
     MY_CHECK_AND_SET_COMPILER_FLAG("-fno-exceptions")
     MY_CHECK_AND_SET_COMPILER_FLAG("-fno-rtti")
     MY_CHECK_AND_SET_COMPILER_FLAG("-felide-constructors")
+    MY_CHECK_AND_SET_COMPILER_FLAG("-Wno-implicit-fallthrough")
   endif()
   set_source_files_properties(${MRN_SOURCES} PROPERTIES
     COMPILE_FLAGS "${MYSQL_CFLAGS} ${MRN_CXX_COMPILE_FLAGS}")
