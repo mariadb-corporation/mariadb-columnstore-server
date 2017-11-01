@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1996, 2017, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2012, Facebook Inc.
 Copyright (c) 2013, 2017, MariaDB Corporation.
 
@@ -875,6 +875,9 @@ struct dict_index_t{
 	bool		has_new_v_col;
 				/*!< whether it has a newly added virtual
 				column in ALTER */
+	bool            index_fts_syncing;/*!< Whether the fts index is
+					still syncing in the background;
+					FIXME: remove this and use MDL */
 	UT_LIST_NODE_T(dict_index_t)
 			indexes;/*!< list of indexes of the table */
 #ifdef BTR_CUR_ADAPT
@@ -1308,8 +1311,15 @@ struct dict_table_t {
 	/** Acquire the table handle. */
 	inline void acquire();
 
-	/** Release the table handle. */
-	inline void release();
+	/** Release the table handle.
+	@return	whether the last handle was released */
+	inline bool release();
+
+	/** @return whether this is a temporary table */
+	bool is_temporary() const
+	{
+		return flags2 & DICT_TF2_TEMPORARY;
+	}
 
 	/** @return whether this table is readable
 	@retval	true	normally
@@ -1492,10 +1502,6 @@ struct dict_table_t {
 
 	/*!< set of foreign key constraints which refer to this table */
 	dict_foreign_set			referenced_set;
-
-	/** TRUE if the maximum length of a single row exceeds BIG_ROW_SIZE.
-	Initialized in dict_table_add_to_cache(). */
-	unsigned				big_rows:1;
 
 	/** Statistics for query optimization. @{ */
 

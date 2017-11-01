@@ -66,7 +66,6 @@ static bool admin_recreate_table(THD *thd, TABLE_LIST *table_list)
   if (thd->get_stmt_da()->is_ok())
     thd->get_stmt_da()->reset_diagnostics_area();
   table_list->table= NULL;
-  result_code= result_code ? HA_ADMIN_FAILED : HA_ADMIN_OK;
   DBUG_RETURN(result_code);
 }
 
@@ -392,8 +391,9 @@ static bool open_only_one_table(THD* thd, TABLE_LIST* table,
     open_error= (thd->open_temporary_tables(table) ||
                  open_and_lock_tables(thd, table, TRUE, 0));
   }
-
+#ifndef DBUG_OFF
 dbug_err:
+#endif
 
   thd->prepare_derived_at_open= FALSE;
 
@@ -585,7 +585,7 @@ static bool mysql_admin_table(THD* thd, TABLE_LIST* tables,
         }
       }
 #endif
-    DBUG_PRINT("admin", ("table: 0x%lx", (long) table->table));
+    DBUG_PRINT("admin", ("table: %p", table->table));
 
     if (prepare_func)
     {

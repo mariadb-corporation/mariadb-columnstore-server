@@ -1835,7 +1835,7 @@ lock_rec_other_has_conflicting(
 
 #ifdef WITH_WSREP
 		if (lock_rec_has_to_wait(TRUE, trx, mode, lock, is_supremum)) {
-			if (wsrep_on(trx->mysql_thd)) {
+			if (wsrep_on_trx(trx)) {
 				trx_mutex_enter(lock->trx);
 				wsrep_kill_victim(trx, lock);
 				trx_mutex_exit(lock->trx);
@@ -2290,7 +2290,7 @@ lock_rec_create(
 
 #ifdef WITH_WSREP
 	if (c_lock                      &&
-	    wsrep_on(trx->mysql_thd)    &&
+	    wsrep_on_trx(trx)           &&
 	    wsrep_thd_is_BF(trx->mysql_thd, FALSE)) {
 		lock_t *hash	= (lock_t *)c_lock->hash;
 		lock_t *prev	= NULL;
@@ -2478,7 +2478,7 @@ lock_rec_enqueue_waiting(
 		dict_index_name_print(stderr, trx, index);
 		fputs(".\n"
 		      "InnoDB: Submit a detailed bug report"
-		      " to http://bugs.mysql.com\n",
+		      " to https://jira.mariadb.org/\n",
 		      stderr);
 		ut_ad(0);
 	}
@@ -5226,7 +5226,7 @@ lock_table_enqueue_waiting(
 		ut_print_name(stderr, trx, TRUE, table->name);
 		fputs(".\n"
 		      "InnoDB: Submit a detailed bug report"
-		      " to http://bugs.mysql.com\n",
+		      " to https://jira.mariadb.org/\n",
 		      stderr);
 		ut_ad(0);
 	}

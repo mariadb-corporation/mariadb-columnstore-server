@@ -162,7 +162,7 @@ PGLOBAL PlugInit(LPCSTR Language, uint worksize)
 	/*******************************************************************/
 	if (worksize && !(g->Sarea = PlugAllocMem(g, worksize))) {
 		char errmsg[MAX_STR];
-		sprintf(errmsg, MSG(WORK_AREA), g->Message);
+		snprintf(errmsg, sizeof(errmsg) - 1, MSG(WORK_AREA), g->Message);
 		strcpy(g->Message, errmsg);
 		g->Sarea_Size = 0;
 	} else
@@ -534,7 +534,7 @@ void *PlugSubAlloc(PGLOBAL g, void *memp, size_t size)
     if (trace)
       htrc("PlugSubAlloc: %s\n", g->Message);
 
-		throw 1234;
+    abort();
     } /* endif size OS32 code */
 
   /*********************************************************************/

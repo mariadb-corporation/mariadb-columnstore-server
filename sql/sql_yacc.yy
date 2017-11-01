@@ -565,8 +565,8 @@ create_item_for_sp_var(THD *thd, LEX_STRING name, sp_variable *spvar,
   DBUG_ASSERT(spc && spvar);
 
   /* Position and length of the SP variable name in the query. */
-  pos_in_q= start_in_q - lex->sphead->m_tmp_query;
-  len_in_q= end_in_q - start_in_q;
+  pos_in_q= (uint)(start_in_q - lex->sphead->m_tmp_query);
+  len_in_q= (uint)(end_in_q - start_in_q);
 
   item= new (thd->mem_root)
     Item_splocal(thd, name, spvar->offset, spvar->sql_type(),
@@ -4772,17 +4772,11 @@ size_number:
               switch (end_ptr[0])
               {
                 case 'g':
-                case 'G':
-                  text_shift_number+=10;
-                  /* fall through */
+                case 'G': text_shift_number+=30; break;
                 case 'm':
-                case 'M':
-                  text_shift_number+=10;
-                  /* fall through */
+                case 'M': text_shift_number+=20; break;
                 case 'k':
-                case 'K':
-                  text_shift_number+=10;
-                  break;
+                case 'K': text_shift_number+=10; break;
                 default:
                   my_yyabort_error((ER_WRONG_SIZE_NUMBER, MYF(0)));
               }
@@ -11859,8 +11853,8 @@ limit_option:
           {
             splocal= new (thd->mem_root)
               Item_splocal(thd, $1, spv->offset, spv->sql_type(),
-                  lip->get_tok_start() - lex->sphead->m_tmp_query,
-                  lip->get_ptr() - lip->get_tok_start());
+                  (uint)(lip->get_tok_start() - lex->sphead->m_tmp_query),
+                  (uint)(lip->get_ptr() - lip->get_tok_start()));
             if (splocal == NULL)
               MYSQL_YYABORT;
 #ifndef DBUG_OFF
@@ -13857,8 +13851,8 @@ param_marker:
               my_yyabort_error((ER_VIEW_SELECT_VARIABLE, MYF(0)));
             const char *query_start= lex->sphead ? lex->sphead->m_tmp_query
                                                  : thd->query();
-            item= new (thd->mem_root) Item_param(thd, lip->get_tok_start() -
-                                                      query_start);
+            item= new (thd->mem_root) Item_param(thd, (uint)(lip->get_tok_start() -
+                                                      query_start));
             if (!($$= item) || lex->param_list.push_back(item, thd->mem_root))
               my_yyabort_error((ER_OUT_OF_RESOURCES, MYF(0)));
           }
@@ -14153,8 +14147,8 @@ simple_ident:
               Item_splocal *splocal;
               splocal= new (thd->mem_root)
                          Item_splocal(thd, $1, spv->offset, spv->sql_type(),
-                                      lip->get_tok_start_prev() - lex->sphead->m_tmp_query,
-                                      lip->get_tok_end() - lip->get_tok_start_prev());
+                                      (uint)(lip->get_tok_start_prev() - lex->sphead->m_tmp_query),
+                                      (uint)(lip->get_tok_end() - lip->get_tok_start_prev()));
               if (splocal == NULL)
                 MYSQL_YYABORT;
 #ifndef DBUG_OFF
@@ -16570,7 +16564,7 @@ view_select:
           opt_with_clause query_expression_body_view view_check_option
           {
             LEX *lex= Lex;
-            uint len= YYLIP->get_cpp_ptr() - lex->create_view_select.str;
+            size_t len= YYLIP->get_cpp_ptr() - lex->create_view_select.str;
             uint not_used;
             void *create_view_select= thd->memdup(lex->create_view_select.str, len);
             lex->create_view_select.length= len;

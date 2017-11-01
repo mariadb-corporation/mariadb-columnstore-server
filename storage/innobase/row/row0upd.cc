@@ -464,8 +464,8 @@ inline
 bool
 wsrep_must_process_fk(const upd_node_t* node, const trx_t* trx)
 {
-	if (que_node_get_type(node->common.parent) != QUE_NODE_UPDATE ||
-	    !wsrep_on(trx->mysql_thd)) {
+	if (que_node_get_type(node->common.parent) != QUE_NODE_UPDATE
+	    || !wsrep_on_trx(trx)) {
 		return false;
 	}
 
@@ -1006,7 +1006,7 @@ row_upd_build_sec_rec_difference_binary(
 
 			dfield_copy(&(upd_field->new_val), dfield);
 
-			upd_field_set_field_no(upd_field, i, index, NULL);
+			upd_field_set_field_no(upd_field, i, index);
 
 			n_diff++;
 		}
@@ -1103,7 +1103,7 @@ row_upd_build_difference_binary(
 
 			dfield_copy(&(upd_field->new_val), dfield);
 
-			upd_field_set_field_no(upd_field, i, index, trx);
+			upd_field_set_field_no(upd_field, i, index);
 
 			n_diff++;
 		}
@@ -2895,8 +2895,7 @@ row_upd_clust_rec(
 
 		DEBUG_SYNC_C("before_row_upd_extern");
 		err = btr_store_big_rec_extern_fields(
-			pcur, node->update, offsets, big_rec, mtr,
-			BTR_STORE_UPDATE);
+			pcur, offsets, big_rec, mtr, BTR_STORE_UPDATE);
 		DEBUG_SYNC_C("after_row_upd_extern");
 	}
 

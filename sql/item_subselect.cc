@@ -58,7 +58,7 @@ Item_subselect::Item_subselect(THD *thd_arg):
   changed(0), is_correlated(FALSE), with_recursive_reference(0)
 {
   DBUG_ENTER("Item_subselect::Item_subselect");
-  DBUG_PRINT("enter", ("this: 0x%lx", (ulong) this));
+  DBUG_PRINT("enter", ("this: %p", this));
   sortbuffer.str= 0;
 
 #ifndef DBUG_OFF
@@ -84,8 +84,8 @@ void Item_subselect::init(st_select_lex *select_lex,
   */
 
   DBUG_ENTER("Item_subselect::init");
-  DBUG_PRINT("enter", ("select_lex: 0x%lx  this: 0x%lx",
-                       (ulong) select_lex, (ulong) this));
+  DBUG_PRINT("enter", ("select_lex: %p  this: %p",
+                       select_lex, this));
   unit= select_lex->master_unit();
 
   if (unit->item)
@@ -130,7 +130,7 @@ void Item_subselect::init(st_select_lex *select_lex,
     /* The subquery is an expression cache candidate */
     upper->expr_cache_may_be_used[upper->parsing_place]= TRUE;
   }
-  DBUG_PRINT("info", ("engine: 0x%lx", (ulong)engine));
+  DBUG_PRINT("info", ("engine: %p", engine));
   DBUG_VOID_RETURN;
 }
 
@@ -215,7 +215,7 @@ void Item_allany_subselect::cleanup()
 Item_subselect::~Item_subselect()
 {
   DBUG_ENTER("Item_subselect::~Item_subselect");
-  DBUG_PRINT("enter", ("this: 0x%lx", (ulong) this));
+  DBUG_PRINT("enter", ("this: %p", this));
   if (own_engine)
     delete engine;
   else
@@ -1448,6 +1448,10 @@ Item_in_subselect::Item_in_subselect(THD *thd, Item * left_exp,
   DBUG_ENTER("Item_in_subselect::Item_in_subselect");
   DBUG_PRINT("info", ("in_strategy: %u", (uint)in_strategy));
   left_expr_orig= left_expr= left_exp;
+  /* prepare to possible disassembling the item in convert_subq_to_sj() */
+  if (left_exp->type() == Item::ROW_ITEM)
+    left_expr_orig= new (thd->mem_root)
+      Item_row(thd, static_cast<Item_row*>(left_exp));
   func= &eq_creator;
   init(select_lex, new (thd->mem_root) select_exists_subselect(thd, this));
   max_columns= UINT_MAX;
@@ -1471,6 +1475,10 @@ Item_allany_subselect::Item_allany_subselect(THD *thd, Item * left_exp,
 {
   DBUG_ENTER("Item_allany_subselect::Item_allany_subselect");
   left_expr_orig= left_expr= left_exp;
+  /* prepare to possible disassembling the item in convert_subq_to_sj() */
+  if (left_exp->type() == Item::ROW_ITEM)
+    left_expr_orig= new (thd->mem_root)
+      Item_row(thd, static_cast<Item_row*>(left_exp));
   func= func_creator(all_arg);
   init(select_lex, new (thd->mem_root) select_exists_subselect(thd, this));
   max_columns= 1;

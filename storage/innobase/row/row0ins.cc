@@ -398,7 +398,7 @@ row_ins_clust_index_entry_by_modify(
 
 			DEBUG_SYNC_C("before_row_ins_upd_extern");
 			err = btr_store_big_rec_extern_fields(
-				pcur, update, *offsets, big_rec, mtr,
+				pcur, *offsets, big_rec, mtr,
 				BTR_STORE_INSERT_UPDATE);
 			DEBUG_SYNC_C("after_row_ins_upd_extern");
 			dtuple_big_rec_free(big_rec);
@@ -1240,7 +1240,7 @@ row_ins_foreign_check_on_constraint(
 			rec_print(stderr, clust_rec, clust_index);
 			fputs("\n"
 			      "InnoDB: Submit a detailed bug report to"
-			      " http://bugs.mysql.com\n", stderr);
+			      " https://jira.mariadb.org/\n", stderr);
 			ut_ad(0);
 			err = DB_SUCCESS;
 
@@ -2487,9 +2487,12 @@ row_ins_index_entry_big_rec(
 
 	DEBUG_SYNC_C_IF_THD(thd, "before_row_ins_extern_latch");
 
-	mtr_start(&mtr);
-	mtr.set_named_space(index->space);
-	dict_disable_redo_if_temporary(index->table, &mtr);
+	mtr.start();
+	if (index->table->is_temporary()) {
+		mtr.set_log_mode(MTR_LOG_NO_REDO);
+	} else {
+		mtr.set_named_space(index->space);
+	}
 
 	btr_pcur_open(index, entry, PAGE_CUR_LE, BTR_MODIFY_TREE,
 		      &pcur, &mtr);
@@ -2499,7 +2502,7 @@ row_ins_index_entry_big_rec(
 
 	DEBUG_SYNC_C_IF_THD(thd, "before_row_ins_extern");
 	error = btr_store_big_rec_extern_fields(
-		&pcur, 0, offsets, big_rec, &mtr, BTR_STORE_INSERT);
+		&pcur, offsets, big_rec, &mtr, BTR_STORE_INSERT);
 	DEBUG_SYNC_C_IF_THD(thd, "after_row_ins_extern");
 
 	if (error == DB_SUCCESS
@@ -2508,7 +2511,7 @@ row_ins_index_entry_big_rec(
 				     index, offsets);
 	}
 
-	mtr_commit(&mtr);
+	mtr.commit();
 
 	btr_pcur_close(&pcur);
 

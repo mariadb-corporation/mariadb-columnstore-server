@@ -139,6 +139,12 @@ bool get_lookup_field_values(THD *, COND *, TABLE_LIST *, LOOKUP_FIELD_VALUES *)
 ** List all table types supported
 ***************************************************************************/
 
+
+static bool is_show_command(THD *thd)
+{
+  return sql_command_flags[thd->lex->sql_command] & CF_STATUS_COMMAND;
+}
+
 static int make_version_string(char *buf, int buf_length, uint version)
 {
   return my_snprintf(buf, buf_length, "%d.%d", version>>8,version&0xff);
@@ -278,7 +284,7 @@ int fill_plugins(THD *thd, TABLE_LIST *tables, COND *cond)
   TABLE *table= tables->table;
 
   if (plugin_foreach_with_mask(thd, show_plugins, MYSQL_ANY_PLUGIN,
-                               ~PLUGIN_IS_FREED, table))
+                               ~(PLUGIN_IS_FREED | PLUGIN_IS_DYING), table))
     DBUG_RETURN(1);
 
   DBUG_RETURN(0);
@@ -986,13 +992,20 @@ find_files(THD *thd, Dynamic_array<LEX_STRING*> *files, LEX_STRING *db,
       if (tl.add_file(file->name))
         goto err;
     }
-    tl.sort();
   }
   else
   {
     if (ha_discover_table_names(thd, db, dirp, &tl, false))
       goto err;
   }
+#if MYSQL_VERSION_ID < 100300
+  /* incomplete optimization, but a less drastic change in GA version */
+  if (!thd->lex->select_lex.order_list.elements &&
+      !thd->lex->select_lex.group_list.elements)
+#else
+  if (is_show_command(thd))
+#endif
+    tl.sort();
 
   DBUG_PRINT("info",("found: %zu files", files->elements()));
   my_dirend(dirp);
@@ -2437,7 +2450,7 @@ public:
                               size_t size __attribute__((unused)))
   { TRASH(ptr, size); }
 
-  ulong thread_id;
+  my_thread_id thread_id;
   uint32 os_thread_id;
   ulonglong start_time;
   uint   command;
@@ -2611,7 +2624,7 @@ void mysqld_list_processes(THD *thd,const char *user, bool verbose)
   while ((thd_info=thread_infos.get()))
   {
     protocol->prepare_for_resend();
-    protocol->store((ulonglong) thd_info->thread_id);
+    protocol->store(thd_info->thread_id);
     protocol->store(thd_info->user, system_charset_info);
     protocol->store(thd_info->host, system_charset_info);
     protocol->store(thd_info->db, system_charset_info);
@@ -3369,7 +3382,7 @@ static bool show_status_array(THD *thd, const char *wild,
   prefix_end=strnmov(name_buffer, prefix, sizeof(name_buffer)-1);
   if (*prefix)
     *prefix_end++= '_';
-  len=name_buffer + sizeof(name_buffer) - prefix_end;
+  len=(int)(name_buffer + sizeof(name_buffer) - prefix_end);
 
 #ifdef WITH_WSREP
   bool is_wsrep_var= FALSE;
@@ -3712,6 +3725,15 @@ bool uses_only_table_name_fields(Item *item, TABLE_LIST *table)
         return 0;
     }
   }
+  else if (item->type() == Item::ROW_ITEM)
+  {
+    Item_row *item_row= static_cast<Item_row*>(item);
+    for (uint i= 0; i < item_row->cols(); i++)
+    {
+      if (!uses_only_table_name_fields(item_row->element_index(i), table))
+        return 0;
+    }
+  }
   else if (item->type() == Item::FIELD_ITEM)
   {
     Item_field *item_field= (Item_field*)item;
@@ -3730,6 +3752,11 @@ bool uses_only_table_name_fields(Item *item, TABLE_LIST *table)
                                (uchar *) item_field->field_name,
                                strlen(item_field->field_name))))
       return 0;
+  }
+  else if (item->type() == Item::EXPR_CACHE_ITEM)
+  {
+    Item_cache_wrapper *tmp= static_cast<Item_cache_wrapper*>(item);
+    return uses_only_table_name_fields(tmp->get_orig_item(), table);
   }
   else if (item->type() == Item::REF_ITEM)
     return uses_only_table_name_fields(item->real_item(), table);
@@ -4123,7 +4150,7 @@ make_table_name_list(THD *thd, Dynamic_array<LEX_STRING*> *table_names,
     */
     if (res == FIND_FILES_DIR)
     {
-      if (sql_command_flags[lex->sql_command] & CF_STATUS_COMMAND)
+      if (is_show_command(thd))
         return 1;
       thd->clear_error();
       return 2;
@@ -5349,7 +5376,7 @@ static void store_column_type(TABLE *table, Field *field, CHARSET_INFO *cs,
     */
     tmp_buff= strchr(column_type.c_ptr_safe(), ' ');
   table->field[offset]->store(column_type.ptr(),
-                              (tmp_buff ? tmp_buff - column_type.ptr() :
+                              (tmp_buff ? (uint)(tmp_buff - column_type.ptr()) :
                                column_type.length()), cs);
 
   is_blob= (field->type() == MYSQL_TYPE_BLOB);
@@ -5671,7 +5698,8 @@ int fill_schema_engines(THD *thd, TABLE_LIST *tables, COND *cond)
   DBUG_ENTER("fill_schema_engines");
   if (plugin_foreach_with_mask(thd, iter_schema_engines,
                                MYSQL_STORAGE_ENGINE_PLUGIN,
-                               ~PLUGIN_IS_FREED, tables->table))
+                               ~(PLUGIN_IS_FREED | PLUGIN_IS_DYING),
+                               tables->table))
     DBUG_RETURN(1);
   DBUG_RETURN(0);
 }
@@ -5943,13 +5971,13 @@ bool store_schema_proc(THD *thd, TABLE *table, TABLE *proc_table,
                                 val_int() == TYPE_ENUM_PROCEDURE))
     return 0;
 
-  if ((lex->sql_command == SQLCOM_SHOW_STATUS_PROC &&
+  if (!is_show_command(thd) ||
+      (lex->sql_command == SQLCOM_SHOW_STATUS_PROC &&
       proc_table->field[MYSQL_PROC_MYSQL_TYPE]->val_int() ==
       TYPE_ENUM_PROCEDURE) ||
       (lex->sql_command == SQLCOM_SHOW_STATUS_FUNC &&
       proc_table->field[MYSQL_PROC_MYSQL_TYPE]->val_int() ==
-      TYPE_ENUM_FUNCTION) ||
-      (sql_command_flags[lex->sql_command] & CF_STATUS_COMMAND) == 0)
+      TYPE_ENUM_FUNCTION))
   {
     restore_record(table, s->default_values);
     if (!wild || !wild[0] || !wild_case_compare(system_charset_info,
@@ -6074,6 +6102,10 @@ int fill_schema_proc(THD *thd, TABLE_LIST *tables, COND *cond)
     DBUG_RETURN(1);
   }
 
+  /* Disable padding temporarily so it doesn't break the query */
+  ulonglong sql_mode_was = thd->variables.sql_mode;
+  thd->variables.sql_mode &= ~MODE_PAD_CHAR_TO_FULL_LENGTH;
+
   if (proc_table->file->ha_index_init(0, 1))
   {
     res= 1;
@@ -6109,6 +6141,7 @@ err:
     (void) proc_table->file->ha_index_end();
 
   close_system_tables(thd, &open_tables_state_backup);
+  thd->variables.sql_mode = sql_mode_was;
   DBUG_RETURN(res);
 }
 
@@ -6331,7 +6364,7 @@ static int get_schema_views_record(THD *thd, TABLE_LIST *tables,
         table->field[5]->store(STRING_WITH_LEN("NO"), cs);
     }
 
-    definer_len= (strxmov(definer, tables->definer.user.str, "@",
+    definer_len= (uint)(strxmov(definer, tables->definer.user.str, "@",
                           tables->definer.host.str, NullS) - definer);
     table->field[6]->store(definer, definer_len, cs);
     if (tables->view_suid)
@@ -6487,7 +6520,7 @@ static bool store_trigger(THD *thd, Trigger *trigger,
   {
     table->field[16]->set_notnull();
     thd->variables.time_zone->gmt_sec_to_TIME(&timestamp,
-                                              trigger->create_time/100);
+                                              (my_time_t)(trigger->create_time/100));
     /* timestamp is with 6 digits */
     timestamp.second_part= (trigger->create_time % 100) * 10000;
     ((Field_temporal_with_date*) table->field[16])->store_time_dec(&timestamp,
@@ -7692,7 +7725,7 @@ TABLE *create_schema_table(THD *thd, TABLE_LIST *table_list)
   tmp_table_param->field_count= field_count;
   tmp_table_param->schema_table= 1;
   SELECT_LEX *select_lex= thd->lex->current_select;
-  bool keep_row_order= sql_command_flags[thd->lex->sql_command] & CF_STATUS_COMMAND;
+  bool keep_row_order= is_show_command(thd);
   if (!(table= create_tmp_table(thd, tmp_table_param,
                                 field_list, (ORDER*) 0, 0, 0, 
                                 (select_lex->options | thd->variables.option_bits |
@@ -9498,7 +9531,7 @@ static bool show_create_trigger_impl(THD *thd, Trigger *trigger)
   {
     MYSQL_TIME timestamp;
     thd->variables.time_zone->gmt_sec_to_TIME(&timestamp,
-                                              trigger->create_time/100);
+                                              (my_time_t)(trigger->create_time/100));
     timestamp.second_part= (trigger->create_time % 100) * 10000;
     p->store(&timestamp, 2);
   }

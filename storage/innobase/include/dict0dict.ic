@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1996, 2017, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2013, 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
@@ -398,22 +398,6 @@ dict_table_get_n_user_cols(
 	ut_ad(table->magic_n == DICT_TABLE_MAGIC_N);
 
 	return(table->n_cols - dict_table_get_n_sys_cols(table));
-}
-
-/** Gets the number of user-defined virtual and non-virtual columns in a table
-in the dictionary cache.
-@param[in]	table	table
-@return number of user-defined (e.g., not ROW_ID) columns of a table */
-UNIV_INLINE
-ulint
-dict_table_get_n_tot_u_cols(
-	const dict_table_t*	table)
-{
-	ut_ad(table);
-	ut_ad(table->magic_n == DICT_TABLE_MAGIC_N);
-
-	return(dict_table_get_n_user_cols(table)
-	       + dict_table_get_n_v_cols(table));
 }
 
 /********************************************************************//**
@@ -968,6 +952,27 @@ dict_table_x_lock_indexes(
 	}
 }
 
+/*********************************************************************//**
+Returns true if the particular FTS index in the table is still syncing
+in the background, false otherwise.
+@param [in] table      Table containing FTS index
+@return True if sync of fts index is still going in the background  */
+UNIV_INLINE
+bool
+dict_fts_index_syncing(
+	dict_table_t*   table)
+{
+	 dict_index_t*   index;
+
+	for (index = dict_table_get_first_index(table);
+	    index != NULL;
+	    index = dict_table_get_next_index(index)) {
+		if (index->index_fts_syncing) {
+			 return(true);
+		}
+	}
+	return(false);
+}
 /*********************************************************************//**
 Release the exclusive locks on all index tree. */
 UNIV_INLINE
@@ -1524,32 +1529,6 @@ dict_table_is_discarded(
 	return(DICT_TF2_FLAG_IS_SET(table, DICT_TF2_DISCARDED));
 }
 
-/********************************************************************//**
-Check if it is a temporary table.
-@return true if temporary table flag is set. */
-UNIV_INLINE
-bool
-dict_table_is_temporary(
-/*====================*/
-	const dict_table_t*	table)	/*!< in: table to check */
-{
-	return(DICT_TF2_FLAG_IS_SET(table, DICT_TF2_TEMPORARY));
-}
-
-/********************************************************************//**
-Turn-off redo-logging if temporary table. */
-UNIV_INLINE
-void
-dict_disable_redo_if_temporary(
-/*===========================*/
-	const dict_table_t*	table,	/*!< in: table to check */
-	mtr_t*			mtr)	/*!< out: mini-transaction */
-{
-	if (dict_table_is_temporary(table)) {
-		mtr_set_log_mode(mtr, MTR_LOG_NO_REDO);
-	}
-}
-
 /** Check if the table is found is a file_per_table tablespace.
 This test does not use table flags2 since some REDUNDANT tables in the
 system tablespace may have garbage in the MIX_LEN field where flags2 is
@@ -1602,14 +1581,15 @@ dict_table_t::acquire()
 	++n_ref_count;
 }
 
-/** Release the table handle. */
+/** Release the table handle.
+@return	whether the last handle was released */
 inline
-void
+bool
 dict_table_t::release()
 {
 	ut_ad(mutex_own(&dict_sys->mutex));
 	ut_ad(n_ref_count > 0);
-	--n_ref_count;
+	return !--n_ref_count;
 }
 
 /** Encode the number of columns and number of virtual columns in a

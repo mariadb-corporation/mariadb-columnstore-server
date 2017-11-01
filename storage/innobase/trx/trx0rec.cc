@@ -1202,7 +1202,25 @@ trx_undo_page_report_modify(
 			const char* col_name = dict_table_get_col_name(table,
 				col_no);
 
-			if (col->ord_part) {
+			if (!col->ord_part) {
+				continue;
+			}
+
+			if (update) {
+				for (i = 0; i < update->n_fields; i++) {
+					const ulint field_no
+						= upd_get_nth_field(update, i)
+						->field_no;
+					if (field_no >= index->n_fields
+					    || dict_index_get_nth_field(
+						    index, field_no)->col
+					    == col) {
+						goto already_logged;
+					}
+				}
+			}
+
+			if (true) {
 				ulint			pos;
 				spatial_status_t	spatial_status;
 
@@ -1299,6 +1317,9 @@ trx_undo_page_report_modify(
 					}
 				}
 			}
+
+already_logged:
+			continue;
 		}
 
 		for (col_no = 0; col_no < dict_table_get_n_v_cols(table);
@@ -1453,7 +1474,6 @@ trx_undo_update_rec_get_update(
 	trx_id_t	trx_id,	/*!< in: transaction id from this undo record */
 	roll_ptr_t	roll_ptr,/*!< in: roll pointer from this undo record */
 	ulint		info_bits,/*!< in: info bits from this undo record */
-	trx_t*		trx,	/*!< in: transaction */
 	mem_heap_t*	heap,	/*!< in: memory heap from which the memory
 				needed is allocated */
 	upd_t**		upd)	/*!< out, own: update vector */
@@ -1489,7 +1509,7 @@ trx_undo_update_rec_get_update(
 
 	upd_field_set_field_no(upd_field,
 			       dict_index_get_sys_col_pos(index, DATA_TRX_ID),
-			       index, trx);
+			       index);
 	dfield_set_data(&(upd_field->new_val), buf, DATA_TRX_ID_LEN);
 
 	upd_field = upd_get_nth_field(update, n_fields + 1);
@@ -1500,7 +1520,7 @@ trx_undo_update_rec_get_update(
 
 	upd_field_set_field_no(
 		upd_field, dict_index_get_sys_col_pos(index, DATA_ROLL_PTR),
-		index, trx);
+		index);
 	dfield_set_data(&(upd_field->new_val), buf, DATA_ROLL_PTR_LEN);
 
 	/* Store then the updated ordinary columns to the update vector */
@@ -1561,7 +1581,7 @@ trx_undo_update_rec_get_update(
 			upd_field_set_v_field_no(
 				upd_field, field_no, index);
 		} else {
-			upd_field_set_field_no(upd_field, field_no, index, trx);
+			upd_field_set_field_no(upd_field, field_no, index);
 		}
 
 		ptr = trx_undo_rec_get_col_val(ptr, &field, &len, &orig_len);
@@ -2247,7 +2267,7 @@ trx_undo_prev_version_build(
 
 	ptr = trx_undo_update_rec_get_update(ptr, index, type, trx_id,
 					     roll_ptr, info_bits,
-					     NULL, heap, &update);
+					     heap, &update);
 	ut_a(ptr);
 
 	if (row_upd_changes_field_size_or_external(index, offsets, update)) {

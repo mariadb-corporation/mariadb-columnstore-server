@@ -343,7 +343,7 @@ TABLE_SHARE *alloc_table_share(const char *db, const char *table_name,
     */
     do
     {
-      share->table_map_id= my_atomic_add64_explicit(&last_table_id, 1,
+      share->table_map_id=(ulong) my_atomic_add64_explicit(&last_table_id, 1,
                                                     MY_MEMORY_ORDER_RELAXED);
     } while (unlikely(share->table_map_id == ~0UL));
   }
@@ -2505,7 +2505,7 @@ int TABLE_SHARE::init_from_binary_frm_image(THD *thd, bool write,
     the correct null_bytes can now be set, since bitfields have been taken
     into account
   */
-  share->null_bytes= (null_pos - (uchar*) null_flags +
+  share->null_bytes= (uint)(null_pos - (uchar*) null_flags +
                       (null_bit_pos + 7) / 8);
   share->last_null_bit_pos= null_bit_pos;
   share->null_bytes_for_compare= null_bits_are_used ? share->null_bytes : 0;
@@ -3001,8 +3001,8 @@ enum open_frm_error open_table_from_share(THD *thd, TABLE_SHARE *share,
   Field **field_ptr;
   uint8 save_context_analysis_only= thd->lex->context_analysis_only;
   DBUG_ENTER("open_table_from_share");
-  DBUG_PRINT("enter",("name: '%s.%s'  form: 0x%lx", share->db.str,
-                      share->table_name.str, (long) outparam));
+  DBUG_PRINT("enter",("name: '%s.%s'  form: %p", share->db.str,
+                      share->table_name.str, outparam));
 
   thd->lex->context_analysis_only&= ~CONTEXT_ANALYSIS_ONLY_VIEW; // not a view
 
@@ -3406,7 +3406,7 @@ int closefrm(register TABLE *table)
 {
   int error=0;
   DBUG_ENTER("closefrm");
-  DBUG_PRINT("enter", ("table: 0x%lx", (long) table));
+  DBUG_PRINT("enter", ("table: %p", table));
 
   if (table->db_stat)
     error=table->file->ha_close();
@@ -5720,7 +5720,8 @@ Item *Field_iterator_table::create_item(THD *thd)
 
   Item_field *item= new (thd->mem_root) Item_field(thd, &select->context, *ptr);
   if (item && thd->variables.sql_mode & MODE_ONLY_FULL_GROUP_BY &&
-      !thd->lex->in_sum_func && select->cur_pos_in_select_list != UNDEF_POS)
+      !thd->lex->in_sum_func && select->cur_pos_in_select_list != UNDEF_POS &&
+      select->join)
   {
     select->join->non_agg_fields.push_back(item);
     item->marker= select->cur_pos_in_select_list;
@@ -6001,8 +6002,8 @@ Field_iterator_table_ref::get_or_create_column_ref(THD *thd, TABLE_LIST *parent_
     /* The field belongs to a merge view or information schema table. */
     Field_translator *translated_field= view_field_it.field_translator();
     nj_col= new Natural_join_column(translated_field, table_ref);
-    field_count= table_ref->field_translation_end -
-                 table_ref->field_translation;
+    field_count= (uint)(table_ref->field_translation_end -
+                 table_ref->field_translation);
   }
   else
   {
