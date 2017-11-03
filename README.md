@@ -1,7 +1,7 @@
 # MariaDB ColumnStore Server (version 1.1)
 
 This is the server part of MariaDB ColumnStore 1.1.1.
-MariaDB ColumnStore 1.1.1 is a Beta of MariaDB ColumnStore. 
+MariaDB ColumnStore 1.1.1 is a RC of MariaDB ColumnStore. 
 It is built by porting InfiniDB 4.6.7 on MariaDB 10.2 and adding entirely 
 new features not found anywhere else.
 
