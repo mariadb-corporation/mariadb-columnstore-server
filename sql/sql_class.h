@@ -2947,6 +2947,7 @@ public:
     INFINIDB_REDO_PHASE1,	    // post process requires to re-create vtable
     INFINIDB_ORDER_BY,			// for InfiniDB handler to ignore the 2nd scan for order by
     INFINIDB_REDO_QUERY,		// redo query with the normal mysql path
+    INFINIDB_ERROR_REDO_PHASE1,
     INFINIDB_ERROR = 32,
   };
   
@@ -2972,7 +2973,6 @@ public:
 	bool isInfiniDBDML; // default false
   	bool hasInfiniDBTable; // default false
 	bool isNewQuery;
-    int redo_count;
 	INFINIDB_VTABLE() : cal_conn_info(NULL) {init();}
 	void init()
 	{
@@ -2999,7 +2999,6 @@ public:
 		isInfiniDBDML = false;
 		hasInfiniDBTable = false;
 		isNewQuery = true;
-        redo_count = 0;
 	}
   };			   
    
