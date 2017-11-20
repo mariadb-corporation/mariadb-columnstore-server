@@ -880,8 +880,8 @@ row_merge_read(
 	success = os_file_read_no_error_handling_int_fd(fd, buf,
 						 ofs, srv_sort_buf_size);
 
-	/* For encrypted tables, decrypt data after reading and copy data */
-	if (log_tmp_is_encrypted()) {
+	/* If encryption is enabled decrypt buffer */
+	if (success && log_tmp_is_encrypted()) {
 		if (!log_tmp_block_decrypt(buf, srv_sort_buf_size,
 					   crypt_buf, ofs, space)) {
 			return (FALSE);
@@ -3733,11 +3733,7 @@ row_merge_create_index(
 /*===================*/
 	trx_t*			trx,	/*!< in/out: trx (sets error_state) */
 	dict_table_t*		table,	/*!< in: the index is on this table */
-	const index_def_t*	index_def,
-					/*!< in: the index definition */
-	const char**		col_names)
-					/*! in: column names if columns are
-					renamed or NULL */
+	const index_def_t*	index_def) /*!< in: the index definition */
 {
 	dict_index_t*	index;
 	dberr_t		err;
@@ -3757,28 +3753,10 @@ row_merge_create_index(
 
 	for (i = 0; i < n_fields; i++) {
 		index_field_t*	ifield = &index_def->fields[i];
-		const char * col_name;
-
-		/*
-		Alter table renaming a column and then adding a index
-		to this new name e.g ALTER TABLE t
-		CHANGE COLUMN b c INT NOT NULL, ADD UNIQUE INDEX (c);
-		requires additional check as column names are not yet
-		changed when new index definitions are created. Table's
-		new column names are on a array of column name pointers
-		if any of the column names are changed. */
-
-		if (col_names && col_names[i]) {
-			col_name = col_names[i];
-		} else {
-			col_name = ifield->col_name ?
-				dict_table_get_col_name_for_mysql(table, ifield->col_name) :
-				dict_table_get_col_name(table, ifield->col_no);
-		}
 
 		dict_mem_index_add_field(
 			index,
-			col_name,
+			dict_table_get_col_name(table, ifield->col_no),
 			ifield->prefix_len);
 	}
 
@@ -3915,22 +3893,13 @@ row_merge_build_indexes(
 		DBUG_RETURN(DB_OUT_OF_MEMORY);
 	}
 
-	/* Get crypt data from tablespace if present. We should be protected
-	from concurrent DDL (e.g. drop table) by MDL-locks. */
-	fil_space_t* space = fil_space_acquire(new_table->space);
-
-	if (!space) {
-		DBUG_RETURN(DB_TABLESPACE_NOT_FOUND);
-	}
-
-	/* If tablespace is encrypted, allocate additional buffer for
+	/* If temporal log file is encrypted allocate memory for
 	encryption/decryption. */
 	if (log_tmp_is_encrypted()) {
 		crypt_block = static_cast<row_merge_block_t*>(
 				os_mem_alloc_large(&block_size));
 
 		if (crypt_block == NULL) {
-			fil_space_release(space);
 			DBUG_RETURN(DB_OUT_OF_MEMORY);
 		}
 	}
@@ -4308,10 +4277,6 @@ func_exit:
 					MONITOR_BACKGROUND_DROP_INDEX);
 			}
 		}
-	}
-
-	if (space) {
-		fil_space_release(space);
 	}
 
 	DBUG_RETURN(error);
