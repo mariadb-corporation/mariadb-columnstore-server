@@ -731,6 +731,7 @@ buf_page_is_corrupted(
 	const void* 	 	space)
 #endif
 {
+	DBUG_EXECUTE_IF("buf_page_import_corrupt_failure", return(TRUE); );
 	ulint checksum_field1 = 0;
 	ulint checksum_field2 = 0;
 #ifndef UNIV_INNOCHECKSUM
@@ -843,8 +844,6 @@ buf_page_is_corrupted(
 
 		return(false);
 	}
-
-	DBUG_EXECUTE_IF("buf_page_is_corrupt_failure", return(true); );
 
 #ifndef UNIV_INNOCHECKSUM
 	ulint	page_no = mach_read_from_4(read_buf + FIL_PAGE_OFFSET);
@@ -3060,8 +3059,8 @@ buf_page_get_gen(
 	ib_mutex_t*	fix_mutex = NULL;
 	buf_pool_t*	buf_pool = buf_pool_get(space, offset);
 
-	ut_ad(mtr);
-	ut_ad(mtr->state == MTR_ACTIVE);
+	ut_ad((mtr == NULL) == (mode == BUF_EVICT_IF_IN_POOL));
+	ut_ad(!mtr || mtr->state == MTR_ACTIVE);
 	ut_ad((rw_latch == RW_S_LATCH)
 	      || (rw_latch == RW_X_LATCH)
 	      || (rw_latch == RW_NO_LATCH));
@@ -3072,23 +3071,29 @@ buf_page_get_gen(
 
 #ifdef UNIV_DEBUG
 	switch (mode) {
+	case BUF_EVICT_IF_IN_POOL:
+		/* After DISCARD TABLESPACE, the tablespace would not exist,
+		but in IMPORT TABLESPACE, PageConverter::operator() must
+		replace any old pages, which were not evicted during DISCARD.
+		Skip the assertion on zip_size. */
+		break;
 	case BUF_GET_NO_LATCH:
 		ut_ad(rw_latch == RW_NO_LATCH);
-		break;
+		/* fall through */
 	case BUF_GET:
 	case BUF_GET_IF_IN_POOL:
 	case BUF_PEEK_IF_IN_POOL:
 	case BUF_GET_IF_IN_POOL_OR_WATCH:
 	case BUF_GET_POSSIBLY_FREED:
+		ut_ad(zip_size == fil_space_get_zip_size(space));
 		break;
 	default:
 		ut_error;
 	}
 #endif /* UNIV_DEBUG */
-	ut_ad(zip_size == fil_space_get_zip_size(space));
 	ut_ad(ut_is_2pow(zip_size));
 #ifndef UNIV_LOG_DEBUG
-	ut_ad(!ibuf_inside(mtr)
+	ut_ad(!mtr || !ibuf_inside(mtr)
 	      || ibuf_page_low(space, zip_size, offset,
 			       FALSE, file, line, NULL));
 #endif
@@ -3153,9 +3158,11 @@ loop:
 			rw_lock_x_unlock(hash_lock);
 		}
 
-		if (mode == BUF_GET_IF_IN_POOL
-		    || mode == BUF_PEEK_IF_IN_POOL
-		    || mode == BUF_GET_IF_IN_POOL_OR_WATCH) {
+		switch (mode) {
+		case BUF_GET_IF_IN_POOL:
+		case BUF_GET_IF_IN_POOL_OR_WATCH:
+		case BUF_PEEK_IF_IN_POOL:
+		case BUF_EVICT_IF_IN_POOL:
 #ifdef UNIV_SYNC_DEBUG
 			ut_ad(!rw_lock_own(hash_lock, RW_LOCK_EX));
 			ut_ad(!rw_lock_own(hash_lock, RW_LOCK_SHARED));
@@ -3244,8 +3251,10 @@ got_block:
 
 	ut_ad(page_zip_get_size(&block->page.zip) == zip_size);
 
-	if (mode == BUF_GET_IF_IN_POOL || mode == BUF_PEEK_IF_IN_POOL) {
-
+	switch (mode) {
+	case BUF_GET_IF_IN_POOL:
+	case BUF_PEEK_IF_IN_POOL:
+	case BUF_EVICT_IF_IN_POOL:
 		bool	must_read;
 
 		{
@@ -3274,6 +3283,19 @@ got_block:
 		buf_page_t*	bpage;
 
 	case BUF_BLOCK_FILE_PAGE:
+		if (UNIV_UNLIKELY(mode == BUF_EVICT_IF_IN_POOL)) {
+evict_from_pool:
+			ut_ad(!fix_block->page.oldest_modification);
+			buf_pool_mutex_enter(buf_pool);
+			buf_block_unfix(fix_block);
+
+			if (!buf_LRU_free_page(&fix_block->page, true)) {
+				ut_ad(0);
+			}
+
+			buf_pool_mutex_exit(buf_pool);
+			return(NULL);
+		}
 		break;
 
 	case BUF_BLOCK_ZIP_PAGE:
@@ -3304,6 +3326,10 @@ got_block:
 			os_thread_sleep(WAIT_FOR_READ);
 
 			goto loop;
+		}
+
+		if (UNIV_UNLIKELY(mode == BUF_EVICT_IF_IN_POOL)) {
+			goto evict_from_pool;
 		}
 
 		/* Buffer-fix the block so that it cannot be evicted
@@ -4849,7 +4875,7 @@ database_corrupted:
 		if (err != DB_SUCCESS) {
 			/* Not a real corruption if it was triggered by
 			error injection */
-			DBUG_EXECUTE_IF("buf_page_is_corrupt_failure",
+			DBUG_EXECUTE_IF("buf_page_import_corrupt_failure",
 				if (bpage->space > TRX_SYS_SPACE) {
 					buf_mark_space_corrupt(bpage);
 					ib_logf(IB_LOG_LEVEL_INFO,
@@ -4905,7 +4931,7 @@ database_corrupted:
 			}
 		}
 
-		DBUG_EXECUTE_IF("buf_page_is_corrupt_failure",
+		DBUG_EXECUTE_IF("buf_page_import_corrupt_failure",
 				page_not_corrupt:  bpage = bpage; );
 
 		if (recv_recovery_is_on()) {
