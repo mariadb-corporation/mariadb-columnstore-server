@@ -2822,7 +2822,8 @@ public:
 	bool isInfiniDBDML; // default false
   	bool hasInfiniDBTable; // default false
 	bool isNewQuery;
-	INFINIDB_VTABLE() : autoswitch(false),
+	INFINIDB_VTABLE() : vtable_state(INFINIDB_INIT_CONNECT),
+                        autoswitch(false),
 		                has_order_by(false),
 		                mysql_optimizer_off(false),
 		                duplicate_field_name(false),
