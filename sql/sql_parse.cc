@@ -1821,7 +1821,6 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
 	// InfiniDB: Do InfiniDB Processing.
 	if (idb_vtable_process(thd, old_optimizer_switch, NULL))   // returns non 0 when not InfiniDB query
 	{
-	  thd->set_row_count_func(0); //Bug 5315
 	  thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
 
       if (WSREP_ON)
@@ -10152,7 +10151,11 @@ int idb_parse_vtable(THD* thd, String& vquery, THD::infinidb_state vtable_state)
 	#ifdef INFINIDB_DEBUG
 	printf("<<< Parse vtable: %s\n", vquery.c_ptr());
 	#endif
+    // MCOL-1082: the drop table clears row_count and this may be a SELECT to
+    // get the row_count.
+    longlong row_count= thd->get_row_count_func();
 	mysql_parse(thd, thd->query(), thd->query_length(), &parser_state, false, false);
+    thd->set_row_count_func(row_count);
 	delete_explain_query(thd->lex);
 	close_thread_tables(thd);
 
