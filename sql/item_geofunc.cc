@@ -144,7 +144,7 @@ String *Item_func_geometry_from_json::val_str(String *str)
     {
       String *sv= args[1]->val_str(&tmp_js);
       my_error(ER_WRONG_VALUE_FOR_TYPE, MYF(0),
-               "option", sv->c_ptr(), "ST_GeometryFromJSON");
+               "option", sv->c_ptr_safe(), "ST_GeometryFromJSON");
       null_value= 1;
       return 0;
     }
@@ -173,6 +173,9 @@ String *Item_func_geometry_from_json::val_str(String *str)
       break;
     case Geometry::GEOJ_TOO_FEW_POINTS:
       code= ER_GEOJSON_TOO_FEW_POINTS;
+      break;
+    case Geometry::GEOJ_EMPTY_COORDINATES:
+      code= ER_GEOJSON_EMPTY_COORDINATES;
       break;
     case Geometry::GEOJ_POLYGON_NOT_CLOSED:
       code= ER_GEOJSON_NOT_CLOSED;

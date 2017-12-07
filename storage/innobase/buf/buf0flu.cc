@@ -3821,24 +3821,14 @@ FlushObserver::notify_remove(
 void
 FlushObserver::flush()
 {
-	buf_remove_t	buf_remove;
+	ut_ad(m_trx);
 
-	if (m_interrupted) {
-		buf_remove = BUF_REMOVE_FLUSH_NO_WRITE;
-	} else {
-		buf_remove = BUF_REMOVE_FLUSH_WRITE;
-
-		if (m_stage != NULL) {
-			ulint	pages_to_flush =
-				buf_flush_get_dirty_pages_count(
-					m_space_id, this);
-
-			m_stage->begin_phase_flush(pages_to_flush);
-		}
+	if (!m_interrupted && m_stage) {
+		m_stage->begin_phase_flush(buf_flush_get_dirty_pages_count(
+						   m_space_id, this));
 	}
 
-	/* Flush or remove dirty pages. */
-	buf_LRU_flush_or_remove_pages(m_space_id, buf_remove, m_trx);
+	buf_LRU_flush_or_remove_pages(m_space_id, this);
 
 	/* Wait for all dirty pages were flushed. */
 	for (ulint i = 0; i < srv_buf_pool_instances; i++) {

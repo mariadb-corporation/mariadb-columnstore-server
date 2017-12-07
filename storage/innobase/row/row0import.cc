@@ -725,7 +725,7 @@ FetchIndexRootPages::build_row_import(row_import* cfg) const UNIV_NOTHROW
 
 		char	name[BUFSIZ];
 
-		ut_snprintf(name, sizeof(name), "index" IB_ID_FMT, it->m_id);
+		snprintf(name, sizeof(name), "index" IB_ID_FMT, it->m_id);
 
 		ulint	len = strlen(name) + 1;
 
@@ -1537,18 +1537,16 @@ PageConverter::PageConverter(
 	:
 	AbstractCallback(trx),
 	m_cfg(cfg),
+	m_index(cfg->m_indexes),
+	m_current_lsn(log_get_lsn()),
 	m_page_zip_ptr(0),
-	m_heap(0) UNIV_NOTHROW
+	m_rec_iter(),
+	m_offsets_(), m_offsets(m_offsets_),
+	m_heap(0),
+	m_cluster_index(dict_table_get_first_index(cfg->m_table)) UNIV_NOTHROW
 {
-	m_index = m_cfg->m_indexes;
-
-	m_current_lsn = log_get_lsn();
 	ut_a(m_current_lsn > 0);
-
-	m_offsets = m_offsets_;
 	rec_offs_init(m_offsets_);
-
-	m_cluster_index = dict_table_get_first_index(m_cfg->m_table);
 }
 
 /** Adjust the BLOB reference for a single column that is externally stored
@@ -2008,7 +2006,7 @@ PageConverter::operator() (
 		we can work on them */
 
 		if ((err = update_page(block, page_type)) != DB_SUCCESS) {
-			return(err);
+			break;
 		}
 
 		/* Note: For compressed pages this function will write to the
@@ -2047,9 +2045,15 @@ PageConverter::operator() (
 			<< " at offset " << offset
 			<< " looks corrupted in file " << m_filepath;
 
-		return(DB_CORRUPTION);
+		err = DB_CORRUPTION;
 	}
 
+	/* If we already had and old page with matching number
+	in the buffer pool, evict it now, because
+	we no longer evict the pages on DISCARD TABLESPACE. */
+	buf_page_get_gen(block->page.id, get_page_size(),
+			 RW_NO_LATCH, NULL, BUF_EVICT_IF_IN_POOL,
+			 __FILE__, __LINE__, NULL, NULL);
 	return(err);
 }
 
@@ -2557,11 +2561,11 @@ row_import_read_index_data(
 		if (n_bytes != sizeof(row)) {
 			char	msg[BUFSIZ];
 
-			ut_snprintf(msg, sizeof(msg),
-				    "while reading index meta-data, expected "
-				    "to read " ULINTPF
-				    " bytes but read only " ULINTPF " bytes",
-				    sizeof(row), n_bytes);
+			snprintf(msg, sizeof(msg),
+				 "while reading index meta-data, expected "
+				 "to read " ULINTPF
+				 " bytes but read only " ULINTPF " bytes",
+				 sizeof(row), n_bytes);
 
 			ib_senderrf(
 				thd, IB_LOG_LEVEL_ERROR, ER_IO_READ_ERROR,
@@ -3080,9 +3084,9 @@ row_import_read_cfg(
 	if (file == NULL) {
 		char	msg[BUFSIZ];
 
-		ut_snprintf(msg, sizeof(msg),
-			    "Error opening '%s', will attempt to import"
-			    " without schema verification", name);
+		snprintf(msg, sizeof(msg),
+			 "Error opening '%s', will attempt to import"
+			 " without schema verification", name);
 
 		ib_senderrf(
 			thd, IB_LOG_LEVEL_WARN, ER_IO_READ_ERROR,
@@ -3649,12 +3653,16 @@ row_import_for_mysql(
 	The only dirty pages generated should be from the pessimistic purge
 	of delete marked records that couldn't be purged in Phase I. */
 
-	buf_LRU_flush_or_remove_pages(
-		prebuilt->table->space, BUF_REMOVE_FLUSH_WRITE,	trx);
+	{
+		FlushObserver observer(prebuilt->table->space, trx, NULL);
+		buf_LRU_flush_or_remove_pages(prebuilt->table->space,
+					      &observer);
 
-	if (trx_is_interrupted(trx)) {
-		ib::info() << "Phase III - Flush interrupted";
-		return(row_import_error(prebuilt, trx, DB_INTERRUPTED));
+		if (observer.is_interrupted()) {
+			ib::info() << "Phase III - Flush interrupted";
+			return(row_import_error(prebuilt, trx,
+						DB_INTERRUPTED));
+		}
 	}
 
 	ib::info() << "Phase IV - Flush complete";
