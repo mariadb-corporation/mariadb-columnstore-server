@@ -2137,28 +2137,6 @@ check_if_skip_table(
 	return(FALSE);
 }
 
-/** @return the tablespace flags from a given data file
-@retval	ULINT_UNDEFINED	if the file is not readable */
-ulint xb_get_space_flags(pfs_os_file_t file)
-{
-	byte	*buf;
-	byte	*page;
-	ulint	flags;
-
-	buf = static_cast<byte *>(malloc(2 * UNIV_PAGE_SIZE));
-	page = static_cast<byte *>(ut_align(buf, UNIV_PAGE_SIZE));
-
-	if (os_file_read(IORequestRead, file, page, 0, UNIV_PAGE_SIZE)) {
-		flags = fsp_header_get_flags(page);
-	} else {
-		flags = ULINT_UNDEFINED;
-	}
-
-	free(buf);
-
-	return(flags);
-}
-
 const char*
 xb_get_copy_action(const char *dflt)
 {
@@ -2685,10 +2663,10 @@ xb_load_single_table_tablespace(
 	name = static_cast<char*>(ut_malloc_nokey(pathlen));
 
 	if (dirname != NULL) {
-		ut_snprintf(name, pathlen, "%s/%s", dirname, filname);
+		snprintf(name, pathlen, "%s/%s", dirname, filname);
 		name[pathlen - 5] = 0;
 	} else {
-		ut_snprintf(name, pathlen, "%s", filname);
+		snprintf(name, pathlen, "%s", filname);
 		name[pathlen - 5] = 0;
 	}
 
@@ -2806,8 +2784,8 @@ static dberr_t enumerate_ibd_files(process_single_tablespace_func_t callback)
 
 			dbpath = static_cast<char*>(ut_malloc_nokey(dbpath_len));
 		}
-		ut_snprintf(dbpath, dbpath_len,
-			    "%s/%s", fil_path_to_mysql_datadir, dbinfo.name);
+		snprintf(dbpath, dbpath_len,
+			 "%s/%s", fil_path_to_mysql_datadir, dbinfo.name);
 		os_normalize_path(dbpath);
 
 		if (check_if_skip_database_by_path(dbpath)) {
@@ -2838,7 +2816,7 @@ static dberr_t enumerate_ibd_files(process_single_tablespace_func_t callback)
 				/* We found a symlink or a file */
 				if (strlen(fileinfo.name) > 4) {
 					bool is_isl= false;
-					if (ends_with(fileinfo.name, ".ibd") || ((is_isl = ends_with(fileinfo.name, ".ibd"))))
+					if (ends_with(fileinfo.name, ".ibd") || ((is_isl = ends_with(fileinfo.name, ".isl"))))
 						(*callback)(dbinfo.name, fileinfo.name, is_isl);
 				}
 			}
@@ -4420,10 +4398,29 @@ xtrabackup_apply_delta(
 			if (off == 0) {
 				/* Read tablespace size from page 0,
 				and extend the file to specified size.*/
-				os_offset_t n_pages = mach_read_from_4(buf + FSP_HEADER_OFFSET + FSP_SIZE);
-				success = os_file_set_size(dst_path, dst_file, n_pages*page_size);
-				if (!success)
-					goto error;
+				os_offset_t n_pages = mach_read_from_4(
+					buf + FSP_HEADER_OFFSET + FSP_SIZE);
+				if (mach_read_from_4(buf
+						     + FIL_PAGE_SPACE_ID)) {
+					if (!os_file_set_size(
+						    dst_path, dst_file,
+						    n_pages * page_size))
+						goto error;
+				} else if (fil_space_t* space
+					   = fil_space_acquire(0)) {
+					/* The system tablespace can
+					consist of multiple files. The
+					first one has full tablespace
+					size in page 0, but only the last
+					file should be extended. */
+					fil_node_t* n = UT_LIST_GET_FIRST(
+						space->chain);
+					bool fail = !strcmp(n->name, dst_path)
+						&& !fil_space_extend(
+							space, (ulint)n_pages);
+					fil_space_release(space);
+					if (fail) goto error;
+				}
 			}
 
 			success = os_file_write(IORequestWrite,
