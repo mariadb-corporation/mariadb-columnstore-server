@@ -898,7 +898,7 @@ rocksdb_concurrent_prepare	ON
 rocksdb_create_checkpoint	
 rocksdb_create_if_missing	ON
 rocksdb_create_missing_column_families	OFF
-rocksdb_datadir	./.rocksdb
+rocksdb_datadir	./#rocksdb
 rocksdb_db_write_buffer_size	0
 rocksdb_deadlock_detect	OFF
 rocksdb_deadlock_detect_depth	50
@@ -924,6 +924,7 @@ rocksdb_force_compute_memtable_stats_cachetime	0
 rocksdb_force_flush_memtable_and_lzero_now	OFF
 rocksdb_force_flush_memtable_now	OFF
 rocksdb_force_index_records_in_range	0
+rocksdb_git_hash	#
 rocksdb_hash_index_allow_collision	ON
 rocksdb_index_type	kBinarySearch
 rocksdb_info_log_level	error_level

@@ -1740,7 +1740,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
         IDENT_sys TEXT_STRING_sys TEXT_STRING_literal
         NCHAR_STRING opt_component key_cache_name
         sp_opt_label BIN_NUM label_ident TEXT_STRING_filesystem ident_or_empty
-        opt_constraint constraint opt_ident
+        opt_constraint constraint opt_ident ident_table_alias
 
 %type <lex_str_ptr>
         opt_table_alias
@@ -1893,7 +1893,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
 
 %type <Lex_length_and_dec> precision opt_precision float_options
 
-%type <symbol> keyword keyword_sp
+%type <symbol> keyword keyword_sp keyword_alias
 
 %type <lex_user> user grant_user grant_role user_or_role current_role
                  admin_option_for_role user_maybe_role
@@ -5208,12 +5208,8 @@ opt_part_values:
             partition_info *part_info= lex->part_info;
             if (! lex->is_partition_management())
             {
-              if (part_info->part_type == RANGE_PARTITION)
-                my_yyabort_error((ER_PARTITION_REQUIRES_VALUES_ERROR, MYF(0),
-                                  "RANGE", "LESS THAN"));
-              if (part_info->part_type == LIST_PARTITION)
-                my_yyabort_error((ER_PARTITION_REQUIRES_VALUES_ERROR, MYF(0),
-                                  "LIST", "IN"));
+              if (part_info->error_if_requires_values())
+                 MYSQL_YYABORT;
             }
             else
               part_info->part_type= HASH_PARTITION;
@@ -11425,7 +11421,7 @@ table_alias:
 
 opt_table_alias:
           /* empty */ { $$=0; }
-        | table_alias ident
+        | table_alias ident_table_alias
           {
             $$= (LEX_STRING*) thd->memdup(&$2,sizeof(LEX_STRING));
             if ($$ == NULL)
@@ -14481,6 +14477,16 @@ TEXT_STRING_filesystem:
                 MYSQL_YYABORT;
             }
           }
+
+ident_table_alias:
+          IDENT_sys   { $$= $1; }
+        | keyword_alias
+          {
+            $$.str= thd->strmake($1.str, $1.length);
+            if ($$.str == NULL)
+              MYSQL_YYABORT;
+            $$.length= $1.length;
+          }
         ;
 
 ident:
@@ -14575,8 +14581,8 @@ user: user_maybe_role
          }
          ;
 
-/* Keyword that we allow for identifiers (except SP labels) */
-keyword:
+/* Keywords which we allow as table aliases. */
+keyword_alias:
           keyword_sp            {}
         | ASCII_SYM             {}
         | BACKUP_SYM            {}
@@ -14649,6 +14655,10 @@ keyword:
         | XA_SYM                {}
         | UPGRADE_SYM           {}
         ;
+
+
+/* Keyword that we allow for identifiers (except SP labels) */
+keyword: keyword_alias | WINDOW_SYM {};
 
 /*
  * Keywords that we allow for labels in SPs.

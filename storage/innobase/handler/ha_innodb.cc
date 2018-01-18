@@ -3862,6 +3862,15 @@ innobase_init(
 		goto error;
 	}
 
+#ifdef WITH_WSREP
+	/* Currently, Galera does not support VATS lock schedule algorithm. */
+	if (innodb_lock_schedule_algorithm == INNODB_LOCK_SCHEDULE_ALGORITHM_VATS
+	    && global_system_variables.wsrep_on) {
+		ib::info() << "For Galera, using innodb_lock_schedule_algorithm=fcfs";
+		innodb_lock_schedule_algorithm = INNODB_LOCK_SCHEDULE_ALGORITHM_FCFS;
+	}
+#endif /* WITH_WSREP */
+
 #ifndef HAVE_LZ4
 	if (innodb_compression_algorithm == PAGE_LZ4_ALGORITHM) {
 		sql_print_error("InnoDB: innodb_compression_algorithm = %lu unsupported.\n"
@@ -5351,7 +5360,7 @@ innobase_kill_query(
 				wsrep_thd_is_BF(current_thd, FALSE));
 		}
 
-		if (!wsrep_thd_is_BF(trx->mysql_thd, FALSE)) {
+		if (!wsrep_thd_is_BF(trx->mysql_thd, FALSE) && trx->abort_type != TRX_WSREP_ABORT) {
 			lock_mutex_enter();
 			lock_mutex_taken = true;
 		}
@@ -6462,7 +6471,22 @@ no_such_table:
 
 	/* No point to init any statistics if tablespace is still encrypted. */
 	if (ib_table->is_readable()) {
-		dict_stats_init(ib_table);
+		trx_t* trx = check_trx_exists(thd);
+		bool alloc = !trx_state_eq(trx, TRX_STATE_NOT_STARTED);
+
+		if (alloc) {
+			trx = trx_allocate_for_background();
+		}
+		ut_ad(!trx->persistent_stats);
+		ut_d(trx->persistent_stats = true);
+		trx->error_state = DB_SUCCESS;
+		++trx->will_lock;
+		dict_stats_init(ib_table, trx);
+		innobase_commit_low(trx);
+		ut_d(trx->persistent_stats = false);
+		if (alloc) {
+			trx_free_for_background(trx);
+		}
 	} else {
 		ib_table->stat_initialized = 1;
 	}
@@ -8589,8 +8613,8 @@ no_commit:
 		whether we update the table autoinc counter or not. */
 		col_max_value = innobase_get_int_col_max_value(table->next_number_field);
 
-		/* Get the value that MySQL attempted to store in the table. */
-		auto_inc = table->next_number_field->val_int();
+		/* Get the value that MySQL attempted to store in the table.*/
+		auto_inc = table->next_number_field->val_uint();
 
 		switch (error) {
 		case DB_DUPLICATE_KEY:
@@ -9056,12 +9080,7 @@ calc_row_difference(
 				if (field != table->found_next_number_field
 				    || dfield_is_null(&ufield->new_val)) {
 				} else {
-					auto_inc = row_parse_int(
-						static_cast<const byte*>(
-							ufield->new_val.data),
-						ufield->new_val.len,
-						col->mtype,
-						col->prtype & DATA_UNSIGNED);
+					auto_inc = field->val_uint();
 				}
 			}
 			n_changed++;
@@ -13256,7 +13275,10 @@ create_table_info_t::create_table_update_dict()
 
 	innobase_copy_frm_flags_from_create_info(innobase_table, m_create_info);
 
-	dict_stats_update(innobase_table, DICT_STATS_EMPTY_TABLE);
+	++m_trx->will_lock;
+	m_trx->error_state = DB_SUCCESS;
+	dict_stats_update(innobase_table, DICT_STATS_EMPTY_TABLE, m_trx);
+	innobase_commit_low(m_trx);
 
 	if (innobase_table) {
 		/* We update the highest file format in the system table
@@ -13518,7 +13540,8 @@ ha_innobase::discard_or_import_tablespace(
 
 		/* Adjust the persistent statistics. */
 		ret = dict_stats_update(dict_table,
-					DICT_STATS_RECALC_PERSISTENT);
+					DICT_STATS_RECALC_PERSISTENT,
+					m_prebuilt->trx);
 
 		if (ret != DB_SUCCESS) {
 			push_warning_printf(
@@ -13526,8 +13549,11 @@ ha_innobase::discard_or_import_tablespace(
 				Sql_condition::WARN_LEVEL_WARN,
 				ER_ALTER_INFO,
 				"Error updating stats for table '%s'"
-				" after table rebuild: %s",
+				" after table import: %s",
 				dict_table->name.m_name, ut_strerr(ret));
+			trx_rollback_to_savepoint(m_prebuilt->trx, NULL);
+		} else {
+			trx_commit_for_mysql(m_prebuilt->trx);
 		}
 	}
 
@@ -14006,8 +14032,6 @@ ha_innobase::rename_table(
 
 	innobase_commit_low(trx);
 
-	trx_free_for_mysql(trx);
-
 	if (error == DB_SUCCESS) {
 		char	norm_from[MAX_FULL_NAME_LEN];
 		char	norm_to[MAX_FULL_NAME_LEN];
@@ -14017,16 +14041,23 @@ ha_innobase::rename_table(
 		normalize_table_name(norm_from, from);
 		normalize_table_name(norm_to, to);
 
+		trx->error_state = DB_SUCCESS;
+		++trx->will_lock;
 		ret = dict_stats_rename_table(norm_from, norm_to,
-					      errstr, sizeof(errstr));
+					      errstr, sizeof errstr, trx);
 
 		if (ret != DB_SUCCESS) {
+			trx_rollback_to_savepoint(trx, NULL);
 			ib::error() << errstr;
 
 			push_warning(thd, Sql_condition::WARN_LEVEL_WARN,
 				     ER_LOCK_WAIT_TIMEOUT, errstr);
+		} else {
+			innobase_commit_low(trx);
 		}
 	}
+
+	trx_free_for_mysql(trx);
 
 	/* Add a special case to handle the Duplicated Key error
 	and return DB_ERROR instead.
@@ -14564,17 +14595,33 @@ ha_innobase::info_low(
 			}
 
 			ut_ad(!mutex_own(&dict_sys->mutex));
-			ret = dict_stats_update(ib_table, opt);
+			/* Do not use prebuilt->trx in case this is
+			called in the middle of a transaction. We
+			should commit the transaction after
+			dict_stats_update() in order not to hog locks
+			on the mysql.innodb_table_stats,
+			mysql.innodb_index_stats tables. */
+			trx_t* trx = trx_allocate_for_background();
+			ut_d(trx->persistent_stats = true);
+			++trx->will_lock;
+			ret = dict_stats_update(ib_table, opt, trx);
 
 			if (ret != DB_SUCCESS) {
 				m_prebuilt->trx->op_info = "";
-				DBUG_RETURN(HA_ERR_GENERIC);
+				trx_rollback_to_savepoint(trx, NULL);
+			} else {
+				m_prebuilt->trx->op_info =
+					"returning various info to MySQL";
+				trx_commit_for_mysql(trx);
 			}
 
-			m_prebuilt->trx->op_info =
-				"returning various info to MariaDB";
-		}
+			ut_d(trx->persistent_stats = false);
+			trx_free_for_background(trx);
 
+			if (ret != DB_SUCCESS) {
+				DBUG_RETURN(HA_ERR_GENERIC);
+			}
+		}
 
 		stats.update_time = (ulong) ib_table->update_time;
 	}
@@ -20823,7 +20870,7 @@ static MYSQL_SYSVAR_ULONG(doublewrite_batch_size, srv_doublewrite_batch_size,
 #endif /* defined UNIV_DEBUG || defined UNIV_PERF_DEBUG */
 
 static MYSQL_SYSVAR_ENUM(lock_schedule_algorithm, innodb_lock_schedule_algorithm,
-  PLUGIN_VAR_RQCMDARG,
+  PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
   "The algorithm Innodb uses for deciding which locks to grant next when"
   " a lock is released. Possible values are"
   " FCFS"
