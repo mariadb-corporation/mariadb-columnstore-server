@@ -1060,11 +1060,13 @@ struct my_option xb_server_options[] =
    (G_PTR*) &defaults_group, (G_PTR*) &defaults_group,
    0, GET_STR, REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
 
-  {"plugin-dir", OPT_PLUGIN_DIR, "Server plugin directory",
+  {"plugin-dir", OPT_PLUGIN_DIR,
+  "Server plugin directory. Used to load encryption plugin during 'prepare' phase."
+  "Has no effect in the 'backup' phase (plugin directory during backup is the same as server's)",
   &xb_plugin_dir, &xb_plugin_dir,
   0, GET_STR, REQUIRED_ARG, 0, 0, 0, 0, 0, 0 },
 
-  { "plugin-load", OPT_PLUGIN_LOAD, "encrypton plugin to load",
+  { "plugin-load", OPT_PLUGIN_LOAD, "encrypton plugin to load during 'prepare' phase.",
   &xb_plugin_load, &xb_plugin_load,
   0, GET_STR, REQUIRED_ARG, 0, 0, 0, 0, 0, 0 },
 
@@ -1419,8 +1421,12 @@ xb_get_one_option(int optid,
   case OPT_PROTOCOL:
     if (argument)
     {
-       opt_protocol= find_type_or_exit(argument, &sql_protocol_typelib,
-                                    opt->name);
+      if ((opt_protocol= find_type_with_warning(argument, &sql_protocol_typelib,
+                                                opt->name)) <= 0)
+      {
+        sf_leaking_memory= 1; /* no memory leak reports here */
+        exit(1);
+      }
     }
     break;
 #include "sslopt-case.h"
@@ -2401,8 +2407,15 @@ xtrabackup_copy_logfile(copy_logfile copy)
 
 		log_mutex_enter();
 
-		lsn_t lsn = log_group_read_log_seg(log_sys->buf, &log_sys->log,
-						   start_lsn, end_lsn);
+		lsn_t lsn= start_lsn;
+		for(int retries= 0; retries < 100; retries++) {
+			if (log_group_read_log_seg(log_sys->buf, &log_sys->log,
+				&lsn, end_lsn)){
+				break;
+			}
+			msg("Retrying read of a redo log block");
+			my_sleep(1000);
+		}
 
 		start_lsn = xtrabackup_copy_log(copy, start_lsn, lsn);
 
@@ -3017,7 +3030,7 @@ xb_validate_name(
 		exit(EXIT_FAILURE);
 	}
 	p = strpbrk(name, "/\\~");
-	if (p && p - name < NAME_LEN) {
+	if (p && (uint) (p - name) < NAME_LEN) {
 		msg("mariabackup: name `%s` is not valid.\n", name);
 		exit(EXIT_FAILURE);
 	}
@@ -3619,7 +3632,6 @@ fail:
 	/* Reset the system variables in the recovery module. */
 	recv_sys_var_init();
 	trx_pool_init();
-	row_mysql_init();
 
 	ut_crc32_init();
 	crc_init();
@@ -4291,12 +4303,12 @@ xtrabackup_apply_delta(
 
 	page_size = info.page_size.physical();
 	page_size_shift = get_bit_shift(page_size);
-	msg("mariabackup: page size for %s is %lu bytes\n",
+	msg("mariabackup: page size for %s is %zu bytes\n",
 	    src_path, page_size);
 	if (page_size_shift < 10 ||
 	    page_size_shift > UNIV_PAGE_SIZE_SHIFT_MAX) {
 		msg("mariabackup: error: invalid value of page_size "
-		    "(%lu bytes) read from %s\n", page_size, meta_path);
+		    "(%zu bytes) read from %s\n", page_size, meta_path);
 		goto error;
 	}
 

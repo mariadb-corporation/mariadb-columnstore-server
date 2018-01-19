@@ -430,13 +430,13 @@ bool mysql_create_view(THD *thd, TABLE_LIST *views,
   lex->link_first_table_back(view, link_to_local);
   view->open_type= OT_BASE_ONLY;
 
-  WSREP_TO_ISOLATION_BEGIN(WSREP_MYSQL_DB, NULL, NULL)
-
   if (check_dependencies_in_with_clauses(lex->with_clauses_list))
   {
     res= TRUE;
     goto err;
   }
+
+  WSREP_TO_ISOLATION_BEGIN(WSREP_MYSQL_DB, NULL, NULL)
 
   /*
     ignore lock specs for CREATE statement
@@ -643,7 +643,8 @@ bool mysql_create_view(THD *thd, TABLE_LIST *views,
 
   if (!res && mysql_bin_log.is_open())
   {
-    String buff;
+    StringBuffer<128> buff(thd->variables.character_set_client);
+    DBUG_ASSERT(buff.charset()->mbminlen == 1);
     const LEX_STRING command[3]=
       {{ C_STRING_WITH_LEN("CREATE ") },
        { C_STRING_WITH_LEN("ALTER ") },

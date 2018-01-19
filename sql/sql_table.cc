@@ -4459,10 +4459,7 @@ handler *mysql_create_frm_image(THD *thd,
 
   set_table_default_charset(thd, create_info, (char*) db);
 
-  db_options= create_info->table_options;
-  if (create_info->row_type == ROW_TYPE_DYNAMIC ||
-      create_info->row_type == ROW_TYPE_PAGE)
-    db_options|= HA_OPTION_PACK_RECORD;
+  db_options= create_info->table_options_with_row_type();
 
   if (!(file= get_new_handler((TABLE_SHARE*) 0, thd->mem_root,
                               create_info->db_type)))
@@ -5139,7 +5136,7 @@ err:
   /* Write log if no error or if we already deleted a table */
   if (!result || thd->log_current_statement)
   {
-    if (result && create_info->table_was_deleted)
+    if (result && create_info->table_was_deleted && pos_in_locked_tables)
     {
       /*
         Possible locked table was dropped. We should remove meta data locks

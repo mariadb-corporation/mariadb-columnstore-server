@@ -1875,6 +1875,19 @@ bool Item_func_opt_neg::eq(const Item *item, bool binary_cmp) const
 }
 
 
+bool Item_func_interval::fix_fields(THD *thd, Item **ref)
+{
+  if (Item_int_func::fix_fields(thd, ref))
+    return true;
+  for (uint i= 0 ; i < row->cols(); i++)
+  {
+    if (row->element_index(i)->check_cols(1))
+      return true;
+  }
+  return false;
+}
+
+
 void Item_func_interval::fix_length_and_dec()
 {
   uint rows= row->cols();
@@ -6976,20 +6989,20 @@ longlong Item_func_dyncol_exists::val_int()
       null_value= 1;
       return 1;
     }
-    if (my_charset_same(nm->charset(), &my_charset_utf8_general_ci))
+    if (my_charset_same(nm->charset(), DYNCOL_UTF))
     {
       buf.str= (char *) nm->ptr();
       buf.length= nm->length();
     }
     else
     {
-      uint strlen= nm->length() * my_charset_utf8_general_ci.mbmaxlen + 1;
+      uint strlen= nm->length() * DYNCOL_UTF->mbmaxlen + 1;
       uint dummy_errors;
       buf.str= (char *) current_thd->alloc(strlen);
       if (buf.str)
       {
         buf.length=
-          copy_and_convert(buf.str, strlen, &my_charset_utf8_general_ci,
+          copy_and_convert(buf.str, strlen, DYNCOL_UTF,
                            nm->ptr(), nm->length(), nm->charset(),
                            &dummy_errors);
       }

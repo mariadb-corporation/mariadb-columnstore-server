@@ -75,7 +75,7 @@ ibool	row_rollback_on_timeout	= FALSE;
 
 /** Chain node of the list of tables to drop in the background. */
 struct row_mysql_drop_t{
-	char*				table_name;	/*!< table name */
+	table_id_t			table_id;	/*!< table id */
 	UT_LIST_NODE_T(row_mysql_drop_t)row_mysql_drop_list;
 							/*!< list chain node */
 };
@@ -92,27 +92,6 @@ static ib_mutex_t row_drop_list_mutex;
 
 /** Flag: has row_mysql_drop_list been initialized? */
 static ibool	row_mysql_drop_list_inited	= FALSE;
-
-/** Magic table names for invoking various monitor threads */
-/* @{ */
-static const char S_innodb_monitor[] = "innodb_monitor";
-static const char S_innodb_lock_monitor[] = "innodb_lock_monitor";
-static const char S_innodb_tablespace_monitor[] = "innodb_tablespace_monitor";
-static const char S_innodb_table_monitor[] = "innodb_table_monitor";
-#ifdef UNIV_MEM_DEBUG
-static const char S_innodb_mem_validate[] = "innodb_mem_validate";
-#endif /* UNIV_MEM_DEBUG */
-/* @} */
-
-/** Evaluates to true if str1 equals str2_onstack, used for comparing
-the magic table names.
-@param str1		in: string to compare
-@param str1_len 	in: length of str1, in bytes, including terminating NUL
-@param str2_onstack	in: char[] array containing a NUL terminated string
-@return			TRUE if str1 equals str2_onstack */
-#define STR_EQ(str1, str1_len, str2_onstack) \
-	((str1_len) == sizeof(str2_onstack) \
-	 && memcmp(str1, str2_onstack, sizeof(str2_onstack)) == 0)
 
 /*******************************************************************//**
 Determine if the given name is a name reserved for MySQL system tables.
@@ -132,19 +111,6 @@ row_mysql_is_system_table(
 	       || 0 == strcmp(name + 6, "user")
 	       || 0 == strcmp(name + 6, "db"));
 }
-
-/*********************************************************************//**
-If a table is not yet in the drop list, adds the table to the list of tables
-which the master thread drops in background. We need this on Unix because in
-ALTER TABLE MySQL may call drop table even if the table has running queries on
-it. Also, if there are running foreign key checks on the table, we drop the
-table lazily.
-@return TRUE if the table was not yet in the drop list, and was added there */
-static
-ibool
-row_add_table_to_background_drop_list(
-/*==================================*/
-	const char*	name);	/*!< in: table name */
 
 #ifdef UNIV_DEBUG
 /** Wait for the background drop list to become empty. */
@@ -2838,7 +2804,7 @@ loop:
 	mutex_enter(&row_drop_list_mutex);
 
 	ut_a(row_mysql_drop_list_inited);
-
+next:
 	drop = UT_LIST_GET_FIRST(row_mysql_drop_list);
 
 	n_tables = UT_LIST_GET_LEN(row_mysql_drop_list);
@@ -2851,60 +2817,37 @@ loop:
 		return(n_tables + n_tables_dropped);
 	}
 
-	DBUG_EXECUTE_IF("row_drop_tables_in_background_sleep",
-		os_thread_sleep(5000000);
-	);
+	table = dict_table_open_on_id(drop->table_id, FALSE,
+				      DICT_TABLE_OP_OPEN_ONLY_IF_CACHED);
 
-	table = dict_table_open_on_name(drop->table_name, FALSE, FALSE,
-					DICT_ERR_IGNORE_NONE);
-
-	if (table == NULL) {
-		/* If for some reason the table has already been dropped
-		through some other mechanism, do not try to drop it */
-
-		goto already_dropped;
-	}
-
-	if (!table->to_be_dropped) {
-		/* There is a scenario: the old table is dropped
-		just after it's added into drop list, and new
-		table with the same name is created, then we try
-		to drop the new table in background. */
-		dict_table_close(table, FALSE, FALSE);
-
-		goto already_dropped;
+	if (!table) {
+		n_tables_dropped++;
+		mutex_enter(&row_drop_list_mutex);
+		UT_LIST_REMOVE(row_mysql_drop_list, drop);
+		MONITOR_DEC(MONITOR_BACKGROUND_DROP_TABLE);
+		ut_free(drop);
+		goto next;
 	}
 
 	ut_a(!table->can_be_evicted);
 
+	if (!table->to_be_dropped) {
+		dict_table_close(table, FALSE, FALSE);
+
+		mutex_enter(&row_drop_list_mutex);
+		UT_LIST_REMOVE(row_mysql_drop_list, drop);
+		UT_LIST_ADD_LAST(row_mysql_drop_list, drop);
+		goto next;
+	}
+
 	dict_table_close(table, FALSE, FALSE);
 
 	if (DB_SUCCESS != row_drop_table_for_mysql_in_background(
-		    drop->table_name)) {
+		    table->name.m_name)) {
 		/* If the DROP fails for some table, we return, and let the
 		main thread retry later */
-
 		return(n_tables + n_tables_dropped);
 	}
-
-	n_tables_dropped++;
-
-already_dropped:
-	mutex_enter(&row_drop_list_mutex);
-
-	UT_LIST_REMOVE(row_mysql_drop_list, drop);
-
-	MONITOR_DEC(MONITOR_BACKGROUND_DROP_TABLE);
-
-	ib::info() << "Dropped table "
-		<< ut_get_name(NULL, drop->table_name)
-		<< " in background drop queue.",
-
-	ut_free(drop->table_name);
-
-	ut_free(drop);
-
-	mutex_exit(&row_drop_list_mutex);
 
 	goto loop;
 }
@@ -2936,14 +2879,13 @@ which the master thread drops in background. We need this on Unix because in
 ALTER TABLE MySQL may call drop table even if the table has running queries on
 it. Also, if there are running foreign key checks on the table, we drop the
 table lazily.
-@return TRUE if the table was not yet in the drop list, and was added there */
+@return	whether background DROP TABLE was scheduled for the first time */
 static
-ibool
-row_add_table_to_background_drop_list(
-/*==================================*/
-	const char*	name)	/*!< in: table name */
+bool
+row_add_table_to_background_drop_list(table_id_t table_id)
 {
 	row_mysql_drop_t*	drop;
+	bool			added = true;
 
 	mutex_enter(&row_drop_list_mutex);
 
@@ -2954,27 +2896,21 @@ row_add_table_to_background_drop_list(
 	     drop != NULL;
 	     drop = UT_LIST_GET_NEXT(row_mysql_drop_list, drop)) {
 
-		if (strcmp(drop->table_name, name) == 0) {
-			/* Already in the list */
-
-			mutex_exit(&row_drop_list_mutex);
-
-			return(FALSE);
+		if (drop->table_id == table_id) {
+			added = false;
+			goto func_exit;
 		}
 	}
 
-	drop = static_cast<row_mysql_drop_t*>(
-		ut_malloc_nokey(sizeof(row_mysql_drop_t)));
-
-	drop->table_name = mem_strdup(name);
+	drop = static_cast<row_mysql_drop_t*>(ut_malloc_nokey(sizeof *drop));
+	drop->table_id = table_id;
 
 	UT_LIST_ADD_LAST(row_mysql_drop_list, drop);
 
 	MONITOR_INC(MONITOR_BACKGROUND_DROP_TABLE);
-
+func_exit:
 	mutex_exit(&row_drop_list_mutex);
-
-	return(TRUE);
+	return added;
 }
 
 /** Reassigns the table identifier of a table.
@@ -3364,31 +3300,9 @@ run_again:
 		que_thr_stop_for_mysql_no_error(thr, trx);
 	} else {
 		que_thr_stop_for_mysql(thr);
+		ut_ad(err != DB_QUE_THR_SUSPENDED);
 
-		if (err != DB_QUE_THR_SUSPENDED) {
-			ibool	was_lock_wait;
-
-			was_lock_wait = row_mysql_handle_errors(
-				&err, trx, thr, NULL);
-
-			if (was_lock_wait) {
-				goto run_again;
-			}
-		} else {
-			que_thr_t*	run_thr;
-			que_node_t*	parent;
-
-			parent = que_node_get_parent(thr);
-
-			run_thr = que_fork_start_command(
-				static_cast<que_fork_t*>(parent));
-
-			ut_a(run_thr == thr);
-
-			/* There was a lock wait but the thread was not
-			in a ready to run or running state. */
-			trx->error_state = DB_LOCK_WAIT;
-
+		if (row_mysql_handle_errors(&err, trx, thr, NULL)) {
 			goto run_again;
 		}
 	}
@@ -3666,7 +3580,6 @@ row_drop_table_for_mysql(
 
 	if (!dict_table_is_temporary(table)) {
 
-		dict_stats_recalc_pool_del(table);
 		dict_stats_defrag_pool_del(table, NULL);
 		if (btr_defragment_thread_active) {
 			/* During fts_drop_orphaned_tables() in
@@ -3674,17 +3587,6 @@ row_drop_table_for_mysql(
 			btr_defragment_mutex has not yet been
 			initialized by btr_defragment_init(). */
 			btr_defragment_remove_table(table);
-		}
-
-		/* Remove stats for this table and all of its indexes from the
-		persistent storage if it exists and if there are stats for this
-		table in there. This function creates its own trx and commits
-		it. */
-		char	errstr[1024];
-		err = dict_stats_drop_table(name, errstr, sizeof(errstr));
-
-		if (err != DB_SUCCESS) {
-			ib::warn() << errstr;
 		}
 	}
 
@@ -3742,7 +3644,7 @@ row_drop_table_for_mysql(
 
 
 	DBUG_EXECUTE_IF("row_drop_table_add_to_background",
-		row_add_table_to_background_drop_list(table->name.m_name);
+		row_add_table_to_background_drop_list(table->id);
 		err = DB_SUCCESS;
 		goto funct_exit;
 	);
@@ -3754,28 +3656,17 @@ row_drop_table_for_mysql(
 	checks take an IS or IX lock on the table. */
 
 	if (table->n_foreign_key_checks_running > 0) {
-
-		const char*	save_tablename = table->name.m_name;
-		ibool		added;
-
-		added = row_add_table_to_background_drop_list(save_tablename);
-
-		if (added) {
+		if (row_add_table_to_background_drop_list(table->id)) {
 			ib::info() << "You are trying to drop table "
 				<< table->name
 				<< " though there is a foreign key check"
 				" running on it. Adding the table to the"
 				" background drop queue.";
-
-			/* We return DB_SUCCESS to MySQL though the drop will
-			happen lazily later */
-
-			err = DB_SUCCESS;
-		} else {
-			/* The table is already in the background drop list */
-			err = DB_ERROR;
 		}
 
+		/* We return DB_SUCCESS to MySQL though the drop will
+		happen lazily later */
+		err = DB_SUCCESS;
 		goto funct_exit;
 	}
 
@@ -3800,12 +3691,7 @@ row_drop_table_for_mysql(
 		lock_remove_all_on_table(table, TRUE);
 		ut_a(table->n_rec_locks == 0);
 	} else if (table->get_ref_count() > 0 || table->n_rec_locks > 0) {
-		ibool	added;
-
-		added = row_add_table_to_background_drop_list(
-			table->name.m_name);
-
-		if (added) {
+		if (row_add_table_to_background_drop_list(table->id)) {
 			ib::info() << "MySQL is trying to drop table "
 				<< table->name
 				<< " though there are still open handles to"
@@ -4019,9 +3905,20 @@ row_drop_table_for_mysql(
 		table_flags = table->flags;
 		ut_ad(!dict_table_is_temporary(table));
 
-		err = row_drop_ancillary_fts_tables(table, trx);
-		if (err != DB_SUCCESS) {
-			break;
+#if MYSQL_VERSION_ID >= 100300
+		if (!table->no_rollback())
+#endif
+		{
+			char	errstr[1024];
+			if (dict_stats_drop_table(name, errstr, sizeof errstr,
+						  trx) != DB_SUCCESS) {
+				ib::warn() << errstr;
+			}
+
+			err = row_drop_ancillary_fts_tables(table, trx);
+			if (err != DB_SUCCESS) {
+				break;
+			}
 		}
 
 		/* Determine the tablespace filename before we drop
@@ -5162,31 +5059,6 @@ not_ok:
 		buf, PAGE_CUR_G, prebuilt, 0, ROW_SEL_NEXT);
 
 	goto loop;
-}
-/*********************************************************************//**
-Determines if a table is a magic monitor table.
-@return	true if monitor table */
-UNIV_INTERN
-bool
-row_is_magic_monitor_table(
-/*=======================*/
-	const char*	table_name)	/*!< in: name of the table, in the
-					form database/table_name */
-{
-	const char*	name; /* table_name without database/ */
-	ulint		len;
-
-	name = dict_remove_db_name(table_name);
-	len = strlen(name) + 1;
-
-	return(STR_EQ(name, len, S_innodb_monitor)
-	       || STR_EQ(name, len, S_innodb_lock_monitor)
-	       || STR_EQ(name, len, S_innodb_tablespace_monitor)
-	       || STR_EQ(name, len, S_innodb_table_monitor)
-#ifdef UNIV_MEM_DEBUG
-	       || STR_EQ(name, len, S_innodb_mem_validate)
-#endif /* UNIV_MEM_DEBUG */
-	       );
 }
 
 /*********************************************************************//**

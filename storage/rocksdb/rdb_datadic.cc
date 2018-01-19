@@ -1461,7 +1461,8 @@ int Rdb_key_def::unpack_record(TABLE *const table, uchar *const buf,
     if (has_covered_bitmap && field->real_type() == MYSQL_TYPE_VARCHAR &&
         !m_pack_info[i].m_covered) {
       covered_column = curr_bitmap_pos < MAX_REF_PARTS &&
-                       bitmap_is_set(&covered_bitmap, curr_bitmap_pos++);
+                       bitmap_is_set(&covered_bitmap, curr_bitmap_pos);
+      curr_bitmap_pos++;
     }
     if (fpi->m_unpack_func && covered_column) {
       /* It is possible to unpack this column. Do it. */
@@ -2921,7 +2922,7 @@ std::array<const Rdb_collation_codec *, MY_ALL_CHARSETS_SIZE>
     rdb_collation_data;
 mysql_mutex_t rdb_collation_data_mutex;
 
-static bool rdb_is_collation_supported(const my_core::CHARSET_INFO *const cs) {
+bool rdb_is_collation_supported(const my_core::CHARSET_INFO *const cs) {
   return cs->strxfrm_multiply==1 && cs->mbmaxlen == 1 &&
          !(cs->state & (MY_CS_BINSORT | MY_CS_NOPAD));
 }
