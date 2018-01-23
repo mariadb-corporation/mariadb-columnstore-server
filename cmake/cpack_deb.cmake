@@ -1,4 +1,5 @@
 IF(DEB)
+CMAKE_MINIMUM_REQUIRED(VERSION 3.4)
 
 SET(CMAKE_INSTALL_PREFIX "/usr/local/mariadb/columnstore/mysql")
 
