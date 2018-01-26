@@ -157,6 +157,7 @@ SETA(CPACK_RPM_server_PACKAGE_OBSOLETES
   "MariaDB-Galera-server")
 SETA(CPACK_RPM_server_PACKAGE_PROVIDES
   "MariaDB"
+  "MariaDB-server"
   "MySQL"
   "MySQL-server"
   "msqlormysql"
