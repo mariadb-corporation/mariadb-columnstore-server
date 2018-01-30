@@ -2681,22 +2681,22 @@ void Item_ident::print(String *str, enum_query_type query_type)
   		str->append('`');
 
   	// print referencing view name for IDB post process
-  	if (cached_table)
+  	if (cached_table && cached_table->referencing_view)
   	{
   		if (cached_table->db && strlen(cached_table->db) > 0)
 	  	{
-					str->append(cached_table->db, (uint) strlen(cached_table->db));
-					str->append('.');
-			}
-			// IDB: table referenced by view is represented by "viewAlias_tableAlias"
-			if (cached_table->referencing_view && query_type != QT_INFINIDB_DERIVED)
-			{
-				str->append(cached_table->referencing_view->alias, (uint)strlen(cached_table->referencing_view->alias));
-				str->append("_");
-			}
-			str->append(cached_table->alias, (uint)strlen(cached_table->alias));
-			str->append('.');
-		}
+            str->append(cached_table->db, (uint) strlen(cached_table->db));
+            str->append('.');
+        }
+        // IDB: table referenced by view is represented by "viewAlias_tableAlias"
+        if (cached_table->referencing_view && query_type != QT_INFINIDB_DERIVED)
+        {
+            str->append(cached_table->referencing_view->alias, (uint)strlen(cached_table->referencing_view->alias));
+            str->append("_");
+        }
+        str->append(cached_table->alias, (uint)strlen(cached_table->alias));
+        str->append('.');
+    }
   	else
   	{
 	  	if (d_name && strlen(d_name) > 0)
