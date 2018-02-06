@@ -3094,13 +3094,13 @@ innobase_convert_identifier(
 	ibool		file_id)/*!< in: TRUE=id is a table or database name;
 				FALSE=id is an UTF-8 string */
 {
+	char nz2[MAX_TABLE_NAME_LEN + 1];
 	const char*	s	= id;
 	int		q;
 
 	if (file_id) {
 
 		char nz[MAX_TABLE_NAME_LEN + 1];
-		char nz2[MAX_TABLE_NAME_LEN + 1];
 
 		/* Decode the table name.  The MySQL function expects
 		a NUL-terminated string.  The input and output strings
@@ -3477,6 +3477,17 @@ innobase_init(
 			innobase_buffer_pool_size);
 		goto error;
 	}
+
+#ifdef WITH_WSREP
+	/* Currently, Galera does not support VATS lock schedule algorithm. */
+	if (innodb_lock_schedule_algorithm == INNODB_LOCK_SCHEDULE_ALGORITHM_VATS
+	    && global_system_variables.wsrep_on) {
+		/* Do not allow InnoDB startup with VATS and Galera */
+		sql_print_error("In Galera, innodb_lock_schedule_algorithm=vats"
+			" is not supported.");
+		goto error;
+	}
+#endif /* WITH_WSREP */
 
 #ifndef HAVE_LZ4
 	if (innodb_compression_algorithm == PAGE_LZ4_ALGORITHM) {
@@ -4882,8 +4893,8 @@ innobase_kill_query(
 			wsrep_thd_is_BF(current_thd, FALSE),
 			lock_get_info(trx->lock.wait_lock).c_str());
 
-		if (!wsrep_thd_is_BF(trx->mysql_thd, FALSE) &&
-		    trx->abort_type == TRX_SERVER_ABORT) {
+		if (!wsrep_thd_is_BF(trx->mysql_thd, FALSE)
+		    && trx->abort_type == TRX_SERVER_ABORT) {
 			ut_ad(!lock_mutex_own());
 			lock_mutex_enter();
 		}
@@ -8286,7 +8297,7 @@ no_commit:
 			table->next_number_field);
 
 		/* Get the value that MySQL attempted to store in the table.*/
-		auto_inc = table->next_number_field->val_int();
+		auto_inc = table->next_number_field->val_uint();
 
 		switch (error) {
 		case DB_DUPLICATE_KEY:
@@ -8880,7 +8891,7 @@ ha_innobase::update_row(
 		ulonglong	auto_inc;
 		ulonglong	col_max_value;
 
-		auto_inc = table->next_number_field->val_int();
+		auto_inc = table->next_number_field->val_uint();
 
 		/* We need the upper limit of the col type to check for
 		whether we update the table autoinc counter or not. */
@@ -13098,7 +13109,7 @@ ha_innobase::records_in_range(
 
 		n_rows = btr_estimate_n_rows_in_range(index, range_start,
 						      mode1, range_end,
-						      mode2, prebuilt->trx);
+						      mode2);
 	} else {
 
 		n_rows = HA_POS_ERROR;
@@ -19234,7 +19245,7 @@ static MYSQL_SYSVAR_ULONG(doublewrite_batch_size, srv_doublewrite_batch_size,
 #endif /* defined UNIV_DEBUG || defined UNIV_PERF_DEBUG */
 
 static MYSQL_SYSVAR_ENUM(lock_schedule_algorithm, innodb_lock_schedule_algorithm,
-  PLUGIN_VAR_RQCMDARG,
+  PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
   "The algorithm Innodb uses for deciding which locks to grant next when"
   " a lock is released. Possible values are"
   " FCFS"

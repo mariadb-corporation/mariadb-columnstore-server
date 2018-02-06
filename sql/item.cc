@@ -1,6 +1,6 @@
 /*
    Copyright (c) 2000, 2016, Oracle and/or its affiliates.
-   Copyright (c) 2010, 2017, MariaDB Corporation
+   Copyright (c) 2010, 2018, MariaDB Corporation
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -4672,7 +4672,8 @@ resolve_ref_in_select_and_group(THD *thd, Item_ident *ref, SELECT_LEX *select)
 
   if (thd->variables.sql_mode & MODE_ONLY_FULL_GROUP_BY &&
       select->having_fix_field  &&
-      select_ref != not_found_item && !group_by_ref)
+      select_ref != not_found_item && !group_by_ref &&
+      !ref->alias_name_used)
   {
     /*
       Report the error if fields was found only in the SELECT item list and
@@ -8487,7 +8488,7 @@ Item *Item_default_value::transform(THD *thd, Item_transformer transformer,
 bool Item_insert_value::eq(const Item *item, bool binary_cmp) const
 {
   return item->type() == INSERT_VALUE_ITEM &&
-    ((Item_default_value *)item)->arg->eq(arg, binary_cmp);
+    ((Item_insert_value *)item)->arg->eq(arg, binary_cmp);
 }
 
 
@@ -10007,11 +10008,11 @@ const char *dbug_print_item(Item *item)
   ulonglong save_option_bits= thd->variables.option_bits;
   thd->variables.option_bits &= ~OPTION_QUOTE_SHOW_CREATE;
 
-  item->print(&str ,QT_EXPLAIN);
+  item->print(&str, QT_EXPLAIN);
 
   thd->variables.option_bits= save_option_bits;
 
-  if (str.c_ptr() == buf)
+  if (str.c_ptr_safe() == buf)
     return buf;
   else
     return "Couldn't fit into buffer";

@@ -125,6 +125,26 @@ When one supplies long data for a placeholder:
 #include "transaction.h"                        // trans_rollback_implicit
 #include "wsrep_mysqld.h"
 
+/**
+  A result class used to send cursor rows using the binary protocol.
+*/
+
+class Select_fetch_protocol_binary: public select_send
+{
+  Protocol_binary protocol;
+public:
+  Select_fetch_protocol_binary(THD *thd);
+  virtual bool send_result_set_metadata(List<Item> &list, uint flags);
+  virtual int send_data(List<Item> &items);
+  virtual bool send_eof();
+#ifdef EMBEDDED_LIBRARY
+  void begin_dataset()
+  {
+    protocol.begin_dataset();
+  }
+#endif
+};
+
 /****************************************************************************/
 // InfiniDB vtable processing
 extern int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stmt = NULL);
@@ -1782,7 +1802,7 @@ static int mysql_test_show_create_db(Prepared_statement *stmt)
   List<Item> fields;
 
   mysqld_show_create_db_get_fields(thd, &fields);
-
+    
   DBUG_RETURN(send_stmt_metadata(thd, stmt, &fields));
 }
 
@@ -1854,7 +1874,7 @@ static int mysql_test_show_master_status(Prepared_statement *stmt)
   List<Item> fields;
 
   show_binlog_info_get_fields(thd, &fields);
-
+    
   DBUG_RETURN(send_stmt_metadata(thd, stmt, &fields));
 }
 
@@ -1877,7 +1897,7 @@ static int mysql_test_show_binlogs(Prepared_statement *stmt)
   List<Item> fields;
 
   show_binlogs_get_fields(thd, &fields);
-
+    
   DBUG_RETURN(send_stmt_metadata(thd, stmt, &fields));
 }
 
@@ -1902,7 +1922,7 @@ static int mysql_test_show_create_routine(Prepared_statement *stmt, int type)
   List<Item> fields;
 
   sp_head::show_create_routine_get_fields(thd, type, &fields);
-
+    
   DBUG_RETURN(send_stmt_metadata(thd, stmt, &fields));
 }
 
@@ -3473,9 +3493,9 @@ void Prepared_statement::cleanup_stmt()
   DBUG_ENTER("Prepared_statement::cleanup_stmt");
   DBUG_PRINT("enter",("stmt: 0x%lx", (long) this));
   thd->restore_set_statement_var();
+  thd->rollback_item_tree_changes();
   cleanup_items(free_list);
   thd->cleanup_after_query();
-  thd->rollback_item_tree_changes();
 
   DBUG_VOID_RETURN;
 }
@@ -3559,6 +3579,7 @@ bool Prepared_statement::prepare(const char *packet, uint packet_len)
 
   if (! (lex= new (mem_root) st_lex_local))
     DBUG_RETURN(TRUE);
+  stmt_lex= lex;
 
   if (set_db(thd->db, thd->db_length))
     DBUG_RETURN(TRUE);
@@ -3623,7 +3644,7 @@ bool Prepared_statement::prepare(const char *packet, uint packet_len)
   */
   MDL_savepoint mdl_savepoint= thd->mdl_context.mdl_savepoint();
 
-  /*
+  /* 
    The only case where we should have items in the thd->free_list is
    after stmt->set_params_from_vars(), which may in some cases create
    Item_null objects.
@@ -3665,8 +3686,6 @@ bool Prepared_statement::prepare(const char *packet, uint packet_len)
     thd->mdl_context.release_transactional_locks();
   }
 
-  select_number_after_prepare= thd->select_number;
-
   /* Preserve CHANGE MASTER attributes */
   lex_end_stage1(lex);
   cleanup_stmt();
@@ -3680,7 +3699,7 @@ bool Prepared_statement::prepare(const char *packet, uint packet_len)
     state= Query_arena::STMT_PREPARED;
     flags&= ~ (uint) IS_IN_USE;
 
-    /*
+    /* 
       Log COM_EXECUTE to the general log. Note, that in case of SQL
       prepared statements this causes two records to be output:
 
@@ -3700,6 +3719,7 @@ bool Prepared_statement::prepare(const char *packet, uint packet_len)
   }
   DBUG_RETURN(error);
 }
+
 
 /**
   Assign parameter values either from variables, in case of SQL PS
@@ -3800,7 +3820,6 @@ Prepared_statement::execute_loop(String *expanded_query,
   */
   DBUG_ASSERT(thd->free_list == NULL);
 
-  thd->select_number= select_number_after_prepare;
   /* Check if we got an error when sending long data */
   if (state == Query_arena::STMT_ERROR)
   {
@@ -3812,7 +3831,7 @@ Prepared_statement::execute_loop(String *expanded_query,
     return TRUE;
 
 #ifdef NOT_YET_FROM_MYSQL_5_6
-  if (unlikely(thd->security_ctx->password_expired &&
+  if (unlikely(thd->security_ctx->password_expired && 
                !lex->is_change_password))
   {
     my_error(ER_MUST_CHANGE_PASSWORD, MYF(0));
@@ -4142,7 +4161,7 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
   */
   DBUG_ASSERT(thd->change_list.is_empty());
 
-  /*
+  /* 
    The only case where we should have items in the thd->free_list is
    after stmt->set_params_from_vars(), which may in some cases create
    Item_null objects.
@@ -4310,13 +4329,13 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
 
   if (! cursor)
     cleanup_stmt();
-
+  
   /*
     EXECUTE command has its own dummy "explain data". We don't need it,
-    instead, we want to keep the query plan of the statement that was
+    instead, we want to keep the query plan of the statement that was 
     executed.
   */
-  if (!stmt_backup.lex->explain ||
+  if (!stmt_backup.lex->explain || 
       !stmt_backup.lex->explain->have_query_plan())
   {
     delete_explain_query(stmt_backup.lex);
@@ -4951,6 +4970,7 @@ Protocol_local::send_error(uint sql_errno, const char *err_msg, const char*)
   */
   return FALSE;
 }
+
 
 #ifdef EMBEDDED_LIBRARY
 void Protocol_local::remove_last_row()

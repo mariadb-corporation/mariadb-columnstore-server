@@ -1103,11 +1103,13 @@ Disable with --skip-innodb-doublewrite.", (G_PTR*) &innobase_use_doublewrite,
    (G_PTR*) &defaults_group, (G_PTR*) &defaults_group,
    0, GET_STR, REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
 
-  {"plugin-dir", OPT_PLUGIN_DIR, "Server plugin directory",
+  {"plugin-dir", OPT_PLUGIN_DIR,
+  "Server plugin directory. Used to load encryption plugin during 'prepare' phase."
+  "Has no effect in the 'backup' phase (plugin directory during backup is the same as server's)",
   &xb_plugin_dir, &xb_plugin_dir,
   0, GET_STR, REQUIRED_ARG, 0, 0, 0, 0, 0, 0 },
 
-  { "plugin-load", OPT_PLUGIN_LOAD, "encrypton plugin to load",
+  { "plugin-load", OPT_PLUGIN_LOAD, "encrypton plugin to load during 'prepare' phase.",
   &xb_plugin_load, &xb_plugin_load,
   0, GET_STR, REQUIRED_ARG, 0, 0, 0, 0, 0, 0 },
 
@@ -1181,10 +1183,10 @@ debug_sync_point(const char *name)
 }
 
 static const char *xb_client_default_groups[]=
-	{ "xtrabackup", "client", 0, 0, 0 };
+	{ "xtrabackup", "mariabackup", "client", 0, 0, 0 };
 
 static const char *xb_server_default_groups[]=
-	{ "xtrabackup", "mysqld", 0, 0, 0 };
+	{ "xtrabackup", "mariabackup", "mysqld", 0, 0, 0 };
 
 static void print_version(void)
 {
@@ -1211,7 +1213,7 @@ GNU General Public License for more details.\n\
 \n\
 You can download full text of the license on http://www.gnu.org/licenses/gpl-2.0.txt\n");
 
-  printf("Usage: [%s [--defaults-file=#] --backup | %s [--defaults-file=#] --prepare] [OPTIONS]\n",my_progname,my_progname);
+  printf("Usage: %s [--defaults-file=#] [--backup | --prepare | --copy-back | --move-back] [OPTIONS]\n",my_progname);
   print_defaults("my", xb_server_default_groups);
   my_print_help(xb_client_options);
   my_print_help(xb_server_options);
@@ -1378,8 +1380,12 @@ xb_get_one_option(int optid,
   case OPT_PROTOCOL:
     if (argument)
     {
-       opt_protocol= find_type_or_exit(argument, &sql_protocol_typelib,
-                                    opt->name);
+      if ((opt_protocol= find_type_with_warning(argument, &sql_protocol_typelib,
+                                                opt->name)) <= 0)
+      {
+        sf_leaking_memory= 1; /* no memory leak reports here */
+        exit(1);
+      }
     }
     break;
 #include "sslopt-case.h"
@@ -2555,8 +2561,9 @@ xtrabackup_scan_log_recs(
 					to this lsn */
 	lsn_t*		group_scanned_lsn,/*!< out: scanning succeeded up to
 					this lsn */
-	bool*		finished)	/*!< out: false if is not able to scan
+	bool*		finished,	/*!< out: false if is not able to scan
 					any more in this log group */
+	bool*		must_reread_log)	/*!< out: should re-read buffer from disk, incomplete read*/
 {
 	lsn_t		scanned_lsn;
 	ulint		data_len;
@@ -2566,6 +2573,7 @@ xtrabackup_scan_log_recs(
 	ulint		scanned_checkpoint_no = 0;
 
 	*finished = false;
+	*must_reread_log = false;
 	scanned_lsn = start_lsn;
 	log_block = log_sys->buf;
 
@@ -2622,8 +2630,10 @@ xtrabackup_scan_log_recs(
 			msg("mariabackup: warning: this is possible when the "
 			    "log block has not been fully written by the "
 			    "server, will retry later.\n");
-			*finished = true;
-			break;
+			*finished = false;
+			*must_reread_log = true;
+			my_sleep(1000);
+			return false;
 		}
 
 		if (log_block_get_flush_bit(log_block)) {
@@ -2688,7 +2698,7 @@ xtrabackup_scan_log_recs(
 
 	if (srv_encrypt_log) {
 		log_encrypt_before_write(scanned_checkpoint_no,
-			log_sys->buf, write_size);
+					 log_sys->buf, start_lsn, write_size);
 	}
 
 	if (ds_write(dst_log_file, log_sys->buf, write_size)) {
@@ -2735,14 +2745,23 @@ xtrabackup_copy_logfile(lsn_t from_lsn, my_bool is_last)
 
 			mutex_enter(&log_sys->mutex);
 
-			log_group_read_log_seg(LOG_RECOVER, log_sys->buf,
-					       group, start_lsn, end_lsn, false);
+			bool scan_ok = false;
+			bool must_reread_log;
+			int retries = 0;
+			do {
 
-			 if (!xtrabackup_scan_log_recs(group, is_last,
-				start_lsn, &contiguous_lsn, &group_scanned_lsn,
-				&finished)) {
+				log_group_read_log_seg(LOG_RECOVER, log_sys->buf,
+					group, start_lsn, end_lsn, false);
+
+				scan_ok = xtrabackup_scan_log_recs(group, is_last,
+					start_lsn, &contiguous_lsn, &group_scanned_lsn,
+					&finished, &must_reread_log);
+
+			} while (!scan_ok && must_reread_log && retries++ < 100);
+
+			if (!scan_ok) {
 				goto error;
-			 }
+			}
 
 			mutex_exit(&log_sys->mutex);
 
@@ -4227,15 +4246,10 @@ xtrabackup_init_temp_log(void)
 
 	ib_int64_t	file_size;
 
-	lsn_t		max_no;
-	lsn_t		max_lsn;
-	lsn_t		checkpoint_no;
+	lsn_t		max_no	= 0;
+	lsn_t		max_lsn	= 0;
 
 	ulint		fold;
-
-	bool		checkpoint_found;
-
-	max_no = 0;
 
 	if (!log_buf) {
 		goto error;
@@ -4335,34 +4349,28 @@ retry:
 		//		' ', 4);
 	}
 
-	checkpoint_found = false;
-
 	/* read last checkpoint lsn */
 	for (field = LOG_CHECKPOINT_1; field <= LOG_CHECKPOINT_2;
 			field += LOG_CHECKPOINT_2 - LOG_CHECKPOINT_1) {
 		if (!recv_check_cp_is_consistent(const_cast<const byte *>
 						 (log_buf + field)))
-			goto not_consistent;
+			continue;
 
-		checkpoint_no = mach_read_from_8(log_buf + field +
-						 LOG_CHECKPOINT_NO);
+		lsn_t checkpoint_no = mach_read_from_8(log_buf + field +
+						       LOG_CHECKPOINT_NO);
 
 		if (checkpoint_no >= max_no) {
 
 			max_no = checkpoint_no;
 			max_lsn = mach_read_from_8(log_buf + field +
 						   LOG_CHECKPOINT_LSN);
-			checkpoint_found = true;
 		}
-not_consistent:
-		;
 	}
 
-	if (!checkpoint_found) {
+	if (!max_lsn) {
 		msg("mariabackup: No valid checkpoint found.\n");
 		goto error;
 	}
-
 
 	/* It seems to be needed to overwrite the both checkpoint area. */
 	mach_write_to_8(log_buf + LOG_CHECKPOINT_1 + LOG_CHECKPOINT_LSN,
@@ -4955,10 +4963,29 @@ xtrabackup_apply_delta(
 			const os_offset_t off = os_offset_t(offset_on_page)*page_size;
 
 			if (off == 0) {
-				/* Fix tablespace size. */
-				os_offset_t n_pages = fsp_get_size_low(static_cast<ib_page_t *>(buf));
-				if (!os_file_set_size(dst_path, dst_file, n_pages*page_size))
-					goto error;
+				/* Read tablespace size from page 0,
+				  extend the tablespace to specified size. */
+				os_offset_t n_pages = mach_read_from_4(buf + FSP_HEADER_OFFSET + FSP_SIZE);
+				ulint space_id = mach_read_from_4(buf + FIL_PAGE_ARCH_LOG_NO_OR_SPACE_ID);
+				if (space_id != TRX_SYS_SPACE) {
+					if (!os_file_set_size(dst_path, dst_file, n_pages*page_size))
+						goto error;
+				} else {
+					/* System tablespace needs special handling , since
+					it can consist of multiple files. The first one has full
+					tablespace size in page 0, but only last file should be extended. */
+					mutex_enter(&fil_system->mutex);
+					fil_space_t* space = fil_space_get_by_id(space_id);
+					mutex_exit(&fil_system->mutex);
+					DBUG_ASSERT(space);
+					fil_node_t* n = UT_LIST_GET_FIRST(space->chain);
+					if(strcmp(n->name, dst_path) == 0) {
+						/* Got first tablespace file, with correct size */
+						ulint actual_size;
+						if (!fil_extend_space_to_desired_size(&actual_size, 0, (ulint)n_pages))
+							goto error;
+					}
+				}
 			}
 
 			success = os_file_write(dst_path, dst_file, buf, off, page_size);
@@ -5421,7 +5448,12 @@ xb_export_cfg_write_table(
 		mach_write_to_4(ptr, col->len);
 		ptr += sizeof(ib_uint32_t);
 
-		mach_write_to_4(ptr, col->mbminmaxlen);
+		/* FIXME: This will not work if mbminlen>4.
+		This field is also redundant, because the lengths
+		are a property of the character set encoding, which
+		in turn is encodedin prtype above. */
+		mach_write_to_4(ptr, col->mbmaxlen * 5 + col->mbminlen);
+
 		ptr += sizeof(ib_uint32_t);
 
 		mach_write_to_4(ptr, col->ind);
@@ -6127,9 +6159,19 @@ xb_init()
 		return(false);
 	}
 
-	if (opt_rsync && xtrabackup_stream_fmt) {
-		msg("Error: --rsync doesn't work with --stream\n");
-		return(false);
+	if (xtrabackup_backup && opt_rsync)
+	{
+		if (xtrabackup_stream_fmt)
+		{
+			msg("Error: --rsync doesn't work with --stream\n");
+			return(false);
+		}
+		bool have_rsync = IF_WIN(false, (system("rsync --version > /dev/null 2>&1") == 0));
+		if (!have_rsync)
+		{
+			msg("Error: rsync executable not found, cannot run backup with --rsync\n");
+			return false;
+		}
 	}
 
 	n_mixed_options = 0;

@@ -345,6 +345,8 @@ public:
   void fix_after_pullout(st_select_lex *new_parent, Item **ref, bool merge);
   bool invisible_mode();
   void reset_cache() { cache= NULL; }
+  virtual void print(String *str, enum_query_type query_type);
+  void restore_first_argument();
 };
 
 
@@ -878,6 +880,7 @@ public:
   {
     allowed_arg_cols= 0;    // Fetch this value from first argument
   }
+  bool fix_fields(THD *, Item **);
   longlong val_int();
   void fix_length_and_dec();
   const char *func_name() const { return "interval"; }
@@ -1679,9 +1682,9 @@ public:
   bool arg_is_datetime_notnull_field()
   {
     Item **args= arguments();
-    if (args[0]->type() == Item::FIELD_ITEM)
+    if (args[0]->real_item()->type() == Item::FIELD_ITEM)
     {
-      Field *field=((Item_field*) args[0])->field;
+      Field *field=((Item_field*) args[0]->real_item())->field;
 
       if (((field->type() == MYSQL_TYPE_DATE) ||
           (field->type() == MYSQL_TYPE_DATETIME)) &&

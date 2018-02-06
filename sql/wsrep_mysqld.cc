@@ -1227,6 +1227,16 @@ int wsrep_to_buf_helper(
       if (!ret && writer.write(&gtid_ev)) ret= 1;
   }
 #endif /* GTID_SUPPORT */
+  if (wsrep_gtid_mode && thd->variables.gtid_seq_no)
+  {
+    Gtid_log_event gtid_event(thd, thd->variables.gtid_seq_no,
+                          thd->variables.gtid_domain_id,
+                          true, LOG_EVENT_SUPPRESS_USE_F,
+                          true, 0);
+    gtid_event.server_id= thd->variables.server_id;
+    if (!gtid_event.is_valid()) ret= 0;
+    ret= writer.write(&gtid_event);
+  }
 
   /* if there is prepare query, add event for it */
   if (!ret && thd->wsrep_TOI_pre_query)
@@ -1976,7 +1986,7 @@ static bool abort_replicated(THD *thd)
   bool ret_code= false;
   if (thd->wsrep_query_state== QUERY_COMMITTING)
   {
-    WSREP_DEBUG("aborting replicated trx: %lu", thd->real_id);
+    WSREP_DEBUG("aborting replicated trx: %llu", (ulonglong)(thd->real_id));
 
     (void)wsrep_abort_thd(thd, thd, TRUE);
     ret_code= true;
