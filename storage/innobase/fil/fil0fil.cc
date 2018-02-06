@@ -2074,7 +2074,7 @@ fil_write_flushed_lsn(
 {
 	byte*	buf1;
 	byte*	buf;
-	dberr_t	err;
+	dberr_t	err = DB_TABLESPACE_NOT_FOUND;
 
 	buf1 = static_cast<byte*>(ut_malloc(2 * UNIV_PAGE_SIZE));
 	buf = static_cast<byte*>(ut_align(buf1, UNIV_PAGE_SIZE));
@@ -2085,7 +2085,9 @@ fil_write_flushed_lsn(
 	/* If tablespace is not encrypted, stamp flush_lsn to
 	first page of all system tablespace datafiles to avoid
 	unnecessary error messages on possible downgrade. */
-	if (!space->crypt_data || space->crypt_data->min_key_version == 0) {
+	if (!space->crypt_data
+	    || !space->crypt_data->should_encrypt()) {
+
 		fil_node_t*     node;
 		ulint   sum_of_sizes = 0;
 

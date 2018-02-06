@@ -1070,9 +1070,11 @@ Truncates an undo log from the end. This function is used during a rollback
 to free space from an undo log. */
 UNIV_INTERN
 void
-trx_undo_truncate_end(
+trx_undo_truncate_end_func(
 /*=======================*/
-	trx_t*		trx,	/*!< in: transaction whose undo log it is */
+#ifdef UNIV_DEBUG
+	const trx_t*	trx,	/*!< in: transaction whose undo log it is */
+#endif /* UNIV_DEBUG */
 	trx_undo_t*	undo,	/*!< in: undo log */
 	undo_no_t	limit)	/*!< in: all undo records with undo number
 				>= this value should be truncated */
@@ -1087,7 +1089,7 @@ trx_undo_truncate_end(
 	ut_ad(mutex_own(&(trx->rseg->mutex)));
 
 	for (;;) {
-		mtr_start_trx(&mtr, trx);
+		mtr_start(&mtr);
 
 		trunc_here = NULL;
 
@@ -1774,7 +1776,7 @@ trx_undo_assign_undo(
 
 	ut_ad(mutex_own(&(trx->undo_mutex)));
 
-	mtr_start_trx(&mtr, trx);
+	mtr_start(&mtr);
 
 	mutex_enter(&rseg->mutex);
 
@@ -2023,9 +2025,13 @@ trx_undo_free_prepared(
 			/* fall through */
 		case TRX_UNDO_ACTIVE:
 			/* lock_trx_release_locks() assigns
-			trx->is_recovered=false */
+			trx->is_recovered=false and
+			trx->state = TRX_STATE_COMMITTED_IN_MEMORY,
+			also for transactions that we faked
+			to TRX_STATE_PREPARED in trx_rollback_resurrected(). */
 			ut_a(srv_read_only_mode
-			     || srv_force_recovery >= SRV_FORCE_NO_TRX_UNDO);
+			     || srv_force_recovery >= SRV_FORCE_NO_TRX_UNDO
+			     || srv_fast_shutdown);
 			break;
 		default:
 			ut_error;
@@ -2047,9 +2053,13 @@ trx_undo_free_prepared(
 			/* fall through */
 		case TRX_UNDO_ACTIVE:
 			/* lock_trx_release_locks() assigns
-			trx->is_recovered=false */
+			trx->is_recovered=false and
+			trx->state = TRX_STATE_COMMITTED_IN_MEMORY,
+			also for transactions that we faked
+			to TRX_STATE_PREPARED in trx_rollback_resurrected(). */
 			ut_a(srv_read_only_mode
-			     || srv_force_recovery >= SRV_FORCE_NO_TRX_UNDO);
+			     || srv_force_recovery >= SRV_FORCE_NO_TRX_UNDO
+			     || srv_fast_shutdown);
 			break;
 		default:
 			ut_error;
