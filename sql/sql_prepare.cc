@@ -125,26 +125,6 @@ When one supplies long data for a placeholder:
 #include "transaction.h"                        // trans_rollback_implicit
 #include "wsrep_mysqld.h"
 
-/**
-  A result class used to send cursor rows using the binary protocol.
-*/
-
-class Select_fetch_protocol_binary: public select_send
-{
-  Protocol_binary protocol;
-public:
-  Select_fetch_protocol_binary(THD *thd);
-  virtual bool send_result_set_metadata(List<Item> &list, uint flags);
-  virtual int send_data(List<Item> &items);
-  virtual bool send_eof();
-#ifdef EMBEDDED_LIBRARY
-  void begin_dataset()
-  {
-    protocol.begin_dataset();
-  }
-#endif
-};
-
 /****************************************************************************/
 // InfiniDB vtable processing
 extern int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stmt = NULL);
