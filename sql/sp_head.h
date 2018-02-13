@@ -520,7 +520,6 @@ public:
   // InfiniDB adds accessor
   sp_pcontext* context() { return m_pcont; }
   uint sp_elements() {return m_instr.elements;}
-  void set_select_number(uint num) { m_select_number= num; }
 
 private:
 
