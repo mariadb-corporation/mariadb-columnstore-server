@@ -438,7 +438,7 @@ typedef struct st_join_table {
     will be turned to fields. These variables are pointing to
     tmp_fields_list[123]. Valid only for tmp tables and the last non-tmp
     table in the query plan.
-    @see JOIN::make_tmp_tables_info()
+    @see JOIN::make_aggr_tables_info()
   */
   List<Item> *fields;
   /** List of all expressions in the select list */
@@ -1960,7 +1960,7 @@ int report_error(TABLE *table, int error);
 int safe_index_read(JOIN_TAB *tab);
 int get_quick_record(SQL_SELECT *select);
 int setup_order(THD *thd, Ref_ptr_array ref_pointer_array, TABLE_LIST *tables,
-		List<Item> &fields, List <Item> &all_fields, ORDER *order,
+                List<Item> &fields, List <Item> &all_fields, ORDER *order,
                 bool from_window_spec= false);
 int setup_group(THD *thd,  Ref_ptr_array ref_pointer_array, TABLE_LIST *tables,
 		List<Item> &fields, List<Item> &all_fields, ORDER *order,
@@ -2038,7 +2038,7 @@ public:
     @param thd         - Current thread.
   */
   static void *operator new(size_t size, THD *thd) throw();
-  static void operator delete(void *ptr, size_t size) { TRASH(ptr, size); }
+  static void operator delete(void *ptr, size_t size) {TRASH_FREE(ptr, size);}
 
   Virtual_tmp_table(THD *thd)
   {
@@ -2266,8 +2266,8 @@ bool create_internal_tmp_table(TABLE *table, KEY *keyinfo,
                                TMP_ENGINE_COLUMNDEF **recinfo, 
                                ulonglong options);
 bool instantiate_tmp_table(TABLE *table, KEY *keyinfo, 
-                           MARIA_COLUMNDEF *start_recinfo,
-                           MARIA_COLUMNDEF **recinfo, 
+                           TMP_ENGINE_COLUMNDEF *start_recinfo,
+                           TMP_ENGINE_COLUMNDEF **recinfo,
                            ulonglong options);
 bool open_tmp_table(TABLE *table);
 void setup_tmp_table_column_bitmaps(TABLE *table, uchar *bitmaps);

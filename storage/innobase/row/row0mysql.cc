@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2000, 2017, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2015, 2017, MariaDB Corporation.
+Copyright (c) 2015, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -306,29 +306,6 @@ row_mysql_store_geometry(
 	mach_write_to_n_little_endian(dest, dest_len - 8, src_len);
 
 	memcpy(dest + dest_len - 8, &src, sizeof src);
-
-	DBUG_EXECUTE_IF("row_print_geometry_data",
-	{
-		String  res;
-		Geometry_buffer buffer;
-		String  wkt;
-
-		/** Show the meaning of geometry data. */
-		Geometry* g = Geometry::construct(
-			&buffer, (const char*)src, (uint32) src_len);
-
-		if (g)
-		{
-			/*
-			if (g->as_wkt(&wkt) == 0)
-			{
-				ib::info() << "Write geometry data to"
-					" MySQL WKT format: "
-					<< wkt.c_ptr_safe() << ".";
-			}
-			*/
-		}
-	});
 }
 
 /*******************************************************************//**
@@ -348,29 +325,6 @@ row_mysql_read_geometry(
 	*len = mach_read_from_n_little_endian(ref, col_len - 8);
 
 	memcpy(&data, ref + col_len - 8, sizeof data);
-
-	DBUG_EXECUTE_IF("row_print_geometry_data",
-	{
-		String  res;
-		Geometry_buffer buffer;
-		String  wkt;
-
-		/** Show the meaning of geometry data. */
-		Geometry* g = Geometry::construct(
-			&buffer, (const char*) data, (uint32) *len);
-
-		if (g)
-		{
-			/*
-			if (g->as_wkt(&wkt) == 0)
-			{
-				ib::info() << "Read geometry data in"
-					" MySQL's WKT format: "
-					<< wkt.c_ptr_safe() << ".";
-			}
-			*/
-		}
-	});
 
 	return(data);
 }
@@ -1259,20 +1213,11 @@ run_again:
 	return(err);
 }
 
-/*********************************************************************//**
-Sets a table lock on the table mentioned in prebuilt.
+/** Lock a table.
+@param[in,out]	prebuilt	table handle
 @return error code or DB_SUCCESS */
 dberr_t
-row_lock_table_for_mysql(
-/*=====================*/
-	row_prebuilt_t*	prebuilt,	/*!< in: prebuilt struct in the MySQL
-					table handle */
-	dict_table_t*	table,		/*!< in: table to lock, or NULL
-					if prebuilt->table should be
-					locked as
-					prebuilt->select_lock_type */
-	ulint		mode)		/*!< in: lock mode of table
-					(ignored if table==NULL) */
+row_lock_table(row_prebuilt_t* prebuilt)
 {
 	trx_t*		trx		= prebuilt->trx;
 	que_thr_t*	thr;
@@ -1302,17 +1247,10 @@ run_again:
 
 	trx_start_if_not_started_xa(trx, false);
 
-	if (table) {
-		err = lock_table(
-			0, table,
-			static_cast<enum lock_mode>(mode), thr);
-	} else {
-		err = lock_table(
-			0, prebuilt->table,
-			static_cast<enum lock_mode>(
-				prebuilt->select_lock_type),
-			thr);
-	}
+	err = lock_table(0, prebuilt->table,
+			 static_cast<enum lock_mode>(
+				 prebuilt->select_lock_type),
+			 thr);
 
 	trx->error_state = err;
 
@@ -1423,17 +1361,6 @@ row_insert_for_mysql(
 		return(row_mysql_get_table_status(prebuilt->table, trx, true));
 	} else if (high_level_read_only) {
 		return(DB_READ_ONLY);
-	}
-	DBUG_EXECUTE_IF("mark_table_corrupted", {
-		/* Mark the table corrupted for the clustered index */
-		dict_index_t*	index = dict_table_get_first_index(table);
-		ut_ad(dict_index_is_clust(index));
-		dict_set_corrupted(index, trx, "INSERT TABLE"); });
-
-	if (dict_table_is_corrupted(table)) {
-
-		ib::error() << "Table " << table->name << " is corrupt.";
-		return(DB_TABLE_CORRUPT);
 	}
 
 	DBUG_EXECUTE_IF("mark_table_corrupted", {
@@ -1560,9 +1487,21 @@ error_exit:
 			}
 		}
 
-		/* Pass NULL for the columns affected, since an INSERT affects
-		all FTS indexes. */
-		fts_trx_add_op(trx, table, doc_id, FTS_INSERT, NULL);
+		if (table->skip_alter_undo) {
+			if (trx->fts_trx == NULL) {
+				trx->fts_trx = fts_trx_create(trx);
+			}
+
+			fts_trx_table_t ftt;
+			ftt.table = table;
+			ftt.fts_trx = trx->fts_trx;
+
+			fts_add_doc_from_tuple(&ftt, doc_id, node->row);
+		} else {
+			/* Pass NULL for the columns affected, since an INSERT affects
+			all FTS indexes. */
+			fts_trx_add_op(trx, table, doc_id, FTS_INSERT, NULL);
+		}
 	}
 
 	que_thr_stop_for_mysql_no_error(thr, trx);
@@ -1581,7 +1520,7 @@ error_exit:
 
 	if (prebuilt->clust_index_was_generated) {
 		/* set row id to prebuilt */
-		ut_memcpy(prebuilt->row_id, node->row_id_buf, DATA_ROW_ID_LEN);
+		memcpy(prebuilt->row_id, node->sys_buf, DATA_ROW_ID_LEN);
 	}
 
 	dict_stats_update_if_needed(table);
@@ -1659,8 +1598,6 @@ row_create_update_node_for_mysql(
 
 	node->table_sym = NULL;
 	node->col_assign_list = NULL;
-	node->fts_doc_id = FTS_NULL_DOC_ID;
-	node->fts_next_doc_id = UINT64_UNDEFINED;
 
 	DBUG_RETURN(node);
 }
@@ -1708,9 +1645,9 @@ row_fts_do_update(
 	doc_id_t	old_doc_id,	/* in: old document id */
 	doc_id_t	new_doc_id)	/* in: new document id */
 {
-	fts_trx_add_op(trx, table, old_doc_id, FTS_DELETE, NULL);
-
-	if (new_doc_id != FTS_NULL_DOC_ID) {
+	if(trx->fts_next_doc_id) {
+		fts_trx_add_op(trx, table, old_doc_id, FTS_DELETE, NULL);
+		if(new_doc_id != FTS_NULL_DOC_ID)
 		fts_trx_add_op(trx, table, new_doc_id, FTS_INSERT, NULL);
 	}
 }
@@ -1722,24 +1659,30 @@ static
 dberr_t
 row_fts_update_or_delete(
 /*=====================*/
-	trx_t*		trx,
-	upd_node_t*	node)	/* in: prebuilt struct in MySQL
+	row_prebuilt_t*	prebuilt)	/* in: prebuilt struct in MySQL
 					handle */
 {
-	dict_table_t*	table = node->table;
-	doc_id_t	old_doc_id = node->fts_doc_id;
+	trx_t*		trx = prebuilt->trx;
+	dict_table_t*	table = prebuilt->table;
+	upd_node_t*	node = prebuilt->upd_node;
+	doc_id_t	old_doc_id = prebuilt->fts_doc_id;
+
 	DBUG_ENTER("row_fts_update_or_delete");
 
-	ut_a(dict_table_has_fts_index(node->table));
+	ut_a(dict_table_has_fts_index(prebuilt->table));
 
 	/* Deletes are simple; get them out of the way first. */
 	if (node->is_delete) {
 		/* A delete affects all FTS indexes, so we pass NULL */
 		fts_trx_add_op(trx, table, old_doc_id, FTS_DELETE, NULL);
 	} else {
-		doc_id_t	new_doc_id = node->fts_next_doc_id;
-		ut_ad(new_doc_id != UINT64_UNDEFINED);
+		doc_id_t	new_doc_id;
+		new_doc_id = fts_read_doc_id((byte*) &trx->fts_next_doc_id);
 
+		if (new_doc_id == 0) {
+			ib::error() << "InnoDB FTS: Doc ID cannot be 0";
+			return(DB_FTS_INVALID_DOCID);
+		}
 		row_fts_do_update(trx, table, old_doc_id, new_doc_id);
 	}
 
@@ -1788,19 +1731,6 @@ init_fts_doc_id_for_ref(
 	}
 }
 
-/* A functor for decrementing counters. */
-class ib_dec_counter {
-public:
-	ib_dec_counter() {}
-
-	void operator() (upd_node_t* node) {
-		ut_ad(node->table->n_foreign_key_checks_running > 0);
-		my_atomic_addlint(
-			&node->table->n_foreign_key_checks_running, -1);
-	}
-};
-
-
 /** Does an update or delete of a row for MySQL.
 @param[in,out]	prebuilt	prebuilt struct in MySQL handle
 @return error code or DB_SUCCESS */
@@ -1810,15 +1740,11 @@ row_update_for_mysql(row_prebuilt_t* prebuilt)
 	trx_savept_t	savept;
 	dberr_t		err;
 	que_thr_t*	thr;
-	ibool		was_lock_wait;
 	dict_index_t*	clust_index;
 	upd_node_t*	node;
 	dict_table_t*	table		= prebuilt->table;
 	trx_t*		trx		= prebuilt->trx;
 	ulint		fk_depth	= 0;
-	upd_cascade_t*	cascade_upd_nodes;
-	upd_cascade_t*	new_upd_nodes;
-	upd_cascade_t*	processed_cascades;
 	bool		got_s_lock	= false;
 
 	DBUG_ENTER("row_update_for_mysql");
@@ -1863,26 +1789,6 @@ row_update_for_mysql(row_prebuilt_t* prebuilt)
 	const bool is_delete = node->is_delete;
 	ut_ad(node->table == table);
 
-	if (node->cascade_heap) {
-		mem_heap_empty(node->cascade_heap);
-	} else {
-		node->cascade_heap = mem_heap_create(128);
-	}
-
-	mem_heap_allocator<upd_node_t*> mem_heap_ator(node->cascade_heap);
-
-	cascade_upd_nodes = new
-		(mem_heap_ator.allocate(sizeof(upd_cascade_t)))
-		upd_cascade_t(deque_mem_heap_t(mem_heap_ator));
-
-	new_upd_nodes = new
-		(mem_heap_ator.allocate(sizeof(upd_cascade_t)))
-		upd_cascade_t(deque_mem_heap_t(mem_heap_ator));
-
-	processed_cascades = new
-		(mem_heap_ator.allocate(sizeof(upd_cascade_t)))
-		upd_cascade_t(deque_mem_heap_t(mem_heap_ator));
-
 	clust_index = dict_table_get_first_index(table);
 
 	if (prebuilt->pcur->btr_cur.index == clust_index) {
@@ -1907,121 +1813,52 @@ row_update_for_mysql(row_prebuilt_t* prebuilt)
 
 	node->state = UPD_NODE_UPDATE_CLUSTERED;
 
-	node->cascade_top = true;
-	node->cascade_upd_nodes = cascade_upd_nodes;
-	node->new_upd_nodes = new_upd_nodes;
-	node->processed_cascades = processed_cascades;
-	node->fts_doc_id = prebuilt->fts_doc_id;
-
-	if (trx->fts_next_doc_id != UINT64_UNDEFINED) {
-		node->fts_next_doc_id = fts_read_doc_id(
-			(byte*) &trx->fts_next_doc_id);
-	} else {
-		node->fts_next_doc_id = UINT64_UNDEFINED;
-	}
-
 	ut_ad(!prebuilt->sql_stat_start);
 
 	que_thr_move_to_run_state_for_mysql(thr, trx);
 
-	thr->fk_cascade_depth = 0;
+	for (;;) {
+		thr->run_node = node;
+		thr->prev_node = node;
+		thr->fk_cascade_depth = 0;
 
-run_again:
-	if (thr->fk_cascade_depth == 1 && trx->dict_operation_lock_mode == 0) {
-		got_s_lock = true;
-		row_mysql_freeze_data_dictionary(trx);
-	}
+		row_upd_step(thr);
 
-	thr->run_node = node;
-	thr->prev_node = node;
+		err = trx->error_state;
 
-	row_upd_step(thr);
-
-	DBUG_EXECUTE_IF("dml_cascade_only_once", node->check_cascade_only_once(););
-
-	err = trx->error_state;
-
-	if (err != DB_SUCCESS) {
+		if (err == DB_SUCCESS) {
+			break;
+		}
 
 		que_thr_stop_for_mysql(thr);
 
 		if (err == DB_RECORD_NOT_FOUND) {
 			trx->error_state = DB_SUCCESS;
-			trx->op_info = "";
-
-			if (thr->fk_cascade_depth > 0) {
-				que_graph_free_recursive(node);
-			}
 			goto error;
-		}
-
-		/* Since reporting a plain "duplicate key" error message to
-		the user in cases where a long CASCADE operation would lead
-		to a duplicate key in some other table is very confusing,
-		map duplicate key errors resulting from FK constraints to a
-		separate error code. */
-		if (err == DB_DUPLICATE_KEY && thr->fk_cascade_depth > 0) {
-			err = DB_FOREIGN_DUPLICATE_KEY;
-			trx->error_state = err;
 		}
 
 		thr->lock_state= QUE_THR_LOCK_ROW;
 
 		DEBUG_SYNC(trx->mysql_thd, "row_update_for_mysql_error");
 
-		was_lock_wait = row_mysql_handle_errors(&err, trx, thr,
-							&savept);
+		bool was_lock_wait = row_mysql_handle_errors(
+			&err, trx, thr, &savept);
 		thr->lock_state= QUE_THR_LOCK_NOLOCK;
 
-		if (was_lock_wait) {
-			std::for_each(new_upd_nodes->begin(),
-				      new_upd_nodes->end(),
-				      ib_dec_counter());
-			std::for_each(new_upd_nodes->begin(),
-				      new_upd_nodes->end(),
-				      que_graph_free_recursive);
-			node->new_upd_nodes->clear();
-			goto run_again;
+		if (!was_lock_wait) {
+			goto error;
 		}
+	}
 
-		trx->op_info = "";
+	que_thr_stop_for_mysql_no_error(thr, trx);
 
-		if (thr->fk_cascade_depth > 0) {
-			que_graph_free_recursive(node);
+	if (dict_table_has_fts_index(table)
+	    && trx->fts_next_doc_id != UINT64_UNDEFINED) {
+		err = row_fts_update_or_delete(prebuilt);
+		if (UNIV_UNLIKELY(err != DB_SUCCESS)) {
+			ut_ad(!"unexpected error");
+			goto error;
 		}
-		goto error;
-	} else {
-
-		std::copy(node->new_upd_nodes->begin(),
-			  node->new_upd_nodes->end(),
-			  std::back_inserter(*node->cascade_upd_nodes));
-
-		node->new_upd_nodes->clear();
-	}
-
-	if (dict_table_has_fts_index(node->table)
-	    && node->fts_doc_id != FTS_NULL_DOC_ID
-	    && node->fts_next_doc_id != UINT64_UNDEFINED) {
-		err = row_fts_update_or_delete(trx, node);
-		ut_a(err == DB_SUCCESS);
-	}
-
-	if (thr->fk_cascade_depth > 0) {
-		/* Processing cascade operation */
-		ut_ad(node->table->n_foreign_key_checks_running > 0);
-		my_atomic_addlint(
-			&node->table->n_foreign_key_checks_running, -1);
-		node->processed_cascades->push_back(node);
-	}
-
-	if (!cascade_upd_nodes->empty()) {
-		DEBUG_SYNC_C("foreign_constraint_update_cascade");
-		node = cascade_upd_nodes->front();
-		node->cascade_upd_nodes = cascade_upd_nodes;
-		cascade_upd_nodes->pop_front();
-		thr->fk_cascade_depth++;
-
-		goto run_again;
 	}
 
 	/* Completed cascading operations (if any) */
@@ -2029,45 +1866,10 @@ run_again:
 		row_mysql_unfreeze_data_dictionary(trx);
 	}
 
-	thr->fk_cascade_depth = 0;
-
-	/* Update the statistics of each involved table
-	only after completing all operations, including
-	FOREIGN KEY...ON...CASCADE|SET NULL. */
 	bool	update_statistics;
+	ut_ad(node->is_delete == is_delete);
 
-	for (upd_cascade_t::iterator i = processed_cascades->begin();
-	     i != processed_cascades->end();
-	     ++i) {
-
-		node = *i;
-
-		if (node->is_delete) {
-			/* Not protected by dict_table_stats_lock() for
-			performance reasons, we would rather get garbage
-			in stat_n_rows (which is just an estimate anyway)
-			than protecting the following code with a latch. */
-			dict_table_n_rows_dec(node->table);
-
-			update_statistics = !srv_stats_include_delete_marked;
-			srv_stats.n_rows_deleted.inc(size_t(trx->id));
-		} else {
-			update_statistics
-				= !(node->cmpl_info & UPD_NODE_NO_ORD_CHANGE);
-			srv_stats.n_rows_updated.inc(size_t(trx->id));
-		}
-
-		if (update_statistics) {
-			dict_stats_update_if_needed(node->table);
-		} else {
-			/* Always update the table modification counter. */
-			node->table->stat_modified_counter++;
-		}
-
-		que_graph_free_recursive(node);
-	}
-
-	if (is_delete) {
+	if (/*node->*/is_delete) {
 		/* Not protected by dict_table_stats_lock() for performance
 		reasons, we would rather get garbage in stat_n_rows (which is
 		just an estimate anyway) than protecting the following code
@@ -2101,44 +1903,13 @@ run_again:
 
 	trx->op_info = "";
 
-	que_thr_stop_for_mysql_no_error(thr, trx);
-
-	DBUG_ASSERT(cascade_upd_nodes->empty());
-
 	DBUG_RETURN(err);
 
 error:
+	trx->op_info = "";
 	if (got_s_lock) {
 		row_mysql_unfreeze_data_dictionary(trx);
 	}
-
-	if (thr->fk_cascade_depth > 0) {
-		ut_ad(node->table->n_foreign_key_checks_running > 0);
-		my_atomic_addlint(
-			&node->table->n_foreign_key_checks_running, -1);
-		thr->fk_cascade_depth = 0;
-	}
-
-	/* Reset the table->n_foreign_key_checks_running counter */
-	std::for_each(cascade_upd_nodes->begin(),
-		      cascade_upd_nodes->end(),
-		      ib_dec_counter());
-
-	std::for_each(new_upd_nodes->begin(),
-		      new_upd_nodes->end(),
-		      ib_dec_counter());
-
-	std::for_each(cascade_upd_nodes->begin(),
-		      cascade_upd_nodes->end(),
-		      que_graph_free_recursive);
-
-	std::for_each(new_upd_nodes->begin(),
-		      new_upd_nodes->end(),
-		      que_graph_free_recursive);
-
-	std::for_each(processed_cascades->begin(),
-		      processed_cascades->end(),
-		      que_graph_free_recursive);
 
 	DBUG_RETURN(err);
 }
@@ -2304,6 +2075,89 @@ row_mysql_unfreeze_data_dictionary(
 	rw_lock_s_unlock(dict_operation_lock);
 
 	trx->dict_operation_lock_mode = 0;
+}
+
+/**********************************************************************//**
+Does a cascaded delete or set null in a foreign key operation.
+@return error code or DB_SUCCESS */
+dberr_t
+row_update_cascade_for_mysql(
+/*=========================*/
+        que_thr_t*      thr,    /*!< in: query thread */
+        upd_node_t*     node,   /*!< in: update node used in the cascade
+                                or set null operation */
+        dict_table_t*   table)  /*!< in: table where we do the operation */
+{
+        /* Increment fk_cascade_depth to record the recursive call depth on
+        a single update/delete that affects multiple tables chained
+        together with foreign key relations. */
+
+        if (++thr->fk_cascade_depth > FK_MAX_CASCADE_DEL) {
+                return(DB_FOREIGN_EXCEED_MAX_CASCADE);
+        }
+
+	const trx_t* trx = thr_get_trx(thr);
+
+	for (;;) {
+		thr->run_node = node;
+		thr->prev_node = node;
+
+		DEBUG_SYNC_C("foreign_constraint_update_cascade");
+		{
+			TABLE *mysql_table = thr->prebuilt->m_mysql_table;
+			thr->prebuilt->m_mysql_table = NULL;
+			row_upd_step(thr);
+			thr->prebuilt->m_mysql_table = mysql_table;
+		}
+
+		switch (trx->error_state) {
+		case DB_LOCK_WAIT:
+			que_thr_stop_for_mysql(thr);
+			lock_wait_suspend_thread(thr);
+
+			if (trx->error_state == DB_SUCCESS) {
+				continue;
+			}
+
+			/* fall through */
+		default:
+			/* Other errors are handled for the parent node. */
+			thr->fk_cascade_depth = 0;
+			return trx->error_state;
+
+		case DB_SUCCESS:
+			thr->fk_cascade_depth = 0;
+			bool stats;
+
+			if (node->is_delete) {
+				/* Not protected by
+				dict_table_stats_lock() for
+				performance reasons, we would rather
+				get garbage in stat_n_rows (which is
+				just an estimate anyway) than
+				protecting the following code with a
+				latch. */
+				dict_table_n_rows_dec(node->table);
+
+				stats = !srv_stats_include_delete_marked;
+				srv_stats.n_rows_deleted.inc(size_t(trx->id));
+			} else {
+				stats = !(node->cmpl_info
+					  & UPD_NODE_NO_ORD_CHANGE);
+				srv_stats.n_rows_updated.inc(size_t(trx->id));
+			}
+
+			if (stats) {
+				dict_stats_update_if_needed(node->table);
+			} else {
+				/* Always update the table
+				modification counter. */
+				node->table->stat_modified_counter++;
+			}
+
+			return(DB_SUCCESS);
+		}
+	}
 }
 
 /*********************************************************************//**
@@ -3300,9 +3154,31 @@ run_again:
 		que_thr_stop_for_mysql_no_error(thr, trx);
 	} else {
 		que_thr_stop_for_mysql(thr);
-		ut_ad(err != DB_QUE_THR_SUSPENDED);
 
-		if (row_mysql_handle_errors(&err, trx, thr, NULL)) {
+		if (err != DB_QUE_THR_SUSPENDED) {
+			ibool	was_lock_wait;
+
+			was_lock_wait = row_mysql_handle_errors(
+				&err, trx, thr, NULL);
+
+			if (was_lock_wait) {
+				goto run_again;
+			}
+		} else {
+			que_thr_t*	run_thr;
+			que_node_t*	parent;
+
+			parent = que_node_get_parent(thr);
+
+			run_thr = que_fork_start_command(
+				static_cast<que_fork_t*>(parent));
+
+			ut_a(run_thr == thr);
+
+			/* There was a lock wait but the thread was not
+			in a ready to run or running state. */
+			trx->error_state = DB_LOCK_WAIT;
+
 			goto run_again;
 		}
 	}
@@ -3580,6 +3456,7 @@ row_drop_table_for_mysql(
 
 	if (!dict_table_is_temporary(table)) {
 
+		dict_stats_recalc_pool_del(table);
 		dict_stats_defrag_pool_del(table, NULL);
 		if (btr_defragment_thread_active) {
 			/* During fts_drop_orphaned_tables() in
@@ -3587,6 +3464,17 @@ row_drop_table_for_mysql(
 			btr_defragment_mutex has not yet been
 			initialized by btr_defragment_init(). */
 			btr_defragment_remove_table(table);
+		}
+
+		/* Remove stats for this table and all of its indexes from the
+		persistent storage if it exists and if there are stats for this
+		table in there. This function creates its own trx and commits
+		it. */
+		char	errstr[1024];
+		err = dict_stats_drop_table(name, errstr, sizeof(errstr));
+
+		if (err != DB_SUCCESS) {
+			ib::warn() << errstr;
 		}
 	}
 
@@ -3905,20 +3793,9 @@ row_drop_table_for_mysql(
 		table_flags = table->flags;
 		ut_ad(!dict_table_is_temporary(table));
 
-#if MYSQL_VERSION_ID >= 100300
-		if (!table->no_rollback())
-#endif
-		{
-			char	errstr[1024];
-			if (dict_stats_drop_table(name, errstr, sizeof errstr,
-						  trx) != DB_SUCCESS) {
-				ib::warn() << errstr;
-			}
-
-			err = row_drop_ancillary_fts_tables(table, trx);
-			if (err != DB_SUCCESS) {
-				break;
-			}
+		err = row_drop_ancillary_fts_tables(table, trx);
+		if (err != DB_SUCCESS) {
+			break;
 		}
 
 		/* Determine the tablespace filename before we drop
@@ -4778,6 +4655,8 @@ end:
 					DICT_ERR_IGNORE_NONE);
 			fk_tables.pop_front();
 		}
+
+		table->data_dir_path= NULL;
 	}
 
 funct_exit:
@@ -4827,59 +4706,6 @@ funct_exit:
 	trx->op_info = "";
 
 	return(err);
-}
-
-/** Renames a partitioned table for MySQL.
-@param[in]	old_name	Old table name.
-@param[in]	new_name	New table name.
-@param[in,out]	trx		Transaction.
-@return error code or DB_SUCCESS */
-dberr_t
-row_rename_partitions_for_mysql(
-	const char*	old_name,
-	const char*	new_name,
-	trx_t*		trx)
-{
-	char		from_name[FN_REFLEN];
-	char		to_name[FN_REFLEN];
-	ulint		from_len = strlen(old_name);
-	ulint		to_len = strlen(new_name);
-	char*		table_name;
-	dberr_t		error = DB_TABLE_NOT_FOUND;
-
-	ut_a(from_len < (FN_REFLEN - 4));
-	ut_a(to_len < (FN_REFLEN - 4));
-	memcpy(from_name, old_name, from_len);
-	from_name[from_len] = '#';
-	from_name[from_len + 1] = 0;
-	while ((table_name = dict_get_first_table_name_in_db(from_name))) {
-		ut_a(memcmp(table_name, from_name, from_len) == 0);
-		/* Must match #[Pp]#<partition_name> */
-		if (strlen(table_name) <= (from_len + 3)
-		    || table_name[from_len] != '#'
-		    || table_name[from_len + 2] != '#'
-		    || (table_name[from_len + 1] != 'P'
-			&& table_name[from_len + 1] != 'p')) {
-
-			ut_ad(0);
-			ut_free(table_name);
-			continue;
-		}
-		memcpy(to_name, new_name, to_len);
-		memcpy(to_name + to_len, table_name + from_len,
-			strlen(table_name) - from_len + 1);
-		error = row_rename_table_for_mysql(table_name, to_name,
-						trx, false);
-		if (error != DB_SUCCESS) {
-			/* Rollback and return. */
-			trx_rollback_for_mysql(trx);
-			ut_free(table_name);
-			return(error);
-		}
-		ut_free(table_name);
-	}
-	trx_commit_for_mysql(trx);
-	return(error);
 }
 
 /*********************************************************************//**

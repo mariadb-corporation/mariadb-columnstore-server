@@ -42,12 +42,12 @@ public:
   { return alloc_root(mem_root, size); }
   static void *operator new(size_t size, MEM_ROOT *mem_root) throw ()
   { return alloc_root(mem_root, size); }
-  static void operator delete(void *ptr, size_t size) { TRASH(ptr, size); }
+  static void operator delete(void *ptr, size_t size) { TRASH_FREE(ptr, size); }
   static void operator delete(void *ptr, MEM_ROOT *mem_root)
   { /* never called */ }
   static void operator delete[](void *ptr, MEM_ROOT *mem_root)
   { /* never called */ }
-  static void operator delete[](void *ptr, size_t size) { TRASH(ptr, size); }
+  static void operator delete[](void *ptr, size_t size) { TRASH_FREE(ptr, size); }
 #ifdef HAVE_valgrind
   bool dummy_for_valgrind;
   inline Sql_alloc() :dummy_for_valgrind(0) {}
@@ -200,7 +200,8 @@ public:
     need to copy elements by value, you should employ
     list_copy_and_replace_each_value after creating a copy.
   */
-  base_list(const base_list &rhs, MEM_ROOT *mem_root);
+  bool copy(const base_list *rhs, MEM_ROOT *mem_root);
+  base_list(const base_list &rhs, MEM_ROOT *mem_root) { copy(&rhs, mem_root); }
   inline base_list(bool error) { }
   inline bool push_back(void *info)
   {
@@ -536,6 +537,8 @@ public:
   inline void disjoin(List<T> *list) { base_list::disjoin(list); }
   inline bool add_unique(T *a, bool (*eq)(T *a, T *b))
   { return base_list::add_unique(a, (List_eq *)eq); }
+  inline bool copy(const List<T> *list, MEM_ROOT *root)
+  { return base_list::copy(list, root); }
   void delete_elements(void)
   {
     list_node *element,*next;

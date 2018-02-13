@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2005, 2017, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2013, 2017, MariaDB Corporation.
+Copyright (c) 2013, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -300,7 +300,7 @@ my_error_innodb(
 		break;
 	case DB_TOO_BIG_INDEX_COL:
 		my_error(ER_INDEX_COLUMN_TOO_LONG, MYF(0),
-			 DICT_MAX_FIELD_LEN_BY_FORMAT_FLAG(flags));
+			 (ulong) DICT_MAX_FIELD_LEN_BY_FORMAT_FLAG(flags));
 		break;
 	case DB_TOO_MANY_CONCURRENT_TRXS:
 		my_error(ER_TOO_MANY_CONCURRENT_TRXS, MYF(0));
@@ -1636,7 +1636,7 @@ innobase_get_foreign_key_info(
 			/* Not possible to add a foreign key without a
 			referenced column */
 			mutex_exit(&dict_sys->mutex);
-			my_error(ER_CANNOT_ADD_FOREIGN, MYF(0), tbl_namep);
+			my_error(ER_CANNOT_ADD_FOREIGN, MYF(0));
 			goto err_exit;
 		}
 
@@ -1756,8 +1756,7 @@ innobase_col_to_mysql(
 #ifdef UNIV_DEBUG
 	case DATA_MYSQL:
 		ut_ad(flen >= len);
-		ut_ad(DATA_MBMAXLEN(col->mbminmaxlen)
-		      >= DATA_MBMINLEN(col->mbminmaxlen));
+		ut_ad(col->mbmaxlen >= col->mbminlen);
 		memcpy(dest, data, len);
 		break;
 
@@ -2050,7 +2049,8 @@ innobase_check_index_keys(
 			}
 #endif /* MYSQL_RENAME_INDEX */
 
-			my_error(ER_WRONG_NAME_FOR_INDEX, MYF(0), key.name);
+			my_error(ER_WRONG_NAME_FOR_INDEX, MYF(0),
+                                 key.name);
 
 			return(ER_WRONG_NAME_FOR_INDEX);
 		}
@@ -8213,27 +8213,29 @@ commit_cache_norebuild(
 /** Adjust the persistent statistics after non-rebuilding ALTER TABLE.
 Remove statistics for dropped indexes, add statistics for created indexes
 and rename statistics for renamed indexes.
-@param ha_alter_info	Data used during in-place alter
-@param ctx		In-place ALTER TABLE context
-@param table_name	Table name in MySQL
-@param trx		transaction
-@return error code */
+@param ha_alter_info Data used during in-place alter
+@param ctx In-place ALTER TABLE context
+@param altered_table MySQL table that is being altered
+@param table_name Table name in MySQL
+@param thd MySQL connection
+*/
 static
-dberr_t
+void
 alter_stats_norebuild(
+/*==================*/
 	Alter_inplace_info*		ha_alter_info,
 	ha_innobase_inplace_ctx*	ctx,
+	TABLE*				altered_table,
 	const char*			table_name,
-	trx_t*				trx)
+	THD*				thd)
 {
-	dberr_t	err = DB_SUCCESS;
 	ulint	i;
 
 	DBUG_ENTER("alter_stats_norebuild");
 	DBUG_ASSERT(!ctx->need_rebuild());
 
 	if (!dict_stats_is_persistent_enabled(ctx->new_table)) {
-		DBUG_RETURN(err);
+		DBUG_VOID_RETURN;
 	}
 
 	/* Delete corresponding rows from the stats table. We do this
@@ -8262,13 +8264,10 @@ alter_stats_norebuild(
 
 		char	errstr[1024];
 
-		dberr_t err2 = dict_stats_drop_index(
-			ctx->new_table->name.m_name, key->name,
-			errstr, sizeof errstr, trx);
-
-		if (err2 != DB_SUCCESS) {
-			err = err2;
-			push_warning(trx->mysql_thd,
+		if (dict_stats_drop_index(
+			    ctx->new_table->name.m_name, key->name,
+			    errstr, sizeof errstr) != DB_SUCCESS) {
+			push_warning(thd,
 				     Sql_condition::WARN_LEVEL_WARN,
 				     ER_LOCK_WAIT_TIMEOUT, errstr);
 		}
@@ -8304,36 +8303,34 @@ alter_stats_norebuild(
 		DBUG_ASSERT(index->table == ctx->new_table);
 
 		if (!(index->type & DICT_FTS)) {
-			dict_stats_init(ctx->new_table, trx);
-			dberr_t err2 = dict_stats_update_for_index(index, trx);
-			if (err2 != DB_SUCCESS) {
-				err = err2;
-			}
+			dict_stats_init(ctx->new_table);
+			dict_stats_update_for_index(index);
 		}
 	}
 
-	DBUG_RETURN(err);
+	DBUG_VOID_RETURN;
 }
 
 /** Adjust the persistent statistics after rebuilding ALTER TABLE.
 Remove statistics for dropped indexes, add statistics for created indexes
 and rename statistics for renamed indexes.
-@param table		InnoDB table that was rebuilt by ALTER TABLE
-@param table_name	Table name in MySQL
-@param trx		transaction
-@return error code */
+@param table InnoDB table that was rebuilt by ALTER TABLE
+@param table_name Table name in MySQL
+@param thd MySQL connection
+*/
 static
-dberr_t
+void
 alter_stats_rebuild(
+/*================*/
 	dict_table_t*	table,
 	const char*	table_name,
-	trx_t*		trx)
+	THD*		thd)
 {
 	DBUG_ENTER("alter_stats_rebuild");
 
 	if (dict_table_is_discarded(table)
 	    || !dict_stats_is_persistent_enabled(table)) {
-		DBUG_RETURN(DB_SUCCESS);
+		DBUG_VOID_RETURN;
 	}
 
 #ifndef DBUG_OFF
@@ -8346,24 +8343,7 @@ alter_stats_rebuild(
 		table->file_unreadable = true;
 	);
 
-	char	errstr[1024];
-	mutex_enter(&dict_sys->mutex);
-	dberr_t	ret = dict_stats_drop_table(table->name.m_name,
-					    errstr, sizeof errstr, trx);
-	mutex_exit(&dict_sys->mutex);
-	if (ret != DB_SUCCESS) {
-		push_warning_printf(
-			trx->mysql_thd,
-			Sql_condition::WARN_LEVEL_WARN,
-			ER_ALTER_INFO,
-			"Deleting persistent statistics"
-			" for rebuilt table '%s' in"
-			" InnoDB failed: %s",
-			table_name, errstr);
-		DBUG_RETURN(ret);
-	}
-
-	ret = dict_stats_update(table, DICT_STATS_RECALC_PERSISTENT, trx);
+	dberr_t	ret = dict_stats_update(table, DICT_STATS_RECALC_PERSISTENT);
 
 	DBUG_EXECUTE_IF(
 		"ib_rename_index_fail2",
@@ -8372,7 +8352,7 @@ alter_stats_rebuild(
 
 	if (ret != DB_SUCCESS) {
 		push_warning_printf(
-			trx->mysql_thd,
+			thd,
 			Sql_condition::WARN_LEVEL_WARN,
 			ER_ALTER_INFO,
 			"Error updating stats for table '%s'"
@@ -8380,7 +8360,7 @@ alter_stats_rebuild(
 			table_name, ut_strerr(ret));
 	}
 
-	DBUG_RETURN(ret);
+	DBUG_VOID_RETURN;
 }
 
 #ifndef DBUG_OFF
@@ -8687,36 +8667,6 @@ ha_innobase::commit_inplace_alter_table(
 	if (fail) {
 		trx_rollback_for_mysql(trx);
 	} else if (!new_clustered) {
-		if (ctx0->num_to_drop_vcol || ctx0->num_to_add_vcol) {
-			DBUG_ASSERT(ctx0->old_table->get_ref_count() == 1);
-			bool warned = false;
-
-			for (inplace_alter_handler_ctx** pctx = ctx_array;
-			     *pctx; pctx++) {
-				ha_innobase_inplace_ctx*	ctx
-					= static_cast<ha_innobase_inplace_ctx*>
-					(*pctx);
-
-				DBUG_ASSERT(!ctx->need_rebuild());
-				char	errstr[1024];
-				if (dict_stats_drop_table(
-					    ctx->old_table->name.m_name,
-					    errstr, sizeof errstr, trx)
-				    != DB_SUCCESS && !warned) {
-					warned = true;
-					push_warning_printf(
-						m_user_thd,
-						Sql_condition::WARN_LEVEL_WARN,
-						ER_ALTER_INFO,
-						"Deleting persistent "
-						"statistics for table '%s' in"
-						" InnoDB failed: %s",
-						table_share->table_name.str,
-						errstr);
-				}
-			}
-		}
-
 		trx_commit_for_mysql(trx);
 	} else {
 		mtr_t	mtr;
@@ -8973,6 +8923,23 @@ foreign_fail:
 		m_prebuilt->table = dict_table_open_on_name(
 			tb_name, TRUE, TRUE, DICT_ERR_IGNORE_NONE);
 
+		/* Drop outdated table stats. */
+		char	errstr[1024];
+		if (dict_stats_drop_table(
+			    m_prebuilt->table->name.m_name,
+			    errstr, sizeof(errstr))
+		    != DB_SUCCESS) {
+			push_warning_printf(
+				m_user_thd,
+				Sql_condition::WARN_LEVEL_WARN,
+				ER_ALTER_INFO,
+				"Deleting persistent statistics"
+				" for table '%s' in"
+				" InnoDB failed: %s",
+				table->s->table_name.str,
+				errstr);
+		}
+
 		row_mysql_unlock_data_dictionary(trx);
 		trx_free_for_mysql(trx);
 		MONITOR_ATOMIC_DEC(MONITOR_PENDING_ALTER_TABLE);
@@ -9028,6 +8995,41 @@ foreign_fail:
 		}
 #endif
 		if (new_clustered) {
+			/* Since the table has been rebuilt, we remove
+			all persistent statistics corresponding to the
+			old copy of the table (which was renamed to
+			ctx->tmp_name). */
+
+			char	errstr[1024];
+
+			DBUG_ASSERT(0 == strcmp(ctx->old_table->name.m_name,
+						ctx->tmp_name));
+
+			DBUG_EXECUTE_IF(
+				"ib_rename_index_fail3",
+				DBUG_SET("+d,innodb_report_deadlock");
+			);
+
+			if (dict_stats_drop_table(
+				    ctx->new_table->name.m_name,
+				    errstr, sizeof(errstr))
+			    != DB_SUCCESS) {
+				push_warning_printf(
+					m_user_thd,
+					Sql_condition::WARN_LEVEL_WARN,
+					ER_ALTER_INFO,
+					"Deleting persistent statistics"
+					" for rebuilt table '%s' in"
+					" InnoDB failed: %s",
+					table->s->table_name.str,
+					errstr);
+			}
+
+			DBUG_EXECUTE_IF(
+				"ib_rename_index_fail3",
+				DBUG_SET("-d,innodb_report_deadlock");
+			);
+
 			DBUG_EXECUTE_IF("ib_ddl_crash_before_commit",
 					DBUG_SUICIDE(););
 
@@ -9073,14 +9075,11 @@ foreign_fail:
 	}
 
 	row_mysql_unlock_data_dictionary(trx);
-	trx->error_state = DB_SUCCESS;
-	++trx->will_lock;
+	trx_free_for_mysql(trx);
 
 	/* TODO: The following code could be executed
 	while allowing concurrent access to the table
 	(MDL downgrade). */
-	trx->mysql_thd = m_user_thd;
-	dberr_t stats_err = DB_SUCCESS;
 
 	if (new_clustered) {
 		for (inplace_alter_handler_ctx** pctx = ctx_array;
@@ -9089,11 +9088,10 @@ foreign_fail:
 				= static_cast<ha_innobase_inplace_ctx*>
 				(*pctx);
 			DBUG_ASSERT(ctx->need_rebuild());
-			stats_err = alter_stats_rebuild(
-				ctx->new_table, table->s->table_name.str, trx);
-			if (stats_err != DB_SUCCESS) {
-				break;
-			}
+
+			alter_stats_rebuild(
+				ctx->new_table, table->s->table_name.str,
+				m_user_thd);
 			DBUG_INJECT_CRASH("ib_commit_inplace_crash",
 					  crash_inject_count++);
 		}
@@ -9105,24 +9103,13 @@ foreign_fail:
 				(*pctx);
 			DBUG_ASSERT(!ctx->need_rebuild());
 
-			stats_err = alter_stats_norebuild(
-				ha_alter_info, ctx,
-				table->s->table_name.str, trx);
-			if (stats_err != DB_SUCCESS) {
-				break;
-			}
+			alter_stats_norebuild(
+				ha_alter_info, ctx, altered_table,
+				table->s->table_name.str, m_user_thd);
 			DBUG_INJECT_CRASH("ib_commit_inplace_crash",
 					  crash_inject_count++);
 		}
 	}
-
-	if (stats_err != DB_SUCCESS) {
-		trx_rollback_to_savepoint(trx, NULL);
-	} else {
-		trx_commit_for_mysql(trx);
-	}
-
-	trx_free_for_mysql(trx);
 
 	innobase_parse_hint_from_comment(
 		m_user_thd, m_prebuilt->table, altered_table->s);

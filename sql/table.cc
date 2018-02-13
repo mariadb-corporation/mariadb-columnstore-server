@@ -1174,7 +1174,7 @@ int TABLE_SHARE::init_from_binary_frm_image(THD *thd, bool write,
   char *keynames, *names, *comment_pos;
   const uchar *forminfo, *extra2;
   const uchar *frm_image_end = frm_image + frm_length;
-  uchar *record, *null_flags, *null_pos, *mysql57_vcol_null_pos;
+  uchar *record, *null_flags, *null_pos, *UNINIT_VAR(mysql57_vcol_null_pos);
   const uchar *disk_buff, *strpos;
   ulong pos, record_offset; 
   ulong rec_buff_length;
@@ -1588,9 +1588,10 @@ int TABLE_SHARE::init_from_binary_frm_image(THD *thd, bool write,
 
   rec_buff_length= ALIGN_SIZE(share->reclength + 1);
   share->rec_buff_length= rec_buff_length;
-  if (!(record= (uchar *) alloc_root(&share->mem_root,
-                                     rec_buff_length)))
+  if (!(record= (uchar *) alloc_root(&share->mem_root, rec_buff_length)))
     goto err;                          /* purecov: inspected */
+  MEM_NOACCESS(record, rec_buff_length);
+  MEM_UNDEFINED(record, share->reclength);
   share->default_values= record;
   memcpy(record, frm_image + record_offset, share->reclength);
 
@@ -2407,6 +2408,11 @@ int TABLE_SHARE::init_from_binary_frm_image(THD *thd, bool write,
         DBUG_ASSERT(field_nr < share->fields);
         reg_field= share->field[field_nr];
       }
+      else
+      {
+        reg_field= 0;
+        DBUG_ASSERT(name_length);
+      }
 
       vcol_screen_pos+= FRM_VCOL_NEW_HEADER_SIZE;
       vcol_info->set_vcol_type((enum_vcol_info_type) type);
@@ -3054,6 +3060,7 @@ enum open_frm_error open_table_from_share(THD *thd, TABLE_SHARE *share,
   if (!(record= (uchar*) alloc_root(&outparam->mem_root,
                                     share->rec_buff_length * records)))
     goto err;                                   /* purecov: inspected */
+  MEM_NOACCESS(record, share->rec_buff_length * records);
 
   if (records == 0)
   {
@@ -3068,6 +3075,8 @@ enum open_frm_error open_table_from_share(THD *thd, TABLE_SHARE *share,
     else
       outparam->record[1]= outparam->record[0];   // Safety
   }
+  MEM_UNDEFINED(outparam->record[0], share->reclength);
+  MEM_UNDEFINED(outparam->record[1], share->reclength);
 
   if (!(field_ptr = (Field **) alloc_root(&outparam->mem_root,
                                           (uint) ((share->fields+1)*
@@ -7411,7 +7420,7 @@ int TABLE::update_virtual_fields(handler *h, enum_vcol_update_mode update_mode)
     DBUG_ASSERT(vcol_info);
     DBUG_ASSERT(vcol_info->expr);
 
-    bool update, swap_values= 0;
+    bool update= 0, swap_values= 0;
     switch (update_mode) {
     case VCOL_UPDATE_FOR_READ:
       update= !vcol_info->stored_in_db
@@ -7419,7 +7428,6 @@ int TABLE::update_virtual_fields(handler *h, enum_vcol_update_mode update_mode)
       swap_values= 1;
       break;
     case VCOL_UPDATE_FOR_DELETE:
-      /* Fall trough */
     case VCOL_UPDATE_FOR_WRITE:
       update= bitmap_is_set(vcol_set, vf->field_index);
       break;

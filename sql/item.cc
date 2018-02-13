@@ -1,6 +1,6 @@
 /*
    Copyright (c) 2000, 2016, Oracle and/or its affiliates.
-   Copyright (c) 2010, 2017, MariaDB Corporation
+   Copyright (c) 2010, 2018, MariaDB Corporation
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -885,6 +885,34 @@ bool Item_field::add_field_to_set_processor(void *arg)
     bitmap_set_bit(&table->tmp_set, field->field_index);
   DBUG_RETURN(FALSE);
 }
+
+
+/**
+   Rename fields in an expression to new field name as speficied by ALTER TABLE
+*/
+
+bool Item_field::rename_fields_processor(void *arg)
+{
+  Item::func_processor_rename *rename= (Item::func_processor_rename*) arg;
+  List_iterator<Create_field> def_it(rename->fields);
+  Create_field *def;
+
+  while ((def=def_it++))
+  {
+    if (def->change &&
+        (!db_name || !db_name[0] ||
+         !my_strcasecmp(table_alias_charset, db_name, rename->db_name.str)) &&
+        (!table_name || !table_name[0] ||
+         !my_strcasecmp(table_alias_charset, table_name, rename->table_name.str)) &&
+        !my_strcasecmp(system_charset_info, field_name, def->change))
+    {
+      field_name= def->field_name;
+      break;
+    }
+  }
+  return 0;
+}
+
 
 /**
   Check if an Item_field references some field from a list of fields.
@@ -3440,7 +3468,10 @@ Item_param::Item_param(THD *thd, uint pos_in_query_arg):
 void Item_param::set_null()
 {
   DBUG_ENTER("Item_param::set_null");
-  /* These are cleared after each execution by reset() method */
+  /*
+    These are cleared after each execution by reset() method or by setting
+    other value.
+  */
   null_value= 1;
   /* 
     Because of NULL and string values we need to set max_length for each new
@@ -3463,6 +3494,7 @@ void Item_param::set_int(longlong i, uint32 max_length_arg)
   max_length= max_length_arg;
   decimals= 0;
   maybe_null= 0;
+  null_value= 0;
   fix_type(Item::INT_ITEM);
   DBUG_VOID_RETURN;
 }
@@ -3476,6 +3508,7 @@ void Item_param::set_double(double d)
   max_length= DBL_DIG + 8;
   decimals= NOT_FIXED_DEC;
   maybe_null= 0;
+  null_value= 0;
   fix_type(Item::REAL_ITEM);
   DBUG_VOID_RETURN;
 }
@@ -3507,6 +3540,7 @@ void Item_param::set_decimal(const char *str, ulong length)
     my_decimal_precision_to_length_no_truncation(decimal_value.precision(),
                                                  decimals, unsigned_flag);
   maybe_null= 0;
+  null_value= 0;
   fix_type(Item::DECIMAL_ITEM);
   DBUG_VOID_RETURN;
 }
@@ -3522,6 +3556,8 @@ void Item_param::set_decimal(const my_decimal *dv, bool unsigned_arg)
   unsigned_flag= unsigned_arg;
   max_length= my_decimal_precision_to_length(decimal_value.intg + decimals,
                                              decimals, unsigned_flag);
+  maybe_null= 0;
+  null_value= 0;
   fix_type(Item::DECIMAL_ITEM);
 }
 
@@ -3532,6 +3568,8 @@ void Item_param::fix_temporal(uint32 max_length_arg, uint decimals_arg)
   collation.set_numeric();
   max_length= max_length_arg;
   decimals= decimals_arg;
+  maybe_null= 0;
+  null_value= 0;
   fix_type(Item::DATE_ITEM);
 }
 
@@ -3540,6 +3578,8 @@ void Item_param::set_time(const MYSQL_TIME *tm,
                           uint32 max_length_arg, uint decimals_arg)
 {
   value.time= *tm;
+  maybe_null= 0;
+  null_value= 0;
   fix_temporal(max_length_arg, decimals_arg);
 }
 
@@ -3573,6 +3613,7 @@ void Item_param::set_time(MYSQL_TIME *tm, timestamp_type time_type,
     set_zero_time(&value.time, MYSQL_TIMESTAMP_ERROR);
   }
   maybe_null= 0;
+  null_value= 0;
   fix_temporal(max_length_arg,
                tm->second_part > 0 ? TIME_SECOND_PART_DIGITS : 0);
   DBUG_VOID_RETURN;
@@ -3593,6 +3634,7 @@ bool Item_param::set_str(const char *str, ulong length)
   state= STRING_VALUE;
   max_length= length;
   maybe_null= 0;
+  null_value= 0;
   /* max_length and decimals are set after charset conversion */
   /* sic: str may be not null-terminated, don't add DBUG_PRINT here */
   fix_type(Item::STRING_ITEM);
@@ -3627,6 +3669,7 @@ bool Item_param::set_longdata(const char *str, ulong length)
     DBUG_RETURN(TRUE);
   state= LONG_DATA_VALUE;
   maybe_null= 0;
+  null_value= 0;
   fix_type(Item::STRING_ITEM);
 
   DBUG_RETURN(FALSE);
@@ -5180,7 +5223,7 @@ Item_field::fix_outer_field(THD *thd, Field **from_field, Item **reference)
   */
   Name_resolution_context *last_checked_context= context;
   Item **ref= (Item **) not_found_item;
-  SELECT_LEX *current_sel= (SELECT_LEX *) thd->lex->current_select;
+  SELECT_LEX *current_sel= thd->lex->current_select;
   Name_resolution_context *outer_context= 0;
   SELECT_LEX *select= 0;
   /* Currently derived tables cannot be correlated */
@@ -5516,6 +5559,7 @@ bool Item_field::fix_fields(THD *thd, Item **reference)
 
   Field *from_field= (Field *)not_found_field;
   bool outer_fixed= false;
+  SELECT_LEX *select= thd->lex->current_select;
 
   if (!field)					// If field is not checked
   {
@@ -5537,13 +5581,14 @@ bool Item_field::fix_fields(THD *thd, Item **reference)
 	not_found_field)
     {
       int ret;
+
       /* Look up in current select's item_list to find aliased fields */
-      if (thd->lex->current_select->is_item_list_lookup)
+      if (select && select->is_item_list_lookup)
       {
         uint counter;
         enum_resolution_type resolution;
         Item** res= find_item_in_list(this,
-                                      thd->lex->current_select->item_list,
+                                      select->item_list,
                                       &counter, REPORT_EXCEPT_NOT_FOUND,
                                       &resolution);
         if (!res)
@@ -5575,7 +5620,7 @@ bool Item_field::fix_fields(THD *thd, Item **reference)
               We can not "move" aggregate function in the place where
               its arguments are not defined.
             */
-            set_max_sum_func_level(thd, thd->lex->current_select);
+            set_max_sum_func_level(thd, select);
             set_field(new_field);
             return 0;
           }
@@ -5595,7 +5640,6 @@ bool Item_field::fix_fields(THD *thd, Item **reference)
             if (err)
               return TRUE;
            
-            SELECT_LEX *select= thd->lex->current_select;
             thd->change_item_tree(reference,
                                   select->context_analysis_place == IN_GROUP_BY && 
 				  alias_name_used  ?  *rf->ref : rf);
@@ -5604,10 +5648,16 @@ bool Item_field::fix_fields(THD *thd, Item **reference)
               We can not "move" aggregate function in the place where
               its arguments are not defined.
             */
-            set_max_sum_func_level(thd, thd->lex->current_select);
+            set_max_sum_func_level(thd, select);
             return FALSE;
           }
         }
+      }
+
+      if (!select)
+      {
+        my_error(ER_BAD_FIELD_ERROR, MYF(0), full_name(), thd->where);
+        goto error;
       }
       if ((ret= fix_outer_field(thd, &from_field, reference)) < 0)
         goto error;
@@ -5637,9 +5687,9 @@ bool Item_field::fix_fields(THD *thd, Item **reference)
 
     if (thd->lex->in_sum_func &&
         thd->lex->in_sum_func->nest_level == 
-        thd->lex->current_select->nest_level)
+        select->nest_level)
       set_if_bigger(thd->lex->in_sum_func->max_arg_level,
-                    thd->lex->current_select->nest_level);
+                    select->nest_level);
     /*
       if it is not expression from merged VIEW we will set this field.
 
@@ -5705,11 +5755,12 @@ bool Item_field::fix_fields(THD *thd, Item **reference)
     fix_session_vcol_expr_for_read(thd, field, field->vcol_info);
   if (thd->variables.sql_mode & MODE_ONLY_FULL_GROUP_BY &&
       !outer_fixed && !thd->lex->in_sum_func &&
-      thd->lex->current_select->cur_pos_in_select_list != UNDEF_POS &&
-      thd->lex->current_select->join)
+      select &&
+      select->cur_pos_in_select_list != UNDEF_POS &&
+      select->join)
   {
-    thd->lex->current_select->join->non_agg_fields.push_back(this, thd->mem_root);
-    marker= thd->lex->current_select->cur_pos_in_select_list;
+    select->join->non_agg_fields.push_back(this, thd->mem_root);
+    marker= select->cur_pos_in_select_list;
   }
 mark_non_agg_field:
   /*
@@ -5746,7 +5797,7 @@ mark_non_agg_field:
       if (outer_fixed)
         thd->lex->in_sum_func->outer_fields.push_back(this, thd->mem_root);
       else if (thd->lex->in_sum_func->nest_level !=
-          thd->lex->current_select->nest_level)
+          select->nest_level)
         select_lex->set_non_agg_field_used(true);
     }
   }
@@ -9141,7 +9192,7 @@ bool Item_ignore_value::send(Protocol *protocol, String *buffer)
 bool Item_insert_value::eq(const Item *item, bool binary_cmp) const
 {
   return item->type() == INSERT_VALUE_ITEM &&
-    ((Item_default_value *)item)->arg->eq(arg, binary_cmp);
+    ((Item_insert_value *)item)->arg->eq(arg, binary_cmp);
 }
 
 
@@ -10766,11 +10817,11 @@ const char *dbug_print_item(Item *item)
   ulonglong save_option_bits= thd->variables.option_bits;
   thd->variables.option_bits &= ~OPTION_QUOTE_SHOW_CREATE;
 
-  item->print(&str ,QT_EXPLAIN);
+  item->print(&str, QT_EXPLAIN);
 
   thd->variables.option_bits= save_option_bits;
 
-  if (str.c_ptr() == buf)
+  if (str.c_ptr_safe() == buf)
     return buf;
   else
     return "Couldn't fit into buffer";
