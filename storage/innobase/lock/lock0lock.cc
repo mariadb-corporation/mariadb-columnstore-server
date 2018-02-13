@@ -1,7 +1,7 @@
 /*****************************************************************************
 
-Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2014, 2017, MariaDB Corporation.
+Copyright (c) 1996, 2017, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2014, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -617,145 +617,6 @@ lock_get_size(void)
 /*===============*/
 {
 	return((ulint) sizeof(lock_t));
-}
-
-/*********************************************************************//**
-Gets the source table of an ALTER TABLE transaction.  The table must be
-covered by an IX or IS table lock.
-@return the source table of transaction, if it is covered by an IX or
-IS table lock; dest if there is no source table, and NULL if the
-transaction is locking more than two tables or an inconsistency is
-found */
-dict_table_t*
-lock_get_src_table(
-/*===============*/
-	trx_t*		trx,	/*!< in: transaction */
-	dict_table_t*	dest,	/*!< in: destination of ALTER TABLE */
-	lock_mode*	mode)	/*!< out: lock mode of the source table */
-{
-	dict_table_t*	src;
-	lock_t*		lock;
-
-	ut_ad(!lock_mutex_own());
-
-	src = NULL;
-	*mode = LOCK_NONE;
-
-	/* The trx mutex protects the trx_locks for our purposes.
-	Other transactions could want to convert one of our implicit
-	record locks to an explicit one. For that, they would need our
-	trx mutex. Waiting locks can be removed while only holding
-	lock_sys->mutex, but this is a running transaction and cannot
-	thus be holding any waiting locks. */
-	trx_mutex_enter(trx);
-
-	for (lock = UT_LIST_GET_FIRST(trx->lock.trx_locks);
-	     lock != NULL;
-	     lock = UT_LIST_GET_NEXT(trx_locks, lock)) {
-		lock_table_t*	tab_lock;
-		lock_mode	lock_mode;
-		if (!(lock_get_type_low(lock) & LOCK_TABLE)) {
-			/* We are only interested in table locks. */
-			continue;
-		}
-		tab_lock = &lock->un_member.tab_lock;
-		if (dest == tab_lock->table) {
-			/* We are not interested in the destination table. */
-			continue;
-		} else if (!src) {
-			/* This presumably is the source table. */
-			src = tab_lock->table;
-			if (UT_LIST_GET_LEN(src->locks) != 1
-			    || UT_LIST_GET_FIRST(src->locks) != lock) {
-				/* We only support the case when
-				there is only one lock on this table. */
-				src = NULL;
-				goto func_exit;
-			}
-		} else if (src != tab_lock->table) {
-			/* The transaction is locking more than
-			two tables (src and dest): abort */
-			src = NULL;
-			goto func_exit;
-		}
-
-		/* Check that the source table is locked by
-		LOCK_IX or LOCK_IS. */
-		lock_mode = lock_get_mode(lock);
-		if (lock_mode == LOCK_IX || lock_mode == LOCK_IS) {
-			if (*mode != LOCK_NONE && *mode != lock_mode) {
-				/* There are multiple locks on src. */
-				src = NULL;
-				goto func_exit;
-			}
-			*mode = lock_mode;
-		}
-	}
-
-	if (!src) {
-		/* No source table lock found: flag the situation to caller */
-		src = dest;
-	}
-
-func_exit:
-	trx_mutex_exit(trx);
-	return(src);
-}
-
-/*********************************************************************//**
-Determine if the given table is exclusively "owned" by the given
-transaction, i.e., transaction holds LOCK_IX and possibly LOCK_AUTO_INC
-on the table.
-@return TRUE if table is only locked by trx, with LOCK_IX, and
-possibly LOCK_AUTO_INC */
-ibool
-lock_is_table_exclusive(
-/*====================*/
-	const dict_table_t*	table,	/*!< in: table */
-	const trx_t*		trx)	/*!< in: transaction */
-{
-	const lock_t*	lock;
-	ibool		ok	= FALSE;
-
-	ut_ad(table);
-	ut_ad(trx);
-
-	lock_mutex_enter();
-
-	for (lock = UT_LIST_GET_FIRST(table->locks);
-	     lock != NULL;
-	     lock = UT_LIST_GET_NEXT(locks, &lock->un_member.tab_lock)) {
-		if (lock->trx != trx) {
-			/* A lock on the table is held
-			by some other transaction. */
-			goto not_ok;
-		}
-
-		if (!(lock_get_type_low(lock) & LOCK_TABLE)) {
-			/* We are interested in table locks only. */
-			continue;
-		}
-
-		switch (lock_get_mode(lock)) {
-		case LOCK_IX:
-			ok = TRUE;
-			break;
-		case LOCK_AUTO_INC:
-			/* It is allowed for trx to hold an
-			auto_increment lock. */
-			break;
-		default:
-not_ok:
-			/* Other table locks than LOCK_IX are not allowed. */
-			ok = FALSE;
-			goto func_exit;
-		}
-	}
-
-func_exit:
-	lock_mutex_exit();
-
-	return(ok);
 }
 
 /*********************************************************************//**
@@ -1683,7 +1544,18 @@ RecLock::prepare() const
 		ut_error;
 	}
 
-	ut_ad(trx_get_dict_operation(m_trx) == TRX_DICT_OP_NONE);
+	switch (trx_get_dict_operation(m_trx)) {
+	case TRX_DICT_OP_NONE:
+		break;
+	case TRX_DICT_OP_TABLE:
+	case TRX_DICT_OP_INDEX:
+		ib::error() << "A record lock wait happens in a dictionary"
+			" operation. index " << m_index->name
+			<< " of table " << m_index->table->name
+			<< ". " << BUG_REPORT_MSG;
+		ut_ad(0);
+	}
+
 	ut_ad(m_index->table->n_ref_count > 0
 	      || !m_index->table->can_be_evicted);
 }
@@ -2245,24 +2117,6 @@ RecLock::add_to_waitq(lock_t* wait_for, const lock_prdt_t* prdt)
 	m_mode |= LOCK_WAIT;
 
 	/* Do the preliminary checks, and set query thread state */
-
-	switch (UNIV_EXPECT(trx_get_dict_operation(m_trx), TRX_DICT_OP_NONE)) {
-	case TRX_DICT_OP_NONE:
-		break;
-	case TRX_DICT_OP_TABLE:
-	case TRX_DICT_OP_INDEX:
-		ut_ad(!prdt);
-
-		if (m_trx->dict_operation_lock_mode != RW_X_LATCH) {
-		} else if (!strcmp(m_index->table->name.m_name,
-				   "mysql/innodb_table_stats")
-			   || !strcmp(m_index->table->name.m_name,
-				      "mysql/innodb_index_stats")) {
-			/* Statistics can be updated as part of a DDL
-			transaction, but only as the very last operation. */
-			return(DB_QUE_THR_SUSPENDED);
-		}
-	}
 
 	prepare();
 
@@ -2874,7 +2728,10 @@ RecLock::lock_add_priority(
 	lock_t*	grant_position = NULL;
 	lock_t*	add_position = NULL;
 
-	HASH_SEARCH(hash, lock_sys->rec_hash, m_rec_id.fold(), lock_t*,
+	/* Different lock (such as predicate lock) are on different hash */
+	hash_table_t*	lock_hash = lock_hash_get(m_mode);
+
+	HASH_SEARCH(hash, lock_hash, m_rec_id.fold(), lock_t*,
 		    lock_head, ut_ad(lock_head->is_record_lock()), true);
 
 	ut_ad(lock_head);
@@ -4664,16 +4521,6 @@ lock_table_enqueue_waiting(
 		break;
 	case TRX_DICT_OP_TABLE:
 	case TRX_DICT_OP_INDEX:
-		if (trx->dict_operation_lock_mode != RW_X_LATCH) {
-		} else if (!strcmp(table->name.m_name,
-				   "mysql/innodb_table_stats")
-			   || !strcmp(table->name.m_name,
-				      "mysql/innodb_index_stats")) {
-			/* Statistics can be updated as part of a DDL
-			transaction, but only as the very last operation. */
-			return(DB_QUE_THR_SUSPENDED);
-		}
-
 		ib::error() << "A table lock wait happens in a dictionary"
 			" operation. Table " << table->name
 			<< ". " << BUG_REPORT_MSG;
@@ -6600,7 +6447,7 @@ lock_rec_block_validate(
 
 	/* Make sure that the tablespace is not deleted while we are
 	trying to access the page. */
-	if (fil_space_t* space = fil_space_acquire(space_id)) {
+	if (fil_space_t* space = fil_space_acquire_silent(space_id)) {
 		dberr_t err = DB_SUCCESS;
 		mtr_start(&mtr);
 

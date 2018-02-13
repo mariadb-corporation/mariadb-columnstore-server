@@ -1651,7 +1651,7 @@ static bool fix_lex_user(THD *thd, LEX_USER *user)
 
   if (user->pwhash.length && user->pwhash.length != check_length)
   {
-    my_error(ER_PASSWD_LENGTH, MYF(0), check_length);
+    my_error(ER_PASSWD_LENGTH, MYF(0), (int) check_length);
     return true;
   }
 
@@ -2610,7 +2610,7 @@ static int check_user_can_set_role(const char *user, const char *host,
     acl_user= find_user_wild(host, user, ip);
     if (acl_user == NULL)
     {
-      my_error(ER_INVALID_CURRENT_USER, MYF(0), rolename);
+      my_error(ER_INVALID_CURRENT_USER, MYF(0));
       result= -1;
     }
     else if (access)
@@ -3007,7 +3007,8 @@ exit:
       (entry= (acl_entry*) malloc(sizeof(acl_entry)+key_length)))
   {
     entry->access=(db_access & host_access);
-    entry->length=key_length;
+    DBUG_ASSERT(key_length < 0xffff);
+    entry->length=(uint16)key_length;
     memcpy((uchar*) entry->key,key,key_length);
     acl_cache->add(entry);
   }
@@ -5930,8 +5931,8 @@ static bool merge_role_db_privileges(ACL_ROLE *grantee, const char *dbname,
     (that should be merged) are sorted together. The grantee's ACL_DB element
     is not necessarily the first and may be not present at all.
   */
-  ACL_DB **first= NULL, *UNINIT_VAR(merged);
-  ulong UNINIT_VAR(access), update_flags= 0;
+  ACL_DB **first= NULL, *merged= NULL;
+  ulong access= 0, update_flags= 0;
   for (ACL_DB **cur= dbs.front(); cur <= dbs.back(); cur++)
   {
     if (!first || (!dbname && strcmp(cur[0]->db, cur[-1]->db)))
@@ -6136,8 +6137,8 @@ static bool merge_role_table_and_column_privileges(ACL_ROLE *grantee,
   }
   grants.sort(table_name_sort);
 
-  GRANT_TABLE **first= NULL, *UNINIT_VAR(merged), **cur;
-  ulong UNINIT_VAR(privs), UNINIT_VAR(cols), update_flags= 0;
+  GRANT_TABLE **first= NULL, *merged= NULL, **cur;
+  ulong privs= 0, cols= 0, update_flags= 0;
   for (cur= grants.front(); cur <= grants.back(); cur++)
   {
     if (!first ||
@@ -6260,8 +6261,8 @@ static bool merge_role_routine_grant_privileges(ACL_ROLE *grantee,
   }
   grants.sort(routine_name_sort);
 
-  GRANT_NAME **first= NULL, *UNINIT_VAR(merged);
-  ulong UNINIT_VAR(privs);
+  GRANT_NAME **first= NULL, *merged= NULL;
+  ulong privs= 0 ;
   for (GRANT_NAME **cur= grants.front(); cur <= grants.back(); cur++)
   {
     if (!first ||
@@ -8557,10 +8558,7 @@ bool mysql_show_create_user(THD *thd, LEX_USER *lex_user)
   strxmov(buff, "CREATE USER for ", username, "@", hostname, NullS);
   Item_string *field = new (thd->mem_root) Item_string_ascii(thd, "", 0);
   if (!field)
-  {
-    my_error(ER_OUTOFMEMORY, MYF(0));
-    DBUG_RETURN(true);
-  }
+    DBUG_RETURN(true);                          // Error given my my_alloc()
 
   field->name= buff;
   field->max_length= sizeof(buff);

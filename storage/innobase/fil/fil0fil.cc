@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1995, 2017, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2014, 2017, MariaDB Corporation.
+Copyright (c) 2014, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -566,7 +566,6 @@ bool
 fil_node_open_file(
 	fil_node_t*	node)
 {
-	os_offset_t	size_bytes;
 	bool		success;
 	bool		read_only_mode;
 	fil_space_t*	space = node->space;
@@ -611,7 +610,7 @@ retry:
 			return(false);
 		}
 
-		size_bytes = os_file_get_size(node->handle);
+		os_offset_t size_bytes = os_file_get_size(node->handle);
 		ut_a(size_bytes != (os_offset_t) -1);
 
 		ut_a(space->purpose != FIL_TYPE_LOG);
@@ -625,6 +624,7 @@ retry:
 				<< " is only " << size_bytes
 				<< " bytes, should be at least " << min_size;
 			os_file_close(node->handle);
+			node->handle = OS_FILE_CLOSED;
 			return(false);
 		}
 
@@ -662,10 +662,12 @@ retry:
 
 		ut_free(buf2);
 		os_file_close(node->handle);
+		node->handle = OS_FILE_CLOSED;
 
 		if (!fsp_flags_is_valid(flags, space->id)) {
 			ulint cflags = fsp_flags_convert_from_101(flags);
-			if (cflags == ULINT_UNDEFINED) {
+			if (cflags == ULINT_UNDEFINED
+			    || (cflags ^ space->flags) & ~FSP_FLAGS_MEM_MASK) {
 				ib::error()
 					<< "Expected tablespace flags "
 					<< ib::hex(space->flags)
@@ -694,20 +696,17 @@ retry:
 		space->free_len = free_len;
 
 		if (first_time_open) {
-			ulint	extent_size;
-
-			extent_size = psize * FSP_EXTENT_SIZE;
-
-			/* After apply-incremental, tablespaces are not extended
-			to a whole megabyte. Do not cut off valid data. */
-
 			/* Truncate the size to a multiple of extent size. */
-			if (size_bytes >= extent_size) {
-				size_bytes = ut_2pow_round(size_bytes,
-							   extent_size);
+			ulint	mask = psize * FSP_EXTENT_SIZE - 1;
+
+			if (size_bytes <= mask) {
+				/* .ibd files start smaller than an
+				extent size. Do not truncate valid data. */
+			} else {
+				size_bytes &= ~os_offset_t(mask);
 			}
 
-			node->size = static_cast<ulint>(size_bytes / psize);
+			node->size = ulint(size_bytes / psize);
 			space->size += node->size;
 		}
 	}
@@ -2113,7 +2112,7 @@ fil_write_flushed_lsn(
 {
 	byte*	buf1;
 	byte*	buf;
-	dberr_t	err;
+	dberr_t	err = DB_TABLESPACE_NOT_FOUND;
 
 	buf1 = static_cast<byte*>(ut_malloc_nokey(2 * UNIV_PAGE_SIZE));
 	buf = static_cast<byte*>(ut_align(buf1, UNIV_PAGE_SIZE));
@@ -2964,10 +2963,14 @@ fil_table_accessible(const dict_table_t* table)
 
 /** Delete a tablespace and associated .ibd file.
 @param[in]	id		tablespace identifier
-@param[in]	drop_ahi	whether to drop the adaptive hash index
 @return	DB_SUCCESS or error */
 dberr_t
-fil_delete_tablespace(ulint id, bool drop_ahi)
+fil_delete_tablespace(
+	ulint id
+#ifdef BTR_CUR_HASH_ADAPT
+	, bool drop_ahi /*!< whether to drop the adaptive hash index */
+#endif /* BTR_CUR_HASH_ADAPT */
+	)
 {
 	char*		path = 0;
 	fil_space_t*	space = 0;
@@ -3010,7 +3013,11 @@ fil_delete_tablespace(ulint id, bool drop_ahi)
 	To deal with potential read requests, we will check the
 	::stop_new_ops flag in fil_io(). */
 
-	buf_LRU_flush_or_remove_pages(id, NULL, drop_ahi);
+	buf_LRU_flush_or_remove_pages(id, NULL
+#ifdef BTR_CUR_HASH_ADAPT
+				      , drop_ahi
+#endif /* BTR_CUR_HASH_ADAPT */
+				      );
 
 	/* If it is a delete then also delete any generated files, otherwise
 	when we drop the database the remove directory will fail. */
@@ -3290,7 +3297,11 @@ fil_discard_tablespace(
 {
 	dberr_t	err;
 
-	switch (err = fil_delete_tablespace(id, true)) {
+	switch (err = fil_delete_tablespace(id
+#ifdef BTR_CUR_HASH_ADAPT
+					    , true
+#endif /* BTR_CUR_HASH_ADAPT */
+					    )) {
 	case DB_SUCCESS:
 		break;
 
@@ -4618,7 +4629,9 @@ fsp_flags_try_adjust(ulint space_id, ulint flags)
 {
 	ut_ad(!srv_read_only_mode);
 	ut_ad(fsp_flags_is_valid(flags, space_id));
-
+	if (!fil_space_get_size(space_id)) {
+		return;
+	}
 	mtr_t	mtr;
 	mtr.start();
 	if (buf_block_t* b = buf_page_get(

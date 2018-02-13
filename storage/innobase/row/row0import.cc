@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2012, 2016, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2015, 2017, MariaDB Corporation.
+Copyright (c) 2015, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -897,13 +897,11 @@ private:
 	@param index the index being converted
 	@param rec record to update
 	@param offsets column offsets for the record
-	@param deleted true if row is delete marked
 	@return DB_SUCCESS or error code. */
 	dberr_t	adjust_cluster_record(
 		const dict_index_t*	index,
 		rec_t*			rec,
-		const ulint*		offsets,
-		bool			deleted) UNIV_NOTHROW;
+		const ulint*		offsets) UNIV_NOTHROW;
 
 	/** Find an index with the matching id.
 	@return row_index_t* instance or 0 */
@@ -1202,7 +1200,8 @@ row_import::match_table_columns(
 				err = DB_ERROR;
 			}
 
-			if (cfg_col->mbminmaxlen != col->mbminmaxlen) {
+			if (cfg_col->mbminlen != col->mbminlen
+			    || cfg_col->mbmaxlen != col->mbmaxlen) {
 				ib_errf(thd,
 					 IB_LOG_LEVEL_ERROR,
 					 ER_TABLE_SCHEMA_MISMATCH,
@@ -1674,14 +1673,12 @@ PageConverter::purge(const ulint* offsets) UNIV_NOTHROW
 /** Adjust the BLOB references and sys fields for the current record.
 @param rec record to update
 @param offsets column offsets for the record
-@param deleted true if row is delete marked
 @return DB_SUCCESS or error code. */
 dberr_t
 PageConverter::adjust_cluster_record(
 	const dict_index_t*	index,
 	rec_t*			rec,
-	const ulint*		offsets,
-	bool			deleted) UNIV_NOTHROW
+	const ulint*		offsets) UNIV_NOTHROW
 {
 	dberr_t	err;
 
@@ -1693,7 +1690,7 @@ PageConverter::adjust_cluster_record(
 
 		row_upd_rec_sys_fields(
 			rec, m_page_zip_ptr, m_cluster_index, m_offsets,
-			m_trx, 0);
+			m_trx, roll_ptr_t(1) << ROLL_PTR_INSERT_FLAG_POS);
 	}
 
 	return(err);
@@ -1736,8 +1733,7 @@ PageConverter::update_records(
 		if (clust_index) {
 
 			dberr_t err = adjust_cluster_record(
-				m_index->m_srv_index, rec, m_offsets,
-				deleted);
+				m_index->m_srv_index, rec, m_offsets);
 
 			if (err != DB_SUCCESS) {
 				return(err);
@@ -2463,7 +2459,7 @@ row_import_cfg_read_index_fields(
 
 			ib_senderrf(
 				thd, IB_LOG_LEVEL_ERROR, ER_IO_READ_ERROR,
-				errno, strerror(errno),
+				(ulong) errno, strerror(errno),
 				"while reading index fields.");
 
 			return(DB_IO_ERROR);
@@ -2499,7 +2495,7 @@ row_import_cfg_read_index_fields(
 
 			ib_senderrf(
 				thd, IB_LOG_LEVEL_ERROR, ER_IO_READ_ERROR,
-				errno, strerror(errno),
+				(ulong) errno, strerror(errno),
 				"while parsing table name.");
 
 			return(err);
@@ -2569,7 +2565,7 @@ row_import_read_index_data(
 
 			ib_senderrf(
 				thd, IB_LOG_LEVEL_ERROR, ER_IO_READ_ERROR,
-				errno, strerror(errno), msg);
+				(ulong) errno, strerror(errno), msg);
 
 			ib::error() << "IO Error: " << msg;
 
@@ -2644,7 +2640,7 @@ row_import_read_index_data(
 
 			ib_senderrf(
 				thd, IB_LOG_LEVEL_ERROR, ER_IO_READ_ERROR,
-				errno, strerror(errno),
+				(ulong) errno, strerror(errno),
 				"while parsing index name.");
 
 			return(err);
@@ -2683,7 +2679,7 @@ row_import_read_indexes(
 	if (fread(row, 1, sizeof(row), file) != sizeof(row)) {
 		ib_senderrf(
 			thd, IB_LOG_LEVEL_ERROR, ER_IO_READ_ERROR,
-			errno, strerror(errno),
+			(ulong) errno, strerror(errno),
 			"while reading number of indexes.");
 
 		return(DB_IO_ERROR);
@@ -2769,7 +2765,7 @@ row_import_read_columns(
 		if (fread(row, 1,  sizeof(row), file) != sizeof(row)) {
 			ib_senderrf(
 				thd, IB_LOG_LEVEL_ERROR, ER_IO_READ_ERROR,
-				errno, strerror(errno),
+				(ulong) errno, strerror(errno),
 				"while reading table column meta-data.");
 
 			return(DB_IO_ERROR);
@@ -2784,7 +2780,9 @@ row_import_read_columns(
 		col->len = mach_read_from_4(ptr);
 		ptr += sizeof(ib_uint32_t);
 
-		col->mbminmaxlen = mach_read_from_4(ptr);
+		ulint mbminmaxlen = mach_read_from_4(ptr);
+		col->mbmaxlen = mbminmaxlen / 5;
+		col->mbminlen = mbminmaxlen % 5;
 		ptr += sizeof(ib_uint32_t);
 
 		col->ind = mach_read_from_4(ptr);
@@ -2833,7 +2831,7 @@ row_import_read_columns(
 
 			ib_senderrf(
 				thd, IB_LOG_LEVEL_ERROR, ER_IO_READ_ERROR,
-				errno, strerror(errno),
+				(ulong) errno, strerror(errno),
 				"while parsing table column name.");
 
 			return(err);
@@ -2864,7 +2862,7 @@ row_import_read_v1(
 	if (fread(value, 1, sizeof(value), file) != sizeof(value)) {
 		ib_senderrf(
 			thd, IB_LOG_LEVEL_ERROR, ER_IO_READ_ERROR,
-			errno, strerror(errno),
+			(ulong) errno, strerror(errno),
 			"while reading meta-data export hostname length.");
 
 		return(DB_IO_ERROR);
@@ -2892,7 +2890,7 @@ row_import_read_v1(
 
 		ib_senderrf(
 			thd, IB_LOG_LEVEL_ERROR, ER_IO_READ_ERROR,
-			errno, strerror(errno),
+			(ulong) errno, strerror(errno),
 			"while parsing export hostname.");
 
 		return(err);
@@ -2906,7 +2904,7 @@ row_import_read_v1(
 	if (fread(value, 1, sizeof(value), file) != sizeof(value)) {
 		ib_senderrf(
 			thd, IB_LOG_LEVEL_ERROR, ER_IO_READ_ERROR,
-			errno, strerror(errno),
+			(ulong) errno, strerror(errno),
 			"while reading meta-data table name length.");
 
 		return(DB_IO_ERROR);
@@ -2933,7 +2931,7 @@ row_import_read_v1(
 	if (err != DB_SUCCESS) {
 		ib_senderrf(
 			thd, IB_LOG_LEVEL_ERROR, ER_IO_READ_ERROR,
-			errno, strerror(errno),
+			(ulong) errno, strerror(errno),
 			"while parsing table name.");
 
 		return(err);
@@ -2952,7 +2950,7 @@ row_import_read_v1(
 	if (fread(row, 1, sizeof(ib_uint64_t), file) != sizeof(ib_uint64_t)) {
 		ib_senderrf(
 			thd, IB_LOG_LEVEL_ERROR, ER_IO_READ_ERROR,
-			errno, strerror(errno),
+			(ulong) errno, strerror(errno),
 			"while reading autoinc value.");
 
 		return(DB_IO_ERROR);
@@ -2968,7 +2966,7 @@ row_import_read_v1(
 	if (fread(row, 1, sizeof(row), file) != sizeof(row)) {
 		ib_senderrf(
 			thd, IB_LOG_LEVEL_ERROR, ER_IO_READ_ERROR,
-			errno, strerror(errno),
+			(ulong) errno, strerror(errno),
 			"while reading meta-data header.");
 
 		return(DB_IO_ERROR);
@@ -3039,7 +3037,7 @@ row_import_read_meta_data(
 	if (fread(&row, 1, sizeof(row), file) != sizeof(row)) {
 		ib_senderrf(
 			thd, IB_LOG_LEVEL_ERROR, ER_IO_READ_ERROR,
-			errno, strerror(errno),
+			(ulong) errno, strerror(errno),
 			"while reading meta-data version.");
 
 		return(DB_IO_ERROR);
@@ -3090,7 +3088,7 @@ row_import_read_cfg(
 
 		ib_senderrf(
 			thd, IB_LOG_LEVEL_WARN, ER_IO_READ_ERROR,
-			errno, strerror(errno), msg);
+			(ulong) errno, strerror(errno), msg);
 
 		cfg.m_missing = true;
 

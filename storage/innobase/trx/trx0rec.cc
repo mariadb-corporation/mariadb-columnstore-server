@@ -954,6 +954,7 @@ trx_undo_page_report_modify(
 				  dict_index_get_sys_col_pos(
 					  index, DATA_ROLL_PTR), &flen);
 	ut_ad(flen == DATA_ROLL_PTR_LEN);
+	ut_ad(memcmp(field, field_ref_zero, DATA_ROLL_PTR_LEN));
 
 	ptr += mach_u64_write_compressed(ptr, trx_read_roll_ptr(field));
 
@@ -2011,7 +2012,7 @@ trx_undo_report_row_operation(
 				latches, such as SYNC_FSP and SYNC_FSP_PAGE. */
 
 				mtr_commit(&mtr);
-				mtr.start(trx);
+				mtr.start();
 				if (is_temp) {
 					mtr.set_log_mode(MTR_LOG_NO_REDO);
 				}
@@ -2050,7 +2051,7 @@ trx_undo_report_row_operation(
 		/* We have to extend the undo log by one page */
 
 		ut_ad(++loop_count < 2);
-		mtr.start(trx);
+		mtr.start();
 
 		if (is_temp) {
 			mtr.set_log_mode(MTR_LOG_NO_REDO);
@@ -2106,6 +2107,8 @@ trx_undo_get_undo_rec_low(
 
 	trx_undo_decode_roll_ptr(roll_ptr, &is_insert, &rseg_id, &page_no,
 				 &offset);
+	ut_ad(page_no > FSP_FIRST_INODE_PAGE_NO);
+	ut_ad(offset >= TRX_UNDO_PAGE_HDR + TRX_UNDO_PAGE_HDR_SIZE);
 	rseg = is_temp
 		? trx_sys->temp_rsegs[rseg_id]
 		: trx_sys->rseg_array[rseg_id];
@@ -2235,6 +2238,8 @@ trx_undo_prev_version_build(
 
 	const bool is_temp = dict_table_is_temporary(index->table);
 	rec_trx_id = row_get_rec_trx_id(rec, index, offsets);
+
+	ut_ad(!index->table->skip_alter_undo);
 
 	if (trx_undo_get_undo_rec(
 		    roll_ptr, is_temp, heap, rec_trx_id, index->table->name,

@@ -229,7 +229,6 @@ private:
   */
   uint32 unsafe_flags;
 
-  uint m_select_number;
 public:
   inline Stored_program_creation_ctx *get_creation_ctx()
   {
