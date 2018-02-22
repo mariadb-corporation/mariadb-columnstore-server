@@ -1,7 +1,7 @@
 # MariaDB ColumnStore Server (version 1.1)
 
-This is the server part of MariaDB ColumnStore 1.1.3.
-MariaDB ColumnStore 1.1.3 is a GA of MariaDB ColumnStore. 
+This is the server part of MariaDB ColumnStore 1.1.4.
+MariaDB ColumnStore 1.1.4 is a GA of MariaDB ColumnStore. 
 It is built by porting InfiniDB 4.6.7 on MariaDB 10.2 and adding entirely 
 new features not found anywhere else.
 
