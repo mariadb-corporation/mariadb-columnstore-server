@@ -116,7 +116,7 @@ row_undo_ins_remove_clust_rec(
 		mem_heap_t*	heap	= NULL;
 		const ulint*	offsets	= rec_get_offsets(
 			rec, index, NULL, true, ULINT_UNDEFINED, &heap);
-		row_log_table_delete(rec, node->row, index, offsets, NULL);
+		row_log_table_delete(rec, index, offsets, NULL);
 		mem_heap_free(heap);
 	}
 
@@ -366,6 +366,7 @@ close_table:
 		dict_table_close(node->table, dict_locked, FALSE);
 		node->table = NULL;
 	} else {
+		ut_ad(!node->table->skip_alter_undo);
 		clust_index = dict_table_get_first_index(node->table);
 
 		if (clust_index != NULL) {
@@ -380,7 +381,7 @@ close_table:
 			}
 			if (node->table->n_v_cols) {
 				trx_undo_read_v_cols(node->table, ptr,
-						     node->row, false, NULL);
+						     node->row, false);
 			}
 
 		} else {

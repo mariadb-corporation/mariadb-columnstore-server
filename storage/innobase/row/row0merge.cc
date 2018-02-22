@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2005, 2017, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2014, 2017, MariaDB Corporation.
+Copyright (c) 2014, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -452,8 +452,8 @@ row_merge_buf_redundant_convert(
 	const page_size_t&	page_size,
 	mem_heap_t*		heap)
 {
-	ut_ad(DATA_MBMINLEN(field->type.mbminmaxlen) == 1);
-	ut_ad(DATA_MBMAXLEN(field->type.mbminmaxlen) > 1);
+	ut_ad(field->type.mbminlen == 1);
+	ut_ad(field->type.mbmaxlen > 1);
 
 	byte*		buf = (byte*) mem_heap_alloc(heap, len);
 	ulint		field_len = row_field->len;
@@ -595,7 +595,8 @@ row_merge_buf_add(
 
 			field->type.mtype = ifield->col->mtype;
 			field->type.prtype = ifield->col->prtype;
-			field->type.mbminmaxlen = DATA_MBMINMAXLEN(0, 0);
+			field->type.mbminlen = 0;
+			field->type.mbmaxlen = 0;
 			field->type.len = ifield->col->len;
 		} else {
 			/* Use callback to get the virtual column value */
@@ -746,7 +747,7 @@ row_merge_buf_add(
 		if (ifield->prefix_len) {
 			len = dtype_get_at_most_n_mbchars(
 				col->prtype,
-				col->mbminmaxlen,
+				col->mbminlen, col->mbmaxlen,
 				ifield->prefix_len,
 				len,
 				static_cast<char*>(dfield_get_data(field)));
@@ -758,8 +759,7 @@ row_merge_buf_add(
 
 		fixed_len = ifield->fixed_len;
 		if (fixed_len && !dict_table_is_comp(index->table)
-		    && DATA_MBMINLEN(col->mbminmaxlen)
-		    != DATA_MBMAXLEN(col->mbminmaxlen)) {
+		    && col->mbminlen != col->mbmaxlen) {
 			/* CHAR in ROW_FORMAT=REDUNDANT is always
 			fixed-length, but in the temporary file it is
 			variable-length for variable-length character
@@ -769,14 +769,11 @@ row_merge_buf_add(
 
 		if (fixed_len) {
 #ifdef UNIV_DEBUG
-			ulint	mbminlen = DATA_MBMINLEN(col->mbminmaxlen);
-			ulint	mbmaxlen = DATA_MBMAXLEN(col->mbminmaxlen);
-
 			/* len should be between size calcualted base on
 			mbmaxlen and mbminlen */
 			ut_ad(len <= fixed_len);
-			ut_ad(!mbmaxlen || len >= mbminlen
-			      * (fixed_len / mbmaxlen));
+			ut_ad(!col->mbmaxlen || len >= col->mbminlen
+			      * (fixed_len / col->mbmaxlen));
 
 			ut_ad(!dfield_is_ext(field));
 #endif /* UNIV_DEBUG */
@@ -4596,6 +4593,8 @@ row_merge_build_indexes(
 		DBUG_RETURN(DB_OUT_OF_MEMORY);
 	}
 
+	TRASH_ALLOC(&crypt_pfx, sizeof crypt_pfx);
+
 	if (log_tmp_is_encrypted()) {
 		crypt_block = static_cast<row_merge_block_t*>(
 			alloc.allocate_large(3 * srv_sort_buf_size,
@@ -4702,8 +4701,8 @@ row_merge_build_indexes(
 			"Table %s is encrypted but encryption service or"
 			" used key_id is not available. "
 			" Can't continue reading table.",
-			!old_table->is_readable() ? old_table->name :
-				new_table->name);
+			!old_table->is_readable() ? old_table->name.m_name :
+				new_table->name.m_name);
 		goto func_exit;
 	}
 
@@ -5024,7 +5023,7 @@ func_exit:
 		ut_ad(need_flush_observer);
 
 		DBUG_EXECUTE_IF("ib_index_build_fail_before_flush",
-			error = DB_FAIL;
+			error = DB_INTERRUPTED;
 		);
 
 		if (error != DB_SUCCESS) {

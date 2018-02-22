@@ -430,13 +430,13 @@ bool mysql_create_view(THD *thd, TABLE_LIST *views,
   lex->link_first_table_back(view, link_to_local);
   view->open_type= OT_BASE_ONLY;
 
-  WSREP_TO_ISOLATION_BEGIN(WSREP_MYSQL_DB, NULL, NULL)
-
   if (check_dependencies_in_with_clauses(lex->with_clauses_list))
   {
     res= TRUE;
     goto err;
   }
+
+  WSREP_TO_ISOLATION_BEGIN(WSREP_MYSQL_DB, NULL, NULL)
 
   /*
     ignore lock specs for CREATE statement
@@ -643,7 +643,8 @@ bool mysql_create_view(THD *thd, TABLE_LIST *views,
 
   if (!res && mysql_bin_log.is_open())
   {
-    String buff;
+    StringBuffer<128> buff(thd->variables.character_set_client);
+    DBUG_ASSERT(buff.charset()->mbminlen == 1);
     const LEX_STRING command[3]=
       {{ C_STRING_WITH_LEN("CREATE ") },
        { C_STRING_WITH_LEN("ALTER ") },
@@ -1194,8 +1195,6 @@ bool mysql_make_view(THD *thd, TABLE_SHARE *share, TABLE_LIST *table,
     */
     mysql_derived_reinit(thd, NULL, table);
 
-    thd->select_number+= table->view->number_of_selects;
-
     DEBUG_SYNC(thd, "after_cached_view_opened");
     DBUG_RETURN(0);
   }
@@ -1350,7 +1349,7 @@ bool mysql_make_view(THD *thd, TABLE_SHARE *share, TABLE_LIST *table,
 
     lex_start(thd);
     view_select= &lex->select_lex;
-    view_select->select_number= ++thd->select_number;
+    view_select->select_number= ++thd->stmt_lex->current_select_number;
 
     sql_mode_t saved_mode= thd->variables.sql_mode;
     /* switch off modes which can prevent normal parsing of VIEW
@@ -1383,9 +1382,6 @@ bool mysql_make_view(THD *thd, TABLE_SHARE *share, TABLE_LIST *table,
     /* Parse the query. */
 
     parse_status= parse_sql(thd, & parser_state, table->view_creation_ctx);
-
-    lex->number_of_selects=
-      (thd->select_number - view_select->select_number) + 1;
 
     /* Restore environment. */
 

@@ -2,7 +2,7 @@
 
 Copyright (c) 1995, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2008, Google Inc.
-Copyright (c) 2013, 2017, MariaDB Corporation.
+Copyright (c) 2013, 2018, MariaDB Corporation.
 
 Portions of this file contain modifications contributed and copyrighted by
 Google, Inc. Those modifications are gratefully acknowledged and are described
@@ -138,10 +138,13 @@ inline void* aligned_malloc(size_t size, size_t align) {
     void *result;
 #ifdef _MSC_VER
     result = _aligned_malloc(size, align);
-#else
+#elif defined (HAVE_POSIX_MEMALIGN)
     if(posix_memalign(&result, align, size)) {
 	    result = 0;
     }
+#else
+    /* Use unaligned malloc as fallback */
+    result = malloc(size);
 #endif
     return result;
 }
@@ -2212,7 +2215,7 @@ buf_resize_status(
 
 	va_start(ap, fmt);
 
-	ut_vsnprintf(
+	vsnprintf(
 		export_vars.innodb_buffer_pool_resize_status,
 		sizeof(export_vars.innodb_buffer_pool_resize_status),
 		fmt, ap);
@@ -3138,11 +3141,26 @@ buf_pool_clear_hash_index()
 				see the comments in buf0buf.h */
 
 				if (!index) {
+# if defined UNIV_AHI_DEBUG || defined UNIV_DEBUG
+					ut_a(!block->n_pointers);
+# endif /* UNIV_AHI_DEBUG || UNIV_DEBUG */
 					continue;
 				}
 
-				ut_ad(buf_block_get_state(block)
-                                      == BUF_BLOCK_FILE_PAGE);
+				ut_d(buf_page_state state
+				     = buf_block_get_state(block));
+				/* Another thread may have set the
+				state to BUF_BLOCK_REMOVE_HASH in
+				buf_LRU_block_remove_hashed().
+
+				The state change in buf_page_realloc()
+				is not observable here, because in
+				that case we would have !block->index.
+
+				In the end, the entire adaptive hash
+				index will be removed. */
+				ut_ad(state == BUF_BLOCK_FILE_PAGE
+				      || state == BUF_BLOCK_REMOVE_HASH);
 # if defined UNIV_AHI_DEBUG || defined UNIV_DEBUG
 				block->n_pointers = 0;
 # endif /* UNIV_AHI_DEBUG || UNIV_DEBUG */
@@ -4168,7 +4186,8 @@ buf_page_get_gen(
 	ulint		retries = 0;
 	buf_pool_t*	buf_pool = buf_pool_get(page_id);
 
-	ut_ad(mtr->is_active());
+	ut_ad((mtr == NULL) == (mode == BUF_EVICT_IF_IN_POOL));
+	ut_ad(!mtr || mtr->is_active());
 	ut_ad((rw_latch == RW_S_LATCH)
 	      || (rw_latch == RW_X_LATCH)
 	      || (rw_latch == RW_SX_LATCH)
@@ -4180,29 +4199,31 @@ buf_page_get_gen(
 
 #ifdef UNIV_DEBUG
 	switch (mode) {
+	case BUF_EVICT_IF_IN_POOL:
+		/* After DISCARD TABLESPACE, the tablespace would not exist,
+		but in IMPORT TABLESPACE, PageConverter::operator() must
+		replace any old pages, which were not evicted during DISCARD.
+		Skip the assertion on space_page_size. */
+		break;
+	default:
+		ut_error;
 	case BUF_GET_NO_LATCH:
 		ut_ad(rw_latch == RW_NO_LATCH);
-		break;
+		/* fall through */
 	case BUF_GET:
 	case BUF_GET_IF_IN_POOL:
 	case BUF_PEEK_IF_IN_POOL:
 	case BUF_GET_IF_IN_POOL_OR_WATCH:
 	case BUF_GET_POSSIBLY_FREED:
-		break;
-	default:
-		ut_error;
+		bool			found;
+		const page_size_t&	space_page_size
+			= fil_space_get_page_size(page_id.space(), &found);
+		ut_ad(found);
+		ut_ad(page_size.equals_to(space_page_size));
 	}
-
-	bool			found;
-	const page_size_t&	space_page_size
-		= fil_space_get_page_size(page_id.space(), &found);
-
-	ut_ad(found);
-
-	ut_ad(page_size.equals_to(space_page_size));
 #endif /* UNIV_DEBUG */
 
-	ut_ad(!ibuf_inside(mtr)
+	ut_ad(!mtr || !ibuf_inside(mtr)
 	      || ibuf_page_low(page_id, page_size, FALSE, file, line, NULL));
 
 	buf_pool->stat.n_page_gets++;
@@ -4290,13 +4311,13 @@ loop:
 			rw_lock_x_unlock(hash_lock);
 		}
 
-		if (mode == BUF_GET_IF_IN_POOL
-		    || mode == BUF_PEEK_IF_IN_POOL
-		    || mode == BUF_GET_IF_IN_POOL_OR_WATCH) {
-
+		switch (mode) {
+		case BUF_GET_IF_IN_POOL:
+		case BUF_GET_IF_IN_POOL_OR_WATCH:
+		case BUF_PEEK_IF_IN_POOL:
+		case BUF_EVICT_IF_IN_POOL:
 			ut_ad(!rw_lock_own(hash_lock, RW_LOCK_X));
 			ut_ad(!rw_lock_own(hash_lock, RW_LOCK_S));
-
 			return(NULL);
 		}
 
@@ -4354,11 +4375,7 @@ loop:
 				<< ". The most probable cause"
 				" of this error may be that the"
 				" table has been corrupted."
-				" You can try to fix this"
-				" problem by using"
-				" innodb_force_recovery."
-				" Please see " REFMAN " for more"
-				" details. Aborting...";
+				" See https://mariadb.com/kb/en/library/xtradbinnodb-recovery-modes/";
 		}
 
 #if defined UNIV_DEBUG || defined UNIV_BUF_DEBUG
@@ -4390,8 +4407,10 @@ loop:
 
 got_block:
 
-	if (mode == BUF_GET_IF_IN_POOL || mode == BUF_PEEK_IF_IN_POOL) {
-
+	switch (mode) {
+	case BUF_GET_IF_IN_POOL:
+	case BUF_PEEK_IF_IN_POOL:
+	case BUF_EVICT_IF_IN_POOL:
 		buf_page_t*	fix_page = &fix_block->page;
 		BPageMutex*	fix_mutex = buf_page_get_mutex(fix_page);
 		mutex_enter(fix_mutex);
@@ -4423,6 +4442,20 @@ got_block:
 			os_thread_sleep(WAIT_FOR_WRITE);
 			goto loop;
 		}
+
+		if (UNIV_UNLIKELY(mode == BUF_EVICT_IF_IN_POOL)) {
+evict_from_pool:
+			ut_ad(!fix_block->page.oldest_modification);
+			buf_pool_mutex_enter(buf_pool);
+			buf_block_unfix(fix_block);
+
+			if (!buf_LRU_free_page(&fix_block->page, true)) {
+				ut_ad(0);
+			}
+
+			buf_pool_mutex_exit(buf_pool);
+			return(NULL);
+		}
 		break;
 
 	case BUF_BLOCK_ZIP_PAGE:
@@ -4453,6 +4486,10 @@ got_block:
 			os_thread_sleep(WAIT_FOR_READ);
 
 			goto loop;
+		}
+
+		if (UNIV_UNLIKELY(mode == BUF_EVICT_IF_IN_POOL)) {
+			goto evict_from_pool;
 		}
 
 		/* Buffer-fix the block so that it cannot be evicted
@@ -4566,6 +4603,8 @@ got_block:
 				buf_block_unfix(fix_block);
 				buf_pool_mutex_exit(buf_pool);
 				rw_lock_x_unlock(&fix_block->lock);
+
+				*err = DB_PAGE_CORRUPTED;
 				return NULL;
 			}
 		}

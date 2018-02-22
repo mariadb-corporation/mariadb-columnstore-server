@@ -53,6 +53,7 @@
 #include "sp.h"
 #include "set_var.h"
 #include "debug_sync.h"
+#include "sql_cte.h"
 
 #ifdef NO_EMBEDDED_ACCESS_CHECKS
 #define sp_restore_security_context(A,B) while (0) {}
@@ -281,7 +282,8 @@ Item_func::eval_not_null_tables(void *opt_arg)
 }
 
 
-void Item_func::fix_after_pullout(st_select_lex *new_parent, Item **ref)
+void Item_func::fix_after_pullout(st_select_lex *new_parent, Item **ref,
+                                  bool merge)
 {
   Item **arg,**arg_end;
 
@@ -292,7 +294,7 @@ void Item_func::fix_after_pullout(st_select_lex *new_parent, Item **ref)
   {
     for (arg=args, arg_end=args+arg_count; arg != arg_end ; arg++)
     {
-      (*arg)->fix_after_pullout(new_parent, arg);
+      (*arg)->fix_after_pullout(new_parent, arg, merge);
       Item *item= *arg;
 
       used_tables_and_const_cache_join(item);
@@ -559,6 +561,7 @@ my_decimal *Item_real_func::val_decimal(my_decimal *decimal_value)
 }
 
 
+#ifdef HAVE_DLOPEN
 void Item_udf_func::fix_num_length_and_dec()
 {
   uint fl_length= 0;
@@ -575,6 +578,7 @@ void Item_udf_func::fix_num_length_and_dec()
     max_length= float_length(NOT_FIXED_DEC);
   }
 }
+#endif
 
 
 /**
@@ -2899,7 +2903,7 @@ bool Item_func_min_max::get_date(MYSQL_TIME *ltime, ulonglong fuzzy_date)
     ltime->hour+= (ltime->month * 32 + ltime->day) * 24;
     ltime->year= ltime->month= ltime->day= 0;
     if (adjust_time_range_with_warn(ltime,
-                                    std::min<uint>(decimals, TIME_SECOND_PART_DIGITS)))
+                                    MY_MIN(decimals, TIME_SECOND_PART_DIGITS)))
       return (null_value= true);
   }
 
@@ -4711,10 +4715,13 @@ bool Item_func_set_user_var::fix_fields(THD *thd, Item **ref)
     TABLE_LIST *derived;
     for (derived= unit->derived;
          derived;
-         derived= derived->select_lex->master_unit()->derived)
+         derived= unit->derived)
     {
       derived->set_materialized_derived();
       derived->prohibit_cond_pushdown= true;
+      if (unit->with_element && unit->with_element->is_recursive)
+        break;
+      unit= derived->select_lex->master_unit();
     }
   }
 

@@ -1384,8 +1384,8 @@ static bool update_cached_long_query_time(sys_var *self, THD *thd,
 static Sys_var_double Sys_long_query_time(
        "long_query_time",
        "Log all queries that have taken more than long_query_time seconds "
-       "to execute to file. The argument will be treated as a decimal value "
-       "with microsecond precision",
+       "to execute to the slow query log file. The argument will be treated "
+       "as a decimal value with microsecond precision",
        SESSION_VAR(long_query_time_double),
        CMD_LINE(REQUIRED_ARG), VALID_RANGE(0, LONG_TIMEOUT), DEFAULT(10),
        NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(0),
@@ -2088,7 +2088,7 @@ Sys_var_slave_parallel_mode::global_update(THD *thd, set_var *var)
     if (mi->rli.slave_running)
     {
       my_error(ER_SLAVE_MUST_STOP, MYF(0),
-          mi->connection_name.length, mi->connection_name.str);
+               (int) mi->connection_name.length, mi->connection_name.str);
       res= true;
     }
     else
@@ -4590,7 +4590,7 @@ bool Sys_var_rpl_filter::global_update(THD *thd, set_var *var)
     if (mi->rli.slave_running)
     {
       my_error(ER_SLAVE_MUST_STOP, MYF(0), 
-               mi->connection_name.length,
+               (int) mi->connection_name.length,
                mi->connection_name.str);
       result= true;
     }
@@ -4793,7 +4793,7 @@ static bool update_slave_skip_counter(sys_var *self, THD *thd, Master_info *mi)
 {
   if (mi->rli.slave_running)
   {
-    my_error(ER_SLAVE_MUST_STOP, MYF(0), mi->connection_name.length,
+    my_error(ER_SLAVE_MUST_STOP, MYF(0), (int) mi->connection_name.length,
              mi->connection_name.str);
     return true;
   }
@@ -5134,7 +5134,8 @@ static Sys_var_mybool Sys_wsrep_on (
        "wsrep_on", "To enable wsrep replication ",
        SESSION_VAR(wsrep_on), 
        CMD_LINE(OPT_ARG), DEFAULT(FALSE),
-       NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(0),
+       NO_MUTEX_GUARD, NOT_IN_BINLOG,
+       ON_CHECK(wsrep_on_check),
        ON_UPDATE(wsrep_on_update));
 
 static Sys_var_charptr Sys_wsrep_start_position (

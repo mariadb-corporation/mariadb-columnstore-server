@@ -1679,7 +1679,7 @@ dict_table_rename_in_cache(
 			filepath = fil_make_ibd_name(table->name, false);
 		}
 
-		fil_delete_tablespace(table->space, BUF_REMOVE_ALL_NO_WRITE);
+		fil_delete_tablespace(table->space, true);
 
 		/* Delete any temp file hanging around. */
 		if (os_file_status(filepath, &exists, &ftype)
@@ -3409,6 +3409,7 @@ dict_foreign_find_index(
 		if (types_idx != index
 		    && !(index->type & DICT_FTS)
 		    && !index->to_be_dropped
+		    && !dict_index_is_online_ddl(index)
 		    && dict_foreign_qualify_index(
 			    table, col_names, columns, n_cols,
 			    index, types_idx,

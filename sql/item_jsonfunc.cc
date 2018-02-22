@@ -69,6 +69,7 @@ static inline bool append_simple(String *s, const uchar *a, size_t a_len)
 /*
   Appends JSON string to the String object taking charsets in
   consideration.
+*/
 static int st_append_json(String *s,
              CHARSET_INFO *json_cs, const uchar *js, uint js_len)
 {
@@ -82,9 +83,8 @@ static int st_append_json(String *s,
     return 0;
   }
 
-  return js_len;
+  return str_len;
 }
-*/
 
 
 /*
@@ -475,6 +475,9 @@ String *Item_func_json_value::val_str(String *str)
   json_scan_start(&je, js->charset(),(const uchar *) js->ptr(),
                   (const uchar *) js->ptr() + js->length());
 
+  str->length(0);
+  str->set_charset(&my_charset_utf8mb4_bin);
+
   path.cur_step= path.p.steps;
 continue_search:
   if (json_find_path(&je, &path.p, &path.cur_step, array_counters))
@@ -515,8 +518,7 @@ bool Item_func_json_value::check_and_get_value(json_engine_t *je, String *res,
     return true;
   }
 
-  res->set((const char *) je->value, je->value_len, je->s.cs);
-  return false;
+  return st_append_json(res, je->s.cs, je->value, je->value_len); 
 }
 
 
@@ -779,10 +781,10 @@ String *Item_func_json_extract::read_json(String *str,
   {
     str->set_charset(js->charset());
     str->length(0);
-  }
 
-  if (possible_multiple_values && str->append("[", 1))
-    goto error;
+    if (possible_multiple_values && str->append("[", 1))
+      goto error;
+  }
 
   json_get_path_start(&je, js->charset(),(const uchar *) js->ptr(),
                       (const uchar *) js->ptr() + js->length(), &p);
@@ -1352,6 +1354,8 @@ longlong Item_func_json_contains_path::val_int()
     bzero(p_found, (arg_count-2) * sizeof(bool));
     n_found= arg_count - 2;
   }
+  else
+    n_found= 0; /* Jost to prevent 'uninitialized value' warnings */
 
   result= 0;
   while (json_get_path_next(&je, &p) == 0)
@@ -2058,7 +2062,7 @@ String *Item_func_json_merge::val_str(String *str)
 {
   DBUG_ASSERT(fixed == 1);
   json_engine_t je1, je2;
-  String *js1= args[0]->val_json(&tmp_js1), *js2;
+  String *js1= args[0]->val_json(&tmp_js1), *js2=NULL;
   uint n_arg;
 
   if (args[0]->null_value)

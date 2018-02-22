@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1997, 2016, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2016, 2017, MariaDB Corporation.
+Copyright (c) 2016, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -4645,7 +4645,7 @@ ibuf_merge_or_delete_for_page(
 		function. When the counter is > 0, that prevents tablespace
 		from being dropped. */
 
-		space = fil_space_acquire(space_id);
+		space = fil_space_acquire_silent(space_id);
 
 		if (UNIV_UNLIKELY(!space)) {
 			/* Do not try to read the bitmap page from space;
@@ -5178,7 +5178,20 @@ ibuf_check_bitmap_on_import(
 		return(DB_TABLE_NOT_FOUND);
 	}
 
-	size = fil_space_get_size(space_id);
+	mtr_t	mtr;
+	mtr_start(&mtr);
+	{
+		buf_block_t* sp = buf_page_get(space_id, zip_size, 0,
+					       RW_S_LATCH, &mtr);
+		if (sp) {
+			size = mach_read_from_4(
+				FSP_HEADER_OFFSET + FSP_FREE_LIMIT
+				+ sp->frame);
+		} else {
+			size = 0;
+		}
+	}
+	mtr_commit(&mtr);
 
 	if (size == 0) {
 		return(DB_TABLE_NOT_FOUND);
@@ -5189,7 +5202,6 @@ ibuf_check_bitmap_on_import(
 	page_size = zip_size ? zip_size : UNIV_PAGE_SIZE;
 
 	for (page_no = 0; page_no < size; page_no += page_size) {
-		mtr_t	mtr;
 		page_t*	bitmap_page;
 		ulint	i;
 

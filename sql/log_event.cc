@@ -18,7 +18,6 @@
 
 #include <my_global.h>
 #include "sql_priv.h"
-#include "mysqld_error.h"
 
 #ifndef MYSQL_CLIENT
 #include "unireg.h"
@@ -44,6 +43,8 @@
 #include <strfunc.h>
 #include "compat56.h"
 #include "wsrep_mysqld.h"
+#else
+#include "mysqld_error.h"
 #endif /* MYSQL_CLIENT */
 
 #include <my_bitmap.h>
@@ -53,8 +54,6 @@
 #include "zlib.h"
 
 #define my_b_write_string(A, B) my_b_write((A), (uchar*)(B), (uint) (sizeof(B) - 1))
-
-using std::max;
 
 /**
   BINLOG_CHECKSUM variable.
@@ -1712,6 +1711,8 @@ bool Log_event::write_header(ulong event_data_length)
     */
 
     log_pos= writer->pos() + data_written;
+    
+    DBUG_EXECUTE_IF("dbug_master_binlog_over_2GB", log_pos += (1ULL <<31););
   }
 
   now= get_time();                               // Query start time
@@ -1776,8 +1777,8 @@ int Log_event::read_log_event(IO_CACHE* file, String* packet,
   if (data_len < LOG_EVENT_MINIMAL_HEADER_LEN)
     DBUG_RETURN(LOG_READ_BOGUS);
 
-  if (data_len > max(max_allowed_packet,
-                     opt_binlog_rows_event_max_size + MAX_LOG_EVENT_HEADER))
+  if (data_len > MY_MAX(max_allowed_packet,
+                        opt_binlog_rows_event_max_size + MAX_LOG_EVENT_HEADER))
     DBUG_RETURN(LOG_READ_TOO_LARGE);
 
   if (likely(data_len > LOG_EVENT_MINIMAL_HEADER_LEN))
@@ -1914,9 +1915,9 @@ err:
 #endif
     if (event.length() >= OLD_HEADER_LEN)
       sql_print_error("Error in Log_event::read_log_event(): '%s',"
-                      " data_len: %lu, event_type: %d", error,
-                      uint4korr(&event[EVENT_LEN_OFFSET]),
-                      (uchar)event[EVENT_TYPE_OFFSET]);
+                      " data_len: %lu, event_type: %u", error,
+                      (ulong) uint4korr(&event[EVENT_LEN_OFFSET]),
+                      (uint) (uchar)event[EVENT_TYPE_OFFSET]);
     else
       sql_print_error("Error in Log_event::read_log_event(): '%s'", error);
     /*
@@ -4987,8 +4988,13 @@ bool test_if_equal_repl_errors(int expected_error, int actual_error)
     return 1;
   switch (expected_error) {
   case ER_DUP_ENTRY:
+  case ER_DUP_ENTRY_WITH_KEY_NAME:
+  case ER_DUP_KEY:
   case ER_AUTOINC_READ_FAILED:
-    return (actual_error == ER_AUTOINC_READ_FAILED ||
+    return (actual_error == ER_DUP_ENTRY ||
+            actual_error == ER_DUP_ENTRY_WITH_KEY_NAME ||
+            actual_error == ER_DUP_KEY ||
+            actual_error == ER_AUTOINC_READ_FAILED ||
             actual_error == HA_ERR_AUTOINC_ERANGE);
   case ER_UNKNOWN_TABLE:
     return actual_error == ER_IT_IS_A_VIEW;
@@ -8673,7 +8679,7 @@ User_var_log_event(const char* buf, uint event_len,
       Old events will not have this extra byte, thence,
       we keep the flags set to UNDEF_F.
     */
-    uint bytes_read= (uint)((val + val_len) - buf_start);
+    size_t bytes_read= ((val + val_len) - buf_start);
     if ((data_written - bytes_read) > 0)
     {
       flags= (uint) *(buf + UV_VAL_IS_NULL + UV_VAL_TYPE_SIZE +
@@ -11792,7 +11798,8 @@ int Table_map_log_event::rewrite_db(const char* new_db, size_t new_len,
   cnt += header_len;
 
   // Write new db name length and new name
-  *ptr++ = new_len;
+  DBUG_ASSERT(new_len < 0xff);
+  *ptr++ = (char)new_len;
   memcpy(ptr, new_db, new_len + 1);
   ptr += new_len + 1;
   cnt += m_dblen + 2;

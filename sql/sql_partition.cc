@@ -4431,8 +4431,14 @@ uint prep_alter_part_table(THD *thd, TABLE *table, Alter_info *alter_info,
       !thd->lex->part_info->num_columns)
     thd->lex->part_info->num_columns= 1; // to make correct clone
 
-  if ((thd->work_part_info= thd->lex->part_info) &&
-      !(thd->work_part_info= thd->lex->part_info->get_clone(thd)))
+  /*
+    One of these is done in handle_if_exists_option():
+        thd->work_part_info= thd->lex->part_info;
+      or
+        thd->work_part_info= NULL;
+  */
+  if (thd->work_part_info &&
+      !(thd->work_part_info= thd->work_part_info->get_clone(thd)))
     DBUG_RETURN(TRUE);
 
   /* ALTER_ADMIN_PARTITION is handled in mysql_admin_table */
@@ -4603,16 +4609,11 @@ uint prep_alter_part_table(THD *thd, TABLE *table, Alter_info *alter_info,
             my_error(ER_PARTITION_WRONG_VALUES_ERROR, MYF(0),
                      "LIST", "IN");
           }
-          else if (tab_part_info->part_type == RANGE_PARTITION)
-          {
-            my_error(ER_PARTITION_REQUIRES_VALUES_ERROR, MYF(0),
-                     "RANGE", "LESS THAN");
-          }
           else
           {
-            DBUG_ASSERT(tab_part_info->part_type == LIST_PARTITION);
-            my_error(ER_PARTITION_REQUIRES_VALUES_ERROR, MYF(0),
-                     "LIST", "IN");
+            DBUG_ASSERT(tab_part_info->part_type == RANGE_PARTITION ||
+                        tab_part_info->part_type == LIST_PARTITION);
+            (void) tab_part_info->error_if_requires_values();
           }
           goto err;
         }
@@ -6561,10 +6562,7 @@ uint fast_alter_partition_table(THD *thd, TABLE *table,
   lpt->part_info= part_info;
   lpt->alter_info= alter_info;
   lpt->create_info= create_info;
-  lpt->db_options= create_info->table_options;
-  if (create_info->row_type != ROW_TYPE_FIXED &&
-      create_info->row_type != ROW_TYPE_DEFAULT)
-    lpt->db_options|= HA_OPTION_PACK_RECORD;
+  lpt->db_options= create_info->table_options_with_row_type();
   lpt->table= table;
   lpt->key_info_buffer= 0;
   lpt->key_count= 0;
@@ -8080,8 +8078,11 @@ int create_partition_name(char *out, size_t outlen, const char *in1,
     end= strxnmov(out, outlen-1, in1, "#P#", transl_part, NullS);
   else if (name_variant == TEMP_PART_NAME)
     end= strxnmov(out, outlen-1, in1, "#P#", transl_part, "#TMP#", NullS);
-  else if (name_variant == RENAMED_PART_NAME)
+  else
+  {
+    DBUG_ASSERT(name_variant == RENAMED_PART_NAME);
     end= strxnmov(out, outlen-1, in1, "#P#", transl_part, "#REN#", NullS);
+  }
   if (end - out == static_cast<ptrdiff_t>(outlen-1))
   {
     my_error(ER_PATH_LENGTH, MYF(0), longest_str(in1, transl_part));
@@ -8121,9 +8122,12 @@ int create_subpartition_name(char *out, size_t outlen,
   else if (name_variant == TEMP_PART_NAME)
     end= strxnmov(out, outlen-1, in1, "#P#", transl_part_name,
                   "#SP#", transl_subpart_name, "#TMP#", NullS);
-  else if (name_variant == RENAMED_PART_NAME)
+  else
+  {
+    DBUG_ASSERT(name_variant == RENAMED_PART_NAME);
     end= strxnmov(out, outlen-1, in1, "#P#", transl_part_name,
                   "#SP#", transl_subpart_name, "#REN#", NullS);
+  }
   if (end - out == static_cast<ptrdiff_t>(outlen-1))
   {
     my_error(ER_PATH_LENGTH, MYF(0),

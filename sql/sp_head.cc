@@ -578,7 +578,7 @@ sp_head::sp_head()
    m_flags(0),
    m_sp_cache_version(0),
    m_creation_ctx(0),
-   unsafe_flags(0), m_select_number(1),
+   unsafe_flags(0),
    m_recursion_level(0),
    m_next_cached_sp(0),
    m_cont_level(0)
@@ -822,7 +822,7 @@ sp_head::~sp_head()
     thd->lex->sphead= NULL;
     lex_end(thd->lex);
     delete thd->lex;
-    thd->lex= lex;
+    thd->lex= thd->stmt_lex= lex;
   }
 
   my_hash_free(&m_sptabs);
@@ -1129,12 +1129,13 @@ sp_head::execute(THD *thd, bool merge_da_on_success)
               backup_arena;
   query_id_t old_query_id;
   TABLE *old_derived_tables;
-  LEX *old_lex;
+  LEX *old_lex, *old_stmt_lex;
   Item_change_list old_change_list;
   String old_packet;
   uint old_server_status;
   const uint status_backup_mask= SERVER_STATUS_CURSOR_EXISTS |
                                  SERVER_STATUS_LAST_ROW_SENT;
+  MEM_ROOT *user_var_events_alloc_saved= 0;
   Reprepare_observer *save_reprepare_observer= thd->m_reprepare_observer;
   Object_creation_ctx *UNINIT_VAR(saved_creation_ctx);
   Diagnostics_area *da= thd->get_stmt_da();
@@ -1232,11 +1233,12 @@ sp_head::execute(THD *thd, bool merge_da_on_success)
     do it in each instruction
   */
   old_lex= thd->lex;
+  old_stmt_lex= thd->stmt_lex;
   /*
     We should also save Item tree change list to avoid rollback something
     too early in the calling query.
   */
-  thd->change_list.move_elements_to(&old_change_list);
+  thd->Item_change_list::move_elements_to(&old_change_list);
   /*
     Cursors will use thd->packet, so they may corrupt data which was prepared
     for sending by upper level. OTOH cursors in the same routine can share this
@@ -1313,9 +1315,11 @@ sp_head::execute(THD *thd, bool merge_da_on_success)
       Will write this SP statement into binlog separately.
       TODO: consider changing the condition to "not inside event union".
     */
-    MEM_ROOT *user_var_events_alloc_saved= thd->user_var_events_alloc;
     if (thd->locked_tables_mode <= LTM_LOCK_TABLES)
+    {
+      user_var_events_alloc_saved= thd->user_var_events_alloc;
       thd->user_var_events_alloc= thd->mem_root;
+    }
 
     sql_digest_state *parent_digest= thd->m_digest;
     thd->m_digest= NULL;
@@ -1376,9 +1380,10 @@ sp_head::execute(THD *thd, bool merge_da_on_success)
   /* Restore all saved */
   thd->server_status= (thd->server_status & ~status_backup_mask) | old_server_status;
   old_packet.swap(thd->packet);
-  DBUG_ASSERT(thd->change_list.is_empty());
-  old_change_list.move_elements_to(&thd->change_list);
+  DBUG_ASSERT(thd->Item_change_list::is_empty());
+  old_change_list.move_elements_to(thd);
   thd->lex= old_lex;
+  thd->stmt_lex= old_stmt_lex;
   thd->set_query_id(old_query_id);
   DBUG_ASSERT(!thd->derived_tables);
   thd->derived_tables= old_derived_tables;
@@ -2109,26 +2114,7 @@ sp_head::execute_procedure(THD *thd, List<Item> *args)
 
   if (!err_status)
   {
-    /*
-      Normally the counter is not reset between parsing and first execution,
-      but it is possible in case of error to have parsing on one CALL and
-      first execution (where VIEW will be parsed and added). So we store the
-      counter after parsing and restore it before execution just to avoid
-      repeating SELECT numbers.
-    */
-    thd->select_number= m_select_number;
-
     err_status= execute(thd, TRUE);
-    DBUG_PRINT("info", ("execute returned %d", (int) err_status));
-    /*
-      This execution of the SP was aborted with an error (e.g. "Table not
-      found").  However it might still have consumed some numbers from the
-      thd->select_number counter.  The next sp->exec() call must not use the
-      consumed numbers, so we remember the first free number (We know that
-      nobody will use it as this execution has stopped with an error).
-    */
-    if (err_status)
-      set_select_number(thd->select_number);
   }
 
   if (save_log_general)
@@ -2234,7 +2220,7 @@ sp_head::reset_lex(THD *thd)
   if (sublex == 0)
     DBUG_RETURN(TRUE);
 
-  thd->lex= sublex;
+  thd->lex= thd->stmt_lex= sublex;
   (void)m_lex.push_front(oldlex);
 
   /* Reset most stuff. */
@@ -2972,13 +2958,13 @@ sp_lex_keeper::reset_lex_and_exec_core(THD *thd, uint *nextp,
   bool parent_modified_non_trans_table= thd->transaction.stmt.modified_non_trans_table;
   thd->transaction.stmt.modified_non_trans_table= FALSE;
   DBUG_ASSERT(!thd->derived_tables);
-  DBUG_ASSERT(thd->change_list.is_empty());
+  DBUG_ASSERT(thd->Item_change_list::is_empty());
   /*
     Use our own lex.
     We should not save old value since it is saved/restored in
     sp_head::execute() when we are entering/leaving routine.
   */
-  thd->lex= m_lex;
+  thd->lex= thd->stmt_lex= m_lex;
 
   thd->set_query_id(next_query_id());
 

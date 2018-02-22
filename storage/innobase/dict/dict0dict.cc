@@ -2,7 +2,7 @@
 
 Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2012, Facebook Inc.
-Copyright (c) 2013, 2017, MariaDB Corporation.
+Copyright (c) 2013, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -1641,7 +1641,11 @@ dict_table_rename_in_cache(
 			return(DB_OUT_OF_MEMORY);
 		}
 
-		fil_delete_tablespace(table->space, BUF_REMOVE_ALL_NO_WRITE);
+		fil_delete_tablespace(table->space
+#ifdef BTR_CUR_HASH_ADAPT
+				      , true
+#endif /* BTR_CUR_HASH_ADAPT */
+				      );
 
 		/* Delete any temp file hanging around. */
 		if (os_file_status(filepath, &exists, &ftype)
@@ -3439,6 +3443,7 @@ dict_foreign_find_index(
 		    && !(index->type & DICT_FTS)
 		    && !dict_index_is_spatial(index)
 		    && !index->to_be_dropped
+		    && !dict_index_is_online_ddl(index)
 		    && dict_foreign_qualify_index(
 			    table, col_names, columns, n_cols,
 			    index, types_idx,
@@ -6512,7 +6517,7 @@ dict_table_schema_check(
 		}
 
 		if (should_print) {
-			ut_snprintf(errstr, errstr_sz,
+			snprintf(errstr, errstr_sz,
 				"Table %s not found.",
 				ut_format_name(req_schema->table_name,
 					   buf, sizeof(buf)));
@@ -6526,7 +6531,7 @@ dict_table_schema_check(
 	    fil_space_get(table->space) == NULL) {
 		/* missing tablespace */
 
-		ut_snprintf(errstr, errstr_sz,
+		snprintf(errstr, errstr_sz,
 			    "Tablespace for table %s is missing.",
 			    ut_format_name(req_schema->table_name,
 					   buf, sizeof(buf)));
@@ -6537,13 +6542,13 @@ dict_table_schema_check(
 	ulint n_sys_cols = dict_table_get_n_sys_cols(table);
 	if ((ulint) table->n_def - n_sys_cols != req_schema->n_cols) {
 		/* the table has a different number of columns than required */
-		ut_snprintf(errstr, errstr_sz,
-			    "%s has " ULINTPF " columns but should have "
-			    ULINTPF ".",
-			    ut_format_name(req_schema->table_name,
-					   buf, sizeof(buf)),
-			    table->n_def - n_sys_cols,
-			    req_schema->n_cols);
+		snprintf(errstr, errstr_sz,
+			 "%s has " ULINTPF " columns but should have "
+			 ULINTPF ".",
+			 ut_format_name(req_schema->table_name, buf,
+					sizeof buf),
+			 table->n_def - n_sys_cols,
+			 req_schema->n_cols);
 
 		return(DB_ERROR);
 	}
@@ -6559,7 +6564,7 @@ dict_table_schema_check(
 
 		if (j == table->n_def) {
 
-			ut_snprintf(errstr, errstr_sz,
+			snprintf(errstr, errstr_sz,
 				    "required column %s"
 				    " not found in table %s.",
 				    req_schema->columns[i].name,
@@ -6578,7 +6583,7 @@ dict_table_schema_check(
 
 			CREATE_TYPES_NAMES();
 
-			ut_snprintf(errstr, errstr_sz,
+			snprintf(errstr, errstr_sz,
 				    "Column %s in table %s is %s"
 				    " but should be %s (length mismatch).",
 				    req_schema->columns[i].name,
@@ -6602,7 +6607,7 @@ dict_table_schema_check(
                 {
 			CREATE_TYPES_NAMES();
 
-			ut_snprintf(errstr, errstr_sz,
+			snprintf(errstr, errstr_sz,
 				    "Column %s in table %s is %s"
 				    " but should be %s (type mismatch).",
 				    req_schema->columns[i].name,
@@ -6621,7 +6626,7 @@ dict_table_schema_check(
 
 			CREATE_TYPES_NAMES();
 
-			ut_snprintf(errstr, errstr_sz,
+			snprintf(errstr, errstr_sz,
 				    "Column %s in table %s is %s"
 				    " but should be %s (flags mismatch).",
 				    req_schema->columns[i].name,
@@ -6634,7 +6639,7 @@ dict_table_schema_check(
 	}
 
 	if (req_schema->n_foreign != table->foreign_set.size()) {
-		ut_snprintf(
+		snprintf(
 			errstr, errstr_sz,
 			"Table %s has " ULINTPF " foreign key(s) pointing"
 			" to other tables, but it must have " ULINTPF ".",
@@ -6646,7 +6651,7 @@ dict_table_schema_check(
 	}
 
 	if (req_schema->n_referenced != table->referenced_set.size()) {
-		ut_snprintf(
+		snprintf(
 			errstr, errstr_sz,
 			"There are " ULINTPF " foreign key(s) pointing to %s, "
 			"but there must be " ULINTPF ".",
@@ -6720,7 +6725,7 @@ dict_fs2utf8(
 		&errors);
 
 	if (errors != 0) {
-		ut_snprintf(table_utf8, table_utf8_size, "%s%s",
+		snprintf(table_utf8, table_utf8_size, "%s%s",
 			    srv_mysql50_table_name_prefix, table);
 	}
 }

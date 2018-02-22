@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2011, 2017, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2017, MariaDB Corporation.
+Copyright (c) 2017, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -203,11 +203,6 @@ struct row_log_t {
 	byte*		crypt_head; /*!< reader context;
 				temporary buffer used in encryption,
 				decryption or NULL */
-	ulint		n_old_col;
-				/*!< number of non-virtual column in
-				old table */
-	ulint		n_old_vcol;
-				/*!< number of virtual column in old table */
 	const char*	path;	/*!< where to create temporary file during
 				log operation */
 };
@@ -595,7 +590,6 @@ row_log_table_delete(
 /*=================*/
 	const rec_t*	rec,	/*!< in: clustered index leaf page record,
 				page X-latched */
-	const dtuple_t*	ventry,	/*!< in: dtuple holding virtual column info */
 	dict_index_t*	index,	/*!< in/out: clustered index, S-latched
 				or X-latched */
 	const ulint*	offsets,/*!< in: rec_get_offsets(rec,index) */
@@ -713,11 +707,6 @@ row_log_table_delete(
 		}
 	}
 
-	/* Check if we need to log virtual column data */
-	if (ventry->n_v_fields > 0) {
-		mrec_size += rec_get_converted_size_temp_v(new_index, ventry);
-	}
-
 	if (byte* b = row_log_table_open(index->online_log,
 					 mrec_size, &avail_size)) {
 		*b++ = ROW_T_DELETE;
@@ -760,12 +749,6 @@ row_log_table_delete(
 			b += ext_size;
 		}
 
-		/* log virtual columns */
-		if (ventry->n_v_fields > 0) {
-                        rec_convert_dtuple_to_temp_v(b, new_index, ventry);
-                        b += mach_read_from_2(b);
-                }
-
 		row_log_table_close(index, b, mrec_size, avail_size);
 	}
 
@@ -782,10 +765,6 @@ row_log_table_low_redundant(
 	const rec_t*		rec,	/*!< in: clustered index leaf
 					page record in ROW_FORMAT=REDUNDANT,
 					page X-latched */
-	const dtuple_t*		ventry,	/*!< in: dtuple holding virtual
-					column info or NULL */
-	const dtuple_t*		o_ventry,/*!< in: old dtuple holding virtual
-					column info or NULL */
 	dict_index_t*		index,	/*!< in/out: clustered index, S-latched
 					or X-latched */
 	bool			insert,	/*!< in: true if insert,
@@ -805,7 +784,6 @@ row_log_table_low_redundant(
 	ulint		avail_size;
 	mem_heap_t*	heap		= NULL;
 	dtuple_t*	tuple;
-	ulint		num_v = ventry ? dtuple_get_n_v_fields(ventry) : 0;
 
 	ut_ad(!page_is_comp(page_align(rec)));
 	ut_ad(dict_index_get_n_fields(index) == rec_get_n_fields_old(rec));
@@ -814,12 +792,8 @@ row_log_table_low_redundant(
 	ut_ad(dict_index_is_clust(new_index));
 
 	heap = mem_heap_create(DTUPLE_EST_ALLOC(index->n_fields));
-	tuple = dtuple_create_with_vcol(heap, index->n_fields, num_v);
+	tuple = dtuple_create(heap, index->n_fields);
 	dict_index_copy_types(tuple, index, index->n_fields);
-
-	if (num_v) {
-		dict_table_copy_v_types(tuple, index->table);
-	}
 
 	dtuple_set_n_fields_cmp(tuple, dict_index_get_n_unique(index));
 
@@ -853,19 +827,8 @@ row_log_table_low_redundant(
 
 	size = rec_get_converted_size_temp(
 		index, tuple->fields, tuple->n_fields, &extra_size);
-	ulint v_size = num_v
-		? rec_get_converted_size_temp_v(index, ventry) : 0;
 
-	mrec_size = ROW_LOG_HEADER_SIZE + size + v_size + (extra_size >= 0x80);
-
-	if (num_v) {
-		if (o_ventry) {
-			mrec_size += rec_get_converted_size_temp_v(
-				index, o_ventry);
-		}
-	} else if (index->table->n_v_cols) {
-		mrec_size += 2;
-	}
+	mrec_size = ROW_LOG_HEADER_SIZE + size + (extra_size >= 0x80);
 
 	if (insert || index->online_log->same_pk) {
 		ut_ad(!old_pk);
@@ -909,22 +872,6 @@ row_log_table_low_redundant(
 		rec_convert_dtuple_to_temp(
 			b + extra_size, index, tuple->fields, tuple->n_fields);
 		b += size;
-		ut_ad(!num_v == !v_size);
-		if (num_v) {
-                        rec_convert_dtuple_to_temp_v(b, new_index, ventry);
-			b += v_size;
-			if (o_ventry) {
-				rec_convert_dtuple_to_temp_v(
-					b, new_index, o_ventry);
-				b += mach_read_from_2(b);
-			}
-		} else if (index->table->n_v_cols) {
-			/* The table contains virtual columns, but nothing
-			has changed for them, so just mark a 2 bytes length
-			field */
-			mach_write_to_2(b, 2);
-			b += 2;
-		}
 
 		row_log_table_close(index, b, mrec_size, avail_size);
 	}
@@ -940,9 +887,6 @@ row_log_table_low(
 /*==============*/
 	const rec_t*	rec,	/*!< in: clustered index leaf page record,
 				page X-latched */
-	const dtuple_t*	ventry,	/*!< in: dtuple holding virtual column info */
-	const dtuple_t*	o_ventry,/*!< in: dtuple holding old virtual column
-				info */
 	dict_index_t*	index,	/*!< in/out: clustered index, S-latched
 				or X-latched */
 	const ulint*	offsets,/*!< in: rec_get_offsets(rec,index) */
@@ -977,8 +921,6 @@ row_log_table_low(
 	with no information on virtual columns */
 	ut_ad(!old_pk || !insert);
 	ut_ad(!old_pk || old_pk->n_v_fields == 0);
-	ut_ad(!o_ventry || !insert);
-	ut_ad(!o_ventry || ventry);
 
 	if (dict_index_is_corrupted(index)
 	    || !dict_index_is_online_ddl(index)
@@ -988,8 +930,7 @@ row_log_table_low(
 
 	if (!rec_offs_comp(offsets)) {
 		row_log_table_low_redundant(
-			rec, ventry, o_ventry, index, insert,
-			old_pk, new_index);
+			rec, index, insert, old_pk, new_index);
 		return;
 	}
 
@@ -1002,20 +943,6 @@ row_log_table_low(
 
 	mrec_size = ROW_LOG_HEADER_SIZE
 		+ (extra_size >= 0x80) + rec_offs_size(offsets) - omit_size;
-
-	if (ventry && ventry->n_v_fields > 0) {
-		mrec_size += rec_get_converted_size_temp_v(new_index, ventry);
-
-		if (o_ventry) {
-			mrec_size += rec_get_converted_size_temp_v(
-				new_index, o_ventry);
-		}
-	} else if (index->table->n_v_cols) {
-		/* Always leave 2 bytes length marker for virtual column
-		data logging even if there is none of them is indexed if table
-		has virtual columns */
-		mrec_size += 2;
-	}
 
 	if (insert || index->online_log->same_pk) {
 		ut_ad(!old_pk);
@@ -1061,23 +988,6 @@ row_log_table_low(
 		memcpy(b, rec, rec_offs_data_size(offsets));
 		b += rec_offs_data_size(offsets);
 
-		if (ventry && ventry->n_v_fields > 0) {
-			rec_convert_dtuple_to_temp_v(b, new_index, ventry);
-			b += mach_read_from_2(b);
-
-			if (o_ventry) {
-				rec_convert_dtuple_to_temp_v(
-					b, new_index, o_ventry);
-				b += mach_read_from_2(b);
-			}
-		} else if (index->table->n_v_cols) {
-			/* The table contains virtual columns, but nothing
-			has changed for them, so just mark a 2 bytes length
-			field */
-			mach_write_to_2(b, 2);
-			b += 2;
-		}
-
 		row_log_table_close(index, b, mrec_size, avail_size);
 	}
 }
@@ -1093,15 +1003,10 @@ row_log_table_update(
 	dict_index_t*	index,	/*!< in/out: clustered index, S-latched
 				or X-latched */
 	const ulint*	offsets,/*!< in: rec_get_offsets(rec,index) */
-	const dtuple_t*	old_pk,	/*!< in: row_log_table_get_pk()
+	const dtuple_t*	old_pk)	/*!< in: row_log_table_get_pk()
 				before the update */
-	const dtuple_t*	new_v_row,/*!< in: dtuple contains the new virtual
-				columns */
-	const dtuple_t*	old_v_row)/*!< in: dtuple contains the old virtual
-				columns */
 {
-	row_log_table_low(rec, new_v_row, old_v_row, index, offsets,
-			  false, old_pk);
+	row_log_table_low(rec, index, offsets, false, old_pk);
 }
 
 /** Gets the old table column of a PRIMARY KEY column.
@@ -1296,7 +1201,7 @@ row_log_table_get_pk(
 			dict_field_t*	ifield;
 			dfield_t*	dfield;
 			ulint		prtype;
-			ulint		mbminmaxlen;
+			ulint		mbminlen, mbmaxlen;
 
 			ifield = dict_index_get_nth_field(new_index, new_i);
 			dfield = dtuple_get_nth_field(tuple, new_i);
@@ -1325,7 +1230,8 @@ err_exit:
 					goto func_exit;
 				}
 
-				mbminmaxlen = col->mbminmaxlen;
+				mbminlen = col->mbminlen;
+				mbmaxlen = col->mbmaxlen;
 				prtype = col->prtype;
 			} else {
 				/* No matching column was found in the old
@@ -1335,7 +1241,8 @@ err_exit:
 
 				dfield_copy(dfield, dtuple_get_nth_field(
 						    log->add_cols, col_no));
-				mbminmaxlen = dfield->type.mbminmaxlen;
+				mbminlen = dfield->type.mbminlen;
+				mbmaxlen = dfield->type.mbmaxlen;
 				prtype = dfield->type.prtype;
 			}
 
@@ -1344,7 +1251,7 @@ err_exit:
 
 			if (ifield->prefix_len) {
 				ulint	len = dtype_get_at_most_n_mbchars(
-					prtype, mbminmaxlen,
+					prtype, mbminlen, mbmaxlen,
 					ifield->prefix_len,
 					dfield_get_len(dfield),
 					static_cast<const char*>(
@@ -1391,12 +1298,11 @@ row_log_table_insert(
 /*=================*/
 	const rec_t*	rec,	/*!< in: clustered index leaf page record,
 				page X-latched */
-	const dtuple_t*	ventry,	/*!< in: dtuple holding virtual column info */
 	dict_index_t*	index,	/*!< in/out: clustered index, S-latched
 				or X-latched */
 	const ulint*	offsets)/*!< in: rec_get_offsets(rec,index) */
 {
-	row_log_table_low(rec, ventry, NULL, index, offsets, true, NULL);
+	row_log_table_low(rec, index, offsets, true, NULL);
 }
 
 /******************************************************//**
@@ -1494,7 +1400,6 @@ row_log_table_apply_convert_mrec(
 						reason of failure */
 {
 	dtuple_t*	row;
-	ulint		num_v = dict_table_get_n_v_cols(log->table);
 
 	*error = DB_SUCCESS;
 
@@ -1508,8 +1413,7 @@ row_log_table_apply_convert_mrec(
 				dfield_get_type(dtuple_get_nth_field(row, i)));
 		}
 	} else {
-		row = dtuple_create_with_vcol(
-			heap, dict_table_get_n_cols(log->table), num_v);
+		row = dtuple_create(heap, dict_table_get_n_cols(log->table));
 		dict_table_copy_types(row, log->table);
 	}
 
@@ -1631,14 +1535,6 @@ blob_done:
 						 dfield_get_type(dfield)));
 	}
 
-	/* read the virtual column data if any */
-	if (num_v) {
-		byte* b = const_cast<byte*>(mrec)
-			  + rec_offs_data_size(offsets);
-		trx_undo_read_v_cols(log->table, b, row, false,
-				     &(log->col_map[log->n_old_col]));
-	}
-
 	return(row);
 }
 
@@ -1694,13 +1590,10 @@ row_log_table_apply_insert_low(
 		return(error);
 	}
 
-	do {
-		n_index++;
+	ut_ad(dict_index_is_clust(index));
 
-		if (!(index = dict_table_get_next_index(index))) {
-			break;
-		}
-
+	for (n_index += index->type != DICT_CLUSTERED;
+	     (index = dict_table_get_next_index(index)); n_index++) {
 		if (index->type & DICT_FTS) {
 			continue;
 		}
@@ -1711,12 +1604,13 @@ row_log_table_apply_insert_low(
 			index, offsets_heap, heap, entry, trx_id, thr,
 			false);
 
-		/* Report correct index name for duplicate key error. */
-		if (error == DB_DUPLICATE_KEY) {
-			thr_get_trx(thr)->error_key_num = n_index;
+		if (error != DB_SUCCESS) {
+			if (error == DB_DUPLICATE_KEY) {
+				thr_get_trx(thr)->error_key_num = n_index;
+			}
+			break;
 		}
-
-	} while (error == DB_SUCCESS);
+	}
 
 	return(error);
 }
@@ -1782,8 +1676,6 @@ row_log_table_apply_delete_low(
 /*===========================*/
 	btr_pcur_t*		pcur,		/*!< in/out: B-tree cursor,
 						will be trashed */
-	const dtuple_t*		ventry,		/*!< in: dtuple holding
-						virtual column info */
 	const ulint*		offsets,	/*!< in: offsets on pcur */
 	const row_ext_t*	save_ext,	/*!< in: saved external field
 						info, or NULL */
@@ -1809,9 +1701,6 @@ row_log_table_apply_delete_low(
 			ROW_COPY_DATA, index, btr_pcur_get_rec(pcur),
 			offsets, NULL, NULL, NULL,
 			save_ext ? NULL : &ext, heap);
-		if (ventry) {
-			dtuple_copy_v_fields(row, ventry);
-		}
 
 		if (!save_ext) {
 			save_ext = ext;
@@ -1903,19 +1792,14 @@ row_log_table_apply_delete(
 	mtr_t		mtr;
 	btr_pcur_t	pcur;
 	ulint*		offsets;
-	ulint		num_v = new_table->n_v_cols;
 
 	ut_ad(rec_offs_n_fields(moffsets)
 	      == dict_index_get_n_unique(index) + 2);
 	ut_ad(!rec_offs_any_extern(moffsets));
 
 	/* Convert the row to a search tuple. */
-	old_pk = dtuple_create_with_vcol(heap, index->n_uniq, num_v);
+	old_pk = dtuple_create(heap, index->n_uniq);
 	dict_index_copy_types(old_pk, index, index->n_uniq);
-
-	if (num_v) {
-                dict_table_copy_v_types(old_pk, index->table);
-        }
 
 	for (ulint i = 0; i < index->n_uniq; i++) {
 		ulint		len;
@@ -2002,14 +1886,7 @@ all_done:
 		}
 	}
 
-	if (num_v) {
-                byte* b = (byte*)mrec + rec_offs_data_size(moffsets)
-			  + ext_size;
-                trx_undo_read_v_cols(log->table, b, old_pk, false,
-				     &(log->col_map[log->n_old_col]));
-        }
-
-	return(row_log_table_apply_delete_low(&pcur, old_pk,
+	return(row_log_table_apply_delete_low(&pcur,
 					      offsets, save_ext,
 					      heap, &mtr));
 }
@@ -2223,13 +2100,12 @@ func_exit_committed:
 		/* Some BLOBs are missing, so we are interpreting
 		this ROW_T_UPDATE as ROW_T_DELETE (see *1). */
 		error = row_log_table_apply_delete_low(
-			&pcur, old_pk, cur_offsets, NULL, heap, &mtr);
+			&pcur, cur_offsets, NULL, heap, &mtr);
 		goto func_exit_committed;
 	}
 
-	/** It allows to create tuple with virtual column information. */
 	dtuple_t*	entry	= row_build_index_entry_low(
-		row, NULL, index, heap, ROW_BUILD_FOR_INSERT);
+		row, NULL, index, heap, ROW_BUILD_NORMAL);
 	upd_t*		update	= row_upd_build_difference_binary(
 		index, entry, btr_pcur_get_rec(&pcur), cur_offsets,
 		false, NULL, heap, dup->table);
@@ -2262,7 +2138,7 @@ func_exit_committed:
 		}
 
 		error = row_log_table_apply_delete_low(
-			&pcur, old_pk, cur_offsets, NULL, heap, &mtr);
+			&pcur, cur_offsets, NULL, heap, &mtr);
 		ut_ad(mtr.has_committed());
 
 		if (error == DB_SUCCESS) {
@@ -2314,15 +2190,14 @@ func_exit_committed:
 		dtuple_big_rec_free(big_rec);
 	}
 
-	while ((index = dict_table_get_next_index(index)) != NULL) {
-		if (error != DB_SUCCESS) {
-			break;
-		}
-
-		n_index++;
-
+	for (n_index += index->type != DICT_CLUSTERED;
+	     (index = dict_table_get_next_index(index)); n_index++) {
 		if (index->type & DICT_FTS) {
 			continue;
+		}
+
+		if (error != DB_SUCCESS) {
+			break;
 		}
 
 		if (!row_upd_changes_ord_field_binary(
@@ -2453,13 +2328,6 @@ row_log_table_apply_op(
 
 		next_mrec = mrec + rec_offs_data_size(offsets);
 
-		if (log->table->n_v_cols) {
-			if (next_mrec + 2 > mrec_end) {
-				return(NULL);
-			}
-			next_mrec += mach_read_from_2(next_mrec);
-		}
-
 		if (next_mrec > mrec_end) {
 			return(NULL);
 		} else {
@@ -2494,13 +2362,6 @@ row_log_table_apply_op(
 		rec_offs_set_n_fields(offsets, new_index->n_uniq + 2);
 		rec_init_offsets_temp(mrec, new_index, offsets);
 		next_mrec = mrec + rec_offs_data_size(offsets) + ext_size;
-		if (log->table->n_v_cols) {
-			if (next_mrec + 2 > mrec_end) {
-				return(NULL);
-			}
-
-			next_mrec += mach_read_from_2(next_mrec);
-		}
 
 		if (next_mrec > mrec_end) {
 			return(NULL);
@@ -2545,7 +2406,6 @@ row_log_table_apply_op(
 		definition of the columns belonging to PRIMARY KEY
 		is not changed, the log will only contain
 		DB_TRX_ID,new_row. */
-		ulint           num_v = new_index->table->n_v_cols;
 
 		if (dup->index->online_log->same_pk) {
 			ut_ad(new_index->n_uniq == dup->index->n_uniq);
@@ -2574,14 +2434,9 @@ row_log_table_apply_op(
 				return(NULL);
 			}
 
-			old_pk = dtuple_create_with_vcol(
-				heap, new_index->n_uniq, num_v);
+			old_pk = dtuple_create(heap, new_index->n_uniq);
 			dict_index_copy_types(
 				old_pk, new_index, old_pk->n_fields);
-			if (num_v) {
-		                dict_table_copy_v_types(
-					old_pk, new_index->table);
-			}
 
 			/* Copy the PRIMARY KEY fields from mrec to old_pk. */
 			for (ulint i = 0; i < new_index->n_uniq; i++) {
@@ -2619,15 +2474,9 @@ row_log_table_apply_op(
 
 			/* Copy the PRIMARY KEY fields and
 			DB_TRX_ID, DB_ROLL_PTR from mrec to old_pk. */
-			old_pk = dtuple_create_with_vcol(
-				heap, new_index->n_uniq + 2, num_v);
+			old_pk = dtuple_create(heap, new_index->n_uniq + 2);
 			dict_index_copy_types(old_pk, new_index,
 					      old_pk->n_fields);
-
-			if (num_v) {
-		                dict_table_copy_v_types(
-					old_pk, new_index->table);
-			}
 
 			for (ulint i = 0;
 			     i < dict_index_get_n_unique(new_index) + 2;
@@ -2670,31 +2519,6 @@ row_log_table_apply_op(
 
 			next_mrec = mrec + rec_offs_data_size(offsets);
 
-			if (next_mrec > mrec_end) {
-				return(NULL);
-			}
-		}
-
-		/* Read virtual column info from log */
-		if (num_v) {
-			ulint		o_v_size = 0;
-			ulint		n_v_size = 0;
-			n_v_size = mach_read_from_2(next_mrec);
-			next_mrec += n_v_size;
-			if (next_mrec > mrec_end) {
-				return(NULL);
-			}
-
-			/* if there is more than 2 bytes length info */
-			if (n_v_size > 2) {
-				trx_undo_read_v_cols(
-					log->table, const_cast<byte*>(
-					next_mrec), old_pk, false,
-					&(log->col_map[log->n_old_col]));
-				o_v_size = mach_read_from_2(next_mrec);
-			}
-
-			next_mrec += o_v_size;
 			if (next_mrec > mrec_end) {
 				return(NULL);
 			}
@@ -3248,8 +3072,6 @@ row_log_allocate(
 	log->head.blocks = log->head.bytes = 0;
 	log->head.total = 0;
 	log->path = path;
-	log->n_old_col = index->table->n_cols;
-	log->n_old_vcol = index->table->n_v_cols;
 
 	dict_index_set_online_status(index, ONLINE_INDEX_CREATION);
 	index->online_log = log;

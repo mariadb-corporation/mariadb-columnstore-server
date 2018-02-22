@@ -2190,7 +2190,7 @@ uint Field::fill_cache_field(CACHE_FIELD *copy)
 {
   uint store_length;
   copy->str= ptr;
-  copy->length= pack_length();
+  copy->length= pack_length_in_rec();
   copy->field= this;
   if (flags & BLOB_FLAG)
   {
@@ -4807,6 +4807,15 @@ double Field_double::val_real(void)
 }
 
 
+longlong Field_double::val_int_from_real(bool want_unsigned_result)
+{
+  Converter_double_to_longlong conv(val_real(), want_unsigned_result);
+  if (!want_unsigned_result && conv.error())
+    conv.push_warning(get_thd(), Field_double::val_real(), false);
+  return conv.result();
+}
+
+
 my_decimal *Field_real::val_decimal(my_decimal *decimal_value)
 {
   ASSERT_COLUMN_MARKED_FOR_READ;
@@ -5802,6 +5811,13 @@ static void calc_datetime_days_diff(MYSQL_TIME *ltime, long days)
                            ltime->second) * 1000000LL +
                            ltime->second_part);
     unpack_time(timediff, ltime);
+    /*
+      unpack_time() broke down hours into ltime members hour,day,month.
+      Mix them back to ltime->hour using the same factors
+      that pack_time()/unpack_time() use (i.e. 32 for month).
+    */
+    ltime->hour+= (ltime->month * 32 + ltime->day) * 24;
+    ltime->month= ltime->day= 0;
   }
   ltime->time_type= MYSQL_TIMESTAMP_TIME;
 }
@@ -9426,7 +9442,7 @@ int Field_bit::key_cmp(const uchar *str, uint length)
     str++;
     length--;
   }
-  return memcmp(ptr, str, length);
+  return memcmp(ptr, str, bytes_in_rec);
 }
 
 
@@ -9939,7 +9955,7 @@ bool Column_definition::check(THD *thd)
     if (decimals >= NOT_FIXED_DEC)
     {
       my_error(ER_TOO_BIG_SCALE, MYF(0), static_cast<ulonglong>(decimals),
-               field_name, static_cast<ulong>(NOT_FIXED_DEC - 1));
+               field_name, static_cast<uint>(NOT_FIXED_DEC - 1));
       DBUG_RETURN(TRUE);
     }
     my_decimal_trim(&length, &decimals);
@@ -9997,7 +10013,7 @@ bool Column_definition::check(THD *thd)
     if (decimals != NOT_FIXED_DEC && decimals >= FLOATING_POINT_DECIMALS)
     {
       my_error(ER_TOO_BIG_SCALE, MYF(0), static_cast<ulonglong>(decimals),
-               field_name, static_cast<ulong>(FLOATING_POINT_DECIMALS-1));
+               field_name, static_cast<uint>(FLOATING_POINT_DECIMALS-1));
       DBUG_RETURN(TRUE);
     }
     break;
@@ -10017,7 +10033,7 @@ bool Column_definition::check(THD *thd)
     if (decimals != NOT_FIXED_DEC && decimals >= FLOATING_POINT_DECIMALS)
     {
       my_error(ER_TOO_BIG_SCALE, MYF(0), static_cast<ulonglong>(decimals),
-               field_name, static_cast<ulong>(FLOATING_POINT_DECIMALS-1));
+               field_name, static_cast<uint>(FLOATING_POINT_DECIMALS-1));
       DBUG_RETURN(TRUE);
     }
     break;

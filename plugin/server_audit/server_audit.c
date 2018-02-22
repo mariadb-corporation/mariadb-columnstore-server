@@ -15,7 +15,7 @@
 
 
 #define PLUGIN_VERSION 0x104
-#define PLUGIN_STR_VERSION "1.4.2"
+#define PLUGIN_STR_VERSION "1.4.3"
 
 #define _my_thread_var loc_thread_var
 
@@ -300,7 +300,7 @@ static size_t big_buffer_alloced= 0;
 static unsigned int query_log_limit= 0;
 
 static char servhost[256];
-static size_t servhost_len;
+static uint servhost_len;
 static char *syslog_ident;
 static char syslog_ident_buffer[128]= "mysql-server_auditing";
 
@@ -622,7 +622,7 @@ static void remove_blanks(char *user)
 
 struct user_name
 {
-  int name_len;
+  size_t name_len;
   char *name;
 };
 
@@ -657,7 +657,7 @@ static int cmp_users(const void *ia, const void *ib)
 {
   const struct user_name *a= (const struct user_name *) ia;
   const struct user_name *b= (const struct user_name *) ib;
-  int dl= a->name_len - b->name_len;
+  int dl= (int)(a->name_len - b->name_len);
   if (dl != 0)
     return dl;
 
@@ -665,7 +665,7 @@ static int cmp_users(const void *ia, const void *ib)
 }
 
 
-static char *coll_search(struct user_coll *c, const char *n, int len)
+static char *coll_search(struct user_coll *c, const char *n, size_t len)
 {
   struct user_name un;
   struct user_name *found;
@@ -677,7 +677,7 @@ static char *coll_search(struct user_coll *c, const char *n, int len)
 }
 
 
-static int coll_insert(struct user_coll *c, char *n, int len)
+static int coll_insert(struct user_coll *c, char *n, size_t len)
 {
   if (c->n_users >= c->n_alloced)
   {
@@ -917,7 +917,7 @@ static void get_str_n(char *dest, int *dest_len, size_t dest_size,
 
   memcpy(dest, src, src_len);
   dest[src_len]= 0;
-  *dest_len= src_len;
+  *dest_len= (int)src_len;
 }
 
 
@@ -1118,6 +1118,21 @@ do { \
 } while(0)
 
 
+#define ESC_MAP_SIZE 0x60
+static const char esc_map[ESC_MAP_SIZE]=
+{
+  0, 0, 0, 0, 0, 0, 0, 0, 'b', 't', 'n', 0, 'f', 'r', 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, '\'', 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '\\', 0, 0, 0
+};
+
+static char escaped_char(char c)
+{
+  return ((unsigned char ) c) >= ESC_MAP_SIZE ? 0 : esc_map[(unsigned char) c];
+}
 
 
 static void setup_connection_initdb(struct connection_info *cn,
@@ -1217,12 +1232,12 @@ static void change_connection(struct connection_info *cn,
             event->ip, event->ip_length);
 }
 
-static int write_log(const char *message, int len)
+static int write_log(const char *message, size_t len)
 {
   if (output_type == OUTPUT_FILE)
   {
     if (logfile &&
-        (is_active= (logger_write(logfile, message, len) == len)))
+        (is_active= (logger_write(logfile, message, len) == (int)len)))
       return 0;
     ++log_write_failures;
     return 1;
@@ -1231,7 +1246,7 @@ static int write_log(const char *message, int len)
   {
     syslog(syslog_facility_codes[syslog_facility] |
            syslog_priority_codes[syslog_priority],
-           "%s %.*s", syslog_info, len, message);
+           "%s %.*s", syslog_info, (int)len, message);
   }
   return 0;
 }
@@ -1324,21 +1339,16 @@ static size_t escape_string(const char *str, unsigned int len,
   const char *res_end= result + result_len - 2;
   while (len)
   {
+    char esc_c;
+
     if (result >= res_end)
       break;
-    if (*str == '\'')
+    if ((esc_c= escaped_char(*str)))
     {
       if (result+1 >= res_end)
         break;
       *(result++)= '\\';
-      *(result++)= '\'';
-    }
-    else if (*str == '\\')
-    {
-      if (result+1 >= res_end)
-        break;
-      *(result++)= '\\';
-      *(result++)= '\\';
+      *(result++)= esc_c;
     }
     else if (is_space(*str))
       *(result++)= ' ';
@@ -1427,19 +1437,12 @@ static size_t escape_string_hide_passwords(const char *str, unsigned int len,
 no_password:
     if (result >= res_end)
       break;
-    if (*str == '\'')
+    if ((b_char= escaped_char(*str)))
     {
       if (result+1 >= res_end)
         break;
       *(result++)= '\\';
-      *(result++)= '\'';
-    }
-    else if (*str == '\\')
-    {
-      if (result+1 >= res_end)
-        break;
-      *(result++)= '\\';
-      *(result++)= '\\';
+      *(result++)= b_char;
     }
     else if (is_space(*str))
       *(result++)= ' ';
@@ -1736,9 +1739,9 @@ static int log_table(const struct connection_info *cn,
   (void) time(&ctime);
   csize= log_header(message, sizeof(message)-1, &ctime,
                     servhost, servhost_len,
-                    event->user, SAFE_STRLEN(event->user),
-                    event->host, SAFE_STRLEN(event->host),
-                    event->ip, SAFE_STRLEN(event->ip),
+                    event->user, (unsigned int)SAFE_STRLEN(event->user),
+                    event->host, (unsigned int)SAFE_STRLEN(event->host),
+                    event->ip, (unsigned int)SAFE_STRLEN(event->ip),
                     event->thread_id, cn->query_id, type);
   csize+= my_snprintf(message+csize, sizeof(message) - 1 - csize,
             ",%.*s,%.*s,",event->database_length, event->database,
@@ -1758,9 +1761,9 @@ static int log_rename(const struct connection_info *cn,
   (void) time(&ctime);
   csize= log_header(message, sizeof(message)-1, &ctime,
                     servhost, servhost_len,
-                    event->user, SAFE_STRLEN(event->user),
-                    event->host, SAFE_STRLEN(event->host),
-                    event->ip, SAFE_STRLEN(event->ip),
+                    event->user, (unsigned int)SAFE_STRLEN(event->user),
+                    event->host, (unsigned int)SAFE_STRLEN(event->host),
+                    event->ip, (unsigned int)SAFE_STRLEN(event->ip),
                     event->thread_id, cn->query_id, "RENAME");
   csize+= my_snprintf(message+csize, sizeof(message) - 1 - csize,
             ",%.*s,%.*s|%.*s.%.*s,",event->database_length, event->database,
@@ -2341,7 +2344,7 @@ static int server_audit_init(void *p __attribute__((unused)))
   if (gethostname(servhost, sizeof(servhost)))
     strcpy(servhost, "unknown");
 
-  servhost_len= strlen(servhost);
+  servhost_len= (uint)strlen(servhost);
 
   logger_init_mutexes();
 #if defined(HAVE_PSI_INTERFACE) && !defined(FLOGGER_NO_PSI)

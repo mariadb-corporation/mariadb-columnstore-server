@@ -2,7 +2,7 @@
 
 Copyright (c) 1996, 2017, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2012, Facebook Inc.
-Copyright (c) 2013, 2017, MariaDB Corporation.
+Copyright (c) 2013, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -300,7 +300,7 @@ result in recursive cascading calls. This defines the maximum number of
 such cascading deletes/updates allowed. When exceeded, the delete from
 parent table will fail, and user has to drop excessive foreign constraint
 before proceeds. */
-#define FK_MAX_CASCADE_DEL		255
+#define FK_MAX_CASCADE_DEL		15
 
 /**********************************************************************//**
 Creates a table memory object.
@@ -596,11 +596,10 @@ struct dict_col_t{
 					the string, MySQL uses 1 or 2
 					bytes to store the string length) */
 
-	unsigned	mbminmaxlen:5;	/*!< minimum and maximum length of a
-					character, in bytes;
-					DATA_MBMINMAXLEN(mbminlen,mbmaxlen);
-					mbminlen=DATA_MBMINLEN(mbminmaxlen);
-					mbmaxlen=DATA_MBMINLEN(mbminmaxlen) */
+	unsigned	mbminlen:3;	/*!< minimum length of a
+					character, in bytes */
+	unsigned	mbmaxlen:3;	/*!< maximum length of a
+					character, in bytes */
 	/*----------------------*/
 	/* End of definitions copied from dtype_t */
 	/* @} */
@@ -974,6 +973,13 @@ struct dict_index_t{
 			and the .ibd file is missing, or a
 			page cannot be read or decrypted */
 	inline bool is_readable() const;
+
+	/** @return whether the index is the primary key index
+	(not the clustered index of the change buffer) */
+	bool is_primary() const
+	{
+		return DICT_CLUSTERED == (type & (DICT_CLUSTERED | DICT_IBUF));
+	}
 };
 
 /** The status of online index creation */
@@ -1375,6 +1381,13 @@ struct dict_table_t {
 	Use DICT_TF2_FLAG_IS_SET() to parse this flag. */
 	unsigned				flags2:DICT_TF2_BITS;
 
+	/** TRUE if the table is an intermediate table during copy alter
+	operation or a partition/subpartition which is required for copying
+	data and skip the undo log for insertion of row in the table.
+	This variable will be set and unset during extra(), or during the
+	process of altering partitions */
+	unsigned                                skip_alter_undo:1;
+
 	/*!< whether this is in a single-table tablespace and the .ibd
 	file is missing or page decryption failed and page is corrupted */
 	unsigned				file_unreadable:1;
@@ -1581,7 +1594,7 @@ struct dict_table_t {
 	/** How many rows are modified since last stats recalc. When a row is
 	inserted, updated, or deleted, we add 1 to this number; we calculate
 	new estimates for the table and the indexes if the table has changed
-	too much, see row_update_statistics_if_needed(). The counter is reset
+	too much, see dict_stats_update_if_needed(). The counter is reset
 	to zero at statistics calculation. This counter is not protected by
 	any latch, because this is only used for heuristics. */
 	ib_uint64_t				stat_modified_counter;
@@ -1838,6 +1851,19 @@ dict_col_get_spatial_status(
 	}
 
 	return(spatial_status);
+}
+
+/** Clear defragmentation summary. */
+inline void dict_stats_empty_defrag_summary(dict_index_t* index)
+{
+	index->stat_defrag_n_pages_freed = 0;
+}
+
+/** Clear defragmentation related index stats. */
+inline void dict_stats_empty_defrag_stats(dict_index_t* index)
+{
+	index->stat_defrag_modified_counter = 0;
+	index->stat_defrag_n_page_split = 0;
 }
 
 #include "dict0mem.ic"

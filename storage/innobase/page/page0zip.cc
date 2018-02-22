@@ -2,7 +2,7 @@
 
 Copyright (c) 2005, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2012, Facebook Inc.
-Copyright (c) 2014, 2017, MariaDB Corporation.
+Copyright (c) 2014, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -1340,8 +1340,8 @@ page_zip_compress(
 	if (UNIV_UNLIKELY(page_zip_compress_log)) {
 		/* Create a log file for every compression attempt. */
 		char	logfilename[9];
-		ut_snprintf(logfilename, sizeof logfilename,
-			    "%08x", page_zip_compress_log++);
+		snprintf(logfilename, sizeof logfilename,
+			 "%08x", page_zip_compress_log++);
 		logfile = fopen(logfilename, "wb");
 
 		if (logfile) {
@@ -3714,8 +3714,9 @@ page_zip_write_rec(
 	/* Copy the delete mark. */
 	if (rec_get_deleted_flag(rec, TRUE)) {
 		/* In delete-marked records, DB_TRX_ID must
-		always refer to an existing undo log record. */
-		ut_ad(!dict_index_is_clust(index)
+		always refer to an existing undo log record.
+		On non-leaf pages, the delete-mark flag is garbage. */
+		ut_ad(!index->is_primary() || !page_is_leaf(page)
 		      || row_get_rec_trx_id(rec, index, offsets));
 		*slot |= PAGE_ZIP_DIR_SLOT_DEL >> 8;
 	} else {

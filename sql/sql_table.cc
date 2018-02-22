@@ -1834,7 +1834,8 @@ bool mysql_write_frm(ALTER_PARTITION_PARAM_TYPE *lpt, uint flags)
 #endif
     /* Write shadow frm file */
     lpt->create_info->table_options= lpt->db_options;
-    LEX_CUSTRING frm= build_frm_image(lpt->thd, lpt->table_name,
+    LEX_CUSTRING frm= build_frm_image(lpt->thd,
+                                      lpt->table_name,
                                       lpt->create_info,
                                       lpt->alter_info->create_list,
                                       lpt->key_count, lpt->key_info_buffer,
@@ -4459,10 +4460,7 @@ handler *mysql_create_frm_image(THD *thd,
 
   set_table_default_charset(thd, create_info, (char*) db);
 
-  db_options= create_info->table_options;
-  if (create_info->row_type == ROW_TYPE_DYNAMIC ||
-      create_info->row_type == ROW_TYPE_PAGE)
-    db_options|= HA_OPTION_PACK_RECORD;
+  db_options= create_info->table_options_with_row_type();
 
   if (!(file= get_new_handler((TABLE_SHARE*) 0, thd->mem_root,
                               create_info->db_type)))
@@ -5027,7 +5025,8 @@ int mysql_create_table_no_lock(THD *thd,
     // Check if we hit FN_REFLEN bytes along with file extension.
     if (length+reg_ext_length > FN_REFLEN)
     {
-      my_error(ER_IDENT_CAUSES_TOO_LONG_PATH, MYF(0), sizeof(path)-1, path);
+      my_error(ER_IDENT_CAUSES_TOO_LONG_PATH, MYF(0), (int) sizeof(path)-1,
+               path);
       return true;
     }
   }
@@ -5139,7 +5138,7 @@ err:
   /* Write log if no error or if we already deleted a table */
   if (!result || thd->log_current_statement)
   {
-    if (result && create_info->table_was_deleted)
+    if (result && create_info->table_was_deleted && pos_in_locked_tables)
     {
       /*
         Possible locked table was dropped. We should remove meta data locks
@@ -5291,7 +5290,7 @@ mysql_rename_table(handlerton *base, const char *old_db,
   // Check if we hit FN_REFLEN bytes along with file extension.
   if (length+reg_ext_length > FN_REFLEN)
   {
-    my_error(ER_IDENT_CAUSES_TOO_LONG_PATH, MYF(0), sizeof(to)-1, to);
+    my_error(ER_IDENT_CAUSES_TOO_LONG_PATH, MYF(0), (int) sizeof(to)-1, to);
     DBUG_RETURN(TRUE);
   }
 
@@ -6127,6 +6126,7 @@ remove_key:
   
 #ifdef WITH_PARTITION_STORAGE_ENGINE
   partition_info *tab_part_info= table->part_info;
+  thd->work_part_info= thd->lex->part_info;
   if (tab_part_info)
   {
     /* ALTER TABLE ADD PARTITION IF NOT EXISTS */
@@ -6147,7 +6147,7 @@ remove_key:
                                 ER_THD(thd, ER_SAME_NAME_PARTITION),
                                 pe->partition_name);
             alter_info->flags&= ~Alter_info::ALTER_ADD_PARTITION;
-            thd->lex->part_info= NULL;
+            thd->work_part_info= NULL;
             break;
           }
         }
@@ -7583,6 +7583,7 @@ mysql_prepare_alter_table(THD *thd, TABLE *table,
   List<Virtual_column_info> new_constraint_list;
   uint db_create_options= (table->s->db_create_options
                            & ~(HA_OPTION_PACK_RECORD));
+  Item::func_processor_rename column_rename_param;
   uint used_fields;
   KEY *key_info=table->key_info;
   bool rc= TRUE;
@@ -7632,6 +7633,13 @@ mysql_prepare_alter_table(THD *thd, TABLE *table,
   if (!(used_fields & HA_CREATE_USED_CONNECTION))
     create_info->connect_string= table->s->connect_string;
 
+  column_rename_param.db_name.str=       table->s->db.str;
+  column_rename_param.db_name.length=    table->s->db.length;
+  column_rename_param.table_name.str=    table->s->table_name.str;
+  column_rename_param.table_name.length= table->s->table_name.length;
+  if (column_rename_param.fields.copy(&alter_info->create_list, thd->mem_root))
+    DBUG_RETURN(1);                             // OOM
+
   restore_record(table, s->default_values);     // Empty record for DEFAULT
 
   if ((create_info->fields_option_struct= (ha_field_option_struct**)
@@ -7676,6 +7684,24 @@ mysql_prepare_alter_table(THD *thd, TABLE *table,
       bitmap_set_bit(dropped_fields, field->field_index);
       continue;
     }
+
+    /*
+      If we are doing a rename of a column, update all references in virtual
+      column expressions, constraints and defaults to use the new column name
+    */
+    if (alter_info->flags & Alter_info::ALTER_RENAME_COLUMN)
+    {
+      if (field->vcol_info)
+        field->vcol_info->expr->walk(&Item::rename_fields_processor, 1,
+                                     &column_rename_param);
+      if (field->check_constraint)
+        field->check_constraint->expr->walk(&Item::rename_fields_processor, 1,
+                                            &column_rename_param);
+      if (field->default_value)
+        field->default_value->expr->walk(&Item::rename_fields_processor, 1,
+                                         &column_rename_param);
+    }
+
     /* Check if field is changed */
     def_it.rewind();
     while ((def=def_it++))
@@ -8085,7 +8111,10 @@ mysql_prepare_alter_table(THD *thd, TABLE *table,
         }
       }
       if (!drop)
+      {
+        check->expr->walk(&Item::rename_fields_processor, 1, &column_rename_param);
         new_constraint_list.push_back(check, thd->mem_root);
+      }
     }
   }
   /* Add new constraints */
@@ -9934,6 +9963,8 @@ copy_data_between_tables(THD *thd, TABLE *from, TABLE *to,
 
   thd->progress.max_counter= from->file->records();
   time_to_report_progress= MY_HOW_OFTEN_TO_WRITE/10;
+  if (!ignore) /* for now, InnoDB needs the undo log for ALTER IGNORE */
+    to->file->extra(HA_EXTRA_BEGIN_ALTER_COPY);
 
   while (!(error=info.read_record(&info)))
   {
@@ -10024,11 +10055,12 @@ copy_data_between_tables(THD *thd, TABLE *from, TABLE *to,
           if ((int) key_nr >= 0)
           {
             const char *err_msg= ER_THD(thd, ER_DUP_ENTRY_WITH_KEY_NAME);
-            if (key_nr == 0 &&
+            if (key_nr == 0 && to->s->keys > 0 &&
                 (to->key_info[0].key_part[0].field->flags &
                  AUTO_INCREMENT_FLAG))
               err_msg= ER_THD(thd, ER_DUP_ENTRY_AUTOINCREMENT_CASE);
-            print_keydup_error(to, key_nr == MAX_KEY ? NULL :
+            print_keydup_error(to,
+                               key_nr >= to->s->keys ? NULL :
                                    &to->key_info[key_nr],
                                err_msg, MYF(0));
           }
@@ -10060,6 +10092,8 @@ copy_data_between_tables(THD *thd, TABLE *from, TABLE *to,
       to->file->print_error(my_errno,MYF(0));
     error= 1;
   }
+  if (!ignore)
+    to->file->extra(HA_EXTRA_END_ALTER_COPY);
   to->file->extra(HA_EXTRA_NO_IGNORE_DUP_KEY);
 
   if (mysql_trans_commit_alter_copy_data(thd))
@@ -10381,7 +10415,7 @@ bool check_engine(THD *thd, const char *db_name,
     if (no_substitution)
     {
       const char *engine_name= ha_resolve_storage_engine_name(req_engine);
-      my_error(ER_UNKNOWN_STORAGE_ENGINE, MYF(0), engine_name, engine_name);
+      my_error(ER_UNKNOWN_STORAGE_ENGINE, MYF(0), engine_name);
       DBUG_RETURN(TRUE);
     }
     *new_engine= enf_engine;

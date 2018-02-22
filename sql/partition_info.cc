@@ -42,13 +42,12 @@ partition_info *partition_info::get_clone(THD *thd)
 
   List_iterator<partition_element> part_it(partitions);
   partition_element *part;
-  partition_info *clone= new (mem_root) partition_info();
+  partition_info *clone= new (mem_root) partition_info(*this);
   if (!clone)
   {
     mem_alloc_error(sizeof(partition_info));
     DBUG_RETURN(NULL);
   }
-  memcpy(clone, this, sizeof(partition_info));
   memset(&(clone->read_partitions), 0, sizeof(clone->read_partitions));
   memset(&(clone->lock_partitions), 0, sizeof(clone->lock_partitions));
   clone->bitmaps_are_initialized= FALSE;
@@ -2383,6 +2382,24 @@ end:
   DBUG_RETURN(result);
 }
 
+
+bool partition_info::error_if_requires_values() const
+{
+  switch (part_type) {
+  case NOT_A_PARTITION:
+  case HASH_PARTITION:
+    break;
+  case RANGE_PARTITION:
+    my_error(ER_PARTITION_REQUIRES_VALUES_ERROR, MYF(0), "RANGE", "LESS THAN");
+    return true;
+  case LIST_PARTITION:
+    my_error(ER_PARTITION_REQUIRES_VALUES_ERROR, MYF(0), "LIST", "IN");
+    return true;
+  }
+  return false;
+}
+
+
 /**
   Fix partition data from parser.
 
@@ -2473,6 +2490,8 @@ bool partition_info::fix_parser_data(THD *thd)
     part_elem= it++;
     List_iterator<part_elem_value> list_val_it(part_elem->list_val_list);
     num_elements= part_elem->list_val_list.elements;
+    if (!num_elements && error_if_requires_values())
+      DBUG_RETURN(true);
     DBUG_ASSERT(part_type == RANGE_PARTITION ?
                 num_elements == 1U : TRUE);
 

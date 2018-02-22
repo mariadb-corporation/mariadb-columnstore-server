@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1995, 2016, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2017, MariaDB Corporation.
+Copyright (c) 2017, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -338,7 +338,6 @@ enum latch_id_t {
 	LATCH_ID_SRV_INNODB_MONITOR,
 	LATCH_ID_SRV_MISC_TMPFILE,
 	LATCH_ID_SRV_MONITOR_FILE,
-	LATCH_ID_SYNC_THREAD,
 	LATCH_ID_BUF_DBLWR,
 	LATCH_ID_TRX_UNDO,
 	LATCH_ID_TRX_POOL,
@@ -638,14 +637,6 @@ public:
 		m_mutex.exit();
 
 		return(count);
-	}
-
-	/** Deregister the count. We don't do anything
-	@param[in]	count		The count instance to deregister */
-	void sum_deregister(Count* count)
-		UNIV_NOTHROW
-	{
-		/* Do nothing */
 	}
 
 	/** Register a single instance counter */

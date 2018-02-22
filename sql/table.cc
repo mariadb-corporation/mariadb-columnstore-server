@@ -997,7 +997,7 @@ bool parse_vcol_defs(THD *thd, MEM_ROOT *mem_root, TABLE *table,
   Virtual_column_info **check_constraint_ptr= table->check_constraints;
   sql_mode_t saved_mode= thd->variables.sql_mode;
   Query_arena backup_arena;
-  Virtual_column_info *vcol;
+  Virtual_column_info *vcol= 0;
   StringBuffer<MAX_FIELD_WIDTH> expr_str;
   bool res= 1;
   DBUG_ENTER("parse_vcol_defs");
@@ -1168,13 +1168,13 @@ int TABLE_SHARE::init_from_binary_frm_image(THD *thd, bool write,
   uint new_frm_ver, field_pack_length, new_field_pack_flag;
   uint interval_count, interval_parts, read_length, int_length;
   uint db_create_options, keys, key_parts, n_length;
-  uint com_length, null_bit_pos, mysql57_vcol_null_bit_pos, bitmap_count;
+  uint com_length, null_bit_pos, UNINIT_VAR(mysql57_vcol_null_bit_pos), bitmap_count;
   uint i;
   bool use_hash, mysql57_null_bits= 0;
   char *keynames, *names, *comment_pos;
   const uchar *forminfo, *extra2;
   const uchar *frm_image_end = frm_image + frm_length;
-  uchar *record, *null_flags, *null_pos, *mysql57_vcol_null_pos;
+  uchar *record, *null_flags, *null_pos, *UNINIT_VAR(mysql57_vcol_null_pos);
   const uchar *disk_buff, *strpos;
   ulong pos, record_offset; 
   ulong rec_buff_length;
@@ -1588,9 +1588,10 @@ int TABLE_SHARE::init_from_binary_frm_image(THD *thd, bool write,
 
   rec_buff_length= ALIGN_SIZE(share->reclength + 1);
   share->rec_buff_length= rec_buff_length;
-  if (!(record= (uchar *) alloc_root(&share->mem_root,
-                                     rec_buff_length)))
+  if (!(record= (uchar *) alloc_root(&share->mem_root, rec_buff_length)))
     goto err;                          /* purecov: inspected */
+  MEM_NOACCESS(record, rec_buff_length);
+  MEM_UNDEFINED(record, share->reclength);
   share->default_values= record;
   memcpy(record, frm_image + record_offset, share->reclength);
 
@@ -2104,6 +2105,7 @@ int TABLE_SHARE::init_from_binary_frm_image(THD *thd, bool write,
       }   
     }
 
+    key_first_info= keyinfo;
     for (uint key=0 ; key < keys ; key++,keyinfo++)
     {
       uint usable_parts= 0;
@@ -2120,9 +2122,6 @@ int TABLE_SHARE::init_from_binary_frm_image(THD *thd, bool write,
         memcpy(pos + share->table_cache_key.length, keyinfo->name,
                keyinfo->name_length+1);
       }
-
-      if (!key)
-        key_first_info= keyinfo;
 
       if (ext_key_parts > share->key_parts && key)
       {
@@ -2408,6 +2407,11 @@ int TABLE_SHARE::init_from_binary_frm_image(THD *thd, bool write,
       {
         DBUG_ASSERT(field_nr < share->fields);
         reg_field= share->field[field_nr];
+      }
+      else
+      {
+        reg_field= 0;
+        DBUG_ASSERT(name_length);
       }
 
       vcol_screen_pos+= FRM_VCOL_NEW_HEADER_SIZE;
@@ -3056,6 +3060,7 @@ enum open_frm_error open_table_from_share(THD *thd, TABLE_SHARE *share,
   if (!(record= (uchar*) alloc_root(&outparam->mem_root,
                                     share->rec_buff_length * records)))
     goto err;                                   /* purecov: inspected */
+  MEM_NOACCESS(record, share->rec_buff_length * records);
 
   if (records == 0)
   {
@@ -3070,6 +3075,8 @@ enum open_frm_error open_table_from_share(THD *thd, TABLE_SHARE *share,
     else
       outparam->record[1]= outparam->record[0];   // Safety
   }
+  MEM_UNDEFINED(outparam->record[0], share->reclength);
+  MEM_UNDEFINED(outparam->record[1], share->reclength);
 
   if (!(field_ptr = (Field **) alloc_root(&outparam->mem_root,
                                           (uint) ((share->fields+1)*
@@ -4609,6 +4616,9 @@ bool TABLE_LIST::create_field_translation(THD *thd)
   Query_arena *arena, backup;
   bool res= FALSE;
   DBUG_ENTER("TABLE_LIST::create_field_translation");
+  DBUG_PRINT("enter", ("Alias: '%s'  Unit: %p",
+                      (alias ? alias : "<NULL>"),
+                       get_unit()));
 
   if (thd->stmt_arena->is_conventional() ||
       thd->stmt_arena->is_stmt_prepare_or_first_sp_execute())
@@ -6772,6 +6782,14 @@ void TABLE::create_key_part_by_field(KEY_PART_INFO *key_part_info,
     might be reused.
   */
   key_part_info->store_length= key_part_info->length;
+  /*
+    For BIT fields null_bit is not set to 0 even if the field is defined
+    as NOT NULL, look at Field_bit::Field_bit
+  */
+  if (!field->real_maybe_null())
+  {
+    key_part_info->null_bit= 0;
+  }
 
   /*
      The total store length of the key part is the raw length of the field +
@@ -7402,7 +7420,7 @@ int TABLE::update_virtual_fields(handler *h, enum_vcol_update_mode update_mode)
     DBUG_ASSERT(vcol_info);
     DBUG_ASSERT(vcol_info->expr);
 
-    bool update, swap_values= 0;
+    bool update= 0, swap_values= 0;
     switch (update_mode) {
     case VCOL_UPDATE_FOR_READ:
       update= !vcol_info->stored_in_db
@@ -7410,7 +7428,6 @@ int TABLE::update_virtual_fields(handler *h, enum_vcol_update_mode update_mode)
       swap_values= 1;
       break;
     case VCOL_UPDATE_FOR_DELETE:
-      /* Fall trough */
     case VCOL_UPDATE_FOR_WRITE:
       update= bitmap_is_set(vcol_set, vf->field_index);
       break;

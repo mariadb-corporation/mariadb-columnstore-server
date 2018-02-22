@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1995, 2017, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2014, 2017, MariaDB Corporation.
+Copyright (c) 2014, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -566,7 +566,6 @@ bool
 fil_node_open_file(
 	fil_node_t*	node)
 {
-	os_offset_t	size_bytes;
 	bool		success;
 	bool		read_only_mode;
 	fil_space_t*	space = node->space;
@@ -611,7 +610,7 @@ retry:
 			return(false);
 		}
 
-		size_bytes = os_file_get_size(node->handle);
+		os_offset_t size_bytes = os_file_get_size(node->handle);
 		ut_a(size_bytes != (os_offset_t) -1);
 
 		ut_a(space->purpose != FIL_TYPE_LOG);
@@ -625,6 +624,7 @@ retry:
 				<< " is only " << size_bytes
 				<< " bytes, should be at least " << min_size;
 			os_file_close(node->handle);
+			node->handle = OS_FILE_CLOSED;
 			return(false);
 		}
 
@@ -662,10 +662,12 @@ retry:
 
 		ut_free(buf2);
 		os_file_close(node->handle);
+		node->handle = OS_FILE_CLOSED;
 
 		if (!fsp_flags_is_valid(flags, space->id)) {
 			ulint cflags = fsp_flags_convert_from_101(flags);
-			if (cflags == ULINT_UNDEFINED) {
+			if (cflags == ULINT_UNDEFINED
+			    || (cflags ^ space->flags) & ~FSP_FLAGS_MEM_MASK) {
 				ib::error()
 					<< "Expected tablespace flags "
 					<< ib::hex(space->flags)
@@ -694,20 +696,17 @@ retry:
 		space->free_len = free_len;
 
 		if (first_time_open) {
-			ulint	extent_size;
-
-			extent_size = psize * FSP_EXTENT_SIZE;
-
-			/* After apply-incremental, tablespaces are not extended
-			to a whole megabyte. Do not cut off valid data. */
-
 			/* Truncate the size to a multiple of extent size. */
-			if (size_bytes >= extent_size) {
-				size_bytes = ut_2pow_round(size_bytes,
-							   extent_size);
+			ulint	mask = psize * FSP_EXTENT_SIZE - 1;
+
+			if (size_bytes <= mask) {
+				/* .ibd files start smaller than an
+				extent size. Do not truncate valid data. */
+			} else {
+				size_bytes &= ~os_offset_t(mask);
 			}
 
-			node->size = static_cast<ulint>(size_bytes / psize);
+			node->size = ulint(size_bytes / psize);
 			space->size += node->size;
 		}
 	}
@@ -2113,7 +2112,7 @@ fil_write_flushed_lsn(
 {
 	byte*	buf1;
 	byte*	buf;
-	dberr_t	err;
+	dberr_t	err = DB_TABLESPACE_NOT_FOUND;
 
 	buf1 = static_cast<byte*>(ut_malloc_nokey(2 * UNIV_PAGE_SIZE));
 	buf = static_cast<byte*>(ut_align(buf1, UNIV_PAGE_SIZE));
@@ -2449,7 +2448,7 @@ fil_recreate_tablespace(
 
 	/* Step-1: Invalidate buffer pool pages belonging to the tablespace
 	to re-create. */
-	buf_LRU_flush_or_remove_pages(space_id, BUF_REMOVE_ALL_NO_WRITE, 0);
+	buf_LRU_flush_or_remove_pages(space_id, NULL);
 
 	/* Remove all insert buffer entries for the tablespace */
 	ibuf_delete_for_discarded_space(space_id);
@@ -2907,7 +2906,10 @@ fil_close_tablespace(
 	completely and permanently. The flag stop_new_ops also prevents
 	fil_flush() from being applied to this tablespace. */
 
-	buf_LRU_flush_or_remove_pages(id, BUF_REMOVE_FLUSH_WRITE, trx);
+	{
+		FlushObserver observer(id, trx, NULL);
+		buf_LRU_flush_or_remove_pages(id, &observer);
+	}
 
 	/* If the free is successful, the X lock will be released before
 	the space memory data structure is freed. */
@@ -2959,17 +2961,16 @@ fil_table_accessible(const dict_table_t* table)
 	}
 }
 
-/** Deletes an IBD tablespace, either general or single-table.
-The tablespace must be cached in the memory cache. This will delete the
-datafile, fil_space_t & fil_node_t entries from the file_system_t cache.
-@param[in]	space_id	Tablespace id
-@param[in]	buf_remove	Specify the action to take on the pages
-for this table in the buffer pool.
-@return DB_SUCCESS or error */
+/** Delete a tablespace and associated .ibd file.
+@param[in]	id		tablespace identifier
+@return	DB_SUCCESS or error */
 dberr_t
 fil_delete_tablespace(
-	ulint		id,
-	buf_remove_t	buf_remove)
+	ulint id
+#ifdef BTR_CUR_HASH_ADAPT
+	, bool drop_ahi /*!< whether to drop the adaptive hash index */
+#endif /* BTR_CUR_HASH_ADAPT */
+	)
 {
 	char*		path = 0;
 	fil_space_t*	space = 0;
@@ -3012,7 +3013,11 @@ fil_delete_tablespace(
 	To deal with potential read requests, we will check the
 	::stop_new_ops flag in fil_io(). */
 
-	buf_LRU_flush_or_remove_pages(id, buf_remove, 0);
+	buf_LRU_flush_or_remove_pages(id, NULL
+#ifdef BTR_CUR_HASH_ADAPT
+				      , drop_ahi
+#endif /* BTR_CUR_HASH_ADAPT */
+				      );
 
 	/* If it is a delete then also delete any generated files, otherwise
 	when we drop the database the remove directory will fail. */
@@ -3103,7 +3108,7 @@ fil_truncate_tablespace(
 
 	/* Step-2: Invalidate buffer pool pages belonging to the tablespace
 	to re-create. Remove all insert buffer entries for the tablespace */
-	buf_LRU_flush_or_remove_pages(space_id, BUF_REMOVE_ALL_NO_WRITE, 0);
+	buf_LRU_flush_or_remove_pages(space_id, NULL);
 
 	/* Step-3: Truncate the tablespace and accordingly update
 	the fil_space_t handler that is used to access this tablespace. */
@@ -3199,7 +3204,7 @@ fil_reinit_space_header_for_table(
 	from disabling AHI during the scan */
 	btr_search_s_lock_all();
 	DEBUG_SYNC_C("buffer_pool_scan");
-	buf_LRU_flush_or_remove_pages(id, BUF_REMOVE_ALL_NO_WRITE, 0);
+	buf_LRU_flush_or_remove_pages(id, NULL);
 	btr_search_s_unlock_all();
 
 	row_mysql_lock_data_dictionary(trx);
@@ -3292,7 +3297,11 @@ fil_discard_tablespace(
 {
 	dberr_t	err;
 
-	switch (err = fil_delete_tablespace(id, BUF_REMOVE_ALL_NO_WRITE)) {
+	switch (err = fil_delete_tablespace(id
+#ifdef BTR_CUR_HASH_ADAPT
+					    , true
+#endif /* BTR_CUR_HASH_ADAPT */
+					    )) {
 	case DB_SUCCESS:
 		break;
 
@@ -4348,8 +4357,19 @@ fil_ibd_discover(
 
 		/* Look for a remote file-per-table tablespace. */
 
-		df_rem_per.set_name(db);
-		if (df_rem_per.open_link_file() == DB_SUCCESS) {
+		switch (srv_operation) {
+		case SRV_OPERATION_BACKUP:
+		case SRV_OPERATION_RESTORE_DELTA:
+			ut_ad(0);
+			break;
+		case SRV_OPERATION_RESTORE_EXPORT:
+		case SRV_OPERATION_RESTORE:
+			break;
+		case SRV_OPERATION_NORMAL:
+			df_rem_per.set_name(db);
+			if (df_rem_per.open_link_file() != DB_SUCCESS) {
+				break;
+			}
 
 			/* An ISL file was found with contents. */
 			if (df_rem_per.open_read_only(false) != DB_SUCCESS
@@ -4437,6 +4457,18 @@ fil_ibd_load(
 				return(FIL_LOAD_ID_CHANGED);
 		}
 		return(FIL_LOAD_OK);
+	}
+
+	if (srv_operation == SRV_OPERATION_RESTORE) {
+		/* Replace absolute DATA DIRECTORY file paths with
+		short names relative to the backup directory. */
+		if (const char* name = strrchr(filename, OS_PATH_SEPARATOR)) {
+			while (--name > filename
+			       && *name != OS_PATH_SEPARATOR);
+			if (name > filename) {
+				filename = name + 1;
+			}
+		}
 	}
 
 	Datafile	file;
@@ -4597,7 +4629,9 @@ fsp_flags_try_adjust(ulint space_id, ulint flags)
 {
 	ut_ad(!srv_read_only_mode);
 	ut_ad(fsp_flags_is_valid(flags, space_id));
-
+	if (!fil_space_get_size(space_id)) {
+		return;
+	}
 	mtr_t	mtr;
 	mtr.start();
 	if (buf_block_t* b = buf_page_get(

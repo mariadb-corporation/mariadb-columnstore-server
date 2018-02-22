@@ -1581,7 +1581,8 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
     if (thd->wsrep_conflict_state == ABORTED &&
         command != COM_STMT_CLOSE && command != COM_QUIT)
     {
-      my_error(ER_LOCK_DEADLOCK, MYF(0), "wsrep aborted transaction");
+      my_message(ER_LOCK_DEADLOCK, "Deadlock: wsrep aborted transaction",
+                 MYF(0));
       WSREP_DEBUG("Deadlock error for: %s", thd->query());
       mysql_mutex_unlock(&thd->LOCK_wsrep_thd);
       thd->reset_killed();
@@ -1821,7 +1822,6 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
 	// InfiniDB: Do InfiniDB Processing.
 	if (idb_vtable_process(thd, old_optimizer_switch, NULL))   // returns non 0 when not InfiniDB query
 	{
-	  thd->set_row_count_func(0); //Bug 5315
 	  thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
 
       if (WSREP_ON)
@@ -2317,7 +2317,8 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
 
         if (server_command_flags[subcommand] & CF_NO_COM_MULTI)
         {
-          my_error(ER_BAD_COMMAND_IN_MULTI, MYF(0), command_name[subcommand]);
+          my_error(ER_BAD_COMMAND_IN_MULTI, MYF(0),
+                   command_name[subcommand].str);
           goto com_multi_end;
         }
 
@@ -2421,11 +2422,12 @@ com_multi_end:
 
   THD_STAGE_INFO(thd, stage_cleaning_up);
   thd->reset_query();
-  thd->set_examined_row_count(0);                   // For processlist
-  thd->set_command(COM_SLEEP);
 
   /* Performance Schema Interface instrumentation, end */
   MYSQL_END_STATEMENT(thd->m_statement_psi, thd->get_stmt_da());
+  thd->set_examined_row_count(0);                   // For processlist
+  thd->set_command(COM_SLEEP);
+
   thd->m_statement_psi= NULL;
   thd->m_digest= NULL;
 
@@ -2916,6 +2918,13 @@ static bool do_execute_sp(THD *thd, sp_head *sp)
   thd->variables.select_limit= HA_POS_ERROR;
 
   /*
+    Reset current_select as it may point to random data as a
+    result of previous parsing.
+  */
+  thd->lex->current_select= NULL;
+  thd->lex->in_sum_func= 0;                     // For Item_field::fix_fields()
+
+  /*
     We never write CALL statements into binlog:
      - If the mode is non-prelocked, each statement will be logged
        separately.
@@ -3028,6 +3037,9 @@ mysql_execute_command(THD *thd)
     if (all_tables)
       thd->get_stmt_da()->opt_clear_warning_info(thd->query_id);
   }
+
+  if (check_dependencies_in_with_clauses(thd->lex->with_clauses_list))
+    DBUG_RETURN(1);
 
 #ifdef HAVE_REPLICATION
   if (unlikely(thd->slave_thread))
@@ -3910,8 +3922,7 @@ mysql_execute_command(THD *thd)
       /* Copy temporarily the statement flags to thd for lock_table_names() */
       uint save_thd_create_info_options= thd->lex->create_info.options;
       thd->lex->create_info.options|= create_info.options;
-      if (!(res= check_dependencies_in_with_clauses(lex->with_clauses_list)))
-        res= open_and_lock_tables(thd, create_info, lex->query_tables, TRUE, 0);
+      res= open_and_lock_tables(thd, create_info, lex->query_tables, TRUE, 0);
       thd->lex->create_info.options= save_thd_create_info_options;
       if (res)
       {
@@ -4524,8 +4535,7 @@ end_with_restore_list:
 
     unit->set_limit(select_lex);
 
-    if (!(res= check_dependencies_in_with_clauses(lex->with_clauses_list)) &&
-	!(res=open_and_lock_tables(thd, all_tables, TRUE, 0)))
+    if (!(res=open_and_lock_tables(thd, all_tables, TRUE, 0)))
     {
       MYSQL_INSERT_SELECT_START(thd->query());
       /*
@@ -5597,14 +5607,19 @@ end_with_restore_list:
       thd->print_aborted_warning(3, "RELEASE");
     }
 #ifdef WITH_WSREP
-    if (WSREP(thd) && (thd->wsrep_conflict_state != NO_CONFLICT &&
-                       thd->wsrep_conflict_state != REPLAYING))
-    {
-      DBUG_ASSERT(thd->is_error()); // the error is already issued
-    }
-    else
+    if (WSREP(thd)) {
+
+      if (thd->wsrep_conflict_state == NO_CONFLICT ||
+          thd->wsrep_conflict_state == REPLAYING)
+      {
+        my_ok(thd);
+      }
+    } else {
 #endif /* WITH_WSREP */
-      my_ok(thd);
+	my_ok(thd);
+#ifdef WITH_WSREP
+    }
+#endif /* WITH_WSREP */
     break;
   }
   case SQLCOM_ROLLBACK:
@@ -5641,13 +5656,16 @@ end_with_restore_list:
     if (tx_release)
       thd->set_killed(KILL_CONNECTION);
 #ifdef WITH_WSREP
-    if (WSREP(thd) && thd->wsrep_conflict_state != NO_CONFLICT)
-    {
-      DBUG_ASSERT(thd->is_error()); // the error is already issued
-    }
-    else
+    if (WSREP(thd)) {
+      if (thd->wsrep_conflict_state == NO_CONFLICT) {
+        my_ok(thd);
+      }
+    } else {
 #endif /* WITH_WSREP */
-      my_ok(thd);
+	my_ok(thd);
+#ifdef WITH_WSREP
+    }
+#endif /* WITH_WSREP */
    break;
   }
   case SQLCOM_RELEASE_SAVEPOINT:
@@ -6270,6 +6288,25 @@ finish:
     }
     if (thd->is_error() || (thd->variables.option_bits & OPTION_MASTER_SQL_ERROR))
       trans_rollback_stmt(thd);
+#ifdef WITH_WSREP
+    if (thd->spcont &&
+             (thd->wsrep_conflict_state == MUST_ABORT ||
+              thd->wsrep_conflict_state == ABORTED    ||
+              thd->wsrep_conflict_state == CERT_FAILURE))
+    {
+      /*
+        The error was cleared, but THD was aborted by wsrep and
+        wsrep_conflict_state is still set accordingly. This
+        situation is expected if we are running a stored procedure
+        that declares a handler that catches ER_LOCK_DEADLOCK error.
+        In which case the error may have been cleared in method
+        sp_rcontext::handle_sql_condition().
+      */
+      trans_rollback_stmt(thd);
+      thd->wsrep_conflict_state= NO_CONFLICT;
+      thd->killed= NOT_KILLED;
+    }
+#endif /* WITH_WSREP */
     else
     {
       /* If commit fails, we should be able to reset the OK status. */
@@ -6377,8 +6414,6 @@ static bool execute_sqlcom_select(THD *thd, TABLE_LIST *all_tables)
         new (thd->mem_root) Item_int(thd,
                                      (ulonglong) thd->variables.select_limit);
   }
-  if (check_dependencies_in_with_clauses(lex->with_clauses_list))
-    return 1;
 
   if (!(res= open_and_lock_tables(thd, all_tables, TRUE, 0)))
   {
@@ -7439,7 +7474,12 @@ void THD::reset_for_next_command(bool do_clear_error)
     clear_error(1);
 
   thd->free_list= 0;
-  thd->select_number= 1;
+  /*
+    We also assign thd->stmt_lex in lex_start(), but during bootstrap this
+    code is executed first.
+  */
+  thd->stmt_lex= &main_lex; thd->stmt_lex->current_select_number= 1;
+  DBUG_PRINT("info", ("Lex %p stmt_lex: %p", thd->lex, thd->stmt_lex));
   /*
     Those two lines below are theoretically unneeded as
     THD::cleanup_after_query() should take care of this already.
@@ -7489,10 +7529,9 @@ void THD::reset_for_next_command(bool do_clear_error)
   thd->thread_specific_used= FALSE;
 
   if (opt_bin_log)
-  {
     reset_dynamic(&thd->user_var_events);
-    thd->user_var_events_alloc= thd->mem_root;
-  }
+  DBUG_ASSERT(thd->user_var_events_alloc == &thd->main_mem_root);
+
   thd->get_stmt_da()->reset_for_next_command();
   thd->rand_used= 0;
   thd->m_sent_row_count= thd->m_examined_row_count= 0;
@@ -7557,7 +7596,7 @@ mysql_new_select(LEX *lex, bool move_down)
 
   if (!(select_lex= new (thd->mem_root) SELECT_LEX()))
     DBUG_RETURN(1);
-  select_lex->select_number= ++thd->select_number;
+  select_lex->select_number= ++thd->stmt_lex->current_select_number;
   select_lex->parent_lex= lex; /* Used in init_query. */
   select_lex->init_query();
   select_lex->init_select();
@@ -7763,7 +7802,8 @@ static void wsrep_mysql_parse(THD *thd, char *rawbuf, uint length,
                       (longlong) thd->thread_id, is_autocommit,
                       thd->wsrep_retry_counter, 
                       thd->variables.wsrep_retry_autocommit, thd->query());
-          my_error(ER_LOCK_DEADLOCK, MYF(0), "wsrep aborted transaction");
+          my_message(ER_LOCK_DEADLOCK, "Deadlock: wsrep aborted transaction",
+                     MYF(0));
           thd->reset_killed();
           thd->wsrep_conflict_state= NO_CONFLICT;
           if (thd->wsrep_conflict_state != REPLAYING)
@@ -7922,7 +7962,7 @@ void mysql_parse(THD *thd, char *rawbuf, uint length,
     sp_cache_enforce_limit(thd->sp_func_cache, stored_program_cache_size);
     thd->end_statement();
     thd->cleanup_after_query();
-    DBUG_ASSERT(thd->change_list.is_empty());
+    DBUG_ASSERT(thd->Item_change_list::is_empty());
   }
   else
   {
@@ -10152,7 +10192,11 @@ int idb_parse_vtable(THD* thd, String& vquery, THD::infinidb_state vtable_state)
 	#ifdef INFINIDB_DEBUG
 	printf("<<< Parse vtable: %s\n", vquery.c_ptr());
 	#endif
+    // MCOL-1082: the drop table clears row_count and this may be a SELECT to
+    // get the row_count.
+    longlong row_count= thd->get_row_count_func();
 	mysql_parse(thd, thd->query(), thd->query_length(), &parser_state, false, false);
+    thd->set_row_count_func(row_count);
 	delete_explain_query(thd->lex);
 	close_thread_tables(thd);
 

@@ -787,6 +787,57 @@ static void dispose_db_dir(void *ptr)
 }
 
 
+/*
+  Append an element into @@ignore_db_dirs
+
+  This is a function to be called after regular option processing has been
+  finalized.
+*/
+
+void ignore_db_dirs_append(const char *dirname_arg)
+{
+  char *new_entry_buf;
+  LEX_STRING *new_entry;
+  size_t len= strlen(dirname_arg);
+
+  if (!my_multi_malloc(0,
+                       &new_entry, sizeof(LEX_STRING),
+                       &new_entry_buf, len + 1,
+                       NullS))
+    return;
+
+  memcpy(new_entry_buf, dirname_arg, len+1);
+  new_entry->str = new_entry_buf;
+  new_entry->length= len;
+
+  if (my_hash_insert(&ignore_db_dirs_hash, (uchar *)new_entry))
+  {
+    // Either the name is already there or out-of-memory.
+    my_free(new_entry);
+    return;
+  }
+
+  // Append the name to the option string.
+  size_t curlen= strlen(opt_ignore_db_dirs);
+  // Add one for comma and one for \0.
+  size_t newlen= curlen + len + 1 + 1;
+  char *new_db_dirs;
+  if (!(new_db_dirs= (char*)my_malloc(newlen ,MYF(0))))
+  {
+    // This is not a critical condition
+    return;
+  }
+
+  memcpy(new_db_dirs, opt_ignore_db_dirs, curlen);
+  if (curlen != 0)
+    new_db_dirs[curlen]=',';
+  memcpy(new_db_dirs + (curlen + ((curlen!=0)?1:0)), dirname_arg, len+1);
+
+  if (opt_ignore_db_dirs)
+    my_free(opt_ignore_db_dirs);
+  opt_ignore_db_dirs= new_db_dirs;
+}
+
 bool
 ignore_db_dirs_process_additions()
 {
@@ -2448,7 +2499,7 @@ public:
   { return alloc_root(mem_root, size); }
   static void operator delete(void *ptr __attribute__((unused)),
                               size_t size __attribute__((unused)))
-  { TRASH(ptr, size); }
+  { TRASH_FREE(ptr, size); }
 
   my_thread_id thread_id;
   uint32 os_thread_id;
@@ -2898,7 +2949,7 @@ int fill_show_explain(THD *thd, TABLE_LIST *table, COND *cond)
   }
   else
   {
-    my_error(ER_NO_SUCH_THREAD, MYF(0), thread_id);
+    my_error(ER_NO_SUCH_THREAD, MYF(0), (ulong) thread_id);
     DBUG_RETURN(1);
   }
 }
@@ -5096,10 +5147,11 @@ static int get_schema_tables_record(THD *thd, TABLE_LIST *tables,
 
     if (share->tmp_table == SYSTEM_TMP_TABLE)
       table->field[3]->store(STRING_WITH_LEN("SYSTEM VIEW"), cs);
-    else if (share->tmp_table)
-      table->field[3]->store(STRING_WITH_LEN("LOCAL TEMPORARY"), cs);
     else
+    {
+      DBUG_ASSERT(share->tmp_table == NO_TMP_TABLE);
       table->field[3]->store(STRING_WITH_LEN("BASE TABLE"), cs);
+    }
 
     for (int i= 4; i < 20; i++)
     {
@@ -7347,7 +7399,7 @@ int fill_variables(THD *thd, TABLE_LIST *tables, COND *cond)
 
   COND *partial_cond= make_cond_for_info_schema(thd, cond, tables);
 
-  mysql_rwlock_rdlock(&LOCK_system_variables_hash);
+  mysql_prlock_rdlock(&LOCK_system_variables_hash);
 
   /*
     Avoid recursive LOCK_system_variables_hash acquisition in
@@ -7362,7 +7414,7 @@ int fill_variables(THD *thd, TABLE_LIST *tables, COND *cond)
   res= show_status_array(thd, wild, enumerate_sys_vars(thd, sorted_vars, scope),
                          scope, NULL, "", tables->table,
                          upper_case_names, partial_cond);
-  mysql_rwlock_unlock(&LOCK_system_variables_hash);
+  mysql_prlock_unlock(&LOCK_system_variables_hash);
   DBUG_RETURN(res);
 }
 

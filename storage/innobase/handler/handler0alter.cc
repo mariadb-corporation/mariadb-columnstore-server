@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2005, 2017, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2013, 2017, MariaDB Corporation.
+Copyright (c) 2013, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -300,7 +300,7 @@ my_error_innodb(
 		break;
 	case DB_TOO_BIG_INDEX_COL:
 		my_error(ER_INDEX_COLUMN_TOO_LONG, MYF(0),
-			 DICT_MAX_FIELD_LEN_BY_FORMAT_FLAG(flags));
+			 (ulong) DICT_MAX_FIELD_LEN_BY_FORMAT_FLAG(flags));
 		break;
 	case DB_TOO_MANY_CONCURRENT_TRXS:
 		my_error(ER_TOO_MANY_CONCURRENT_TRXS, MYF(0));
@@ -372,6 +372,26 @@ innobase_fulltext_exist(
 	return(false);
 }
 
+/** Determine whether indexed virtual columns exist in a table.
+@param[in]	table	table definition
+@return	whether indexes exist on virtual columns */
+static bool innobase_indexed_virtual_exist(const TABLE* table)
+{
+	const KEY* const end = &table->key_info[table->s->keys];
+
+	for (const KEY* key = table->key_info; key < end; key++) {
+		const KEY_PART_INFO* const key_part_end = key->key_part
+			+ key->user_defined_key_parts;
+		for (const KEY_PART_INFO* key_part = key->key_part;
+		     key_part < key_part_end; key_part++) {
+			if (!key_part->field->stored_in_db())
+				return true;
+		}
+	}
+
+	return false;
+}
+
 /** Determine if spatial indexes exist in a given table.
 @param table MySQL table
 @return whether spatial indexes exist on the table */
@@ -390,23 +410,34 @@ innobase_spatial_exist(
 	return(false);
 }
 
-/*******************************************************************//**
-Determine if ALTER TABLE needs to rebuild the table.
-@param ha_alter_info the DDL operation
-@param altered_table		MySQL original table
+/** Determine if ALTER TABLE needs to rebuild the table.
+@param ha_alter_info	the DDL operation
+@param table		metadata before ALTER TABLE
 @return whether it is necessary to rebuild the table */
 static MY_ATTRIBUTE((nonnull, warn_unused_result))
 bool
 innobase_need_rebuild(
-/*==================*/
 	const Alter_inplace_info*	ha_alter_info,
-	const TABLE*			altered_table)
+	const TABLE*			table)
 {
 	Alter_inplace_info::HA_ALTER_FLAGS alter_inplace_flags =
-		ha_alter_info->handler_flags & ~(INNOBASE_INPLACE_IGNORE);
+		ha_alter_info->handler_flags & ~INNOBASE_INPLACE_IGNORE;
 
-	if (alter_inplace_flags
-	    == Alter_inplace_info::CHANGE_CREATE_OPTION
+	if (alter_inplace_flags & Alter_inplace_info::CHANGE_CREATE_OPTION) {
+		const ha_table_option_struct& alt_opt=
+			*ha_alter_info->create_info->option_struct;
+		const ha_table_option_struct& opt= *table->s->option_struct;
+
+		if (alt_opt.page_compressed != opt.page_compressed
+		    || alt_opt.page_compression_level
+		    != opt.page_compression_level
+		    || alt_opt.encryption != opt.encryption
+		    || alt_opt.encryption_key_id != opt.encryption_key_id) {
+			return(true);
+		}
+	}
+
+	if (alter_inplace_flags == Alter_inplace_info::CHANGE_CREATE_OPTION
 	    && !(ha_alter_info->create_info->used_fields
 		 & (HA_CREATE_USED_ROW_FORMAT
 		    | HA_CREATE_USED_KEY_BLOCK_SIZE))) {
@@ -416,7 +447,7 @@ innobase_need_rebuild(
 		return(false);
 	}
 
-	return(!!(ha_alter_info->handler_flags & INNOBASE_ALTER_REBUILD));
+	return(!!(alter_inplace_flags & INNOBASE_ALTER_REBUILD));
 }
 
 /** Check if virtual column in old and new table are in order, excluding
@@ -570,28 +601,6 @@ ha_innobase::check_if_supported_inplace_alter(
 	}
 
 	update_thd();
-
-	/* Change on engine specific table options require rebuild of the
-	table */
-	if (ha_alter_info->handler_flags
-		& Alter_inplace_info::CHANGE_CREATE_OPTION) {
-		ha_table_option_struct *new_options= ha_alter_info->create_info->option_struct;
-		ha_table_option_struct *old_options= table->s->option_struct;
-
-		if (new_options->page_compressed != old_options->page_compressed ||
-		    new_options->page_compression_level != old_options->page_compression_level) {
-			ha_alter_info->unsupported_reason = innobase_get_err_msg(
-				ER_ALTER_OPERATION_NOT_SUPPORTED_REASON);
-			DBUG_RETURN(HA_ALTER_INPLACE_NOT_SUPPORTED);
-		}
-
-		if (new_options->encryption != old_options->encryption ||
-			new_options->encryption_key_id != old_options->encryption_key_id) {
-			ha_alter_info->unsupported_reason = innobase_get_err_msg(
-				ER_ALTER_OPERATION_NOT_SUPPORTED_REASON);
-			DBUG_RETURN(HA_ALTER_INPLACE_NOT_SUPPORTED);
-		}
-	}
 
 	if (ha_alter_info->handler_flags
 	    & ~(INNOBASE_INPLACE_IGNORE
@@ -914,9 +923,11 @@ ha_innobase::check_if_supported_inplace_alter(
 		     & Alter_inplace_info::ADD_PK_INDEX)
 		    || innobase_need_rebuild(ha_alter_info, table))
 		   && (innobase_fulltext_exist(altered_table)
-		       || innobase_spatial_exist(altered_table))) {
+		       || innobase_spatial_exist(altered_table)
+		       || innobase_indexed_virtual_exist(altered_table))) {
 		/* Refuse to rebuild the table online, if
-		FULLTEXT OR SPATIAL indexes are to survive the rebuild. */
+		FULLTEXT OR SPATIAL indexes or indexed virtual columns
+		are to survive the rebuild. */
 		online = false;
 		/* If the table already contains fulltext indexes,
 		refuse to rebuild the table natively altogether. */
@@ -930,6 +941,10 @@ ha_innobase::check_if_supported_inplace_alter(
 			ha_alter_info->unsupported_reason =
 				innobase_get_err_msg(
 				ER_ALTER_OPERATION_NOT_SUPPORTED_REASON_GIS);
+		} else if (!innobase_fulltext_exist(altered_table)) {
+			/* MDEV-14341 FIXME: Remove this limitation. */
+			ha_alter_info->unsupported_reason =
+				"online rebuild with indexed virtual columns";
 		} else {
 			ha_alter_info->unsupported_reason =
 				innobase_get_err_msg(
@@ -1064,8 +1079,6 @@ ha_innobase::check_if_supported_inplace_alter(
 next_column:
 		af++;
 	}
-
-	cf_it.rewind();
 
 	DBUG_RETURN(online
 		    ? HA_ALTER_INPLACE_NO_LOCK_AFTER_PREPARE
@@ -1623,7 +1636,7 @@ innobase_get_foreign_key_info(
 			/* Not possible to add a foreign key without a
 			referenced column */
 			mutex_exit(&dict_sys->mutex);
-			my_error(ER_CANNOT_ADD_FOREIGN, MYF(0), tbl_namep);
+			my_error(ER_CANNOT_ADD_FOREIGN, MYF(0));
 			goto err_exit;
 		}
 
@@ -1743,8 +1756,7 @@ innobase_col_to_mysql(
 #ifdef UNIV_DEBUG
 	case DATA_MYSQL:
 		ut_ad(flen >= len);
-		ut_ad(DATA_MBMAXLEN(col->mbminmaxlen)
-		      >= DATA_MBMINLEN(col->mbminmaxlen));
+		ut_ad(col->mbmaxlen >= col->mbminlen);
 		memcpy(dest, data, len);
 		break;
 
@@ -2037,7 +2049,8 @@ innobase_check_index_keys(
 			}
 #endif /* MYSQL_RENAME_INDEX */
 
-			my_error(ER_WRONG_NAME_FOR_INDEX, MYF(0), key.name);
+			my_error(ER_WRONG_NAME_FOR_INDEX, MYF(0),
+                                 key.name);
 
 			return(ER_WRONG_NAME_FOR_INDEX);
 		}
@@ -4501,7 +4514,6 @@ prepare_inplace_alter_table_dict(
 	to rebuild the table with a temporary name. */
 
 	if (new_clustered) {
-		fil_space_crypt_t* crypt_data;
 		const char*	new_table_name
 			= dict_mem_create_temporary_tablename(
 				ctx->heap,
@@ -4515,13 +4527,29 @@ prepare_inplace_alter_table_dict(
 		uint32_t	key_id = FIL_DEFAULT_ENCRYPTION_KEY;
 		fil_encryption_t mode = FIL_ENCRYPTION_DEFAULT;
 
-		fil_space_t* space = fil_space_acquire(ctx->prebuilt->table->space);
-		crypt_data = space->crypt_data;
-		fil_space_release(space);
+		if (fil_space_t* space
+		    = fil_space_acquire(ctx->prebuilt->table->space)) {
+			if (const fil_space_crypt_t* crypt_data
+			    = space->crypt_data) {
+				key_id = crypt_data->key_id;
+				mode = crypt_data->encryption;
+			}
 
-		if (crypt_data) {
-			key_id = crypt_data->key_id;
-			mode = crypt_data->encryption;
+			fil_space_release(space);
+		}
+
+		if (ha_alter_info->handler_flags
+		    & Alter_inplace_info::CHANGE_CREATE_OPTION) {
+			const ha_table_option_struct& alt_opt=
+				*ha_alter_info->create_info->option_struct;
+			const ha_table_option_struct& opt=
+				*old_table->s->option_struct;
+			if (alt_opt.encryption != opt.encryption
+			    || alt_opt.encryption_key_id
+			    != opt.encryption_key_id) {
+				key_id = uint32_t(alt_opt.encryption_key_id);
+				mode = fil_encryption_t(alt_opt.encryption);
+			}
 		}
 
 		if (innobase_check_foreigns(
@@ -8339,7 +8367,7 @@ alter_stats_rebuild(
 # define DBUG_INJECT_CRASH(prefix, count)			\
 do {								\
 	char buf[32];						\
-	ut_snprintf(buf, sizeof buf, prefix "_%u", count);	\
+	snprintf(buf, sizeof buf, prefix "_%u", count);	\
 	DBUG_EXECUTE_IF(buf, DBUG_SUICIDE(););			\
 } while (0)
 #else
@@ -8621,7 +8649,7 @@ ha_innobase::commit_inplace_alter_table(
 			/* Generate a dynamic dbug text. */
 			char buf[32];
 
-			ut_snprintf(buf, sizeof buf,
+			snprintf(buf, sizeof buf,
 				    "ib_commit_inplace_fail_%u",
 				    failure_inject_count++);
 

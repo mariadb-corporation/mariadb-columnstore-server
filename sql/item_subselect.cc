@@ -453,7 +453,8 @@ bool Item_subselect::mark_as_dependent(THD *thd, st_select_lex *select,
       OUTER_REF_TABLE_BIT.
 */
 
-void Item_subselect::fix_after_pullout(st_select_lex *new_parent, Item **ref)
+void Item_subselect::fix_after_pullout(st_select_lex *new_parent,
+                                       Item **ref, bool merge)
 {
   recalc_used_tables(new_parent, TRUE);
   parent_select= new_parent;
@@ -1161,7 +1162,8 @@ Item_singlerow_subselect::select_transformer(JOIN *join)
     /*
       as far as we moved content to upper level we have to fix dependences & Co
     */
-    substitution->fix_after_pullout(select_lex->outer_select(), &substitution);
+    substitution->fix_after_pullout(select_lex->outer_select(),
+                                    &substitution, TRUE);
   }
   DBUG_RETURN(false);
 }
@@ -2137,7 +2139,10 @@ Item_in_subselect::create_single_in_to_exists_cond(JOIN *join,
   }
   else
   {
-    Item *item= (Item*) select_lex->item_list.head()->real_item();
+    Item *item= (Item*) select_lex->item_list.head();
+    if (item->type() != REF_ITEM ||
+        ((Item_ref*)item)->ref_type() != Item_ref::VIEW_REF)
+      item= item->real_item();
 
     if (select_lex->table_list.elements)
     {
@@ -2949,7 +2954,7 @@ bool Item_exists_subselect::exists2in_processor(void *opt_arg)
           goto out;
         }
       }
-      outer_exp->fix_after_pullout(unit->outer_select(), &outer_exp);
+      outer_exp->fix_after_pullout(unit->outer_select(), &outer_exp, FALSE);
       outer_exp->update_used_tables();
       outer.push_back(outer_exp, thd->mem_root);
     }
@@ -3330,10 +3335,11 @@ err:
 }
 
 
-void Item_in_subselect::fix_after_pullout(st_select_lex *new_parent, Item **ref)
+void Item_in_subselect::fix_after_pullout(st_select_lex *new_parent,
+                                          Item **ref, bool merge)
 {
-  left_expr->fix_after_pullout(new_parent, &left_expr);
-  Item_subselect::fix_after_pullout(new_parent, ref);
+  left_expr->fix_after_pullout(new_parent, &left_expr, merge);
+  Item_subselect::fix_after_pullout(new_parent, ref, merge);
   used_tables_cache |= left_expr->used_tables();
 }
 
@@ -4370,6 +4376,9 @@ table_map subselect_union_engine::upper_select_const_tables()
 void subselect_single_select_engine::print(String *str,
                                            enum_query_type query_type)
 {
+  With_clause* with_clause= select_lex->get_with_clause();
+  if (with_clause)
+    with_clause->print(str, query_type);
   select_lex->print(get_thd(), str, query_type);
 }
 
@@ -5504,7 +5513,7 @@ int subselect_hash_sj_engine::exec()
 
     if (has_covering_null_row)
     {
-      DBUG_ASSERT(count_partial_match_columns = field_count);
+      DBUG_ASSERT(count_partial_match_columns == field_count);
       count_pm_keys= 0;
     }
     else if (has_covering_null_columns)

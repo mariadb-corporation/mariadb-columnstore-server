@@ -1540,7 +1540,7 @@ end:
   head->file= org_file;
 
   /* Restore head->read_set (and write_set) to what they had before the call */
-  head->column_bitmaps_set(save_read_set, save_write_set);
+  head->column_bitmaps_set(save_read_set, save_write_set, save_vcol_set);
  
   if (reset())
   {
@@ -2070,7 +2070,7 @@ public:
   /* Table read plans are allocated on MEM_ROOT and are never deleted */
   static void *operator new(size_t size, MEM_ROOT *mem_root)
   { return (void*) alloc_root(mem_root, (uint) size); }
-  static void operator delete(void *ptr,size_t size) { TRASH(ptr, size); }
+  static void operator delete(void *ptr,size_t size) { TRASH_FREE(ptr, size); }
   static void operator delete(void *ptr, MEM_ROOT *mem_root) { /* Never called */ }
   virtual ~TABLE_READ_PLAN() {}               /* Remove gcc warning */
 
@@ -6729,7 +6729,7 @@ static TRP_RANGE *get_key_scans_params(PARAM *param, SEL_TREE *tree,
                                        bool update_tbl_stats,
                                        double read_time)
 {
-  uint idx, best_idx;
+  uint idx, UNINIT_VAR(best_idx);
   SEL_ARG *key_to_read= NULL;
   ha_rows UNINIT_VAR(best_records);              /* protected by key_to_read */
   uint    UNINIT_VAR(best_mrr_flags),            /* protected by key_to_read */
@@ -10241,8 +10241,8 @@ void SEL_ARG::test_use_count(SEL_ARG *root)
       ulong count=count_key_part_usage(root,pos->next_key_part);
       if (count > pos->next_key_part->use_count)
       {
-        sql_print_information("Use_count: Wrong count for key at %p, %lu "
-                              "should be %lu", (long unsigned int)pos,
+        sql_print_information("Use_count: Wrong count for key at %p: %lu "
+                              "should be %lu", pos,
                               pos->next_key_part->use_count, count);
 	return;
       }
@@ -10251,7 +10251,7 @@ void SEL_ARG::test_use_count(SEL_ARG *root)
   }
   if (e_count != elements)
     sql_print_warning("Wrong use count: %u (should be %u) for tree at %p",
-                      e_count, elements, (long unsigned int) this);
+                      e_count, elements, this);
 }
 #endif
 
@@ -11364,7 +11364,10 @@ int QUICK_RANGE_SELECT::reset()
       buf_size/= 2;
     }
     if (!mrr_buf_desc)
-      DBUG_RETURN(HA_ERR_OUT_OF_MEM);
+    {
+      error= HA_ERR_OUT_OF_MEM;
+      goto err;
+    }
 
     /* Initialize the handler buffer. */
     mrr_buf_desc->buffer= mrange_buff;

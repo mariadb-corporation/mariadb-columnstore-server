@@ -1294,6 +1294,8 @@ static SHOW_VAR innodb_status_variables[]= {
   (char*) &export_vars.innodb_sec_rec_cluster_reads,	  SHOW_LONG},
   {"secondary_index_triggered_cluster_reads_avoided",
   (char*) &export_vars.innodb_sec_rec_cluster_reads_avoided, SHOW_LONG},
+  {"buffered_aio_submitted",
+  (char*) &export_vars.innodb_buffered_aio_submitted,	  SHOW_LONG},
 
   /* Encryption */
   {"encryption_rotation_pages_read_from_cache",
@@ -3903,6 +3905,17 @@ innobase_init(
 		}
 	}
 
+#ifdef WITH_WSREP
+	/* Currently, Galera does not support VATS lock schedule algorithm. */
+	if (innodb_lock_schedule_algorithm == INNODB_LOCK_SCHEDULE_ALGORITHM_VATS
+	    && global_system_variables.wsrep_on) {
+		/* Do not allow InnoDB startup with VATS and Galera */
+		sql_print_error("In Galera, innodb_lock_schedule_algorithm=vats"
+			" is not supported.");
+		goto error;
+	}
+#endif /* WITH_WSREP */
+
 #ifndef HAVE_LZ4
 	if (innodb_compression_algorithm == PAGE_LZ4_ALGORITHM) {
 		sql_print_error("InnoDB: innodb_compression_algorithm = %lu unsupported.\n"
@@ -5454,8 +5467,8 @@ innobase_kill_connection(
 			wsrep_thd_is_BF(current_thd, FALSE),
 			lock_get_info(trx->lock.wait_lock).c_str());
 
-		if (!wsrep_thd_is_BF(trx->mysql_thd, FALSE) &&
-		    trx->abort_type == TRX_SERVER_ABORT) {
+		if (!wsrep_thd_is_BF(trx->mysql_thd, FALSE)
+		    && trx->abort_type == TRX_SERVER_ABORT) {
 			ut_ad(!lock_mutex_own());
 			lock_mutex_enter();
 		}
@@ -8833,7 +8846,7 @@ no_commit:
 			table->next_number_field);
 
 		/* Get the value that MySQL attempted to store in the table.*/
-		auto_inc = table->next_number_field->val_int();
+		auto_inc = table->next_number_field->val_uint();
 
 		switch (error) {
 		case DB_DUPLICATE_KEY:
@@ -9425,7 +9438,7 @@ ha_innobase::update_row(
 		ulonglong	auto_inc;
 		ulonglong	col_max_value;
 
-		auto_inc = table->next_number_field->val_int();
+		auto_inc = table->next_number_field->val_uint();
 
 		/* We need the upper limit of the col type to check for
 		whether we update the table autoinc counter or not. */
@@ -10947,7 +10960,7 @@ wsrep_append_foreign_key(
 		shared ? WSREP_KEY_SHARED : WSREP_KEY_EXCLUSIVE,
                 copy);
 	if (rcode) {
-		DBUG_PRINT("wsrep", ("row key failed: %lu", rcode));
+		DBUG_PRINT("wsrep", ("row key failed: %zu", rcode));
 		WSREP_ERROR("Appending cascaded fk row key failed: %s, %lu",
 			    (wsrep_thd_query(thd)) ?
 			    wsrep_thd_query(thd) : "void", rcode);
@@ -12273,6 +12286,7 @@ index_bad:
 	case ROW_TYPE_DEFAULT:
 		/* If we fell through, set row format to Compact. */
 		row_format = ROW_TYPE_COMPACT;
+		/* fall through */
 	case ROW_TYPE_COMPACT:
 		break;
 	}
@@ -13662,7 +13676,7 @@ ha_innobase::records_in_range(
 
 		n_rows = btr_estimate_n_rows_in_range(index, range_start,
 						      mode1, range_end,
-						      mode2, prebuilt->trx);
+						      mode2);
 	} else {
 
 		n_rows = HA_POS_ERROR;
@@ -19714,7 +19728,7 @@ wsrep_innobase_kill_one_trx(
 			wsrep_thd_awake(thd, signal);
 		} else {
 			/* abort currently executing query */
-			DBUG_PRINT("wsrep",("sending KILL_QUERY to: %ld",
+			DBUG_PRINT("wsrep",("sending KILL_QUERY to: %lu",
                                             thd_get_thread_id(thd)));
 			WSREP_DEBUG("kill query for: %ld",
 				thd_get_thread_id(thd));
@@ -19841,7 +19855,8 @@ wsrep_fake_trx_id(
 	mutex_enter(&trx_sys->mutex);
 	trx_id_t trx_id = trx_sys_get_new_trx_id();
 	mutex_exit(&trx_sys->mutex);
-	WSREP_DEBUG("innodb fake trx id: %lu thd: %s", trx_id, wsrep_thd_query(thd));
+	WSREP_DEBUG("innodb fake trx id: " TRX_ID_FMT " thd: %s",
+		    trx_id, wsrep_thd_query(thd));
 	wsrep_ws_handle_for_trx(wsrep_thd_ws_handle(thd), trx_id);
 }
 
@@ -20462,7 +20477,7 @@ static MYSQL_SYSVAR_ENUM(empty_free_list_algorithm,
   &innodb_empty_free_list_algorithm_typelib);
 
 static MYSQL_SYSVAR_ENUM(lock_schedule_algorithm, innodb_lock_schedule_algorithm,
-  PLUGIN_VAR_RQCMDARG,
+  PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
   "The algorithm Innodb uses for deciding which locks to grant next when"
   " a lock is released. Possible values are"
   " FCFS"
@@ -21032,6 +21047,13 @@ static MYSQL_SYSVAR_BOOL(print_all_deadlocks, srv_print_all_deadlocks,
   "Print all deadlocks to MySQL error log (off by default)",
   NULL, NULL, FALSE);
 
+static MYSQL_SYSVAR_BOOL(
+  print_lock_wait_timeout_info,
+  srv_print_lock_wait_timeout_info,
+  PLUGIN_VAR_OPCMDARG,
+  "Print lock wait timeout info to MySQL error log (off by default)",
+  NULL, NULL, FALSE);
+
 static MYSQL_SYSVAR_ULONG(compression_failure_threshold_pct,
   zip_failure_threshold_pct, PLUGIN_VAR_OPCMDARG,
   "If the compression failure rate of a table is greater than this number"
@@ -21490,6 +21512,7 @@ static struct st_mysql_sys_var* innobase_system_variables[]= {
   MYSQL_SYSVAR(foreground_preflush),
   MYSQL_SYSVAR(empty_free_list_algorithm),
   MYSQL_SYSVAR(print_all_deadlocks),
+  MYSQL_SYSVAR(print_lock_wait_timeout_info),
   MYSQL_SYSVAR(cmp_per_index_enabled),
   MYSQL_SYSVAR(undo_logs),
   MYSQL_SYSVAR(rollback_segments),

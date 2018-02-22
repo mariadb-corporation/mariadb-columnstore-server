@@ -1178,6 +1178,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
 %token  DEFINER_SYM
 %token  DELAYED_SYM
 %token  DELAY_KEY_WRITE_SYM
+%token  DELETE_DOMAIN_ID_SYM
 %token  DELETE_SYM                    /* SQL-2003-R */
 %token  DENSE_RANK_SYM
 %token  DESC                          /* SQL-2003-N */
@@ -1739,7 +1740,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
         IDENT_sys TEXT_STRING_sys TEXT_STRING_literal
         NCHAR_STRING opt_component key_cache_name
         sp_opt_label BIN_NUM label_ident TEXT_STRING_filesystem ident_or_empty
-        opt_constraint constraint opt_ident
+        opt_constraint constraint opt_ident ident_table_alias
 
 %type <lex_str_ptr>
         opt_table_alias
@@ -1892,7 +1893,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
 
 %type <Lex_length_and_dec> precision opt_precision float_options
 
-%type <symbol> keyword keyword_sp
+%type <symbol> keyword keyword_sp keyword_alias
 
 %type <lex_user> user grant_user grant_role user_or_role current_role
                  admin_option_for_role user_maybe_role
@@ -1995,6 +1996,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
         vcol_opt_attribute_list vcol_attribute
         opt_serial_attribute opt_serial_attribute_list serial_attribute
         explainable_command
+        opt_delete_gtid_domain
 END_OF_INPUT
 
 %type <NONE> call sp_proc_stmts sp_proc_stmts1 sp_proc_stmt
@@ -2333,7 +2335,7 @@ master_def:
             if ($3 > MASTER_DELAY_MAX)
             {
               my_error(ER_MASTER_DELAY_VALUE_OUT_OF_RANGE, MYF(0),
-                       $3, MASTER_DELAY_MAX);
+                       (uint) $3, (uint) MASTER_DELAY_MAX);
             }
             else
               Lex->mi.sql_delay = $3;
@@ -5206,12 +5208,8 @@ opt_part_values:
             partition_info *part_info= lex->part_info;
             if (! lex->is_partition_management())
             {
-              if (part_info->part_type == RANGE_PARTITION)
-                my_yyabort_error((ER_PARTITION_REQUIRES_VALUES_ERROR, MYF(0),
-                                  "RANGE", "LESS THAN"));
-              if (part_info->part_type == LIST_PARTITION)
-                my_yyabort_error((ER_PARTITION_REQUIRES_VALUES_ERROR, MYF(0),
-                                  "LIST", "IN"));
+              if (part_info->error_if_requires_values())
+                 MYSQL_YYABORT;
             }
             else
               part_info->part_type= HASH_PARTITION;
@@ -7608,7 +7606,8 @@ alter_list_item:
         | CHANGE opt_column opt_if_exists_table_element field_ident
           field_spec opt_place
           {
-            Lex->alter_info.flags|= Alter_info::ALTER_CHANGE_COLUMN;
+            Lex->alter_info.flags|= (Alter_info::ALTER_CHANGE_COLUMN |
+                                     Alter_info::ALTER_RENAME_COLUMN);
             Lex->create_last_non_select_table= Lex->last_table();
             $5->change= $4.str;
             $5->after= $6;
@@ -11423,7 +11422,7 @@ table_alias:
 
 opt_table_alias:
           /* empty */ { $$=0; }
-        | table_alias ident
+        | table_alias ident_table_alias
           {
             $$= (LEX_STRING*) thd->memdup(&$2,sizeof(LEX_STRING));
             if ($$ == NULL)
@@ -13342,7 +13341,7 @@ flush_option:
           { Lex->type|= REFRESH_GENERAL_LOG; }
         | SLOW LOGS_SYM
           { Lex->type|= REFRESH_SLOW_LOG; }
-        | BINARY LOGS_SYM
+        | BINARY LOGS_SYM opt_delete_gtid_domain
           { Lex->type|= REFRESH_BINARY_LOG; }
         | RELAY LOGS_SYM optional_connection_name
           {
@@ -13397,6 +13396,24 @@ flush_option:
 opt_table_list:
           /* empty */  {}
         | table_list {}
+        ;
+
+opt_delete_gtid_domain:
+          /* empty */ {}
+        | DELETE_DOMAIN_ID_SYM '=' '(' delete_domain_id_list ')'
+          {}
+        ;
+delete_domain_id_list:
+          /* Empty */
+        | delete_domain_id
+        | delete_domain_id_list ',' delete_domain_id
+        ;
+
+delete_domain_id:
+          ulong_num
+          {
+            insert_dynamic(&Lex->delete_gtid_domain, (uchar*) &($1));
+          }
         ;
 
 optional_flush_tables_arguments:
@@ -14461,6 +14478,16 @@ TEXT_STRING_filesystem:
                 MYSQL_YYABORT;
             }
           }
+
+ident_table_alias:
+          IDENT_sys   { $$= $1; }
+        | keyword_alias
+          {
+            $$.str= thd->strmake($1.str, $1.length);
+            if ($$.str == NULL)
+              MYSQL_YYABORT;
+            $$.length= $1.length;
+          }
         ;
 
 ident:
@@ -14555,8 +14582,8 @@ user: user_maybe_role
          }
          ;
 
-/* Keyword that we allow for identifiers (except SP labels) */
-keyword:
+/* Keywords which we allow as table aliases. */
+keyword_alias:
           keyword_sp            {}
         | ASCII_SYM             {}
         | BACKUP_SYM            {}
@@ -14629,6 +14656,10 @@ keyword:
         | XA_SYM                {}
         | UPGRADE_SYM           {}
         ;
+
+
+/* Keyword that we allow for identifiers (except SP labels) */
+keyword: keyword_alias | WINDOW_SYM {};
 
 /*
  * Keywords that we allow for labels in SPs.

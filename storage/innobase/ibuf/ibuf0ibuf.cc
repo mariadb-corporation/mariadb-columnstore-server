@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1997, 2016, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2016, 2017, MariaDB Corporation.
+Copyright (c) 2016, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -4492,7 +4492,7 @@ ibuf_merge_or_delete_for_page(
 			return;
 		}
 
-		space = fil_space_acquire(page_id.space());
+		space = fil_space_acquire_silent(page_id.space());
 
 		if (UNIV_UNLIKELY(!space)) {
 			/* Do not try to read the bitmap page from the
@@ -4962,21 +4962,36 @@ ibuf_check_bitmap_on_import(
 	const trx_t*	trx,		/*!< in: transaction */
 	ulint		space_id)	/*!< in: tablespace identifier */
 {
-	ulint	size;
 	ulint	page_no;
 
 	ut_ad(space_id);
 	ut_ad(trx->mysql_thd);
 
-	bool			found;
-	const page_size_t&	page_size
-		= fil_space_get_page_size(space_id, &found);
-
-	if (!found) {
+	FilSpace space(space_id);
+	if (!space()) {
 		return(DB_TABLE_NOT_FOUND);
 	}
 
-	size = fil_space_get_size(space_id);
+	const page_size_t	page_size(space->flags);
+	/* fil_space_t::size and fil_space_t::free_limit would still be 0
+	at this point. So, we will have to read page 0. */
+	ut_ad(!space->free_limit);
+	ut_ad(!space->size);
+
+	mtr_t	mtr;
+	ulint	size;
+	mtr.start();
+	if (buf_block_t* sp = buf_page_get(page_id_t(space_id, 0), page_size,
+					   RW_S_LATCH, &mtr)) {
+		size = std::min(
+			mach_read_from_4(FSP_HEADER_OFFSET + FSP_FREE_LIMIT
+					 + sp->frame),
+			mach_read_from_4(FSP_HEADER_OFFSET + FSP_SIZE
+					 + sp->frame));
+	} else {
+		size = 0;
+	}
+	mtr.commit();
 
 	if (size == 0) {
 		return(DB_TABLE_NOT_FOUND);
@@ -4991,7 +5006,6 @@ ibuf_check_bitmap_on_import(
 	the space, as usual. */
 
 	for (page_no = 0; page_no < size; page_no += page_size.physical()) {
-		mtr_t	mtr;
 		page_t*	bitmap_page;
 		ulint	i;
 

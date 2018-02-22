@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1995, 2017, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2014, 2017, MariaDB Corporation.
+Copyright (c) 2014, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -2125,7 +2125,7 @@ fil_write_flushed_lsn(
 {
 	byte*	buf1;
 	byte*	buf;
-	dberr_t	err;
+	dberr_t	err = DB_TABLESPACE_NOT_FOUND;
 
 	buf1 = static_cast<byte*>(ut_malloc(2 * UNIV_PAGE_SIZE));
 	buf = static_cast<byte*>(ut_align(buf1, UNIV_PAGE_SIZE));
@@ -2136,7 +2136,8 @@ fil_write_flushed_lsn(
 	/* If tablespace is not encrypted, stamp flush_lsn to
 	first page of all system tablespace datafiles to avoid
 	unnecessary error messages on possible downgrade. */
-	if (!space->crypt_data || space->crypt_data->min_key_version == 0) {
+	if (!space->crypt_data
+	    || !space->crypt_data->should_encrypt()) {
 		fil_node_t*     node;
 		ulint   sum_of_sizes = 0;
 
@@ -2572,8 +2573,7 @@ fil_op_log_parse_or_replay(
 	switch (type) {
 	case MLOG_FILE_DELETE:
 		if (fil_tablespace_exists_in_mem(space_id)) {
-			dberr_t	err = fil_delete_tablespace(
-				space_id, BUF_REMOVE_FLUSH_NO_WRITE);
+			dberr_t	err = fil_delete_tablespace(space_id);
 			ut_a(err == DB_SUCCESS);
 		}
 
@@ -2851,7 +2851,7 @@ fil_close_tablespace(
 	completely and permanently. The flag stop_new_ops also prevents
 	fil_flush() from being applied to this tablespace. */
 
-	buf_LRU_flush_or_remove_pages(id, BUF_REMOVE_FLUSH_WRITE, trx);
+	buf_LRU_flush_or_remove_pages(id, trx);
 #endif
 	mutex_enter(&fil_system->mutex);
 
@@ -2878,18 +2878,13 @@ fil_close_tablespace(
 	return(err);
 }
 
-/*******************************************************************//**
-Deletes a single-table tablespace. The tablespace must be cached in the
-memory cache.
+/** Delete a tablespace and associated .ibd file.
+@param[in]	id		tablespace identifier
+@param[in]	drop_ahi	whether to drop the adaptive hash index
 @return	DB_SUCCESS or error */
 UNIV_INTERN
 dberr_t
-fil_delete_tablespace(
-/*==================*/
-	ulint		id,		/*!< in: space id */
-	buf_remove_t	buf_remove)	/*!< in: specify the action to take
-					on the tables pages in the buffer
-					pool */
+fil_delete_tablespace(ulint id, bool drop_ahi)
 {
 	char*		path = 0;
 	fil_space_t*	space = 0;
@@ -2945,7 +2940,7 @@ fil_delete_tablespace(
 	To deal with potential read requests by checking the
 	::stop_new_ops flag in fil_io() */
 
-	buf_LRU_flush_or_remove_pages(id, buf_remove, 0);
+	buf_LRU_flush_or_remove_pages(id, NULL, drop_ahi);
 
 #endif /* !UNIV_HOTBACKUP */
 
@@ -3056,7 +3051,7 @@ fil_discard_tablespace(
 {
 	dberr_t	err;
 
-	switch (err = fil_delete_tablespace(id, BUF_REMOVE_ALL_NO_WRITE)) {
+	switch (err = fil_delete_tablespace(id, true)) {
 	case DB_SUCCESS:
 		break;
 
@@ -4863,7 +4858,7 @@ fil_load_single_table_tablespace(
 
 
 	/* Check for a link file which locates a remote tablespace. */
-	remote.success = fil_open_linked_file(
+	remote.success = (IS_XTRABACKUP() && !srv_backup_mode) ? 0 : fil_open_linked_file(
 		tablename, &remote.filepath, &remote.file, FALSE);
 
 	/* Read the first page of the remote tablespace */
@@ -4969,6 +4964,11 @@ will_not_choose:
 				"Continuing crash recovery even though we "
 				"cannot access the .ibd file of this table.",
 				srv_force_recovery);
+			return;
+		}
+
+		/* In mariabackup lets not crash. */
+		if (IS_XTRABACKUP()) {
 			return;
 		}
 
@@ -6061,7 +6061,7 @@ Reads or writes data. This operation is asynchronous (aio).
 i/o on a tablespace which does not exist */
 UNIV_INTERN
 dberr_t
-_fil_io(
+fil_io(
 /*===*/
 	ulint	type,		/*!< in: OS_FILE_READ or OS_FILE_WRITE,
 				ORed to OS_FILE_LOG, if a log i/o
@@ -6093,7 +6093,12 @@ _fil_io(
 				operation for this page and if
 				initialized we do not trim again if
 				actual page size does not decrease. */
-	trx_t*	trx)
+	trx_t*	trx,
+	bool	should_buffer)	/*!< in: whether to buffer an aio request.
+				AIO read ahead uses this. If you plan to
+				use this parameter, make sure you remember
+				to call os_aio_dispatch_read_array_submit()
+				when you're ready to commit all your requests.*/
 {
 	ulint		mode;
 	fil_space_t*	space;
@@ -6313,8 +6318,8 @@ _fil_io(
 
 	/* Queue the aio request */
 	ret = os_aio(type, is_log, mode | wake_later, name, node->handle, buf,
-		offset, len, zip_size ? zip_size : UNIV_PAGE_SIZE, node,
-		message, space_id, trx, write_size);
+		     offset, len, zip_size ? zip_size : UNIV_PAGE_SIZE, node,
+		     message, space_id, trx, write_size, should_buffer);
 
 #else
 	/* In mysqlbackup do normal i/o, not aio */

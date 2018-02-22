@@ -1,7 +1,7 @@
 /*****************************************************************************
 
-Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2014, 2017, MariaDB Corporation.
+Copyright (c) 1996, 2017, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2014, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -620,145 +620,6 @@ lock_get_size(void)
 }
 
 /*********************************************************************//**
-Gets the source table of an ALTER TABLE transaction.  The table must be
-covered by an IX or IS table lock.
-@return the source table of transaction, if it is covered by an IX or
-IS table lock; dest if there is no source table, and NULL if the
-transaction is locking more than two tables or an inconsistency is
-found */
-dict_table_t*
-lock_get_src_table(
-/*===============*/
-	trx_t*		trx,	/*!< in: transaction */
-	dict_table_t*	dest,	/*!< in: destination of ALTER TABLE */
-	lock_mode*	mode)	/*!< out: lock mode of the source table */
-{
-	dict_table_t*	src;
-	lock_t*		lock;
-
-	ut_ad(!lock_mutex_own());
-
-	src = NULL;
-	*mode = LOCK_NONE;
-
-	/* The trx mutex protects the trx_locks for our purposes.
-	Other transactions could want to convert one of our implicit
-	record locks to an explicit one. For that, they would need our
-	trx mutex. Waiting locks can be removed while only holding
-	lock_sys->mutex, but this is a running transaction and cannot
-	thus be holding any waiting locks. */
-	trx_mutex_enter(trx);
-
-	for (lock = UT_LIST_GET_FIRST(trx->lock.trx_locks);
-	     lock != NULL;
-	     lock = UT_LIST_GET_NEXT(trx_locks, lock)) {
-		lock_table_t*	tab_lock;
-		lock_mode	lock_mode;
-		if (!(lock_get_type_low(lock) & LOCK_TABLE)) {
-			/* We are only interested in table locks. */
-			continue;
-		}
-		tab_lock = &lock->un_member.tab_lock;
-		if (dest == tab_lock->table) {
-			/* We are not interested in the destination table. */
-			continue;
-		} else if (!src) {
-			/* This presumably is the source table. */
-			src = tab_lock->table;
-			if (UT_LIST_GET_LEN(src->locks) != 1
-			    || UT_LIST_GET_FIRST(src->locks) != lock) {
-				/* We only support the case when
-				there is only one lock on this table. */
-				src = NULL;
-				goto func_exit;
-			}
-		} else if (src != tab_lock->table) {
-			/* The transaction is locking more than
-			two tables (src and dest): abort */
-			src = NULL;
-			goto func_exit;
-		}
-
-		/* Check that the source table is locked by
-		LOCK_IX or LOCK_IS. */
-		lock_mode = lock_get_mode(lock);
-		if (lock_mode == LOCK_IX || lock_mode == LOCK_IS) {
-			if (*mode != LOCK_NONE && *mode != lock_mode) {
-				/* There are multiple locks on src. */
-				src = NULL;
-				goto func_exit;
-			}
-			*mode = lock_mode;
-		}
-	}
-
-	if (!src) {
-		/* No source table lock found: flag the situation to caller */
-		src = dest;
-	}
-
-func_exit:
-	trx_mutex_exit(trx);
-	return(src);
-}
-
-/*********************************************************************//**
-Determine if the given table is exclusively "owned" by the given
-transaction, i.e., transaction holds LOCK_IX and possibly LOCK_AUTO_INC
-on the table.
-@return TRUE if table is only locked by trx, with LOCK_IX, and
-possibly LOCK_AUTO_INC */
-ibool
-lock_is_table_exclusive(
-/*====================*/
-	const dict_table_t*	table,	/*!< in: table */
-	const trx_t*		trx)	/*!< in: transaction */
-{
-	const lock_t*	lock;
-	ibool		ok	= FALSE;
-
-	ut_ad(table);
-	ut_ad(trx);
-
-	lock_mutex_enter();
-
-	for (lock = UT_LIST_GET_FIRST(table->locks);
-	     lock != NULL;
-	     lock = UT_LIST_GET_NEXT(locks, &lock->un_member.tab_lock)) {
-		if (lock->trx != trx) {
-			/* A lock on the table is held
-			by some other transaction. */
-			goto not_ok;
-		}
-
-		if (!(lock_get_type_low(lock) & LOCK_TABLE)) {
-			/* We are interested in table locks only. */
-			continue;
-		}
-
-		switch (lock_get_mode(lock)) {
-		case LOCK_IX:
-			ok = TRUE;
-			break;
-		case LOCK_AUTO_INC:
-			/* It is allowed for trx to hold an
-			auto_increment lock. */
-			break;
-		default:
-not_ok:
-			/* Other table locks than LOCK_IX are not allowed. */
-			ok = FALSE;
-			goto func_exit;
-		}
-	}
-
-func_exit:
-	lock_mutex_exit();
-
-	return(ok);
-}
-
-/*********************************************************************//**
 Sets the wait flag of a lock and the back pointer in trx to lock. */
 UNIV_INLINE
 void
@@ -811,13 +672,18 @@ lock_reset_lock_and_trx_wait(
 		}
 
 		ib::error() <<
-			"Trx id " << lock->trx->id
-				  << " is waiting a lock in statement "
-				  << (stmt ? stmt : "NULL")
-				  << " for this trx id " << trx_id
-				  << " and statement "
-				  << (stmt2 ? stmt2 : "NULL")
-				  << "wait_lock " << lock->trx->lock.wait_lock;
+			"Trx id " << ib::hex(lock->trx->id)
+				  << " is waiting a lock "
+				  << " for this trx id " << ib::hex(trx_id)
+				  << " wait_lock " << lock->trx->lock.wait_lock;
+		if (stmt) {
+			ib::info() << " SQL1: " << stmt;
+		}
+
+		if (stmt2) {
+			ib::info() << " SQL2: " << stmt2;
+		}
+
 		ut_ad(0);
 	}
 
@@ -1316,7 +1182,7 @@ lock_rec_has_expl(
 Checks if some other transaction has a lock request in the queue.
 @return lock or NULL */
 static
-const lock_t*
+lock_t*
 lock_rec_other_has_expl_req(
 /*========================*/
 	lock_mode		mode,	/*!< in: LOCK_S or LOCK_X */
@@ -1339,10 +1205,10 @@ lock_rec_other_has_expl_req(
 		return(NULL);
 	}
 
-	for (const lock_t* lock = lock_rec_get_first(lock_sys->rec_hash,
+	for (lock_t* lock = lock_rec_get_first(lock_sys->rec_hash,
 						     block, heap_no);
 	     lock != NULL;
-	     lock = lock_rec_get_next_const(heap_no, lock)) {
+	     lock = lock_rec_get_next(heap_no, lock)) {
 
 		if (lock->trx != trx
 		    && !lock_rec_get_gap(lock)
@@ -1431,7 +1297,7 @@ Checks if some other transaction has a conflicting explicit lock request
 in the queue, so that we have to wait.
 @return lock or NULL */
 static
-const lock_t*
+lock_t*
 lock_rec_other_has_conflicting(
 /*===========================*/
 	ulint			mode,	/*!< in: LOCK_S or LOCK_X,
@@ -1443,7 +1309,7 @@ lock_rec_other_has_conflicting(
 	ulint			heap_no,/*!< in: heap number of the record */
 	const trx_t*		trx)	/*!< in: our transaction */
 {
-	const lock_t*		lock;
+	lock_t*		lock;
 
 	ut_ad(lock_mutex_own());
 
@@ -1451,13 +1317,16 @@ lock_rec_other_has_conflicting(
 
 	for (lock = lock_rec_get_first(lock_sys->rec_hash, block, heap_no);
 	     lock != NULL;
-	     lock = lock_rec_get_next_const(heap_no, lock)) {
+	     lock = lock_rec_get_next(heap_no, lock)) {
 
 		if (lock_rec_has_to_wait(true, trx, mode, lock, is_supremum)) {
 #ifdef WITH_WSREP
 			if (wsrep_on_trx(trx)) {
 				trx_mutex_enter(lock->trx);
-				wsrep_kill_victim((trx_t *)trx, (lock_t *)lock);
+				/* Below function will roll back either trx
+				or lock->trx depending on priority of the
+				transaction. */
+				wsrep_kill_victim(const_cast<trx_t*>(trx), lock);
 				trx_mutex_exit(lock->trx);
 			}
 #endif /* WITH_WSREP */
@@ -1958,19 +1827,21 @@ Create a new lock.
 @param[in] owns_trx_mutex	true if caller owns the trx_t::mutex
 @param[in] add_to_hash		add the lock to hash table
 @param[in] prdt			Predicate lock (optional)
+@param[in,out] c_lock		Conflicting lock request or NULL
+				in Galera conflicting lock is selected
+				as deadlock victim if requester
+				is BF transaction.
 @return a new lock instance */
 lock_t*
-RecLock::create(trx_t* trx, bool owns_trx_mutex, bool add_to_hash, const lock_prdt_t* prdt)
-{
-	return create(NULL, trx, owns_trx_mutex, add_to_hash, prdt);
-}
-lock_t*
 RecLock::create(
-	lock_t* const c_lock,
 	trx_t*	trx,
 	bool	owns_trx_mutex,
 	bool	add_to_hash,
-	const	lock_prdt_t* prdt)
+	const	lock_prdt_t* prdt
+#ifdef WITH_WSREP
+	,lock_t* c_lock
+#endif /* WITH_WSREP */
+)
 {
 	ut_ad(lock_mutex_own());
 	ut_ad(owns_trx_mutex == trx_mutex_own(trx));
@@ -2056,7 +1927,7 @@ RecLock::create(
 			trx_mutex_exit(c_lock->trx);
 
 			if (wsrep_debug) {
-				ib::info() << "WSREP: c_lock canceled " << c_lock->trx->id;
+				ib::info() << "WSREP: c_lock canceled " << ib::hex(c_lock->trx->id);
 				ib::info() << " SQL1: "
 					   << wsrep_thd_query(c_lock->trx->mysql_thd);
 				ib::info() << " SQL2: "
@@ -2193,8 +2064,8 @@ RecLock::mark_trx_for_rollback(trx_t* trx)
 	if (thd != NULL) {
 
 		char	buffer[1024];
-		ib::info() << "Blocking transaction: ID: " << trx->id << " - "
-			<< " Blocked transaction ID: "<< m_trx->id << " - "
+		ib::info() << "Blocking transaction: ID: " << ib::hex(trx->id) << " - "
+			   << " Blocked transaction ID: "<< ib::hex(m_trx->id) << " - "
 			<< thd_get_error_context_description(thd, buffer, sizeof(buffer),
 						512);
 	}
@@ -2235,7 +2106,7 @@ queue is itself waiting roll it back, also do a deadlock check and resolve.
 	as a victim, and we got the lock immediately: no need to
 	wait then */
 dberr_t
-RecLock::add_to_waitq(const lock_t* wait_for, const lock_prdt_t* prdt)
+RecLock::add_to_waitq(lock_t* wait_for, const lock_prdt_t* prdt)
 {
 	ut_ad(lock_mutex_own());
 	ut_ad(m_trx == thr_get_trx(m_thr));
@@ -2252,7 +2123,12 @@ RecLock::add_to_waitq(const lock_t* wait_for, const lock_prdt_t* prdt)
 	bool	high_priority = trx_is_high_priority(m_trx);
 
 	/* Don't queue the lock to hash table, if high priority transaction. */
-	lock_t*	lock = create(m_trx, true, !high_priority, prdt);
+	lock_t*	lock = create(
+		m_trx, true, !high_priority, prdt
+#ifdef WITH_WSREP
+		,wait_for
+#endif /* WITH_WSREP */
+	);
 
 	/* Attempt to jump over the low priority waiting locks. */
 	if (high_priority && jump_queue(lock, wait_for)) {
@@ -2261,10 +2137,18 @@ RecLock::add_to_waitq(const lock_t* wait_for, const lock_prdt_t* prdt)
 		return(DB_SUCCESS);
 	}
 
+#ifdef WITH_WSREP
+	if (!lock_get_wait(lock) && wsrep_thd_is_BF(m_trx->mysql_thd, FALSE)) {
+		if (wsrep_debug) {
+			ib::info() << "WSREP: BF thread got lock granted early, ID " << ib::hex(lock->trx->id)
+				   << " query: " << wsrep_thd_query(m_trx->mysql_thd);
+		}
+		return(DB_SUCCESS);
+        }
+#endif /* WITH_WSREP */
 	ut_ad(lock_get_wait(lock));
 
-	dberr_t	err = deadlock_check(lock);
-
+	dberr_t err = deadlock_check(lock);
 	ut_ad(trx_mutex_own(m_trx));
 
 	// Move it only when it does not cause a deadlock.
@@ -2546,8 +2430,7 @@ lock_rec_lock_slow(
 		err = DB_SUCCESS;
 
 	} else {
-
-		const lock_t* wait_for = lock_rec_other_has_conflicting(
+		lock_t* wait_for = lock_rec_other_has_conflicting(
 			mode, block, heap_no, trx);
 
 		if (wait_for != NULL) {
@@ -2677,6 +2560,14 @@ lock_rec_has_to_wait_in_queue(
 #ifdef WITH_WSREP
 			if (wsrep_thd_is_BF(wait_lock->trx->mysql_thd, FALSE) &&
 			    wsrep_thd_is_BF(lock->trx->mysql_thd, TRUE)) {
+				if (wsrep_debug) {
+					ib::info() << "WSREP: waiting BF trx: " << ib::hex(wait_lock->trx->id)
+						   << " query: " << wsrep_thd_query(wait_lock->trx->mysql_thd);
+					lock_rec_print(stderr, wait_lock);
+					ib::info() << "WSREP: do not wait another BF trx: " << ib::hex(lock->trx->id)
+						   << " query: " << wsrep_thd_query(lock->trx->mysql_thd);
+					lock_rec_print(stderr, lock);
+				}
 				/* don't wait for another BF lock */
 				continue;
 			}
@@ -2779,8 +2670,8 @@ RecLock::jump_queue(
 
 		DBUG_LOG("trx",
 			 "Granting High Priority Transaction "
-			 << lock->trx->id << " a lock jumping over"
-			 << " waiting Transaction " << conflict_lock->trx->id);
+			<< ib::hex(lock->trx->id) << " a lock jumping over"
+			<< " waiting Transaction " << ib::hex(conflict_lock->trx->id));
 
 		lock_reset_lock_and_trx_wait(lock);
 		return(true);
@@ -2837,7 +2728,10 @@ RecLock::lock_add_priority(
 	lock_t*	grant_position = NULL;
 	lock_t*	add_position = NULL;
 
-	HASH_SEARCH(hash, lock_sys->rec_hash, m_rec_id.fold(), lock_t*,
+	/* Different lock (such as predicate lock) are on different hash */
+	hash_table_t*	lock_hash = lock_hash_get(m_mode);
+
+	HASH_SEARCH(hash, lock_hash, m_rec_id.fold(), lock_t*,
 		    lock_head, ut_ad(lock_head->is_record_lock()), true);
 
 	ut_ad(lock_head);
@@ -2951,9 +2845,9 @@ RecLock::make_trx_hit_list(
 			ut_ad(trx->lock.wait_lock != next);
 
 			DBUG_LOG("trx", "High Priority Transaction "
-				 << lock->trx->id
+				<< ib::hex(lock->trx->id)
 				 << " waking up blocking transaction "
-				 << trx->id);
+				<< ib::hex(trx->id));
 
 			trx->lock.was_chosen_as_deadlock_victim = true;
 			lock_cancel_waiting_and_release(trx->lock.wait_lock);
@@ -3043,22 +2937,21 @@ lock_grant_and_move_on_page(
 			&& lock_get_wait(lock)
 			&& !lock_rec_has_to_wait_in_queue(lock)) {
 
-			
 			bool exit_trx_mutex = false;
-			
+
 			if (lock->trx->abort_type != TRX_SERVER_ABORT) {
 				ut_ad(trx_mutex_own(lock->trx));
 				trx_mutex_exit(lock->trx);
 				exit_trx_mutex = true;
 			}
-			
+
 			lock_grant(lock, false);
-			
+
 			if (exit_trx_mutex) {
 				ut_ad(!trx_mutex_own(lock->trx));
 				trx_mutex_enter(lock->trx);
 			}
-			
+
 			if (previous != NULL) {
 				/* Move the lock to the head of the list. */
 				HASH_GET_NEXT(hash, previous) = HASH_GET_NEXT(hash, lock);
@@ -3154,9 +3047,9 @@ lock_rec_dequeue_from_page(
 				}
 			}
 		}
-		} else {
-			lock_grant_and_move_on_page(lock_hash, space, page_no);
-		}
+	} else {
+		lock_grant_and_move_on_page(lock_hash, space, page_no);
+	}
 }
 
 /*************************************************************//**
@@ -4382,7 +4275,7 @@ lock_table_create(
 		ut_list_insert(table->locks, c_lock, lock, TableLockGetNode());
 		if (wsrep_debug) {
 			ib::info() << "table lock BF conflict for " <<
-				c_lock->trx->id;
+				ib::hex(c_lock->trx->id);
 			ib::info() << " SQL: "
 				   << wsrep_thd_query(c_lock->trx->mysql_thd);
 		}
@@ -4418,7 +4311,7 @@ lock_table_create(
 		}
 
 		if (wsrep_debug) {
-			ib::info() << "WSREP: c_lock canceled " << c_lock->trx->id;
+			ib::info() << "WSREP: c_lock canceled " << ib::hex(c_lock->trx->id);
 			ib::info() << " SQL: "
 					   << wsrep_thd_query(c_lock->trx->mysql_thd);
 		}
@@ -4680,7 +4573,7 @@ Checks if other transactions have an incompatible mode lock request in
 the lock queue.
 @return lock or NULL */
 UNIV_INLINE
-const lock_t*
+lock_t*
 lock_table_other_has_incompatible(
 /*==============================*/
 	const trx_t*		trx,	/*!< in: transaction, or NULL if all
@@ -4691,7 +4584,7 @@ lock_table_other_has_incompatible(
 	const dict_table_t*	table,	/*!< in: table */
 	lock_mode		mode)	/*!< in: lock mode */
 {
-	const lock_t*	lock;
+	lock_t*	lock;
 
 	ut_ad(lock_mutex_own());
 
@@ -4740,7 +4633,7 @@ lock_table(
 {
 	trx_t*		trx;
 	dberr_t		err;
-	const lock_t*	wait_for;
+	lock_t*		wait_for;
 
 	ut_ad(table && thr);
 
@@ -4796,9 +4689,9 @@ lock_table(
 	mode: this trx may have to wait */
 
 	if (wait_for != NULL) {
-		err = lock_table_enqueue_waiting((lock_t*)wait_for, mode | flags, table, thr);
+		err = lock_table_enqueue_waiting(wait_for, mode | flags, table, thr);
 	} else {
-		lock_table_create(table, mode | flags, trx);
+		lock_table_create(wait_for, table, mode | flags, trx);
 
 		ut_a(!flags || mode == LOCK_S || mode == LOCK_X);
 
@@ -6415,13 +6308,9 @@ loop:
 
 	ut_ad(!trx_is_ac_nl_ro(lock->trx));
 
-# ifdef UNIV_DEBUG
 	/* Only validate the record queues when this thread is not
-	holding a space->latch.  Deadlocks are possible due to
-	latching order violation when UNIV_DEBUG is defined while
-	UNIV_DEBUG is not. */
+	holding a space->latch. */
 	if (!sync_check_find(SYNC_FSP))
-# endif /* UNIV_DEBUG */
 	for (i = nth_bit; i < lock_rec_get_n_bits(lock); i++) {
 
 		if (i == 1 || lock_rec_get_nth_bit(lock, i)) {
@@ -6558,7 +6447,7 @@ lock_rec_block_validate(
 
 	/* Make sure that the tablespace is not deleted while we are
 	trying to access the page. */
-	if (fil_space_t* space = fil_space_acquire(space_id)) {
+	if (fil_space_t* space = fil_space_acquire_silent(space_id)) {
 		dberr_t err = DB_SUCCESS;
 		mtr_start(&mtr);
 
@@ -6731,7 +6620,7 @@ lock_rec_insert_check_and_lock(
 
 	const ulint	type_mode = LOCK_X | LOCK_GAP | LOCK_INSERT_INTENTION;
 
-	const lock_t*	wait_for = lock_rec_other_has_conflicting(
+	lock_t*	wait_for = lock_rec_other_has_conflicting(
 				type_mode, block, heap_no, trx);
 
 	if (wait_for != NULL) {
@@ -8473,16 +8362,7 @@ DeadlockChecker::check_and_resolve(const lock_t* lock, trx_t* trx)
 			ut_ad(trx == checker.m_start);
 			ut_ad(trx == victim_trx);
 
-#ifdef WITH_WSREP
-			if (!wsrep_thd_is_BF(victim_trx->mysql_thd, TRUE))
-			{
-#endif /* WITH_WSREP */
-				rollback_print(victim_trx, lock);
-#ifdef WITH_WSREP
-			} else {
-			  /* BF processor */;
-			}
-#endif /* WITH_WSREP */
+			rollback_print(victim_trx, lock);
 
 			MONITOR_INC(MONITOR_DEADLOCK);
 

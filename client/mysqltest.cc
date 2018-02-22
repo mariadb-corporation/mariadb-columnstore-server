@@ -1566,7 +1566,6 @@ static void cleanup_and_exit(int exit_code)
     }
   }
 
-  sf_leaking_memory= 0; /* all memory should be freed by now */
   exit(exit_code);
 }
 
@@ -7291,8 +7290,9 @@ get_one_option(int optid, const struct my_option *opt, char *argument)
     exit(0);
   case OPT_MYSQL_PROTOCOL:
 #ifndef EMBEDDED_LIBRARY
-    opt_protocol= find_type_or_exit(argument, &sql_protocol_typelib,
-                                    opt->name);
+    if ((opt_protocol= find_type_with_warning(argument, &sql_protocol_typelib,
+                                              opt->name)) <= 0)
+      exit(1);
 #endif
     break;
   case '?':

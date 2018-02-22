@@ -3,7 +3,7 @@
 Copyright (c) 1996, 2017, Oracle and/or its affiliates. All rights reserved.
 Copyright (c) 2008, Google Inc.
 Copyright (c) 2009, Percona Inc.
-Copyright (c) 2013, 2017, MariaDB Corporation.
+Copyright (c) 2013, 2018, MariaDB Corporation.
 
 Portions of this file contain modifications contributed and copyrighted by
 Google, Inc. Those modifications are gratefully acknowledged and are described
@@ -687,8 +687,8 @@ srv_undo_tablespace_open(
 	dberr_t		err	= DB_ERROR;
 	char		undo_name[sizeof "innodb_undo000"];
 
-	ut_snprintf(undo_name, sizeof(undo_name),
-		   "innodb_undo%03u", static_cast<unsigned>(space_id));
+	snprintf(undo_name, sizeof(undo_name),
+		 "innodb_undo%03u", static_cast<unsigned>(space_id));
 
 	if (!srv_file_check_mode(name)) {
 		ib::error() << "UNDO tablespaces must be " <<
@@ -766,7 +766,7 @@ srv_check_undo_redo_logs_exists()
 	/* Check if any undo tablespaces exist */
 	for (ulint i = 1; i <= srv_undo_tablespaces; ++i) {
 
-		ut_snprintf(
+		snprintf(
 			name, sizeof(name),
 			"%s%cundo%03zu",
 			srv_undo_dir, OS_PATH_SEPARATOR,
@@ -863,7 +863,7 @@ srv_undo_tablespaces_init(bool create_new_db)
 		DBUG_EXECUTE_IF("innodb_undo_upgrade",
 				space_id = i + 3;);
 
-		ut_snprintf(
+		snprintf(
 			name, sizeof(name),
 			"%s%cundo%03zu",
 			srv_undo_dir, OS_PATH_SEPARATOR, space_id);
@@ -925,10 +925,10 @@ srv_undo_tablespaces_init(bool create_new_db)
 
 				char	name[OS_FILE_MAX_PATH];
 
-				ut_snprintf(name, sizeof(name),
-					    "%s%cundo%03zu",
-					    srv_undo_dir, OS_PATH_SEPARATOR,
-					    undo_tablespace_ids[i]);
+				snprintf(name, sizeof(name),
+					 "%s%cundo%03zu",
+					 srv_undo_dir, OS_PATH_SEPARATOR,
+					 undo_tablespace_ids[i]);
 
 				os_file_delete(innodb_data_file_key, name);
 
@@ -958,7 +958,7 @@ srv_undo_tablespaces_init(bool create_new_db)
 	for (i = 0; i < n_undo_tablespaces; ++i) {
 		char	name[OS_FILE_MAX_PATH];
 
-		ut_snprintf(
+		snprintf(
 			name, sizeof(name),
 			"%s%cundo%03zu",
 			srv_undo_dir, OS_PATH_SEPARATOR,
@@ -996,7 +996,7 @@ srv_undo_tablespaces_init(bool create_new_db)
 	for (i = prev_space_id + 1; i < TRX_SYS_N_RSEGS; ++i) {
 		char	name[OS_FILE_MAX_PATH];
 
-		ut_snprintf(
+		snprintf(
 			name, sizeof(name),
 			"%s%cundo%03zu", srv_undo_dir, OS_PATH_SEPARATOR, i);
 
@@ -1104,12 +1104,10 @@ srv_undo_tablespaces_init(bool create_new_db)
 			     = undo::Truncate::s_fix_up_spaces.begin();
 		     it != undo::Truncate::s_fix_up_spaces.end();
 		     ++it) {
-
-			buf_LRU_flush_or_remove_pages(
-				TRX_SYS_SPACE, BUF_REMOVE_FLUSH_WRITE, NULL);
-
-			buf_LRU_flush_or_remove_pages(
-				*it, BUF_REMOVE_FLUSH_WRITE, NULL);
+			FlushObserver dummy(TRX_SYS_SPACE, NULL, NULL);
+			buf_LRU_flush_or_remove_pages(TRX_SYS_SPACE, &dummy);
+			FlushObserver dummy2(*it, NULL, NULL);
+			buf_LRU_flush_or_remove_pages(*it, &dummy2);
 
 			/* Remove the truncate redo log file. */
 			undo::Truncate	undo_trunc;
@@ -1415,7 +1413,11 @@ srv_prepare_to_delete_redo_log_files(
 		{
 			ib::info	info;
 			if (srv_log_file_size == 0) {
-				info << "Upgrading redo log: ";
+				info << ((log_sys->log.format
+					  & ~LOG_HEADER_FORMAT_ENCRYPTED)
+					 != LOG_HEADER_FORMAT_10_3
+					 ? "Upgrading redo log: "
+					 : "Downgrading redo log: ");
 			} else if (n_files != srv_n_log_files
 				   || srv_log_file_size
 				   != srv_log_file_size_requested) {
@@ -1444,6 +1446,7 @@ srv_prepare_to_delete_redo_log_files(
 			     << " bytes; LSN=" << flushed_lsn;
 		}
 
+		srv_start_lsn = flushed_lsn;
 		/* Flush the old log files. */
 		log_mutex_exit();
 
@@ -2244,17 +2247,32 @@ files_checked:
 
 		recv_sys->dblwr.pages.clear();
 
-		if (err == DB_SUCCESS) {
-			/* Initialize the change buffer. */
-			err = dict_boot();
-		}
-
 		if (err != DB_SUCCESS) {
 			return(srv_init_abort(err));
 		}
 
-		/* This must precede recv_apply_hashed_log_recs(true). */
-		trx_sys_init_at_db_start();
+		switch (srv_operation) {
+		case SRV_OPERATION_NORMAL:
+		case SRV_OPERATION_RESTORE_EXPORT:
+			/* Initialize the change buffer. */
+			err = dict_boot();
+			if (err != DB_SUCCESS) {
+				return(srv_init_abort(err));
+			}
+			/* This must precede
+			recv_apply_hashed_log_recs(true). */
+			trx_sys_init_at_db_start();
+			break;
+		case SRV_OPERATION_RESTORE_DELTA:
+		case SRV_OPERATION_BACKUP:
+			ut_ad(!"wrong mariabackup mode");
+			/* fall through */
+		case SRV_OPERATION_RESTORE:
+			/* mariabackup --prepare only deals with
+			the redo log and the data files, not with
+			transactions or the data dictionary. */
+			break;
+		}
 
 		if (srv_force_recovery < SRV_FORCE_NO_LOG_REDO) {
 			/* Apply the hashed log records to the
@@ -2635,8 +2653,6 @@ files_checked:
 		trx_temp_rseg_create();
 	}
 
-	srv_is_being_started = false;
-
 	ut_a(trx_purge_state() == PURGE_STATE_INIT);
 
 	/* Create the master thread which does purge and other utility
@@ -2684,6 +2700,8 @@ files_checked:
 	} else {
 		purge_sys->state = PURGE_STATE_DISABLED;
 	}
+
+	srv_is_being_started = false;
 
 	if (!srv_read_only_mode) {
 		/* wake main loop of page cleaner up */
