@@ -1345,7 +1345,11 @@ bool multi_delete::send_eof()
 
   if (!local_error && !thd->lex->analyze_stmt)
   {
-    ::my_ok(thd, deleted);
+    if ((thd->infinidb_vtable.isInfiniDBDML))
+    // MCOL-1156. Hack to use THD.m_row_count_func value as affected rows number source. Must be removed.
+	    ::my_ok(thd, thd->get_row_count_func());
+    else
+        ::my_ok(thd, deleted);
   }
   return 0;
 }
