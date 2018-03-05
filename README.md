@@ -259,7 +259,7 @@ yum install expect perl perl-DBI openssl zlib file sudo libaio rsync snappy net-
 These packages need to be installed:
 
 ```bash
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync snappy net-tools
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1v5 net-tools
 ```
 
 ## For Debian 8
