@@ -1466,6 +1466,7 @@ void THD::cleanup(void)
   close_temporary_tables();
 
   transaction.xid_state.xa_state= XA_NOTR;
+  transaction.xid_state.rm_error= 0;
   trans_rollback(this);
   xid_cache_delete(this, &transaction.xid_state);
 
@@ -2683,15 +2684,19 @@ Item_change_list::check_and_register_item_tree_change(Item **place,
 
 void Item_change_list::rollback_item_tree_changes()
 {
+  DBUG_ENTER("THD::rollback_item_tree_changes");
   I_List_iterator<Item_change_record> it(change_list);
   Item_change_record *change;
 
   while ((change= it++))
   {
+    DBUG_PRINT("info", ("Rollback: %p (%p) <- %p",
+                        *change->place, change->place, change->old_value));
     *change->place= change->old_value;
   }
   /* We can forget about changes memory: it's allocated in runtime memroot */
   change_list.empty();
+  DBUG_VOID_RETURN;
 }
 
 

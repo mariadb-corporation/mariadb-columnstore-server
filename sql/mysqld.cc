@@ -2961,6 +2961,10 @@ static bool cache_thread(THD *thd)
       _db_pop_();
 #endif
 
+    /* Clear warnings. */
+    if (!thd->get_stmt_da()->is_warning_info_empty())
+      thd->get_stmt_da()->clear_warning_info(thd->query_id);
+
     set_timespec(abstime, THREAD_CACHE_TIMEOUT);
     while (!abort_loop && ! wake_thread && ! kill_cached_threads)
     {
@@ -5655,8 +5659,7 @@ int mysqld_main(int argc, char **argv)
   orig_argc= argc;
   orig_argv= argv;
   my_getopt_use_args_separator= TRUE;
-  if (load_defaults(MYSQL_CONFIG_NAME, load_default_groups, &argc, &argv))
-    return 1;
+  load_defaults_or_exit(MYSQL_CONFIG_NAME, load_default_groups, &argc, &argv);
   my_getopt_use_args_separator= FALSE;
   defaults_argc= argc;
   defaults_argv= argv;
@@ -6025,12 +6028,14 @@ int mysqld_main(int argc, char **argv)
                           mysqld_port, MYSQL_COMPILATION_COMMENT);
   }
 
+#ifndef _WIN32
   // try to keep fd=0 busy
-  if (!freopen(IF_WIN("NUL","/dev/null"), "r", stdin))
+  if (!freopen("/dev/null", "r", stdin))
   {
     // fall back on failure
     fclose(stdin);
   }
+#endif
 
 #if defined(_WIN32) && !defined(EMBEDDED_LIBRARY)
   Service.SetRunning();

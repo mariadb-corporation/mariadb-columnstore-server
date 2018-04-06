@@ -3,7 +3,7 @@
 Copyright (c) 1995, 2017, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2008, 2009 Google Inc.
 Copyright (c) 2009, Percona Inc.
-Copyright (c) 2013, 2017, MariaDB Corporation.
+Copyright (c) 2013, 2018, MariaDB Corporation.
 
 Portions of this file contain modifications contributed and copyrighted by
 Google, Inc. Those modifications are gratefully acknowledged and are described
@@ -70,7 +70,6 @@ Created 10/8/1995 Heikki Tuuri
 #include "sync0sync.h"
 #include "trx0i_s.h"
 #include "trx0purge.h"
-#include "usr0sess.h"
 #include "ut0crc32.h"
 #include "btr0defragment.h"
 #include "ut0mem.h"
@@ -417,16 +416,6 @@ static ulint		srv_n_system_rows_read_old;
 ulint	srv_truncated_status_writes;
 /** Number of initialized rollback segments for persistent undo log */
 ulong	srv_available_undo_logs;
-
-UNIV_INTERN ib_uint64_t srv_page_compression_saved;
-UNIV_INTERN ib_uint64_t srv_page_compression_trim_sect512;
-UNIV_INTERN ib_uint64_t srv_page_compression_trim_sect4096;
-UNIV_INTERN ib_uint64_t srv_index_pages_written;
-UNIV_INTERN ib_uint64_t srv_non_index_pages_written;
-UNIV_INTERN ib_uint64_t srv_pages_page_compressed;
-UNIV_INTERN ib_uint64_t srv_page_compressed_trim_op;
-UNIV_INTERN ib_uint64_t srv_page_compressed_trim_op_saved;
-UNIV_INTERN ib_uint64_t srv_index_page_decompressed;
 
 /* Defragmentation */
 UNIV_INTERN my_bool	srv_defragment;
@@ -1181,7 +1170,16 @@ srv_refresh_innodb_monitor_stats(void)
 {
 	mutex_enter(&srv_innodb_monitor_mutex);
 
-	srv_last_monitor_time = time(NULL);
+	time_t current_time = time(NULL);
+
+	if (difftime(current_time, srv_last_monitor_time) <= 60) {
+		/* We referesh InnoDB Monitor values so that averages are
+		printed from at most 60 last seconds */
+		mutex_exit(&srv_innodb_monitor_mutex);
+		return;
+	}
+
+	srv_last_monitor_time = current_time;
 
 	os_aio_refresh_stats();
 
@@ -1803,6 +1801,8 @@ loop:
 		}
 	}
 
+	srv_refresh_innodb_monitor_stats();
+
 	if (srv_shutdown_state != SRV_SHUTDOWN_NONE) {
 		goto exit_func;
 	}
@@ -1872,13 +1872,6 @@ loop:
 		}
 
 		old_lsn = new_lsn;
-	}
-
-	if (difftime(time(NULL), srv_last_monitor_time) > 60) {
-		/* We referesh InnoDB Monitor values so that averages are
-		printed from at most 60 last seconds */
-
-		srv_refresh_innodb_monitor_stats();
 	}
 
 	/* Update the statistics collected for deciding LRU
@@ -2589,8 +2582,8 @@ DECLARE_THREAD(srv_worker_thread)(
 	slot = srv_reserve_slot(SRV_WORKER);
 
 	ut_a(srv_n_purge_threads > 1);
-	ut_a(my_atomic_loadlint(&srv_sys.n_threads_active[SRV_WORKER])
-	     < static_cast<lint>(srv_n_purge_threads));
+	ut_a(ulong(my_atomic_loadlint(&srv_sys.n_threads_active[SRV_WORKER]))
+	     < srv_n_purge_threads);
 
 	/* We need to ensure that the worker threads exit after the
 	purge coordinator thread. Otherwise the purge coordinator can
@@ -2949,7 +2942,9 @@ srv_purge_wakeup()
 
 			srv_release_threads(SRV_WORKER, n_workers);
 		}
-	} while (!srv_running
+	} while (!my_atomic_loadptr_explicit(reinterpret_cast<void**>
+					     (&srv_running),
+					     MY_MEMORY_ORDER_RELAXED)
 		 && (srv_sys.n_threads_active[SRV_WORKER]
 		     || srv_sys.n_threads_active[SRV_PURGE]));
 }

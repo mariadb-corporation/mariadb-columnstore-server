@@ -113,8 +113,6 @@ public:
   int compare_e_json_str();
   int compare_e_str_json();
 
-  Item** cache_converted_constant(THD *thd, Item **value, Item **cache,
-                                  Item_result type);
   static arg_cmp_func comparator_matrix [6][2];
   inline bool is_owner_equal_func()
   {
@@ -347,6 +345,7 @@ public:
   bool is_null();
   longlong val_int();
   void cleanup();
+  enum Functype functype() const   { return IN_OPTIMIZER_FUNC; }
   const char *func_name() const { return "<in_optimizer>"; }
   Item_cache **get_cache() { return &cache; }
   void keep_top_level_cache();
@@ -364,6 +363,8 @@ public:
   void reset_cache() { cache= NULL; }
   virtual void print(String *str, enum_query_type query_type);
   void restore_first_argument();
+  Item* get_wrapped_in_subselect_item()
+  { return args[1]; }
   Item *get_copy(THD *thd, MEM_ROOT *mem_root)
   { return get_item_copy<Item_in_optimizer>(thd, mem_root, this); }
 };
@@ -529,14 +530,13 @@ public:
       clone->cmp.comparators= 0;
     }
     return clone;
-  }      
-
+  }
 };
 
 /**
   XOR inherits from Item_bool_func because it is not optimized yet.
   Later, when XOR is optimized, it needs to inherit from
-  Item_cond instead. See WL#5800. 
+  Item_cond instead. See WL#5800.
 */
 class Item_func_xor :public Item_bool_func
 {
@@ -1070,7 +1070,7 @@ class Item_func_nullif :public Item_func_hybrid_field_type
     The left "a" is in a comparison and can be replaced by:
     - Item_func::convert_const_compared_to_int_field()
     - agg_item_set_converter() in set_cmp_func()
-    - Arg_comparator::cache_converted_constant() in set_cmp_func()
+    - cache_converted_constant() in set_cmp_func()
 
     Both "a"s are subject to equal fields propagation and can be replaced by:
     - Item_field::propagate_equal_fields(ANY_SUBST) for the left "a"
@@ -1269,20 +1269,15 @@ public:
 
 /*
   Class to represent a vector of constant DATE/DATETIME values.
-  Values are obtained with help of the get_datetime_value() function.
-  If the left item is a constant one then its value is cached in the
-  lval_cache variable.
 */
 class in_datetime :public in_longlong
 {
 public:
   /* An item used to issue warnings. */
   Item *warn_item;
-  /* Cache for the left item. */
-  Item *lval_cache;
 
   in_datetime(THD *thd, Item *warn_item_arg, uint elements)
-    :in_longlong(thd, elements), warn_item(warn_item_arg), lval_cache(0) {};
+    :in_longlong(thd, elements), warn_item(warn_item_arg) {}
   void set(uint pos,Item *item);
   uchar *get_value(Item *item);
   Item *create_item(THD *thd);
@@ -1391,6 +1386,13 @@ public:
   {
     value_res= item->val_str(&value);
     m_null_value= item->null_value;
+    // Make sure to cache the result String inside "value"
+    if (value_res && value_res != &value)
+    {
+      if (value.copy(*value_res))
+        value.set("", 0, item->collation.collation);
+      value_res= &value;
+    }
   }
   int cmp(Item *arg)
   {
@@ -1443,9 +1445,6 @@ public:
 
 /*
   Compare items in the DATETIME context.
-  Values are obtained with help of the get_datetime_value() function.
-  If the left item is a constant one then its value is cached in the
-  lval_cache variable.
 */
 class cmp_item_datetime : public cmp_item_scalar
 {
@@ -1453,11 +1452,9 @@ class cmp_item_datetime : public cmp_item_scalar
 public:
   /* Item used for issuing warnings. */
   Item *warn_item;
-  /* Cache for the left item. */
-  Item *lval_cache;
 
   cmp_item_datetime(Item *warn_item_arg)
-    : warn_item(warn_item_arg), lval_cache(0) {}
+    : warn_item(warn_item_arg) {}
   void store_value(Item *item);
   int cmp(Item *arg);
   int compare(cmp_item *ci);
@@ -1558,12 +1555,11 @@ class Item_func_case :public Item_func_hybrid_field_type
   int first_expr_num, else_expr_num;
   enum Item_result left_cmp_type;
   String tmp_value;
-  uint ncases;
+  uint nwhens;
   Item_result cmp_type;
   DTCollation cmp_collation;
   cmp_item *cmp_items[6]; /* For all result types */
   cmp_item *case_item;
-  Item **arg_buffer;
   uint m_found_types;
 public:
   Item_func_case(THD *thd, List<Item> &list, Item *first_expr_arg,
@@ -1593,7 +1589,6 @@ public:
     if (clone)
     {
       clone->case_item= 0;
-      clone->arg_buffer= 0;
       bzero(&clone->cmp_items, sizeof(cmp_items));
     }
     return clone;
@@ -2396,6 +2391,11 @@ public:
   void sort(Item_field_cmpfunc compare, void *arg);
   void fix_length_and_dec();
   bool fix_fields(THD *thd, Item **ref);
+  void cleanup()
+  {
+    delete eval_item;
+    eval_item= NULL;
+  }
   void update_used_tables();
   COND *build_equal_items(THD *thd, COND_EQUAL *inherited,
                           bool link_item_fields,
@@ -2630,10 +2630,6 @@ inline bool is_cond_or(Item *item)
 }
 
 Item *and_expressions(Item *a, Item *b, Item **org_item);
-
-longlong get_datetime_value(THD *thd, Item ***item_arg, Item **cache_arg,
-                            enum_field_types f_type, bool *is_null);
-
 
 class Comp_creator
 {

@@ -45,7 +45,6 @@ Created 4/20/1996 Heikki Tuuri
 #include "log0log.h"
 #include "eval0eval.h"
 #include "data0data.h"
-#include "usr0sess.h"
 #include "buf0lru.h"
 #include "fts0fts.h"
 #include "fts0types.h"
@@ -1852,8 +1851,6 @@ do_possible_lock_wait:
 		/* To avoid check_table being dropped, increment counter */
 		my_atomic_addlint(
 			&check_table->n_foreign_key_checks_running, 1);
-
-		trx_kill_blocking(trx);
 
 		lock_wait_suspend_thread(thr);
 
