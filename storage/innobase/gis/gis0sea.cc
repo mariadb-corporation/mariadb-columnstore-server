@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2016, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2017, MariaDB Corporation.
+Copyright (c) 2017, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -37,6 +37,7 @@ Created 2014/01/16 Jimmy Yang
 #include "ibuf0ibuf.h"
 #include "trx0trx.h"
 #include "srv0mon.h"
+#include "que0que.h"
 #include "gis0geo.h"
 
 /** Restore the stored position of a persistent cursor bufferfixing the page */
@@ -773,8 +774,9 @@ rtr_page_get_father_node_ptr(
 
 		error << ". You should dump + drop + reimport the table to"
 			" fix the corruption. If the crash happens at"
-			" database startup, see " REFMAN
-			"forcing-innodb-recovery.html about forcing"
+			" database startup, see "
+			"https://mariadb.com/kb/en/library/xtradbinnodb-recovery-modes/"
+			" about forcing"
 			" recovery. Then dump + drop + reimport.";
 	}
 

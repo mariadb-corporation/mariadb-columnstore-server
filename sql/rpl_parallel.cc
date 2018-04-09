@@ -229,6 +229,14 @@ finish_event_group(rpl_parallel_thread *rpt, uint64 sub_id,
     entry->stop_on_error_sub_id= sub_id;
   mysql_mutex_unlock(&entry->LOCK_parallel_entry);
 
+  DBUG_EXECUTE_IF("rpl_parallel_simulate_wait_at_retry", {
+      if (rgi->current_gtid.seq_no == 1000) {
+        DBUG_ASSERT(entry->stop_on_error_sub_id == sub_id);
+        debug_sync_set_action(thd,
+                              STRING_WITH_LEN("now WAIT_FOR proceed_by_1000"));
+      }
+    });
+
   if (rgi->killed_for_retry == rpl_group_info::RETRY_KILL_PENDING)
     wait_for_pending_deadlock_kill(thd, rgi);
   thd->clear_error();
@@ -716,12 +724,20 @@ do_retry:
     unregistering (and later re-registering) the wait.
   */
   if(thd->wait_for_commit_ptr)
-    thd->wait_for_commit_ptr->unregister_wait_for_prior_commit();
+      thd->wait_for_commit_ptr->unregister_wait_for_prior_commit();
   DBUG_EXECUTE_IF("inject_mdev8031", {
       /* Simulate that we get deadlock killed at this exact point. */
       rgi->killed_for_retry= rpl_group_info::RETRY_KILL_KILLED;
       thd->set_killed(KILL_CONNECTION);
   });
+  DBUG_EXECUTE_IF("rpl_parallel_simulate_wait_at_retry", {
+      if (rgi->current_gtid.seq_no == 1001) {
+        debug_sync_set_action(thd,
+                              STRING_WITH_LEN("rpl_parallel_simulate_wait_at_retry WAIT_FOR proceed_by_1001"));
+      }
+      DEBUG_SYNC(thd, "rpl_parallel_simulate_wait_at_retry");
+    });
+
   rgi->cleanup_context(thd, 1);
   wait_for_pending_deadlock_kill(thd, rgi);
   thd->reset_killed();
@@ -745,7 +761,26 @@ do_retry:
   for (;;)
   {
     mysql_mutex_lock(&entry->LOCK_parallel_entry);
-    register_wait_for_prior_event_group_commit(rgi, entry);
+    if (entry->stop_on_error_sub_id == (uint64) ULONGLONG_MAX ||
+#ifndef DBUG_OFF
+        (DBUG_EVALUATE_IF("simulate_mdev_12746", 1, 0)) ||
+#endif
+        rgi->gtid_sub_id < entry->stop_on_error_sub_id)
+    {
+      register_wait_for_prior_event_group_commit(rgi, entry);
+    }
+    else
+    {
+      /*
+        A failure of a preceeding "parent" transaction may not be
+        seen by the current one through its own worker_error.
+        Such induced error gets set by ourselves now.
+      */
+      err= rgi->worker_error= 1;
+      my_error(ER_PRIOR_COMMIT_FAILED, MYF(0));
+      mysql_mutex_unlock(&entry->LOCK_parallel_entry);
+      goto err;
+    }
     mysql_mutex_unlock(&entry->LOCK_parallel_entry);
 
     /*
@@ -1623,10 +1658,19 @@ int rpl_parallel_resize_pool_if_no_slaves(void)
 }
 
 
+/**
+   Resize pool if not active or busy (in which case we may be in
+   resize to 0
+*/
+
 int
 rpl_parallel_activate_pool(rpl_parallel_thread_pool *pool)
 {
-  if (!pool->count)
+  bool resize;
+  mysql_mutex_lock(&pool->LOCK_rpl_thread_pool);
+  resize= !pool->count || pool->busy;
+  mysql_mutex_unlock(&pool->LOCK_rpl_thread_pool);
+  if (resize)
     return rpl_parallel_change_thread_count(pool, opt_slave_parallel_threads,
                                             0);
   return 0;
@@ -1697,7 +1741,7 @@ rpl_parallel_thread::get_qev_common(Log_event *ev, ulonglong event_size)
   }
   qev->typ= rpl_parallel_thread::queued_event::QUEUED_EVENT;
   qev->ev= ev;
-  qev->event_size= event_size;
+  qev->event_size= (size_t)event_size;
   qev->next= NULL;
   return qev;
 }

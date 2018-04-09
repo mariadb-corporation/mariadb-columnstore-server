@@ -1801,33 +1801,33 @@ ER_WRONG_AUTO_KEY 42000 S1009
         spa "Puede ser solamente un campo automatico y este debe ser definido como una clave"
         swe "Det får finnas endast ett AUTO_INCREMENT-fält och detta måste vara en nyckel"
         ukr "Невірне визначення таблиці; Може бути лише один автоматичний стовбець, що повинен бути визначений як ключ"
-ER_UNUSED_9
-        eng "You should never see it"
+ER_BINLOG_CANT_DELETE_GTID_DOMAIN
+	eng "Could not delete gtid domain. Reason: %s."
 ER_NORMAL_SHUTDOWN  
-        cze "%s (%s): normální ukončení\n"
-        dan "%s (%s): Normal nedlukning\n"
-        nla "%s (%s): Normaal afgesloten \n"
-        eng "%s (%s): Normal shutdown\n"
-        est "%s (%s): MariaDB lõpetas\n"
-        fre "%s (%s): Arrêt normal du serveur\n"
-        ger "%s (%s): Normal heruntergefahren\n"
-        greek "%s (%s): Φυσιολογική διαδικασία shutdown\n"
-        hindi "%s (%s): सामान्य शटडाउन\n"
-        hun "%s (%s): Normal leallitas\n"
-        ita "%s (%s): Shutdown normale\n"
-        jpn "%s (%s): 通常シャットダウン\n"
-        kor "%s (%s): 정상적인 shutdown\n"
-        nor "%s (%s): Normal avslutning\n"
-        norwegian-ny "%s (%s): Normal nedkopling\n"
-        pol "%s (%s): Standardowe zakończenie działania\n"
-        por "%s (%s): 'Shutdown' normal\n"
-        rum "%s (%s): Terminare normala\n"
-        rus "%s (%s): Корректная остановка\n"
-        serbian "%s (%s): Normalno gašenje\n"
-        slo "%s (%s): normálne ukončenie\n"
-        spa "%s (%s): Apagado normal\n"
-        swe "%s (%s): Normal avslutning\n"
-        ukr "%s (%s): Нормальне завершення\n"
+        cze "%s (%s): normální ukončení"
+        dan "%s (%s): Normal nedlukning"
+        nla "%s (%s): Normaal afgesloten "
+        eng "%s (initiated by: %s): Normal shutdown"
+        est "%s (%s): MariaDB lõpetas"
+        fre "%s (%s): Arrêt normal du serveur"
+        ger "%s (%s): Normal heruntergefahren"
+        greek "%s (%s): Φυσιολογική διαδικασία shutdown"
+        hindi "%s (%s): सामान्य शटडाउन"
+        hun "%s (%s): Normal leallitas"
+        ita "%s (%s): Shutdown normale"
+        jpn "%s (%s): 通常シャットダウン"
+        kor "%s (%s): 정상적인 shutdown"
+        nor "%s (%s): Normal avslutning"
+        norwegian-ny "%s (%s): Normal nedkopling"
+        pol "%s (%s): Standardowe zakończenie działania"
+        por "%s (%s): 'Shutdown' normal"
+        rum "%s (%s): Terminare normala"
+        rus "%s (инициирована пользователем: %s): Корректная остановка"
+        serbian "%s (%s): Normalno gašenje"
+        slo "%s (%s): normálne ukončenie"
+        spa "%s (%s): Apagado normal"
+        swe "%s (%s): Normal avslutning"
+        ukr "%s (%s): Нормальне завершення"
 ER_GOT_SIGNAL  
         cze "%s: přijat signal %d, končím\n"
         dan "%s: Fangede signal %d. Afslutter!!\n"
@@ -7330,7 +7330,7 @@ ER_SUBQUERIES_NOT_SUPPORTED 42000
         eng "%s does not support subqueries or stored functions"
 ER_SET_STATEMENT_NOT_SUPPORTED 42000
         eng "The system variable %.200s cannot be set in SET STATEMENT." 
-ER_UNUSED_17
+ER_UNUSED_9
         eng "You should never see it"
 ER_USER_CREATE_EXISTS
         eng "Can't create user '%-.64s'@'%-.64s'; it already exists"
@@ -7570,7 +7570,7 @@ ER_WITH_COL_WRONG_LIST
 ER_TOO_MANY_DEFINITIONS_IN_WITH_CLAUSE
         eng "Too many WITH elements in WITH clause"
 ER_DUP_QUERY_NAME
-        eng "Duplicate query name in WITH clause"
+        eng "Duplicate query name in WITH clause '%s'"
 ER_RECURSIVE_WITHOUT_ANCHORS
         eng "No anchors for recursive WITH element '%s'"
 ER_UNACCEPTABLE_MUTUAL_RECURSION
@@ -7675,8 +7675,11 @@ ER_SLAVE_SAME_ID
 ER_FLASHBACK_NOT_SUPPORTED
         eng "Flashback does not support %s %s"
 
-# MARIAROCKS-TODO: Should we add RocksDB error messages here or use some other
-# solution?
+
+
+# 
+# MyRocks error messages
+#
 ER_KEYS_OUT_OF_ORDER
   eng "Keys are out order during bulk load"
 
@@ -7710,35 +7713,42 @@ ER_UNSUPPORTED_COLLATION
 ER_METADATA_INCONSISTENCY
   eng "Table '%s' does not exist, but metadata information exists inside MyRocks. This is a sign of data inconsistency. Please check if '%s.frm' exists, and try to restore it if it does not exist."
 
+ER_CF_DIFFERENT
+  eng "Column family ('%s') flag (%d) is different from an existing flag (%d). Assign a new CF flag, or do not change existing CF flag."
+
+ER_RDB_TTL_DURATION_FORMAT
+  eng "TTL duration (%s) in MyRocks must be an unsigned non-null 64-bit integer."
+
+ER_RDB_STATUS_GENERAL
+        eng "Status error %d received from RocksDB: %s"
+
+ER_RDB_STATUS_MSG
+        eng "%s, Status error %d received from RocksDB: %s"
+
+ER_RDB_TTL_UNSUPPORTED
+  eng "TTL support is currently disabled when table has a hidden PK."
+
+ER_RDB_TTL_COL_FORMAT
+  eng "TTL column (%s) in MyRocks must be an unsigned non-null 64-bit integer, exist inside the table, and have an accompanying ttl duration."
+
+ER_PER_INDEX_CF_DEPRECATED
+  eng "The per-index column family option has been deprecated"
+
 ER_KEY_CREATE_DURING_ALTER
   eng "MyRocks failed creating new key definitions during alter."
 
 ER_SK_POPULATE_DURING_ALTER
   eng "MyRocks failed populating secondary key during alter."
 
-ER_CF_DIFFERENT
-  eng "Column family ('%s') flag (%d) is different from an existing flag (%d). Assign a new CF flag, or do not change existing CF flag."
-
-ER_RDB_STATUS_GENERAL
-  eng "Status error %d received from RocksDB: %s"
-
-ER_RDB_STATUS_MSG
-  eng "%s, Status error %d received from RocksDB: %s"
+# MyRocks messages end
+ER_SUM_FUNC_WITH_WINDOW_FUNC_AS_ARG
+  eng "Window functions can not be used as arguments to group functions."
 
 ER_NET_OK_PACKET_TOO_LARGE
   eng "OK packet too large"
 
-ER_RDB_TTL_UNSUPPORTED
-  eng "TTL support is currently disabled when table has secondary indexes or hidden PK."
+ER_GEOJSON_EMPTY_COORDINATES
+        eng "Incorrect GeoJSON format - empty 'coordinates' array."
 
-ER_RDB_TTL_COL_FORMAT
-  eng "TTL column (%s) in MyRocks must be an unsigned non-null 64-bit integer, exist inside the table, and have an accompanying ttl duration."
-
-ER_RDB_TTL_DURATION_FORMAT
-  eng "TTL duration (%s) in MyRocks must be an unsigned non-null 64-bit integer."
-
-ER_PER_INDEX_CF_DEPRECATED
-  eng "The per-index column family option has been deprecated"
-
-ER_SUM_FUNC_WITH_WINDOW_FUNC_AS_ARG
-  eng "Window functions can not be used as arguments to group functions."
+ER_MYROCKS_CANT_NOPAD_COLLATION
+  eng "MyRocks doesn't currently support collations with \"No pad\" attribute."

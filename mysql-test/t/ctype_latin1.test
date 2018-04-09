@@ -247,6 +247,22 @@ DROP TABLE t1;
 --echo #
 SELECT _latin1 0x7E, _latin1 X'7E', _latin1 B'01111110';
 
+
+--echo #
+--echo # MDEV-9886 Illegal mix of collations with a view comparing a field to a binary constant
+--echo #
+
+SET NAMES latin1;
+CREATE TABLE t1 (a TEXT CHARACTER SET latin1);
+INSERT INTO t1 VALUES (0xC0);
+SELECT a<>0xEE5D AS a FROM t1;
+CREATE VIEW v1 AS SELECT a<>0xC0 AS a FROM t1;
+SHOW CREATE VIEW v1;
+SELECT * FROM v1;
+DROP VIEW v1;
+DROP TABLE t1;
+
+
 --echo #
 --echo # End of 10.0 tests
 --echo #
@@ -376,6 +392,15 @@ SELECT * FROM t1 WHERE COALESCE(c,0)='3 ' AND COALESCE(d,0)=COALESCE(c,0);
 DROP TABLE t1;
 
 --echo #
+--echo # MDEV-15005 ASAN: stack-buffer-overflow in my_strnncollsp_simple
+--echo #
+
+SET NAMES latin1;
+SELECT CONVERT(1, CHAR) IN ('100', 10, '101');
+SELECT CONVERT(1, CHAR) IN ('100', 10, '1');
+SELECT CONVERT(1, CHAR) IN ('100', '10', '1');
+
+--echo #
 --echo # End of 10.1 tests
 --echo #
 
@@ -394,6 +419,9 @@ let $coll_pad='latin1_swedish_ci';
 let $coll='latin1_nopad_bin';
 let $coll_pad='latin1_bin';
 --source include/ctype_pad_all_engines.inc
+
+SET NAMES latin1;
+--source include/ctype_like_range_mdev14350.inc
 
 --echo #
 --echo # End of 10.2 tests

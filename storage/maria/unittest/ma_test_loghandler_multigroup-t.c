@@ -233,7 +233,7 @@ int main(int argc __attribute__((unused)), char *argv[])
     0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA,
     0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55
   };
-  uchar *long_buffer= malloc(LONG_BUFFER_SIZE + LSN_STORE_SIZE * 2 + 2);
+  uchar *long_buffer;
   char **default_argv;
   PAGECACHE pagecache;
   LSN lsn, lsn_base, first_lsn;
@@ -255,7 +255,8 @@ int main(int argc __attribute__((unused)), char *argv[])
   }
 #endif
 
-  load_defaults("my", load_default_groups, &argc, &argv);
+  long_buffer= malloc(LONG_BUFFER_SIZE + LSN_STORE_SIZE * 2 + 2);
+  load_defaults_or_exit("my", load_default_groups, &argc, &argv);
   default_argv= argv;
   get_options(&argc, &argv);
 
@@ -485,7 +486,7 @@ int main(int argc __attribute__((unused)), char *argv[])
       fprintf(stderr, "Incorrect LOGREC_FIXED_RECORD_0LSN_EXAMPLE "
               "data read(0)\n"
               "type %u, strid %u, len %u, i: %u, 4: %u 5: %u, "
-              "lsn(0x%lu,0x%lx)\n",
+              LSN_FMT "\n",
               (uint) rec.type, (uint) rec.short_trid, (uint) rec.record_length,
               (uint)uint4korr(rec.header), (uint) rec.header[4],
               (uint) rec.header[5],
@@ -533,7 +534,7 @@ int main(int argc __attribute__((unused)), char *argv[])
         {
           fprintf(stderr, "Incorrect LOGREC_FIXED_RECORD_1LSN_EXAMPLE "
                   "data read(%d)"
-                  "type %u, strid %u, len %u, ref(%lu,0x%lx), lsn(%lu,0x%lx)\n",
+                  "type %u, strid %u, len %u, ref" LSN_FMT ", lsn" LSN_FMT "\n",
                   i, (uint) rec.type, (uint) rec.short_trid,
                   (uint) rec.record_length,
                   LSN_IN_PARTS(ref), LSN_IN_PARTS(rec.lsn));
@@ -563,9 +564,9 @@ int main(int argc __attribute__((unused)), char *argv[])
         {
           fprintf(stderr, "Incorrect LOGREC_FIXED_RECORD_2LSN_EXAMPLE "
                   "data read(%d) "
-                  "type %u, strid %u, len %u, ref1(%lu,0x%lx), "
-                  "ref2(%lu,0x%lx) %x%x%x%x%x%x%x%x%x "
-                  "lsn(%lu,0x%lx)\n",
+                  "type %u, strid %u, len %u, ref1" LSN_FMT ", "
+                  "ref2" LSN_FMT " %x%x%x%x%x%x%x%x%x "
+                  "lsn" LSN_FMT "\n",
                   i, (uint) rec.type, (uint) rec.short_trid,
                   (uint) rec.record_length,
                   LSN_IN_PARTS(ref1), LSN_IN_PARTS(ref2),
@@ -611,7 +612,7 @@ int main(int argc __attribute__((unused)), char *argv[])
                   "data read(%d)"
                   "type %u (%d), strid %u (%d), len %lu, %lu + 7 (%d), "
                   "hdr len: %d (%d), "
-                  "ref(%lu,0x%lx), lsn(%lu,0x%lx) (%d), content: %d\n",
+                  "ref" LSN_FMT ", lsn" LSN_FMT " (%d), content: %d\n",
                   i, (uint) rec.type,
                   rec.type !=LOGREC_VARIABLE_RECORD_1LSN_EXAMPLE,
                   (uint) rec.short_trid,
@@ -631,7 +632,7 @@ int main(int argc __attribute__((unused)), char *argv[])
         {
           fprintf(stderr,
                   "Incorrect LOGREC_VARIABLE_RECORD_1LSN_EXAMPLE "
-                  "in whole rec read lsn(%lu,0x%lx)\n",
+                  "in whole rec read lsn" LSN_FMT "\n",
                   LSN_IN_PARTS(rec.lsn));
           translog_free_record_header(&rec);
           goto err;
@@ -655,8 +656,8 @@ int main(int argc __attribute__((unused)), char *argv[])
           fprintf(stderr, "Incorrect LOGREC_VARIABLE_RECORD_2LSN_EXAMPLE "
                   " data read(%d) "
                   "type %u, strid %u, len %lu != %lu + 14, hdr len: %d, "
-                  "ref1(%lu,0x%lx), ref2(%lu,0x%lx), "
-                  "lsn(%lu,0x%lx)\n",
+                  "ref1" LSN_FMT ", ref2" LSN_FMT ", "
+                  "lsn" LSN_FMT "\n",
                   i, (uint) rec.type, (uint) rec.short_trid,
                   (ulong) rec.record_length, (ulong) rec_len,
                   len,
@@ -669,7 +670,7 @@ int main(int argc __attribute__((unused)), char *argv[])
         {
           fprintf(stderr,
                   "Incorrect LOGREC_VARIABLE_RECORD_2LSN_EXAMPLE "
-                  "in whole rec read lsn(%lu,0x%lx)\n",
+                  "in whole rec read lsn" LSN_FMT "\n",
                   LSN_IN_PARTS(rec.lsn));
           translog_free_record_header(&rec);
           goto err;
@@ -701,7 +702,7 @@ int main(int argc __attribute__((unused)), char *argv[])
         fprintf(stderr, "Incorrect LOGREC_FIXED_RECORD_0LSN_EXAMPLE "
                 "data read(%d)\n"
                 "type %u, strid %u, len %u, i: %u, 4: %u 5: %u "
-                "lsn(%lu,0x%lx)\n",
+                "lsn" LSN_FMT "\n",
                 i, (uint) rec.type, (uint) rec.short_trid,
                 (uint) rec.record_length,
                 (uint)uint4korr(rec.header), (uint) rec.header[4],
@@ -725,7 +726,7 @@ int main(int argc __attribute__((unused)), char *argv[])
         fprintf(stderr, "Incorrect LOGREC_VARIABLE_RECORD_0LSN_EXAMPLE "
                 "data read(%d) "
                 "type %u, strid %u, len %lu != %lu, hdr len: %d, "
-                "lsn(%lu,0x%lx)\n",
+                "lsn" LSN_FMT "\n",
                 i, (uint) rec.type, (uint) rec.short_trid,
                 (ulong) rec.record_length, (ulong) rec_len,
                 len, LSN_IN_PARTS(rec.lsn));
@@ -736,7 +737,7 @@ int main(int argc __attribute__((unused)), char *argv[])
       {
         fprintf(stderr,
                 "Incorrect LOGREC_VARIABLE_RECORD_2LSN_EXAMPLE "
-                "in whole rec read lsn(%lu,0x%lx)\n",
+                "in whole rec read lsn" LSN_FMT "\n",
                 LSN_IN_PARTS(rec.lsn));
         translog_free_record_header(&rec);
         goto err;
@@ -758,9 +759,12 @@ err:
   if (maria_log_remove(maria_data_root))
     exit(1);
 
+  free(long_buffer);
+
   my_uuid_end();
   my_free_open_file_info();
   my_end(0);
+
   return (MY_TEST(exit_status()));
 }
 

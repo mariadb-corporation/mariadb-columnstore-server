@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1994, 2016, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2017, MariaDB Corporation.
+Copyright (c) 2017, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -48,12 +48,12 @@ ut_dbg_assertion_failed(
 
 	fputs("InnoDB: We intentionally generate a memory trap.\n"
 	      "InnoDB: Submit a detailed bug report"
-	      " to http://bugs.mysql.com.\n"
+	      " to https://jira.mariadb.org/\n"
 	      "InnoDB: If you get repeated assertion failures"
 	      " or crashes, even\n"
 	      "InnoDB: immediately after the mysqld startup, there may be\n"
 	      "InnoDB: corruption in the InnoDB tablespace. Please refer to\n"
-	      "InnoDB: " REFMAN "forcing-innodb-recovery.html\n"
+	      "InnoDB: https://mariadb.com/kb/en/library/xtradbinnodb-recovery-modes/\n"
 	      "InnoDB: about forcing recovery.\n", stderr);
 
 	fflush(stderr);

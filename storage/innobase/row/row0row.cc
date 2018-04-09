@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -195,13 +196,13 @@ row_build_index_entry_low(
 								dfield2);
 						break;
 
+						case SPATIAL_UNKNOWN:
+							ut_ad(0);
+							/* fall through */
 						case SPATIAL_NONE:
 						/* Undo record is logged before
 						spatial index is created.*/
 						return(NULL);
-
-						case SPATIAL_UNKNOWN:
-						ut_ad(0);
 						}
 
 						memcpy(mbr, ptr, DATA_MBR_LEN);
@@ -334,7 +335,7 @@ row_build_index_entry_low(
 		/* If a column prefix index, take only the prefix. */
 		if (ind_field->prefix_len) {
 			len = dtype_get_at_most_n_mbchars(
-				col->prtype, col->mbminmaxlen,
+				col->prtype, col->mbminlen, col->mbmaxlen,
 				ind_field->prefix_len, len,
 				static_cast<char*>(dfield_get_data(dfield)));
 			dfield_set_len(dfield, len);
@@ -846,7 +847,8 @@ row_build_row_ref(
 				dfield_set_len(dfield,
 					       dtype_get_at_most_n_mbchars(
 						       dtype->prtype,
-						       dtype->mbminmaxlen,
+						       dtype->mbminlen,
+						       dtype->mbmaxlen,
 						       clust_col_prefix_len,
 						       len, (char*) field));
 			}
@@ -946,7 +948,8 @@ row_build_row_ref_in_tuple(
 				dfield_set_len(dfield,
 					       dtype_get_at_most_n_mbchars(
 						       dtype->prtype,
-						       dtype->mbminmaxlen,
+						       dtype->mbminlen,
+						       dtype->mbmaxlen,
 						       clust_col_prefix_len,
 						       len, (char*) field));
 			}
@@ -1137,7 +1140,7 @@ row_raw_format_int(
 		value = mach_read_int_type(
 			(const byte*) data, data_len, unsigned_type);
 
-		ret = ut_snprintf(
+		ret = snprintf(
 			buf, buf_size,
 			unsigned_type ? "%llu" : "%lld", (longlong) value)+1;
 	} else {
@@ -1234,7 +1237,7 @@ row_raw_format(
 
 	if (data_len == UNIV_SQL_NULL) {
 
-		ret = ut_snprintf((char*) buf, buf_size, "NULL") + 1;
+		ret = snprintf((char*) buf, buf_size, "NULL") + 1;
 
 		return(ut_min(ret, buf_size));
 	}

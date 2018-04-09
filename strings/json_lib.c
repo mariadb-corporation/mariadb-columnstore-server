@@ -401,7 +401,7 @@ static int read_strn(json_engine_t *j)
     return 1;
 
   j->state= j->stack[j->stack_p];
-  j->value_len= (j->s.c_str - j->value) - 1;
+  j->value_len= (int)(j->s.c_str - j->value) - 1;
   return 0;
 }
 
@@ -475,8 +475,8 @@ static int json_num_states[NS_NUM_STATES][N_NUM_CLASSES]=
 /*ZE1*/  { JE_SYN,  JE_SYN, JE_SYN,   JE_SYN, NS_FRAC, JE_SYN, NS_OK,  JE_BAD_CHR },
 /*INT*/  { JE_SYN,  JE_SYN, NS_INT,   NS_INT, NS_FRAC, NS_EX,  NS_OK,  JE_BAD_CHR },
 /*FRAC*/ { JE_SYN,  JE_SYN, NS_FRAC,  NS_FRAC,JE_SYN,  NS_EX,  NS_OK,  JE_BAD_CHR },
-/*EX*/   { NS_EX1,  NS_EX1, NS_EX1,   NS_EX1, JE_SYN,  JE_SYN, JE_SYN, JE_BAD_CHR }, 
-/*EX1*/  { JE_SYN,  JE_SYN, NS_EX1,   NS_EX1, JE_SYN,  JE_SYN, JE_SYN, JE_BAD_CHR }
+/*EX*/   { NS_EX,   NS_EX,  NS_EX1,   NS_EX1, JE_SYN,  JE_SYN, JE_SYN, JE_BAD_CHR }, 
+/*EX1*/  { JE_SYN,  JE_SYN, NS_EX1,   NS_EX1, JE_SYN,  JE_SYN, NS_OK,  JE_BAD_CHR }
 };
 
 
@@ -503,7 +503,7 @@ static int skip_num_constant(json_engine_t *j)
   for (;;)
   {
     j->num_flags|= json_num_state_flags[state];
-    if ((c_len= json_next_char(&j->s)) > 0)
+    if ((c_len= json_next_char(&j->s)) > 0 && j->s.c_next < 128)
     {
       if ((state= json_num_states[state][json_num_chr_map[j->s.c_next]]) > 0)
       {
@@ -539,7 +539,7 @@ static int read_num(json_engine_t *j)
   if (skip_num_constant(j) == 0)
   {
     j->value_type= JSON_VALUE_NUMBER;
-    j->value_len= j->s.c_str - j->value_begin;
+    j->value_len= (int)(j->s.c_str - j->value_begin);
     return 0;
   }
   return 1;
@@ -1043,7 +1043,7 @@ static int json_path_transitions[N_PATH_STATES][N_PATH_CLASSES]=
 /* PT */  { PS_OK,  JE_SYN, PS_AST, PS_AR,  JE_SYN, PS_KEY, JE_SYN, JE_SYN,
             JE_SYN, JE_SYN, JE_SYN, JE_SYN, JE_SYN, JE_SYN,
             JE_NOT_JSON_CHR, JE_BAD_CHR},
-/* AR */  { JE_EOS, JE_SYN, PS_AWD, JE_SYN, PS_PT,  JE_SYN, PS_Z,
+/* AR */  { JE_EOS, JE_SYN, PS_AWD, JE_SYN, JE_SYN, JE_SYN, PS_Z,
             PS_INT, JE_SYN, JE_SYN, PS_SAR, JE_SYN, JE_SYN, JE_SYN,
             JE_NOT_JSON_CHR, JE_BAD_CHR},
 /* SAR */ { JE_EOS, JE_SYN, PS_AWD, JE_SYN, PS_PT,  JE_SYN, PS_Z,
@@ -1496,7 +1496,7 @@ int json_append_ascii(CHARSET_INFO *json_cs,
     return c_len;
   }
 
-  return json - json_start;
+  return (int)(json - json_start);
 }
 
 
@@ -1532,7 +1532,7 @@ int json_unescape(CHARSET_INFO *json_cs,
     return -1;
   }
 
-  return s.error==JE_EOS ? res - res_b : -1;
+  return s.error==JE_EOS ? (int)(res - res_b) : -1;
 }
 
 
@@ -1647,7 +1647,7 @@ int json_escape(CHARSET_INFO *str_cs,
     }
   }
 
-  return json - json_start;
+  return (int)(json - json_start);
 }
 
 

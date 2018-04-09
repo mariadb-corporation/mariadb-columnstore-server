@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2005, 2017, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2014, 2017, MariaDB Corporation.
+Copyright (c) 2014, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -268,8 +268,8 @@ row_merge_buf_redundant_convert(
 	mem_heap_t*		heap,
         trx_t*			trx)
 {
-	ut_ad(DATA_MBMINLEN(field->type.mbminmaxlen) == 1);
-	ut_ad(DATA_MBMAXLEN(field->type.mbminmaxlen) > 1);
+	ut_ad(field->type.mbminlen == 1);
+	ut_ad(field->type.mbmaxlen > 1);
 
 	byte*		buf = (byte*) mem_heap_alloc(heap, len);
 	ulint		field_len = row_field->len;
@@ -285,7 +285,7 @@ row_merge_buf_redundant_convert(
 			    field_ref_zero, BTR_EXTERN_FIELD_REF_SIZE));
 
 		byte*	data = btr_copy_externally_stored_field(
-			&ext_len, field_data, zip_size, field_len, heap, trx);
+			&ext_len, field_data, zip_size, field_len, heap);
 
 		ut_ad(ext_len < len);
 
@@ -396,7 +396,8 @@ row_merge_buf_add(
 
 			field->type.mtype = ifield->col->mtype;
 			field->type.prtype = ifield->col->prtype;
-			field->type.mbminmaxlen = DATA_MBMINMAXLEN(0, 0);
+			field->type.mbminlen = 0;
+			field->type.mbmaxlen = 0;
 			field->type.len = ifield->col->len;
 		} else {
 			row_field = dtuple_get_nth_field(row, col_no);
@@ -531,7 +532,7 @@ row_merge_buf_add(
 		if (ifield->prefix_len) {
 			len = dtype_get_at_most_n_mbchars(
 				col->prtype,
-				col->mbminmaxlen,
+				col->mbminlen, col->mbmaxlen,
 				ifield->prefix_len,
 				len,
 				static_cast<char*>(dfield_get_data(field)));
@@ -546,8 +547,7 @@ row_merge_buf_add(
 
 		fixed_len = ifield->fixed_len;
 		if (fixed_len && !dict_table_is_comp(index->table)
-		    && DATA_MBMINLEN(col->mbminmaxlen)
-		    != DATA_MBMAXLEN(col->mbminmaxlen)) {
+		    && col->mbminlen != col->mbmaxlen) {
 			/* CHAR in ROW_FORMAT=REDUNDANT is always
 			fixed-length, but in the temporary file it is
 			variable-length for variable-length character
@@ -557,14 +557,11 @@ row_merge_buf_add(
 
 		if (fixed_len) {
 #ifdef UNIV_DEBUG
-			ulint	mbminlen = DATA_MBMINLEN(col->mbminmaxlen);
-			ulint	mbmaxlen = DATA_MBMAXLEN(col->mbminmaxlen);
-
 			/* len should be between size calcualted base on
 			mbmaxlen and mbminlen */
 			ut_ad(len <= fixed_len);
-			ut_ad(!mbmaxlen || len >= mbminlen
-			      * (fixed_len / mbmaxlen));
+			ut_ad(!col->mbmaxlen || len >= col->mbminlen
+			      * (fixed_len / col->mbmaxlen));
 
 			ut_ad(!dfield_is_ext(field));
 #endif /* UNIV_DEBUG */
@@ -887,8 +884,8 @@ row_merge_read(
 	success = os_file_read_no_error_handling_int_fd(fd, buf,
 						 ofs, srv_sort_buf_size);
 
-	/* For encrypted tables, decrypt data after reading and copy data */
-	if (log_tmp_is_encrypted()) {
+	/* If encryption is enabled decrypt buffer */
+	if (success && log_tmp_is_encrypted()) {
 		if (!log_tmp_block_decrypt(buf, srv_sort_buf_size,
 					   crypt_buf, ofs, space)) {
 			return (FALSE);
@@ -2626,7 +2623,7 @@ row_merge_copy_blobs(
 		BLOB pointers are read (row_merge_read_clustered_index())
 		and dereferenced (below). */
 		data = btr_rec_copy_externally_stored_field(
-			mrec, offsets, zip_size, i, &len, heap, NULL);
+			mrec, offsets, zip_size, i, &len, heap);
 		/* Because we have locked the table, any records
 		written by incomplete transactions must have been
 		rolled back already. There must not be any incomplete
@@ -3736,11 +3733,7 @@ row_merge_create_index(
 /*===================*/
 	trx_t*			trx,	/*!< in/out: trx (sets error_state) */
 	dict_table_t*		table,	/*!< in: the index is on this table */
-	const index_def_t*	index_def,
-					/*!< in: the index definition */
-	const char**		col_names)
-					/*! in: column names if columns are
-					renamed or NULL */
+	const index_def_t*	index_def) /*!< in: the index definition */
 {
 	dict_index_t*	index;
 	dberr_t		err;
@@ -3760,28 +3753,10 @@ row_merge_create_index(
 
 	for (i = 0; i < n_fields; i++) {
 		index_field_t*	ifield = &index_def->fields[i];
-		const char * col_name;
-
-		/*
-		Alter table renaming a column and then adding a index
-		to this new name e.g ALTER TABLE t
-		CHANGE COLUMN b c INT NOT NULL, ADD UNIQUE INDEX (c);
-		requires additional check as column names are not yet
-		changed when new index definitions are created. Table's
-		new column names are on a array of column name pointers
-		if any of the column names are changed. */
-
-		if (col_names && col_names[i]) {
-			col_name = col_names[i];
-		} else {
-			col_name = ifield->col_name ?
-				dict_table_get_col_name_for_mysql(table, ifield->col_name) :
-				dict_table_get_col_name(table, ifield->col_no);
-		}
 
 		dict_mem_index_add_field(
 			index,
-			col_name,
+			dict_table_get_col_name(table, ifield->col_no),
 			ifield->prefix_len);
 	}
 
@@ -3918,22 +3893,13 @@ row_merge_build_indexes(
 		DBUG_RETURN(DB_OUT_OF_MEMORY);
 	}
 
-	/* Get crypt data from tablespace if present. We should be protected
-	from concurrent DDL (e.g. drop table) by MDL-locks. */
-	fil_space_t* space = fil_space_acquire(new_table->space);
-
-	if (!space) {
-		DBUG_RETURN(DB_TABLESPACE_NOT_FOUND);
-	}
-
-	/* If temporal log file is encrypted allocate memory for
+	/* If temporary log file is encrypted allocate memory for
 	encryption/decryption. */
 	if (log_tmp_is_encrypted()) {
 		crypt_block = static_cast<row_merge_block_t*>(
 				os_mem_alloc_large(&block_size));
 
 		if (crypt_block == NULL) {
-			fil_space_release(space);
 			DBUG_RETURN(DB_OUT_OF_MEMORY);
 		}
 	}
@@ -4311,10 +4277,6 @@ func_exit:
 					MONITOR_BACKGROUND_DROP_INDEX);
 			}
 		}
-	}
-
-	if (space) {
-		fil_space_release(space);
 	}
 
 	DBUG_RETURN(error);

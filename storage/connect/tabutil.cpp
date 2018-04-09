@@ -120,7 +120,7 @@ PQRYRES TabColumns(PGLOBAL g, THD *thd, const char *db,
                    FLD_REM,    FLD_NO,    FLD_CHARSET};
   unsigned int length[] = {0, 4, 16, 4, 4, 4, 4, 4, 0, 32, 32};
 	PCSZ         fmt;
-  char        *pn, *tn, *fld, *colname, v; //, *chset;
+	char        *pn, *tn, *fld, *colname, v; // *chset
   int          i, n, ncol = sizeof(buftyp) / sizeof(int);
   int          prec, len, type, scale;
   int          zconv = GetConvSize();
@@ -185,7 +185,7 @@ PQRYRES TabColumns(PGLOBAL g, THD *thd, const char *db,
     colname = (char *)fp->field_name;
     crp->Kdata->SetValue(colname, i);
 
-//    chset = (char *)fp->charset()->name;
+//  chset = (char *)fp->charset()->name;
 //  v = (!strcmp(chset, "binary")) ? 'B' : 0;
 		v = 0;
 
@@ -457,7 +457,7 @@ PTDB TDBPRX::GetSubTable(PGLOBAL g, PTABLE tabp, bool b)
     hc->get_table()->s->option_struct->srcdef = sp;
   } // endif s
 
-  if (trace && tdbp)
+  if (trace(1) && tdbp)
     htrc("Subtable %s in %s\n", 
           name, SVP(tdbp->GetDef()->GetDB()));
  
@@ -647,7 +647,7 @@ PRXCOL::PRXCOL(PCOLDEF cdp, PTDB tdbp, PCOL cprec, int i, PCSZ am)
   Pseudo = false;
   Colnum = cdp->GetOffset();     // If columns are retrieved by number
 
-  if (trace)
+  if (trace(1))
     htrc(" making new %sCOL C%d %s at %p\n", am, Index, Name, this);
 
   } // end of PRXCOL constructor
@@ -732,7 +732,7 @@ void PRXCOL::Reset(void)
 /***********************************************************************/
 void PRXCOL::ReadColumn(PGLOBAL g)
   {
-  if (trace > 1)
+  if (trace(2))
     htrc("PRX ReadColumn: name=%s\n", Name);
 
   if (Colp) {
@@ -759,7 +759,7 @@ void PRXCOL::ReadColumn(PGLOBAL g)
 /***********************************************************************/
 void PRXCOL::WriteColumn(PGLOBAL g)
   {
-  if (trace > 1)
+  if (trace(2))
     htrc("PRX WriteColumn: name=%s\n", Name);
 
   if (Colp) {

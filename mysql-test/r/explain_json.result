@@ -1523,12 +1523,12 @@ ANALYZE
         "key_length": "5",
         "used_key_parts": ["a"],
         "ref": ["test.t3.a"],
-        "r_loops": 0,
+        "r_loops": 1,
         "rows": 1,
-        "r_rows": null,
+        "r_rows": 10,
         "r_total_time_ms": "REPLACED",
         "filtered": 100,
-        "r_filtered": null,
+        "r_filtered": 100,
         "index_condition_bka": "t4.b + 1 <= t3.b + 1"
       },
       "buffer_type": "flat",
@@ -1582,3 +1582,63 @@ EXPLAIN
   }
 }
 drop table t0,t1;
+#
+# MDEV-10844: EXPLAIN FORMAT=JSON doesn't show order direction for filesort
+#
+create table t1 (a int, b int);
+insert into t1 values (1,2),(3,4),(2,3);
+explain format=json select * from t1 order by a, b desc;
+EXPLAIN
+{
+  "query_block": {
+    "select_id": 1,
+    "read_sorted_file": {
+      "filesort": {
+        "sort_key": "t1.a, t1.b desc",
+        "table": {
+          "table_name": "t1",
+          "access_type": "ALL",
+          "rows": 3,
+          "filtered": 100
+        }
+      }
+    }
+  }
+}
+explain format=json select * from t1 order by a desc, b desc;
+EXPLAIN
+{
+  "query_block": {
+    "select_id": 1,
+    "read_sorted_file": {
+      "filesort": {
+        "sort_key": "t1.a desc, t1.b desc",
+        "table": {
+          "table_name": "t1",
+          "access_type": "ALL",
+          "rows": 3,
+          "filtered": 100
+        }
+      }
+    }
+  }
+}
+explain format=json select * from t1 order by a desc, b ;
+EXPLAIN
+{
+  "query_block": {
+    "select_id": 1,
+    "read_sorted_file": {
+      "filesort": {
+        "sort_key": "t1.a desc, t1.b",
+        "table": {
+          "table_name": "t1",
+          "access_type": "ALL",
+          "rows": 3,
+          "filtered": 100
+        }
+      }
+    }
+  }
+}
+drop table t1;

@@ -28,12 +28,7 @@ Created 3/26/1996 Heikki Tuuri
 #define trx0undo_h
 
 #ifndef UNIV_INNOCHECKSUM
-#include "univ.i"
-#include "trx0types.h"
-#include "mtr0mtr.h"
 #include "trx0sys.h"
-#include "page0types.h"
-#include "trx0xa.h"
 
 /** The LSB of the "is insert" flag in DB_ROLL_PTR */
 #define ROLL_PTR_INSERT_FLAG_POS 55
@@ -357,16 +352,6 @@ trx_undo_parse_page_header(
 	const byte*	end_ptr,
 	page_t*		page,
 	mtr_t*		mtr);
-/***********************************************************//**
-Parses the redo log entry of an undo log page header discard.
-@return end of log record or NULL */
-byte*
-trx_undo_parse_discard_latest(
-/*==========================*/
-	byte*	ptr,	/*!< in: buffer */
-	byte*	end_ptr,/*!< in: buffer end */
-	page_t*	page,	/*!< in: page or NULL */
-	mtr_t*	mtr);	/*!< in: mtr or NULL */
 /************************************************************************
 Frees an undo log memory copy. */
 void

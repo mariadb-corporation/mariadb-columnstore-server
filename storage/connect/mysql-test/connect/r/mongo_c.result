@@ -305,7 +305,7 @@ loc_0 double(12,6) NOT NULL `FIELD_FORMAT`='loc.0',
 loc_1 char(12) NOT NULL `FIELD_FORMAT`='loc.1',
 pop int(11) NOT NULL,
 state char(2) NOT NULL)
-ENGINE=CONNECT CONNECTION='mongodb://localhost:27017' TABLE_TYPE='MONGO' TABNAME='cities'
+ENGINE=CONNECT CONNECTION='mongodb://localhost:27017' TABLE_TYPE=MONGO TABNAME='cities'
 OPTION_LIST='Driver=C,Version=0'  DATA_CHARSET='utf8';
 # Using SQL for grouping
 SELECT state, sum(pop) AS totalPop FROM t1 GROUP BY state HAVING totalPop >= 10000000 ORDER BY totalPop DESC;

@@ -1104,6 +1104,23 @@ SELECT CONCAT(NAME_CONST('name',15),'오');
 SET NAMES latin1;
 
 --echo #
+--echo # MDEV-14116 INET6_NTOA output is set as null to varchar(39) variable
+--echo #
+
+DELIMITER $$;
+CREATE PROCEDURE p1()
+BEGIN
+  DECLARE ip_full_addr varchar(39) DEFAULT "";
+  SELECT INET6_NTOA(UNHEX('20000000000000000000000000000000')) into ip_full_addr;
+  SELECT ip_full_addr;
+END;
+$$
+DELIMITER ;$$
+CALL p1();
+DROP PROCEDURE p1;
+
+
+--echo #
 --echo # Start of 10.2 tests
 --echo #
 
@@ -1134,6 +1151,27 @@ SHOW CREATE TABLE t1;
 INSERT INTO t1 (str) VALUES ('::FFFF:192.168.0.1'),('::10.0.5.9');
 SELECT str, str1, b,c FROM t1;
 DROP TABLE t1;
+
+--echo #
+--echo # MDEV-14613: Assertion `fixed == 0' failed in Item_func::fix_fields
+--echo #
+
+CREATE TABLE `t1` (
+  `numgtfmt` char(10) COLLATE utf8_bin NOT NULL 
+) DEFAULT CHARSET=utf8 COLLATE=utf8_bin;
+ 
+create view v1(numgtfmt)
+as
+select 'x' from t1
+union
+select 'x' from t1 ;
+ 
+SELECT * FROM v1 WHERE numgtfmt =  NAME_CONST('wnumgtfmt',_utf8'QEDITIONS' COLLATE 'utf8_bin');
+ 
+# Cleanup
+DROP VIEW v1;
+DROP TABLE t1;
+
 
 --echo #
 --echo # End of 10.2 tests

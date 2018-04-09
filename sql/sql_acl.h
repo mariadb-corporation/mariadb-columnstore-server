@@ -190,8 +190,12 @@ extern LEX_STRING current_user_and_current_role;
 
 static inline int access_denied_error_code(int passwd_used)
 {
+#ifdef mysqld_error_find_printf_error_used
+  return 0;
+#else
   return passwd_used == 2 ? ER_ACCESS_DENIED_NO_PASSWORD_ERROR
                           : ER_ACCESS_DENIED_ERROR;
+#endif
 }
 
 
@@ -408,6 +412,14 @@ int acl_set_default_role(THD *thd, const char *host, const char *user,
                          const char *rolename);
 
 extern SHOW_VAR acl_statistics[];
+
+/* Check if a role is granted to a user/role.
+
+   If hostname == NULL, search for a role as the starting grantee.
+*/
+bool check_role_is_granted(const char *username,
+                           const char *hostname,
+                           const char *rolename);
 
 #ifndef DBUG_OFF
 extern ulong role_global_merges, role_db_merges, role_table_merges,

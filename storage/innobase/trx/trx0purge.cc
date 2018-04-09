@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1996, 2017, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2017, MariaDB Corporation.
+Copyright (c) 2017, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -165,21 +165,15 @@ TrxUndoRsegsIterator::set_next()
 
 /** Build a purge 'query' graph. The actual purge is performed by executing
 this query graph.
-@param[in,out]	sess	the purge session
 @return own: the query graph */
 static
 que_t*
-trx_purge_graph_build(sess_t* sess)
+purge_graph_build()
 {
 	ut_a(srv_n_purge_threads > 0);
-	/* A purge transaction is not a real transaction, we use a transaction
-	here only because the query threads code requires it. It is otherwise
-	quite unnecessary. We should get rid of it eventually. */
-	trx_t* trx = sess->trx;
 
-	ut_ad(trx->sess == sess);
-
-	trx->id = 0;
+	trx_t* trx = trx_allocate_for_background();
+	ut_ad(!trx->id);
 	trx->start_time = ut_time();
 	trx->state = TRX_STATE_ACTIVE;
 	trx->op_info = "purge trx";
@@ -199,9 +193,9 @@ trx_purge_graph_build(sess_t* sess)
 
 /** Construct the purge system. */
 purge_sys_t::purge_sys_t()
-	: sess(sess_open()), latch(), event(os_event_create(0)),
+	: latch(), event(os_event_create(0)),
 	  n_stop(0), running(false), state(PURGE_STATE_INIT),
-	  query(trx_purge_graph_build(sess)),
+	  query(purge_graph_build()),
 	  view(), n_submitted(0), n_completed(0),
 	  iter(), limit(),
 #ifdef UNIV_DEBUG
@@ -221,10 +215,12 @@ purge_sys_t::~purge_sys_t()
 {
 	ut_ad(this == purge_sys);
 
+	trx_t* trx = query->trx;
 	que_graph_free(query);
-	ut_a(sess->trx->id == 0);
-	sess->trx->state = TRX_STATE_NOT_STARTED;
-	sess_close(sess);
+	ut_ad(!trx->id);
+	ut_ad(trx->state == TRX_STATE_ACTIVE);
+	trx->state = TRX_STATE_NOT_STARTED;
+	trx_free_for_background(trx);
 	view.close();
 	rw_lock_free(&latch);
 	/* rw_lock_free() already called latch.~rw_lock_t(); tame the
@@ -301,7 +297,8 @@ trx_purge_add_update_undo_to_history(
 		  && purge_sys->state == PURGE_STATE_INIT)
 	      || (srv_force_recovery >= SRV_FORCE_NO_BACKGROUND
 		  && purge_sys->state == PURGE_STATE_DISABLED)
-	      || ((trx->undo_no == 0 || trx->in_mysql_trx_list)
+	      || ((trx->undo_no == 0 || trx->in_mysql_trx_list
+		   || trx->internal)
 		  && srv_fast_shutdown));
 
 	/* Add the log as the first in the history list */
@@ -567,10 +564,10 @@ namespace undo {
 			log_file_name_len = strlen(log_file_name);
 		}
 
-		ut_snprintf(log_file_name + log_file_name_len,
-			    log_file_name_sz - log_file_name_len,
-			    "%s%lu_%s", undo::s_log_prefix,
-			    (ulong) space_id, s_log_ext);
+		snprintf(log_file_name + log_file_name_len,
+			 log_file_name_sz - log_file_name_len,
+			 "%s%lu_%s", undo::s_log_prefix,
+			 (ulong) space_id, s_log_ext);
 
 		return(DB_SUCCESS);
 	}
@@ -1161,28 +1158,6 @@ trx_purge_rseg_get_next_history_log(
 
 		mutex_exit(&(rseg->mutex));
 		mtr_commit(&mtr);
-
-		trx_sys_mutex_enter();
-
-		/* Add debug code to track history list corruption reported
-		on the MySQL mailing list on Nov 9, 2004. The fut0lst.cc
-		file-based list was corrupt. The prev node pointer was
-		FIL_NULL, even though the list length was over 8 million nodes!
-		We assume that purge truncates the history list in large
-		size pieces, and if we here reach the head of the list, the
-		list cannot be longer than 2000 000 undo logs now. */
-
-		if (trx_sys->rseg_history_len > 2000000) {
-			ib::warn() << "Purge reached the head of the history"
-				" list, but its length is still reported as "
-				<< trx_sys->rseg_history_len << "! Make"
-				" a detailed bug report, and submit it to"
-				" http://bugs.mysql.com";
-			ut_ad(0);
-		}
-
-		trx_sys_mutex_exit();
-
 		return;
 	}
 
@@ -1769,52 +1744,48 @@ void
 trx_purge_stop(void)
 /*================*/
 {
-	ut_a(srv_n_purge_threads > 0);
-
 	rw_lock_x_lock(&purge_sys->latch);
 
-	const int64_t		sig_count = os_event_reset(purge_sys->event);
-	const purge_state_t	state = purge_sys->state;
-
-	ut_a(state == PURGE_STATE_RUN || state == PURGE_STATE_STOP);
-
-	++purge_sys->n_stop;
-
-	if (state == PURGE_STATE_RUN) {
+	switch (purge_sys->state) {
+	case PURGE_STATE_INIT:
+	case PURGE_STATE_DISABLED:
+		ut_error;
+	case PURGE_STATE_EXIT:
+		/* Shutdown must have been initiated during
+		FLUSH TABLES FOR EXPORT. */
+		ut_ad(!srv_undo_sources);
+unlock:
+		rw_lock_x_unlock(&purge_sys->latch);
+		break;
+	case PURGE_STATE_STOP:
+		ut_ad(srv_n_purge_threads > 0);
+		++purge_sys->n_stop;
+		purge_sys->state = PURGE_STATE_STOP;
+		if (!purge_sys->running) {
+			goto unlock;
+		}
+		ib::info() << "Waiting for purge to stop";
+		do {
+			rw_lock_x_unlock(&purge_sys->latch);
+			os_thread_sleep(10000);
+			rw_lock_x_lock(&purge_sys->latch);
+		} while (purge_sys->running);
+		goto unlock;
+	case PURGE_STATE_RUN:
+		ut_ad(srv_n_purge_threads > 0);
+		++purge_sys->n_stop;
 		ib::info() << "Stopping purge";
 
 		/* We need to wakeup the purge thread in case it is suspended,
 		so that it can acknowledge the state change. */
 
+		const int64_t sig_count = os_event_reset(purge_sys->event);
+		purge_sys->state = PURGE_STATE_STOP;
 		srv_purge_wakeup();
-	}
-
-	purge_sys->state = PURGE_STATE_STOP;
-
-	if (state != PURGE_STATE_STOP) {
 		rw_lock_x_unlock(&purge_sys->latch);
 		/* Wait for purge coordinator to signal that it
 		is suspended. */
 		os_event_wait_low(purge_sys->event, sig_count);
-	} else {
-		bool	once = true;
-
-		/* Wait for purge to signal that it has actually stopped. */
-		while (purge_sys->running) {
-
-			if (once) {
-				ib::info() << "Waiting for purge to stop";
-				once = false;
-			}
-
-			rw_lock_x_unlock(&purge_sys->latch);
-
-			os_thread_sleep(10000);
-
-			rw_lock_x_lock(&purge_sys->latch);
-		}
-
-		rw_lock_x_unlock(&purge_sys->latch);
 	}
 
 	MONITOR_INC_VALUE(MONITOR_PURGE_STOP_COUNT, 1);
@@ -1829,8 +1800,12 @@ trx_purge_run(void)
 	rw_lock_x_lock(&purge_sys->latch);
 
 	switch (purge_sys->state) {
-	case PURGE_STATE_INIT:
 	case PURGE_STATE_EXIT:
+		/* Shutdown must have been initiated during
+		FLUSH TABLES FOR EXPORT. */
+		ut_ad(!srv_undo_sources);
+		break;
+	case PURGE_STATE_INIT:
 	case PURGE_STATE_DISABLED:
 		ut_error;
 

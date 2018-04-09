@@ -279,8 +279,15 @@ DROP TABLE t1;
 set @tmp_rocksdb_strict_collation_check= @@rocksdb_strict_collation_check;
 set global rocksdb_strict_collation_check=1;
 CREATE TABLE t1 (a INT, b TEXT);
+# MariaDB no longer gives ER_UNSUPPORTED_COLLATION
 ALTER TABLE t1 ADD KEY kb(b(10));
-ERROR HY000: Unsupported collation on string indexed column test.t1.b Use binary collation (latin1_bin, binary, utf8_bin).
+ALTER TABLE t1 ADD PRIMARY KEY(a);
+DROP TABLE t1;
+CREATE TABLE t1 (a INT, b TEXT collate utf8_general_ci);
+# MariaDB no longer gives ER_UNSUPPORTED_COLLATION
+ALTER TABLE t1 ADD KEY kb(b(10));
+Warnings:
+Warning	1815	Internal error: Indexed column test.t1.b uses a collation that does not allow index-only access in secondary key and has reduced disk space efficiency in primary key.
 ALTER TABLE t1 ADD PRIMARY KEY(a);
 DROP TABLE t1;
 set global rocksdb_strict_collation_check= @tmp_rocksdb_strict_collation_check;
@@ -289,12 +296,16 @@ set global rocksdb_bulk_load=1;
 connect  con1,localhost,root,,;
 # Switch to connection con1
 connection con1;
-show global variables like 'rocksdb_bulk_load';
+show global variables like 'rocksdb_bulk_load%';
 Variable_name	Value
 rocksdb_bulk_load	ON
-show session variables like 'rocksdb_bulk_load';
+rocksdb_bulk_load_allow_unsorted	OFF
+rocksdb_bulk_load_size	1000
+show session variables like 'rocksdb_bulk_load%';
 Variable_name	Value
 rocksdb_bulk_load	ON
+rocksdb_bulk_load_allow_unsorted	OFF
+rocksdb_bulk_load_size	1000
 CREATE TABLE t1 (i INT, j INT, PRIMARY KEY (i)) ENGINE = ROCKSDB;
 INSERT INTO t1 VALUES (1,1);
 # Disconnecting on con1
@@ -341,10 +352,11 @@ SET @prior_rocksdb_strict_collation_check= @@rocksdb_strict_collation_check;
 SET @prior_rocksdb_merge_buf_size = @@rocksdb_merge_buf_size;
 SET global rocksdb_strict_collation_check = off;
 SET session rocksdb_merge_combine_read_size = 566;
-SET session rocksdb_merge_buf_size = 336;
-show variables like '%rocksdb_bulk_load%';
+SET session rocksdb_merge_buf_size = 340;
+show variables like 'rocksdb_bulk_load%';
 Variable_name	Value
 rocksdb_bulk_load	OFF
+rocksdb_bulk_load_allow_unsorted	OFF
 rocksdb_bulk_load_size	1000
 CREATE TABLE t1 (a VARCHAR(80)) ENGINE=RocksDB;
 INSERT INTO t1 (a) VALUES (REPEAT("a", 80));

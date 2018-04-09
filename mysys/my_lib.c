@@ -119,10 +119,6 @@ MY_DIR	*my_dir(const char *path, myf MyFlags)
   DBUG_ENTER("my_dir");
   DBUG_PRINT("my",("path: '%s' MyFlags: %lu",path,MyFlags));
 
-#if !defined(HAVE_READDIR_R)
-  mysql_mutex_lock(&THR_LOCK_open);
-#endif
-
   tmp_file= directory_file_name(tmp_path, path);
 
   if (!(dirp= opendir(tmp_path)))
@@ -174,9 +170,6 @@ MY_DIR	*my_dir(const char *path, myf MyFlags)
   }
 
   (void) closedir(dirp);
-#if !defined(HAVE_READDIR_R)
-  mysql_mutex_unlock(&THR_LOCK_open);
-#endif
   
   if (MyFlags & MY_WANT_SORT)
     sort_dynamic(&dirh->array, (qsort_cmp) comp_names);
@@ -187,9 +180,6 @@ MY_DIR	*my_dir(const char *path, myf MyFlags)
   DBUG_RETURN(&dirh->dir);
 
  error:
-#if !defined(HAVE_READDIR_R)
-  mysql_mutex_unlock(&THR_LOCK_open);
-#endif
   my_errno=errno;
   if (dirp)
     (void) closedir(dirp);
@@ -221,7 +211,7 @@ MY_DIR	*my_dir(const char *path, myf MyFlags)
   long		handle;
 #endif
   DBUG_ENTER("my_dir");
-  DBUG_PRINT("my",("path: '%s' stat: %d  MyFlags: %d",path,MyFlags));
+  DBUG_PRINT("my",("path: '%s' MyFlags: %d",path,MyFlags));
 
   /* Put LIB-CHAR as last path-character if not there */
   tmp_file=tmp_path;
@@ -347,8 +337,8 @@ MY_STAT *my_stat(const char *path, MY_STAT *stat_area, myf my_flags)
 {
   int m_used;
   DBUG_ENTER("my_stat");
-  DBUG_PRINT("my", ("path: '%s'  stat_area: 0x%lx  MyFlags: %lu", path,
-                    (long) stat_area, my_flags));
+  DBUG_PRINT("my", ("path: '%s'  stat_area: %p  MyFlags: %lu", path,
+                    stat_area, my_flags));
 
   if ((m_used= (stat_area == NULL)))
     if (!(stat_area= (MY_STAT *) my_malloc(sizeof(MY_STAT), my_flags)))

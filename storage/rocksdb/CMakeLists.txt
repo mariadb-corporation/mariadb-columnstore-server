@@ -5,21 +5,20 @@ MACRO(SKIP_ROCKSDB_PLUGIN msg)
   RETURN()
 ENDMACRO()
 
-IF(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/Makefile AND GIT_EXECUTABLE)
-  EXECUTE_PROCESS(COMMAND "${GIT_EXECUTABLE}" submodule init
-                  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
-  EXECUTE_PROCESS(COMMAND "${GIT_EXECUTABLE}" submodule update
-                  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
-ENDIF()
-
 IF (NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/Makefile")
   SKIP_ROCKSDB_PLUGIN("Missing Makefile in rocksdb directory. Try \"git submodule update\".")
 ENDIF()
+
+CHECK_LIBRARY_EXISTS(rt timer_delete "" HAVE_TIMER_DELETE)
+IF (HAVE_TIMER_DELETE)
+  ADD_DEFINITIONS(-DHAVE_TIMER_DELETE)
+ENDIF(HAVE_TIMER_DELETE)
 
 CHECK_FUNCTION_EXISTS(sched_getcpu  HAVE_SCHED_GETCPU)
 IF(HAVE_SCHED_GETCPU)
   ADD_DEFINITIONS(-DHAVE_SCHED_GETCPU=1 -DROCKSDB_SCHED_GETCPU_PRESENT)
 ENDIF()
+
 
 # We've had our builders hang during the build process. This prevents MariaRocks
 # to be built on 32 bit intel OS kernels.
@@ -79,6 +78,8 @@ SET(ROCKSDB_SE_SOURCES
   ha_rocksdb.h
   rdb_i_s.cc
   rdb_i_s.h
+  rdb_io_watchdog.h
+  rdb_io_watchdog.cc
   rdb_mutex_wrapper.cc
   rdb_mutex_wrapper.h
   rdb_index_merge.cc
@@ -96,6 +97,11 @@ SET(ROCKSDB_SE_SOURCES
   rdb_psi.cc
 )
 
+# MariaDB: the following is added in build_rocksdb.cmake, when appropriate:
+# This is a strong requirement coming from RocksDB. No conditional checks here.
+#ADD_DEFINITIONS(-DROCKSDB_PLATFORM_POSIX -DROCKSDB_LIB_IO_POSIX
+#)
+
 MYSQL_ADD_PLUGIN(rocksdb ${ROCKSDB_SE_SOURCES} STORAGE_ENGINE
                  MODULE_OUTPUT_NAME ha_rocksdb
                  COMPONENT rocksdb-engine)
@@ -105,11 +111,6 @@ IF(NOT TARGET rocksdb)
   RETURN()
 ENDIF()
 
-# MARIAROCKS-TODO: ???
-CHECK_FUNCTION_EXISTS(fallocate HAVE_FALLOCATE)
-IF(HAVE_FALLOCATE)
-  ADD_DEFINITIONS(-DROCKSDB_FALLOCATE_PRESENT)
-ENDIF()
 
 
 CHECK_CXX_SOURCE_COMPILES("
@@ -138,7 +139,6 @@ ADD_CONVENIENCE_LIBRARY(rocksdb_aux_lib
   rdb_perf_context.h
   rdb_sst_info.cc
   rdb_sst_info.h
-  rdb_io_watchdog.cc rdb_io_watchdog.h
   rdb_buff.h
   rdb_mariadb_port.h
 )
@@ -169,13 +169,19 @@ IF(CMAKE_CXX_COMPILER_ID MATCHES "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   #  (also had to add -frtti above, because something that event_listener.cc
   #  includes requires it. So, now everything in MariaRocks is compiled with
   #  -frtti)
-  set_source_files_properties(event_listener.cc rdb_cf_options.cc
+  set_source_files_properties(event_listener.cc rdb_cf_options.cc rdb_sst_info.cc
     PROPERTIES COMPILE_FLAGS -frtti)
 ENDIF()
 
 CHECK_FUNCTION_EXISTS(sched_getcpu  HAVE_SCHED_GETCPU)
 IF(HAVE_SCHED_GETCPU)
   ADD_DEFINITIONS(-DHAVE_SCHED_GETCPU=1)
+ENDIF()
+
+IF (NOT "$ENV{WITH_TBB}" STREQUAL "")
+  SET(rocksdb_static_libs ${rocksdb_static_libs}
+  $ENV{WITH_TBB}/libtbb${PIC_EXT}.a)
+  ADD_DEFINITIONS(-DTBB)
 ENDIF()
 
 #
@@ -189,6 +195,7 @@ if (UNIX AND NOT APPLE)
   SET(rocksdb_static_libs ${rocksdb_static_libs} "-lrt")
 endif()
 
+
 ADD_LIBRARY(rocksdb_tools STATIC
    rocksdb/tools/ldb_tool.cc
    rocksdb/tools/ldb_cmd.cc
@@ -201,6 +208,8 @@ TARGET_LINK_LIBRARIES(sst_dump rocksdblib)
 MYSQL_ADD_EXECUTABLE(mysql_ldb tools/mysql_ldb.cc COMPONENT rocksdb-engine)
 TARGET_LINK_LIBRARIES(mysql_ldb rocksdb_tools rocksdb_aux_lib)
 
+INSTALL_SCRIPT(myrocks_hotbackup COMPONENT rocksdb-engine)
+
 IF(CMAKE_CXX_COMPILER_ID MATCHES "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   SET_TARGET_PROPERTIES(rocksdb_tools sst_dump mysql_ldb PROPERTIES COMPILE_FLAGS -frtti)
 ENDIF()
@@ -212,4 +221,19 @@ IF(MSVC)
 
   # Some checks in C++ runtime that make debug build much slower
   ADD_DEFINITIONS(-D_ITERATOR_DEBUG_LEVEL=0)
+ENDIF()
+
+IF(GIT_EXECUTABLE)
+  EXECUTE_PROCESS(
+    COMMAND ${GIT_EXECUTABLE} rev-parse HEAD
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb
+       OUTPUT_VARIABLE OUT RESULT_VARIABLE RES)
+  IF(RES EQUAL 0)
+    STRING(REGEX REPLACE "\n$" "" ROCKSDB_GIT_HASH "${OUT}")
+  ENDIF()
+ENDIF()
+IF(ROCKSDB_GIT_HASH OR
+  (NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/rdb_source_revision.h))
+  CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/rdb_source_revision.h.in
+               ${CMAKE_CURRENT_BINARY_DIR}/rdb_source_revision.h )
 ENDIF()

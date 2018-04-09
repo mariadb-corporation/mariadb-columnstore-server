@@ -30,7 +30,7 @@
 #include <my_dir.h>
 #include "rpl_handler.h"
 #include "debug_sync.h"
-
+#include "log.h"                                // get_gtid_list_event
 
 enum enum_gtid_until_state {
   GTID_UNTIL_NOT_DONE,
@@ -865,7 +865,6 @@ get_binlog_list(MEM_ROOT *memroot)
         !(e->name= strmake_root(memroot, fname, length)))
     {
       mysql_bin_log.unlock_index();
-      my_error(ER_OUTOFMEMORY, MYF(0), length + 1 + sizeof(*e));
       DBUG_RETURN(NULL);
     }
     e->next= current_list;
@@ -874,72 +873,6 @@ get_binlog_list(MEM_ROOT *memroot)
   mysql_bin_log.unlock_index();
 
   DBUG_RETURN(current_list);
-}
-
-/*
-  Find the Gtid_list_log_event at the start of a binlog.
-
-  NULL for ok, non-NULL error message for error.
-
-  If ok, then the event is returned in *out_gtid_list. This can be NULL if we
-  get back to binlogs written by old server version without GTID support. If
-  so, it means we have reached the point to start from, as no GTID events can
-  exist in earlier binlogs.
-*/
-static const char *
-get_gtid_list_event(IO_CACHE *cache, Gtid_list_log_event **out_gtid_list)
-{
-  Format_description_log_event init_fdle(BINLOG_VERSION);
-  Format_description_log_event *fdle;
-  Log_event *ev;
-  const char *errormsg = NULL;
-
-  *out_gtid_list= NULL;
-
-  if (!(ev= Log_event::read_log_event(cache, 0, &init_fdle,
-                                      opt_master_verify_checksum)) ||
-      ev->get_type_code() != FORMAT_DESCRIPTION_EVENT)
-  {
-    if (ev)
-      delete ev;
-    return "Could not read format description log event while looking for "
-      "GTID position in binlog";
-  }
-
-  fdle= static_cast<Format_description_log_event *>(ev);
-
-  for (;;)
-  {
-    Log_event_type typ;
-
-    ev= Log_event::read_log_event(cache, 0, fdle, opt_master_verify_checksum);
-    if (!ev)
-    {
-      errormsg= "Could not read GTID list event while looking for GTID "
-        "position in binlog";
-      break;
-    }
-    typ= ev->get_type_code();
-    if (typ == GTID_LIST_EVENT)
-      break;                                    /* Done, found it */
-    if (typ == START_ENCRYPTION_EVENT)
-    {
-      if (fdle->start_decryption((Start_encryption_log_event*) ev))
-        errormsg= "Could not set up decryption for binlog.";
-    }
-    delete ev;
-    if (typ == ROTATE_EVENT || typ == STOP_EVENT ||
-        typ == FORMAT_DESCRIPTION_EVENT || typ == START_ENCRYPTION_EVENT)
-      continue;                                 /* Continue looking */
-
-    /* We did not find any Gtid_list_log_event, must be old binlog. */
-    ev= NULL;
-    break;
-  }
-
-  delete fdle;
-  *out_gtid_list= static_cast<Gtid_list_log_event *>(ev);
-  return errormsg;
 }
 
 
@@ -1971,11 +1904,8 @@ send_event_to_slave(binlog_send_info *info, Log_event_type event_type,
   */
   if (info->thd->variables.option_bits & OPTION_SKIP_REPLICATION)
   {
-    /*
-      The first byte of the packet is a '\0' to distinguish it from an error
-      packet. So the actual event starts at offset +1.
-    */
-    uint16 event_flags= uint2korr(&((*packet)[FLAGS_OFFSET+1]));
+    uint16 event_flags= uint2korr(&((*packet)[FLAGS_OFFSET + ev_offset]));
+
     if (event_flags & LOG_EVENT_SKIP_REPLICATION_F)
       return NULL;
   }
@@ -2681,7 +2611,7 @@ static int send_events(binlog_send_info *info, IO_CACHE* log, LOG_INFO* linfo,
       Gtid_list_log_event glev(&info->until_binlog_state, 0);
 
       if (reset_transmit_packet(info, info->flags, &ev_offset, &info->errmsg) ||
-          fake_gtid_list_event(info, &glev, &info->errmsg, my_b_tell(log)))
+          fake_gtid_list_event(info, &glev, &info->errmsg, (uint32)my_b_tell(log)))
       {
         info->error= ER_UNKNOWN_ERROR;
         return 1;
@@ -2691,7 +2621,7 @@ static int send_events(binlog_send_info *info, IO_CACHE* log, LOG_INFO* linfo,
 
     if (info->until_gtid_state &&
         is_until_reached(info, &ev_offset, event_type, &info->errmsg,
-                         my_b_tell(log)))
+                         (uint32)my_b_tell(log)))
     {
       if (info->errmsg)
       {
@@ -2746,7 +2676,7 @@ static int send_one_binlog_file(binlog_send_info *info,
     if (end_pos <= 1)
     {
       /** end of file or error */
-      return end_pos;
+      return (int)end_pos;
     }
 
     /**
@@ -3045,7 +2975,7 @@ int start_slave(THD* thd , Master_info* mi,  bool net_report)
   {
     /* connection was deleted while we waited for lock_slave_threads */
     mi->unlock_slave_threads();
-    my_error(WARN_NO_MASTER_INFO, mi->connection_name.length,
+    my_error(WARN_NO_MASTER_INFO, MYF(0), (int) mi->connection_name.length,
              mi->connection_name.str);
     DBUG_RETURN(-1);
   }
@@ -3303,7 +3233,7 @@ int reset_slave(THD *thd, Master_info* mi)
   {
     /* connection was deleted while we waited for lock_slave_threads */
     mi->unlock_slave_threads();
-    my_error(WARN_NO_MASTER_INFO, mi->connection_name.length,
+    my_error(WARN_NO_MASTER_INFO, MYF(0), (int) mi->connection_name.length,
              mi->connection_name.str);
     DBUG_RETURN(-1);
   }
@@ -3446,7 +3376,8 @@ static bool get_string_parameter(char *to, const char *from, size_t length,
     uint from_numchars= cs->cset->numchars(cs, from, from + from_length);
     if (from_numchars > length / cs->mbmaxlen)
     {
-      my_error(ER_WRONG_STRING_LENGTH, MYF(0), from, name, length / cs->mbmaxlen);
+      my_error(ER_WRONG_STRING_LENGTH, MYF(0), from, name,
+               (int) (length / cs->mbmaxlen));
       return 1;
     }
     memcpy(to, from, from_length+1);
@@ -3515,7 +3446,7 @@ bool change_master(THD* thd, Master_info* mi, bool *master_info_added)
   {
     /* connection was deleted while we waited for lock_slave_threads */
     mi->unlock_slave_threads();
-    my_error(WARN_NO_MASTER_INFO, mi->connection_name.length,
+    my_error(WARN_NO_MASTER_INFO, MYF(0), (int) mi->connection_name.length,
              mi->connection_name.str);
     DBUG_RETURN(TRUE);
   }

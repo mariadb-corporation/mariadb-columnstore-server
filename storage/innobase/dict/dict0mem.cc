@@ -2,7 +2,7 @@
 
 Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2012, Facebook Inc.
-Copyright (c) 2013, 2017, MariaDB Corporation.
+Copyright (c) 2013, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -439,6 +439,9 @@ dict_mem_table_col_rename_low(
 	ut_ad(from_len <= NAME_LEN);
 	ut_ad(to_len <= NAME_LEN);
 
+	char from[NAME_LEN + 1];
+	strncpy(from, s, NAME_LEN + 1);
+
 	if (from_len == to_len) {
 		/* The easy case: simply replace the column name in
 		table->col_names. */
@@ -523,14 +526,54 @@ dict_mem_table_col_rename_low(
 
 		foreign = *it;
 
-		for (unsigned f = 0; f < foreign->n_fields; f++) {
-			/* These can point straight to
-			table->col_names, because the foreign key
-			constraints will be freed at the same time
-			when the table object is freed. */
-			foreign->foreign_col_names[f]
-				= dict_index_get_nth_field(
-					foreign->foreign_index, f)->name;
+		if (foreign->foreign_index == NULL) {
+			/* We may go here when we set foreign_key_checks to 0,
+			and then try to rename a column and modify the
+			corresponding foreign key constraint. The index
+			would have been dropped, we have to find an equivalent
+			one */
+			for (unsigned f = 0; f < foreign->n_fields; f++) {
+				if (strcmp(foreign->foreign_col_names[f], from)
+				    == 0) {
+
+					char** rc = const_cast<char**>(
+						foreign->foreign_col_names
+						+ f);
+
+					if (to_len <= strlen(*rc)) {
+						memcpy(*rc, to, to_len + 1);
+					} else {
+						*rc = static_cast<char*>(
+							mem_heap_dup(
+								foreign->heap,
+								to,
+								to_len + 1));
+					}
+				}
+			}
+
+			dict_index_t* new_index = dict_foreign_find_index(
+				foreign->foreign_table, NULL,
+				foreign->foreign_col_names,
+				foreign->n_fields, NULL, true, false,
+				NULL, NULL, NULL);
+			/* There must be an equivalent index in this case. */
+			ut_ad(new_index != NULL);
+
+			foreign->foreign_index = new_index;
+
+		} else {
+
+			for (unsigned f = 0; f < foreign->n_fields; f++) {
+				/* These can point straight to
+				table->col_names, because the foreign key
+				constraints will be freed at the same time
+				when the table object is freed. */
+				foreign->foreign_col_names[f]
+					= dict_index_get_nth_field(
+						foreign->foreign_index,
+						f)->name;
+			}
 		}
 	}
 
@@ -539,6 +582,8 @@ dict_mem_table_col_rename_low(
 	     ++it) {
 
 		foreign = *it;
+
+		ut_ad(foreign->referenced_index != NULL);
 
 		for (unsigned f = 0; f < foreign->n_fields; f++) {
 			/* foreign->referenced_col_names[] need to be
@@ -622,9 +667,9 @@ dict_mem_fill_column_struct(
 	column->mtype = (unsigned int) mtype;
 	column->prtype = (unsigned int) prtype;
 	column->len = (unsigned int) col_len;
-
-	dtype_get_mblen(mtype, prtype, &mbminlen, &mbmaxlen);
-	dict_col_set_mbminmaxlen(column, mbminlen, mbmaxlen);
+        dtype_get_mblen(mtype, prtype, &mbminlen, &mbmaxlen);
+	column->mbminlen = mbminlen;
+	column->mbmaxlen = mbmaxlen;
 }
 
 /**********************************************************************//**
@@ -1022,7 +1067,7 @@ dict_mem_create_temporary_tablename(
 	size = dblen + (sizeof(TEMP_FILE_PREFIX) + 3 + 20 + 1 + 10);
 	name = static_cast<char*>(mem_heap_alloc(heap, size));
 	memcpy(name, dbtab, dblen);
-	ut_snprintf(name + dblen, size - dblen,
+	snprintf(name + dblen, size - dblen,
 		    TEMP_FILE_PREFIX_INNODB UINT64PF "-" UINT32PF,
 		    id, dict_temp_file_num);
 

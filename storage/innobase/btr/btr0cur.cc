@@ -3,7 +3,7 @@
 Copyright (c) 1994, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2008, Google Inc.
 Copyright (c) 2012, Facebook Inc.
-Copyright (c) 2015, 2017, MariaDB Corporation.
+Copyright (c) 2015, 2018, MariaDB Corporation.
 
 Portions of this file contain modifications contributed and copyrighted by
 Google, Inc. Those modifications are gratefully acknowledged and are described
@@ -2811,7 +2811,7 @@ btr_cur_ins_lock_and_undo(
 	}
 
 	if (flags & BTR_NO_UNDO_LOG_FLAG) {
-		roll_ptr = 0;
+		roll_ptr = roll_ptr_t(1) << ROLL_PTR_INSERT_FLAG_POS;
 	} else {
 		err = trx_undo_report_row_operation(thr, index, entry,
 						    NULL, 0, NULL, NULL,
@@ -3016,7 +3016,7 @@ fail_err:
 
 	DBUG_LOG("ib_cur",
 		 "insert " << index->name << " (" << index->id << ") by "
-		 << ib::hex(thr ? trx_get_id_for_print(thr_get_trx(thr)) : 0)
+		 << ib::hex(thr ? thr->graph->trx->id : 0)
 		 << ' ' << rec_printer(entry).str());
 	DBUG_EXECUTE_IF("do_page_reorganize",
 			btr_page_reorganize(page_cursor, index, mtr););
@@ -3032,6 +3032,29 @@ fail_err:
 		if (err != DB_SUCCESS) {
 			goto fail_err;
 		}
+
+#ifdef UNIV_DEBUG
+		if (!(flags & BTR_CREATE_FLAG)
+		    && index->is_primary() && page_is_leaf(page)) {
+			const dfield_t* trx_id = dtuple_get_nth_field(
+				entry, dict_col_get_clust_pos(
+					dict_table_get_sys_col(index->table,
+							       DATA_TRX_ID),
+					index));
+
+			ut_ad(trx_id->len == DATA_TRX_ID_LEN);
+			ut_ad(trx_id[1].len == DATA_ROLL_PTR_LEN);
+			ut_ad(*static_cast<const byte*>
+			      (trx_id[1].data) & 0x80);
+			if (!(flags & BTR_NO_UNDO_LOG_FLAG)) {
+				ut_ad(thr->graph->trx->id);
+				ut_ad(thr->graph->trx->id
+				      == trx_read_trx_id(
+					      static_cast<const byte*>(
+						      trx_id->data)));
+			}
+		}
+#endif
 
 		*rec = page_cur_tuple_insert(
 			page_cursor, entry, index, offsets, heap,
@@ -3485,7 +3508,15 @@ btr_cur_parse_update_in_place(
 	/* We do not need to reserve search latch, as the page is only
 	being recovered, and there cannot be a hash index to it. */
 
-	offsets = rec_get_offsets(rec, index, NULL, true,
+	/* The function rtr_update_mbr_field_in_place() is generating
+	these records on node pointer pages; therefore we have to
+	check if this is a leaf page. */
+
+	offsets = rec_get_offsets(rec, index, NULL,
+				  flags != (BTR_NO_UNDO_LOG_FLAG
+					    | BTR_NO_LOCKING_FLAG
+					    | BTR_KEEP_SYS_FLAG)
+				  || page_is_leaf(page),
 				  ULINT_UNDEFINED, &heap);
 
 	if (!(flags & BTR_KEEP_SYS_FLAG)) {
@@ -3620,6 +3651,7 @@ btr_cur_update_in_place(
 	roll_ptr_t	roll_ptr	= 0;
 	ulint		was_delete_marked;
 
+	ut_ad(page_is_leaf(cursor->page_cur.block->frame));
 	rec = btr_cur_get_rec(cursor);
 	index = cursor->index;
 	ut_ad(rec_offs_validate(rec, index, offsets));
@@ -3683,34 +3715,38 @@ btr_cur_update_in_place(
 	      || row_get_rec_trx_id(rec, index, offsets));
 
 #ifdef BTR_CUR_HASH_ADAPT
-	if (block->index) {
-		/* TO DO: Can we skip this if none of the fields
-		index->search_info->curr_n_fields
-		are being updated? */
+	{
+		rw_lock_t* ahi_latch = block->index
+			? btr_get_search_latch(index) : NULL;
+		if (ahi_latch) {
+			/* TO DO: Can we skip this if none of the fields
+			index->search_info->curr_n_fields
+			are being updated? */
 
-		/* The function row_upd_changes_ord_field_binary works only
-		if the update vector was built for a clustered index, we must
-		NOT call it if index is secondary */
+			/* The function row_upd_changes_ord_field_binary
+			does not work on a secondary index. */
 
-		if (!dict_index_is_clust(index)
-		    || row_upd_changes_ord_field_binary(index, update, thr,
-							NULL, NULL)) {
+			if (!dict_index_is_clust(index)
+			    || row_upd_changes_ord_field_binary(
+				    index, update, thr, NULL, NULL)) {
 
-			/* Remove possible hash index pointer to this record */
-			btr_search_update_hash_on_delete(cursor);
+				/* Remove possible hash index pointer
+				to this record */
+				btr_search_update_hash_on_delete(cursor);
+			}
+
+			rw_lock_x_lock(ahi_latch);
 		}
 
-		btr_search_x_lock(index);
-	}
-
-	assert_block_ahi_valid(block);
+		assert_block_ahi_valid(block);
 #endif /* BTR_CUR_HASH_ADAPT */
 
-	row_upd_rec_in_place(rec, index, offsets, update, page_zip);
+		row_upd_rec_in_place(rec, index, offsets, update, page_zip);
 
 #ifdef BTR_CUR_HASH_ADAPT
-	if (block->index) {
-		btr_search_x_unlock(index);
+		if (ahi_latch) {
+			rw_lock_x_unlock(ahi_latch);
+		}
 	}
 #endif /* BTR_CUR_HASH_ADAPT */
 
@@ -4707,7 +4743,7 @@ btr_cur_del_mark_set_clust_rec(
 		 << rec_printer(rec, offsets).str());
 
 	if (dict_index_is_online_ddl(index)) {
-		row_log_table_delete(rec, entry, index, offsets, NULL);
+		row_log_table_delete(rec, index, offsets, NULL);
 	}
 
 	row_upd_rec_sys_fields(rec, page_zip, index, offsets, trx, roll_ptr);
@@ -5055,7 +5091,6 @@ btr_cur_pessimistic_delete(
 	ulint		n_reserved	= 0;
 	bool		success;
 	ibool		ret		= FALSE;
-	ulint		level;
 	mem_heap_t*	heap;
 	ulint*		offsets;
 #ifdef UNIV_DEBUG
@@ -5113,6 +5148,10 @@ btr_cur_pessimistic_delete(
 #endif /* UNIV_ZIP_DEBUG */
 	}
 
+	if (flags == 0) {
+		lock_update_delete(block, rec);
+	}
+
 	if (UNIV_UNLIKELY(page_get_n_recs(page) < 2)
 	    && UNIV_UNLIKELY(dict_index_get_page(index)
 			     != block->page.id.page_no())) {
@@ -5127,13 +5166,7 @@ btr_cur_pessimistic_delete(
 		goto return_after_reservations;
 	}
 
-	if (flags == 0) {
-		lock_update_delete(block, rec);
-	}
-
-	level = btr_page_get_level(page, mtr);
-
-	if (level == 0) {
+	if (page_is_leaf(page)) {
 		btr_search_update_hash_on_delete(cursor);
 	} else if (UNIV_UNLIKELY(page_rec_is_first(rec, page))) {
 		rec_t*	next_rec = page_rec_get_next(rec);
@@ -5188,6 +5221,7 @@ btr_cur_pessimistic_delete(
 			on a page, we have to change the parent node pointer
 			so that it is equal to the new leftmost node pointer
 			on the page */
+			ulint level = btr_page_get_level(page, mtr);
 
 			btr_node_ptr_delete(index, block, mtr);
 
@@ -6649,7 +6683,6 @@ btr_store_big_rec_extern_fields(
 	btr_pcur_t*	pcur,		/*!< in/out: a persistent cursor. if
 					btr_mtr is restarted, then this can
 					be repositioned. */
-	const upd_t*	upd,		/*!< in: update vector */
 	ulint*		offsets,	/*!< in/out: rec_get_offsets() on
 					pcur. the "external storage" flags
 					in offsets will correctly correspond

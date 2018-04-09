@@ -166,8 +166,8 @@ static struct my_option my_long_options[]=
    "server with which it was built/distributed.",
    &opt_version_check, &opt_version_check, 0,
    GET_BOOL, NO_ARG, 1, 0, 0, 0, 0, 0},
-  {"write-binlog", OPT_WRITE_BINLOG, "All commands including those, "
-   "issued by mysqlcheck, are written to the binary log.",
+  {"write-binlog", OPT_WRITE_BINLOG, "All commands including those "
+   "issued by mysqlcheck are written to the binary log.",
    &opt_write_binlog, &opt_write_binlog, 0, GET_BOOL, NO_ARG,
    0, 0, 0, 0, 0, 0},
   {0, 0, 0, 0, 0, 0, GET_NO_ARG, NO_ARG, 0, 0, 0, 0, 0, 0}
@@ -501,7 +501,7 @@ static void find_tool(char *tool_executable_name, const char *tool_name,
       last_fn_libchar -= 6;
     }
 
-    len= last_fn_libchar - self_name;
+    len= (int)(last_fn_libchar - self_name);
 
     my_snprintf(tool_executable_name, FN_REFLEN, "%.*s%c%s",
                 len, self_name, FN_LIBCHAR, tool_name);
@@ -1133,6 +1133,8 @@ int main(int argc, char **argv)
   char self_name[FN_REFLEN + 1];
 
   MY_INIT(argv[0]);
+  load_defaults_or_exit("my", load_default_groups, &argc, &argv);
+  defaults_argv= argv; /* Must be freed by 'free_defaults' */
 
 #if __WIN__
   if (GetModuleFileName(NULL, self_name, FN_REFLEN) == 0)
@@ -1144,10 +1146,6 @@ int main(int argc, char **argv)
   if (init_dynamic_string(&ds_args, "", 512, 256) ||
       init_dynamic_string(&conn_args, "", 512, 256))
     die("Out of memory");
-
-  if (load_defaults("my", load_default_groups, &argc, &argv))
-    die(NULL);
-  defaults_argv= argv; /* Must be freed by 'free_defaults' */
 
   if (handle_options(&argc, &argv, my_long_options, get_one_option))
     die(NULL);

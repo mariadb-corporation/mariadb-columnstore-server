@@ -48,7 +48,7 @@ static bool eq_ascii_string(const CHARSET_INFO *cs,
 }
 
 
-static bool append_simple(String *s, const char *a, uint a_len)
+static bool append_simple(String *s, const char *a, size_t a_len)
 {
   if (!s->realloc_with_extra_if_needed(s->length() + a_len))
   {
@@ -60,7 +60,7 @@ static bool append_simple(String *s, const char *a, uint a_len)
 }
 
 
-static inline bool append_simple(String *s, const uchar *a, uint a_len)
+static inline bool append_simple(String *s, const uchar *a, size_t a_len)
 {
   return append_simple(s, (const char *) a, a_len);
 }
@@ -69,6 +69,7 @@ static inline bool append_simple(String *s, const uchar *a, uint a_len)
 /*
   Appends JSON string to the String object taking charsets in
   consideration.
+*/
 static int st_append_json(String *s,
              CHARSET_INFO *json_cs, const uchar *js, uint js_len)
 {
@@ -82,9 +83,8 @@ static int st_append_json(String *s,
     return 0;
   }
 
-  return js_len;
+  return str_len;
 }
-*/
 
 
 /*
@@ -255,7 +255,7 @@ void report_json_error_ex(String *js, json_engine_t *je,
                           Sql_condition::enum_warning_level lv)
 {
   THD *thd= current_thd;
-  int position= (const char *) je->s.c_str - js->ptr();
+  int position= (int)((const char *) je->s.c_str - js->ptr());
   uint code;
 
   n_param++;
@@ -312,7 +312,7 @@ static void report_path_error_ex(String *ps, json_path_t *p,
                                  Sql_condition::enum_warning_level lv)
 {
   THD *thd= current_thd;
-  int position= (const char *) p->s.c_str - ps->ptr() + 1;
+  int position= (int)((const char *) p->s.c_str - ps->ptr() + 1);
   uint code;
 
   n_param++;
@@ -475,6 +475,9 @@ String *Item_func_json_value::val_str(String *str)
   json_scan_start(&je, js->charset(),(const uchar *) js->ptr(),
                   (const uchar *) js->ptr() + js->length());
 
+  str->length(0);
+  str->set_charset(&my_charset_utf8mb4_bin);
+
   path.cur_step= path.p.steps;
 continue_search:
   if (json_find_path(&je, &path.p, &path.cur_step, array_counters))
@@ -515,8 +518,7 @@ bool Item_func_json_value::check_and_get_value(json_engine_t *je, String *res,
     return true;
   }
 
-  res->set((const char *) je->value, je->value_len, je->s.cs);
-  return false;
+  return st_append_json(res, je->s.cs, je->value, je->value_len); 
 }
 
 
@@ -539,7 +541,7 @@ bool Item_func_json_query::check_and_get_value(json_engine_t *je, String *res,
     return true;
   }
 
-  res->set((const char *) je->value, je->s.c_str - value, je->s.cs);
+  res->set((const char *) je->value, (uint32)(je->s.c_str - value), je->s.cs);
   return false;
 }
 
@@ -581,7 +583,8 @@ String *Item_func_json_quote::val_str(String *str)
 
 void Item_func_json_unquote::fix_length_and_dec()
 {
-  collation.set(&my_charset_utf8_general_ci);
+  collation.set(&my_charset_utf8_general_ci,
+                DERIVATION_COERCIBLE, MY_REPERTOIRE_ASCII);
   max_length= args[0]->max_length;
   maybe_null= 1;
 }
@@ -742,7 +745,8 @@ String *Item_func_json_extract::read_json(String *str,
   json_path_t p;
   const uchar *value;
   int not_first_value= 0;
-  uint n_arg, v_len;
+  uint n_arg;
+  size_t v_len;
   int possible_multiple_values;
 
   if ((null_value= args[0]->null_value))
@@ -777,10 +781,10 @@ String *Item_func_json_extract::read_json(String *str,
   {
     str->set_charset(js->charset());
     str->length(0);
-  }
 
-  if (possible_multiple_values && str->append("[", 1))
-    goto error;
+    if (possible_multiple_values && str->append("[", 1))
+      goto error;
+  }
 
   json_get_path_start(&je, js->charset(),(const uchar *) js->ptr(),
                       (const uchar *) js->ptr() + js->length(), &p);
@@ -1010,6 +1014,8 @@ static int check_contains(json_engine_t *js, json_engine_t *value)
   case JSON_VALUE_ARRAY:
     if (value->value_type != JSON_VALUE_ARRAY)
     {
+      loc_js= *value;
+      set_js= FALSE;
       while (json_scan_next(js) == 0 && js->state != JST_ARRAY_END)
       {
         int c_level, v_scalar;
@@ -1019,6 +1025,11 @@ static int check_contains(json_engine_t *js, json_engine_t *value)
 
         if (!(v_scalar= json_value_scalar(js)))
           c_level= json_get_level(js);
+
+        if (set_js)
+          *value= loc_js;
+        else
+          set_js= TRUE;
 
         if (check_contains(js, value))
         {
@@ -1343,6 +1354,8 @@ longlong Item_func_json_contains_path::val_int()
     bzero(p_found, (arg_count-2) * sizeof(bool));
     n_found= arg_count - 2;
   }
+  else
+    n_found= 0; /* Jost to prevent 'uninitialized value' warnings */
 
   result= 0;
   while (json_get_path_next(&je, &p) == 0)
@@ -1450,7 +1463,8 @@ void Item_func_json_array::fix_length_and_dec()
 
   if (arg_count == 0)
   {
-    collation.set(&my_charset_utf8_general_ci);
+    collation.set(&my_charset_utf8_general_ci,
+                  DERIVATION_COERCIBLE, MY_REPERTOIRE_ASCII);
     tmp_val.set_charset(&my_charset_utf8_general_ci);
     max_length= 2;
     return;
@@ -1529,7 +1543,8 @@ String *Item_func_json_array_append::val_str(String *str)
 {
   json_engine_t je;
   String *js= args[0]->val_json(&tmp_js);
-  uint n_arg, n_path, str_rest_len;
+  uint n_arg, n_path;
+  size_t str_rest_len;
   const uchar *ar_end;
 
   DBUG_ASSERT(fixed == 1);
@@ -2047,7 +2062,7 @@ String *Item_func_json_merge::val_str(String *str)
 {
   DBUG_ASSERT(fixed == 1);
   json_engine_t je1, je2;
-  String *js1= args[0]->val_json(&tmp_js1), *js2;
+  String *js1= args[0]->val_json(&tmp_js1), *js2=NULL;
   uint n_arg;
 
   if (args[0]->null_value)
@@ -2121,6 +2136,7 @@ longlong Item_func_json_length::val_int()
   json_engine_t je;
   uint length= 0;
   uint array_counters[JSON_DEPTH_LIMIT];
+  int err;
 
   if ((null_value= args[0]->null_value))
     return 0;
@@ -2162,7 +2178,7 @@ longlong Item_func_json_length::val_int()
   if (json_value_scalar(&je))
     return 1;
 
-  while (json_scan_next(&je) == 0 &&
+  while (!(err= json_scan_next(&je)) &&
          je.state != JST_OBJ_END && je.state != JST_ARRAY_END)
   {
     switch (je.state)
@@ -2179,6 +2195,12 @@ longlong Item_func_json_length::val_int()
     default:
       break;
     };
+  }
+
+  if (!err)
+  {
+    /* Parse to the end of the JSON just to check it's valid. */
+    while (json_scan_next(&je) == 0) {}
   }
 
   if (!je.s.error)
@@ -2860,7 +2882,7 @@ skip_search:
       } while (json_read_keyname_chr(&je) == 0);
       if (je.s.error)
         goto err_return;
-      key_len= key_end - key_start;
+      key_len= (int)(key_end - key_start);
 
       if (!check_key_in_list(str, key_start, key_len))
       { 
@@ -3134,7 +3156,7 @@ String *Item_func_json_format::val_str(String *str)
   {
     if (arg_count > 1)
     {
-      tab_size= args[1]->val_int();
+      tab_size= (int)args[1]->val_int();
       if (args[1]->null_value)
       {
         null_value= 1;

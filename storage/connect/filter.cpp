@@ -10,7 +10,7 @@
 /*  Include relevant MariaDB header file.                              */
 /***********************************************************************/
 #include "my_global.h"
-#include "sql_class.h"
+//#include "sql_class.h"
 //#include "sql_time.h"
 
 #if defined(__WIN__)
@@ -35,9 +35,6 @@
 #include "array.h"
 #include "filter.h"
 #include "xindex.h"
-#if defined(MONGO_SUPPORT) || defined(JDBC_SUPPORT)
-#include "tabext.h"
-#endif   // MONGO_SUPPORT  || JDBC_SUPPORT
 
 /***********************************************************************/
 /*  Utility routines.                                                  */
@@ -301,7 +298,7 @@ PFIL FILTER::Link(PGLOBAL g, PFIL fil2)
   {
   PFIL fil1;
 
-  if (trace)
+  if (trace(1))
     htrc("Linking filter %p with op=%d... to filter %p with op=%d\n",
                   this, Opc, fil2, (fil2) ? fil2->Opc : 0);
 
@@ -355,7 +352,7 @@ int FILTER::CheckColumn(PGLOBAL g, PSQL sqlp, PXOB &p, int &ag)
   char errmsg[MAX_STR] = "";
   int  agg, k, n = 0;
 
-  if (trace)
+  if (trace(1))
     htrc("FILTER CheckColumn: sqlp=%p ag=%d\n", sqlp, ag);
 
   switch (Opc) {
@@ -540,7 +537,7 @@ PFIL FILTER::SortJoin(PGLOBAL g)
 bool FILTER::FindJoinFilter(POPJOIN opj, PFIL fprec, bool teq, bool tek,
                             bool tk2, bool tc2, bool tix, bool thx)
   {
-  if (trace)
+  if (trace(1))
     htrc("FindJoinFilter: opj=%p fprec=%p tests=(%d,%d,%d,%d)\n",
                           opj, fprec, teq, tek, tk2, tc2);
 
@@ -867,7 +864,7 @@ bool FILTER::CheckLocal(PTDB tdbp)
   {
   bool local = TRUE;
 
-  if (trace) {
+  if (trace(1)) {
     if (tdbp)
       htrc("CheckLocal: filp=%p R%d\n", this, tdbp->GetTdb_No());
     else
@@ -877,7 +874,7 @@ bool FILTER::CheckLocal(PTDB tdbp)
   for (int i = 0; local && i < 2; i++)
     local = Arg(i)->CheckLocal(tdbp);
 
-  if (trace)
+  if (trace(1))
     htrc("FCL: returning %d\n", local);
 
   return (local);
@@ -983,7 +980,7 @@ bool FILTER::Convert(PGLOBAL g, bool having)
   {
   int i, comtype = TYPE_ERROR;
 
-  if (trace)
+  if (trace(1))
     htrc("converting(?) %s %p opc=%d\n",
           (having) ? "having" : "filter", this, Opc);
 
@@ -1014,7 +1011,7 @@ bool FILTER::Convert(PGLOBAL g, bool having)
         return TRUE;
       } // endswitch
 
-    if (trace)
+    if (trace(1))
       htrc("Filter(%d): Arg type=%d\n", i, GetArgType(i));
 
     // Set default values
@@ -1059,7 +1056,7 @@ bool FILTER::Convert(PGLOBAL g, bool having)
       return TRUE;
       } // endif
 
-    if (trace)
+    if (trace(1))
       htrc(" comtype=%d, B_T(%d)=%d Val(%d)=%p\n",
              comtype, i, Test[i].B_T, i, Val(i));
 
@@ -1067,7 +1064,7 @@ bool FILTER::Convert(PGLOBAL g, bool having)
 
   // Set or allocate the filter argument values and buffers
   for (i = 0; i < 2; i++) {
-    if (trace)
+    if (trace(1))
       htrc(" conv type %d ? i=%d B_T=%d comtype=%d\n",
             GetArgType(i), i, Test[i].B_T, comtype);
 
@@ -1144,7 +1141,7 @@ bool FILTER::Convert(PGLOBAL g, bool having)
 
  TEST: // Test for possible Eval optimization
 
-  if (trace)
+  if (trace(1))
     htrc("Filp %p op=%d argtypes=(%d,%d)\n",
           this, Opc, GetArgType(0), GetArgType(1));
 
@@ -1233,7 +1230,7 @@ bool FILTER::Eval(PGLOBAL g)
       else if (Test[i].Conv)
         Val(i)->SetValue_pval(Arg(i)->GetValue());
 
-  if (trace)
+  if (trace(1))
     htrc(" Filter: op=%d type=%d %d B_T=%d %d val=%p %p\n",
           Opc, GetArgType(0), GetArgType(1), Test[0].B_T, Test[1].B_T,
           Val(0), Val(1));
@@ -1273,7 +1270,7 @@ bool FILTER::Eval(PGLOBAL g)
           goto FilterError;
         } // endswitch Type
 
-      if (trace) {
+      if (trace(1)) {
         htrc(" IN filtering: ap=%p\n", ap);
 
         if (ap)
@@ -1363,7 +1360,7 @@ bool FILTER::Eval(PGLOBAL g)
       goto FilterError;
     } // endswitch Opc
 
-  if (trace)
+  if (trace(1))
     htrc("Eval: filter %p Opc=%d result=%d\n",
                 this, Opc, Value->GetIntValue());
 
@@ -1405,86 +1402,6 @@ PFIL FILTER::Copy(PTABS t)
   return newfilchain;
   } // end of Copy
 #endif // 0
-
-#if defined(MONGO_SUPPORT)
-/***********************************************************************/
-/*  Make selector json representation for Mongo tables.                */
-/***********************************************************************/
-bool FILTER::MakeSelector(PGLOBAL g, PSTRG s)
-{
-	s->Append('{');
-
-	if (Opc == OP_AND || Opc == OP_OR) {
-		if (GetArgType(0) != TYPE_FILTER || GetArgType(1) != TYPE_FILTER)
-			return true;
-
-		s->Append("\"$");
-		s->Append(Opc == OP_AND ? "and" : "or");
-		s->Append("\":[");
-
-		if (((PFIL)Arg(0))->MakeSelector(g, s))
-			return true;
-
-		s->Append(',');
-
-		if (((PFIL)Arg(1))->MakeSelector(g, s))
-			return true;
-
-		s->Append(']');
-	} else {
-		if (GetArgType(0) != TYPE_COLBLK)
-			return true;
-
-		s->Append('"');
-		s->Append(((PCOL)Arg(0))->GetJpath(g, false));
-		s->Append("\":{\"$");
-
-		switch (Opc) {
-			case OP_EQ:
-				s->Append("eq");
-				break;
-			case OP_NE:
-				s->Append("ne");
-				break;
-			case OP_GT:
-				s->Append("gt");
-				break;
-			case OP_GE:
-				s->Append("gte");
-				break;
-			case OP_LT:
-				s->Append("lt");
-				break;
-			case OP_LE:
-				s->Append("lte");
-				break;
-			case OP_NULL:
-			case OP_LIKE:
-			case OP_EXIST:
-			default:
-				return true;
-		} // endswitch Opc
-
-		s->Append("\":");
-
-		if (GetArgType(1) == TYPE_COLBLK) {
-			s->Append("\"$");
-			s->Append(((PEXTCOL)Arg(1))->GetJpath(g, false));
-			s->Append('"');
-		} else {
-			char buf[501];
-
-			Arg(1)->Prints(g, buf, 500);
-			s->Append(buf);
-		} // endif Type
-
-		s->Append('}');
-	} // endif Opc
-
-	s->Append('}');
-	return false;
-} // end of MakeSelector
-#endif   // MONGO_SUPPORT
 
 /*********************************************************************/
 /*  Make file output of FILTER contents.                             */
@@ -1775,7 +1692,7 @@ PFIL PrepareFilter(PGLOBAL g, PFIL fp, bool having)
   {
   PFIL filp = NULL;
 
-  if (trace)
+  if (trace(1))
     htrc("PrepareFilter: fp=%p having=%d\n", fp, having);
 
   while (fp) {
@@ -1797,7 +1714,7 @@ PFIL PrepareFilter(PGLOBAL g, PFIL fp, bool having)
     filp->Next = NULL;
     } // endwhile
 
-  if (trace)
+  if (trace(1))
     htrc(" returning filp=%p\n", filp);
 
   return filp;
@@ -1823,7 +1740,7 @@ DllExport bool ApplyFilter(PGLOBAL g, PFIL filp)
   if (filp->Eval(g))
 		throw (int)TYPE_FILTER;
 
-  if (trace > 1)
+  if (trace(2))
     htrc("PlugFilter filp=%p result=%d\n",
                      filp, filp->GetResult());
 

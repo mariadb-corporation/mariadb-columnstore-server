@@ -3728,6 +3728,150 @@ deallocate prepare stmt2;
 
 drop table t1;
 
+--echo #
+--echo # MDEV-9208: Function->Function->View = Mysqld segfault
+--echo # (Server crashes in Dependency_marker::visit_field on 2nd
+--echo # execution with merged subquery)
+--echo #
+
+CREATE TABLE t1 (i1 INT);
+insert into t1 values(1),(2);
+
+CREATE TABLE t2 (i2 INT);
+insert into t2 values(1),(2);
+
+prepare stmt from "
+  select 1 from (
+    select
+      if (i1<0, 0, 0) as f1,
+      (select f1) as f2
+    from t1, t2
+  ) sq
+";
+
+execute stmt;
+execute stmt;
+
+drop table t1,t2;
+
+--echo #
+--echo # MDEV-9619: Assertion `null_ref_table' failed in virtual
+--echo # table_map Item_direct_view_ref::used_tables() const on 2nd
+--echo # execution of PS
+--echo #
+
+CREATE TABLE t1 (f1 VARCHAR(10)) ENGINE=MyISAM;
+CREATE ALGORITHM=MERGE VIEW v1 AS SELECT * FROM t1;
+INSERT INTO t1 VALUES ('a'),('b');
+
+CREATE TABLE t2 (f2 VARCHAR(10)) ENGINE=MyISAM;
+INSERT INTO t2 VALUES ('c'),('d');
+
+PREPARE stmt FROM "SELECT * FROM v1 WHERE f1 = SOME ( SELECT f2 FROM t2 )";
+EXECUTE stmt;
+EXECUTE stmt;
+insert into t1 values ('c');
+EXECUTE stmt;
+EXECUTE stmt;
+
+deallocate prepare stmt;
+drop view v1;
+drop table t1,t2;
+
+CREATE TABLE t1 (f1 VARCHAR(10)) ENGINE=MyISAM;
+CREATE ALGORITHM=MERGE VIEW v1 AS SELECT * FROM t1;
+INSERT INTO t1 VALUES ('a'),('b');
+
+CREATE TABLE t2 (f2 VARCHAR(10)) ENGINE=MyISAM;
+INSERT INTO t2 VALUES ('c'),('d');
+
+PREPARE stmt FROM "SELECT * FROM v1 WHERE (f1,f1) = SOME ( SELECT f2,f2 FROM t2 )";
+EXECUTE stmt;
+EXECUTE stmt;
+insert into t1 values ('c');
+EXECUTE stmt;
+EXECUTE stmt;
+
+deallocate prepare stmt;
+drop view v1;
+drop table t1,t2;
+
+
+
+CREATE TABLE t1 (column1 INT) ENGINE=MyISAM;
+INSERT INTO t1 VALUES (3),(9);
+
+CREATE TABLE t2 (column2 INT) ENGINE=MyISAM;
+
+INSERT INTO t2 VALUES (1),(4);
+
+CREATE TABLE t3 (column3 INT) ENGINE=MyISAM;
+INSERT INTO t3 VALUES (6),(8);
+
+CREATE TABLE t4 (column4 INT) ENGINE=MyISAM;
+INSERT INTO t4 VALUES (2),(5);
+
+PREPARE stmt FROM "
+SELECT ( 
+  SELECT MAX( table1.column1 ) AS field1 
+  FROM t1 AS table1
+  WHERE (111,table3.column3) IN ( SELECT 111,table2.column2 AS field2 FROM t2 AS table2 ) 
+) AS sq
+FROM t3 AS table3, t4 AS table4 GROUP BY sq
+";
+
+EXECUTE stmt;
+EXECUTE stmt;
+
+deallocate prepare stmt;
+drop table t1,t2,t3,t4;
+
+create table t1 (a int, b int, c int);
+create table t2 (x int, y int, z int);
+create table t3 as select * from t1;
+insert into t1 values (1,2,3),(4,5,6),(100,200,300),(400,500,600);
+insert into t2 values (1,2,3),(7,8,9),(100,200,300),(400,500,600);
+insert into t3 values (1,2,3),(11,12,13),(100,0,0),(400,500,600);
+
+
+set @optimizer_switch_save=@@optimizer_switch;
+set @join_cache_level_save=@@join_cache_level;
+set optimizer_switch='materialization=off';
+set join_cache_level=0;
+select * from t1 where (select a,b from t3 where t3.c=t1.c) in (select x,y from t2 where t1.c= t2.z);
+prepare stmt from "select * from t1 where (select a,b from t3 where t3.c=t1.c) in (select x,y from t2 where t1.c= t2.z)";
+EXECUTE stmt;
+EXECUTE stmt;
+
+create view v1 as select * from t1;
+create view v2 as select * from t2;
+create view v3 as select * from t3;
+select * from v1 where (select a,b from v3 where v3.c=v1.c) in (select x,y from v2 where v1.c= v2.z);
+prepare stmt from "select * from v1 where (select a,b from v3 where v3.c=v1.c) in (select x,y from v2 where v1.c= v2.z)";
+EXECUTE stmt;
+EXECUTE stmt;
+set optimizer_switch=@optimizer_switch_save;
+set join_cache_level=@join_cache_level_save;
+
+deallocate prepare stmt;
+drop view v1,v2,v3;
+drop table t1,t2,t3;
+
+--echo #
+--echo # MDEV-10657: incorrect result returned with binary protocol
+--echo # (prepared statements)
+--echo #
+
+create table  t1 (code varchar(10) primary key);
+INSERT INTO t1(code) VALUES ('LINE1'), ('LINE2'), ('LINE3');
+SELECT X.*
+FROM
+ (SELECT CODE, RN
+   FROM
+     (SELECT A.CODE, @cnt := @cnt + 1 AS RN
+       FROM  t1 A, (SELECT @cnt := 0) C) T
+  ) X;
+drop table t1;
 --echo # End of 5.5 tests
 
 --echo #
@@ -4346,4 +4490,148 @@ EXECUTE IMMEDIATE 'CALL p1(?)' USING 10;
 EXECUTE IMMEDIATE 'CALL p1(?)' USING DEFAULT;
 --error ER_SP_NOT_VAR_ARG
 EXECUTE IMMEDIATE 'CALL p1(?)' USING IGNORE;
+DROP PROCEDURE p1;
+
+
+--echo #
+--echo # MDEV-14434 Wrong result for CHARSET(CONCAT(?,const))
+--echo #
+
+SET NAMES utf8;
+EXECUTE IMMEDIATE "SELECT CHARSET(CONCAT(5,_latin1'a'))";
+EXECUTE IMMEDIATE "SELECT CHARSET(CONCAT(?,_latin1'a'))" USING 5;
+EXECUTE IMMEDIATE "SELECT CHARSET(CONCAT(?,_latin1'a'))" USING 5.5;
+EXECUTE IMMEDIATE "SELECT CHARSET(CONCAT(?,_latin1'a'))" USING 5.5e0;
+EXECUTE IMMEDIATE "SELECT CHARSET(CONCAT(?,_latin1'a'))" USING TIME'10:20:30';
+EXECUTE IMMEDIATE "SELECT CHARSET(CONCAT(?,_latin1'a'))" USING TIMESTAMP'2001-01-01 10:20:30';
+
+EXECUTE IMMEDIATE "SELECT COERCIBILITY(?)" USING 5;
+EXECUTE IMMEDIATE "SELECT COERCIBILITY(?)" USING 5.5;
+EXECUTE IMMEDIATE "SELECT COERCIBILITY(?)" USING 5.5e0;
+EXECUTE IMMEDIATE "SELECT COERCIBILITY(?)" USING TIME'10:20:30';
+EXECUTE IMMEDIATE "SELECT COERCIBILITY(?)" USING TIMESTAMP'2001-01-01 10:20:30';
+
+--echo #
+--echo # MDEV-14435 Different UNSIGNED flag of out user variable for YEAR parameter for direct vs prepared CALL
+--echo #
+
+CREATE PROCEDURE p1(OUT v INT UNSIGNED) SET v = 2010;
+CALL p1(@a);
+PREPARE stmt FROM 'CALL p1(?)';
+EXECUTE stmt USING @b;
+DEALLOCATE PREPARE stmt;
+CREATE TABLE t1 AS SELECT @a AS a, @b AS b;
+SHOW CREATE TABLE t1;
+DROP TABLE t1;
+DROP PROCEDURE p1;
+
+CREATE PROCEDURE p1(OUT v YEAR) SET v = 2010;
+CALL p1(@a);
+PREPARE stmt FROM 'CALL p1(?)';
+EXECUTE stmt USING @b;
+DEALLOCATE PREPARE stmt;
+CREATE TABLE t1 AS SELECT @a AS a, @b AS b;
+SHOW CREATE TABLE t1;
+DROP TABLE t1;
+DROP PROCEDURE p1;
+
+CREATE PROCEDURE p1(OUT v BIT(16)) SET v = 2010;
+CALL p1(@a);
+PREPARE stmt FROM 'CALL p1(?)';
+EXECUTE stmt USING @b;
+DEALLOCATE PREPARE stmt;
+CREATE TABLE t1 AS SELECT @a AS a, @b AS b;
+SHOW CREATE TABLE t1;
+DROP TABLE t1;
+DROP PROCEDURE p1;
+
+
+--echo #
+--echo # MDEV-14426 Assertion in Diagnostics_area::set_error_status when using a bad datetime with PS and SP
+--echo #
+
+DELIMITER $$;
+CREATE PROCEDURE p1(OUT a VARCHAR(20))
+BEGIN
+  SET a=10;
+END;
+$$
+--error ER_TRUNCATED_WRONG_VALUE
+BEGIN NOT ATOMIC
+  DECLARE a DATETIME;
+  CALL p1(a);
+END;
+$$
+--error ER_TRUNCATED_WRONG_VALUE
+BEGIN NOT ATOMIC
+  DECLARE a DATETIME;
+  EXECUTE IMMEDIATE 'CALL p1(?)' USING a;
+END;
+$$
+--error ER_TRUNCATED_WRONG_VALUE
+BEGIN NOT ATOMIC
+  DECLARE a DATETIME;
+  PREPARE stmt FROM 'CALL p1(?)';
+  EXECUTE stmt  USING a;
+  DEALLOCATE PREPARE stmt;
+END;
+$$
+DELIMITER ;$$
+DROP PROCEDURE p1;
+
+--echo #
+--echo # MDEV-14603 signal 11 with short stacktrace
+--echo #
+
+SET NAMES utf8;
+CREATE TABLE t1(i INT);
+CREATE PROCEDURE p1(tn VARCHAR(32))
+  EXECUTE IMMEDIATE CONCAT('ANALYZE TABLE ',tn);
+CALL p1('t1');
+DROP PROCEDURE p1;
+DROP TABLE t1;
+
+SET NAMES utf8;
+CREATE PROCEDURE p1()
+  EXECUTE IMMEDIATE CONCAT('SELECT ',CONVERT(RAND() USING latin1));
+--disable_result_log
+CALL p1();
+--enable_result_log
+DROP PROCEDURE p1;
+
+SET NAMES utf8;
+DELIMITER $$;
+CREATE PROCEDURE p1()
+BEGIN
+  PREPARE stmt FROM CONCAT('SELECT ',CONVERT(RAND() USING latin1));
+  EXECUTE stmt;
+  DEALLOCATE PREPARE stmt;
+END;
+$$
+DELIMITER ;$$
+--disable_result_log
+CALL p1();
+--enable_result_log
+DROP PROCEDURE p1;
+
+SET NAMES utf8;
+CREATE PROCEDURE p1(a VARCHAR(10) CHARACTER SET utf8)
+  EXECUTE IMMEDIATE 'SELECT ?' USING CONCAT(a, CONVERT(RAND() USING latin1));
+--disable_result_log
+CALL p1('x');
+--enable_result_log
+DROP PROCEDURE p1;
+
+SET NAMES utf8;
+DELIMITER $$;
+CREATE PROCEDURE p1(a VARCHAR(10) CHARACTER SET utf8)
+BEGIN
+  PREPARE stmt FROM 'SELECT ?';
+  EXECUTE stmt USING CONCAT(a, CONVERT(RAND() USING latin1));
+  DEALLOCATE PREPARE stmt;
+END;
+$$
+DELIMITER ;$$
+--disable_result_log
+CALL p1('x');
 DROP PROCEDURE p1;

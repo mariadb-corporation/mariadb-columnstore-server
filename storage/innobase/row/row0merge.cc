@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2005, 2017, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2014, 2017, MariaDB Corporation.
+Copyright (c) 2014, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -36,6 +36,7 @@ Completed by Sunny Bains and Marko Makela
 #include "row0ext.h"
 #include "row0log.h"
 #include "row0ins.h"
+#include "row0row.h"
 #include "row0sel.h"
 #include "log0crypt.h"
 #include "dict0crea.h"
@@ -45,6 +46,7 @@ Completed by Sunny Bains and Marko Makela
 #include "ut0sort.h"
 #include "row0ftsort.h"
 #include "row0import.h"
+#include "row0vers.h"
 #include "handler0alter.h"
 #include "btr0bulk.h"
 #include "fsp0sysspace.h"
@@ -452,8 +454,8 @@ row_merge_buf_redundant_convert(
 	const page_size_t&	page_size,
 	mem_heap_t*		heap)
 {
-	ut_ad(DATA_MBMINLEN(field->type.mbminmaxlen) == 1);
-	ut_ad(DATA_MBMAXLEN(field->type.mbminmaxlen) > 1);
+	ut_ad(field->type.mbminlen == 1);
+	ut_ad(field->type.mbmaxlen > 1);
 
 	byte*		buf = (byte*) mem_heap_alloc(heap, len);
 	ulint		field_len = row_field->len;
@@ -595,7 +597,8 @@ row_merge_buf_add(
 
 			field->type.mtype = ifield->col->mtype;
 			field->type.prtype = ifield->col->prtype;
-			field->type.mbminmaxlen = DATA_MBMINMAXLEN(0, 0);
+			field->type.mbminlen = 0;
+			field->type.mbmaxlen = 0;
 			field->type.len = ifield->col->len;
 		} else {
 			/* Use callback to get the virtual column value */
@@ -746,7 +749,7 @@ row_merge_buf_add(
 		if (ifield->prefix_len) {
 			len = dtype_get_at_most_n_mbchars(
 				col->prtype,
-				col->mbminmaxlen,
+				col->mbminlen, col->mbmaxlen,
 				ifield->prefix_len,
 				len,
 				static_cast<char*>(dfield_get_data(field)));
@@ -758,8 +761,7 @@ row_merge_buf_add(
 
 		fixed_len = ifield->fixed_len;
 		if (fixed_len && !dict_table_is_comp(index->table)
-		    && DATA_MBMINLEN(col->mbminmaxlen)
-		    != DATA_MBMAXLEN(col->mbminmaxlen)) {
+		    && col->mbminlen != col->mbmaxlen) {
 			/* CHAR in ROW_FORMAT=REDUNDANT is always
 			fixed-length, but in the temporary file it is
 			variable-length for variable-length character
@@ -769,14 +771,11 @@ row_merge_buf_add(
 
 		if (fixed_len) {
 #ifdef UNIV_DEBUG
-			ulint	mbminlen = DATA_MBMINLEN(col->mbminmaxlen);
-			ulint	mbmaxlen = DATA_MBMAXLEN(col->mbminmaxlen);
-
 			/* len should be between size calcualted base on
 			mbmaxlen and mbminlen */
 			ut_ad(len <= fixed_len);
-			ut_ad(!mbmaxlen || len >= mbminlen
-			      * (fixed_len / mbmaxlen));
+			ut_ad(!col->mbmaxlen || len >= col->mbminlen
+			      * (fixed_len / col->mbmaxlen));
 
 			ut_ad(!dfield_is_ext(field));
 #endif /* UNIV_DEBUG */
@@ -1090,8 +1089,8 @@ row_merge_read(
 	const bool	success = os_file_read_no_error_handling_int_fd(
 		request, fd, buf, ofs, srv_sort_buf_size);
 
-	/* For encrypted tables, decrypt data after reading and copy data */
-	if (log_tmp_is_encrypted()) {
+	/* If encryption is enabled decrypt buffer */
+	if (success && log_tmp_is_encrypted()) {
 		if (!log_tmp_block_decrypt(buf, srv_sort_buf_size,
 					   crypt_buf, ofs, space)) {
 			return (FALSE);
@@ -3589,8 +3588,6 @@ row_merge_lock_table(
 
 	trx->op_info = "setting table lock for creating or dropping index";
 	trx->ddl = true;
-	/* Trx for DDL should not be forced to rollback for now */
-	trx->in_innodb |= TRX_FORCE_ROLLBACK_DISABLE;
 
 	return(lock_table_for_trx(table, trx, mode));
 }
@@ -4016,7 +4013,7 @@ row_merge_file_create(
 
 	if (merge_file->fd >= 0) {
 		if (srv_disable_sort_file_cache) {
-			os_file_set_nocache((os_file_t)merge_file->fd,
+			os_file_set_nocache(merge_file->fd,
 				"row0merge.cc", "sort");
 		}
 	}
@@ -4362,16 +4359,13 @@ row_merge_create_index_graph(
 @param[in]	index_def	the index definition
 @param[in]	add_v		new virtual columns added along with add
 				index call
-@param[in]	col_names	column names if columns are renamed
-				or NULL
 @return index, or NULL on error */
 dict_index_t*
 row_merge_create_index(
 	trx_t*			trx,
 	dict_table_t*		table,
 	const index_def_t*	index_def,
-	const dict_add_v_col_t*	add_v,
-	const char**		col_names)
+	const dict_add_v_col_t*	add_v)
 {
 	dict_index_t*	index;
 	dberr_t		err;
@@ -4411,20 +4405,7 @@ row_merge_create_index(
 					table, ifield->col_no);
 			}
 		} else {
-			/*
-			Alter table renaming a column and then adding a index
-			to this new name e.g ALTER TABLE t
-			CHANGE COLUMN b c INT NOT NULL, ADD UNIQUE INDEX (c);
-			requires additional check as column names are not yet
-			changed when new index definitions are created. Table's
-			new column names are on a array of column name pointers
-			if any of the column names are changed. */
-
-			if (col_names && col_names[i]) {
-				name = col_names[i];
-			} else {
-				name = dict_table_get_col_name(table, ifield->col_no);
-			}
+			name = dict_table_get_col_name(table, ifield->col_no);
 		}
 
 		dict_mem_index_add_field(index, name, ifield->prefix_len);
@@ -4612,6 +4593,8 @@ row_merge_build_indexes(
 		DBUG_RETURN(DB_OUT_OF_MEMORY);
 	}
 
+	TRASH_ALLOC(&crypt_pfx, sizeof crypt_pfx);
+
 	if (log_tmp_is_encrypted()) {
 		crypt_block = static_cast<row_merge_block_t*>(
 			alloc.allocate_large(3 * srv_sort_buf_size,
@@ -4718,8 +4701,8 @@ row_merge_build_indexes(
 			"Table %s is encrypted but encryption service or"
 			" used key_id is not available. "
 			" Can't continue reading table.",
-			!old_table->is_readable() ? old_table->name :
-				new_table->name);
+			!old_table->is_readable() ? old_table->name.m_name :
+				new_table->name.m_name);
 		goto func_exit;
 	}
 
@@ -5040,7 +5023,7 @@ func_exit:
 		ut_ad(need_flush_observer);
 
 		DBUG_EXECUTE_IF("ib_index_build_fail_before_flush",
-			error = DB_FAIL;
+			error = DB_INTERRUPTED;
 		);
 
 		if (error != DB_SUCCESS) {

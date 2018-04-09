@@ -382,7 +382,7 @@ wsrep_view_handler_cb (void*                    app_ctx,
     if (!wsrep_before_SE())
     {
         WSREP_DEBUG("[debug]: closing client connections for PRIM");
-        wsrep_close_client_connections(TRUE);
+        wsrep_close_client_connections(FALSE);
     }
 
     ssize_t const req_len= wsrep_sst_prepare (sst_req);
@@ -1252,6 +1252,16 @@ int wsrep_to_buf_helper(
       if (!ret && writer.write(&gtid_ev)) ret= 1;
   }
 #endif /* GTID_SUPPORT */
+  if (wsrep_gtid_mode && thd->variables.gtid_seq_no)
+  {
+    Gtid_log_event gtid_event(thd, thd->variables.gtid_seq_no,
+                          thd->variables.gtid_domain_id,
+                          true, LOG_EVENT_SUPPRESS_USE_F,
+                          true, 0);
+    gtid_event.server_id= thd->variables.server_id;
+    if (!gtid_event.is_valid()) ret= 0;
+    ret= writer.write(&gtid_event);
+  }
 
   /* if there is prepare query, add event for it */
   if (!ret && thd->wsrep_TOI_pre_query)
@@ -1543,8 +1553,8 @@ static int wsrep_TOI_begin(THD *thd, char *db_, char *table_,
                ret,
                (thd->db ? thd->db : "(null)"),
                (thd->query()) ? thd->query() : "void");
-    my_error(ER_LOCK_DEADLOCK, MYF(0), "WSREP replication failed. Check "
-	     "your wsrep connection state and retry the query.");
+    my_message(ER_LOCK_DEADLOCK, "WSREP replication failed. Check "
+               "your wsrep connection state and retry the query.", MYF(0));
     wsrep_keys_free(&key_arr);
     rc= -1;
   }
@@ -2021,7 +2031,7 @@ static bool abort_replicated(THD *thd)
   bool ret_code= false;
   if (thd->wsrep_query_state== QUERY_COMMITTING)
   {
-    WSREP_DEBUG("aborting replicated trx: %lu", thd->real_id);
+    WSREP_DEBUG("aborting replicated trx: %llu", (ulonglong)(thd->real_id));
 
     (void)wsrep_abort_thd(thd, thd, TRUE);
     ret_code= true;
@@ -2371,7 +2381,7 @@ extern "C" void wsrep_thd_set_query_state(
 
 void wsrep_thd_set_conflict_state(THD *thd, enum wsrep_conflict_state state)
 {
-  thd->wsrep_conflict_state= state;
+  if (WSREP(thd)) thd->wsrep_conflict_state= state;
 }
 
 
