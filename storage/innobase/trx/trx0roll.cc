@@ -47,7 +47,6 @@ Created 3/26/1996 Heikki Tuuri
 #include "trx0sys.h"
 #include "trx0trx.h"
 #include "trx0undo.h"
-#include "usr0sess.h"
 #include "ha_prototypes.h"
 
 /** This many pages must be undone before a truncate is tried within
@@ -184,10 +183,7 @@ trx_rollback_for_mysql_low(
 /** Rollback a transaction used in MySQL
 @param[in, out]	trx	transaction
 @return error code or DB_SUCCESS */
-static
-dberr_t
-trx_rollback_low(
-	trx_t*	trx)
+dberr_t trx_rollback_for_mysql(trx_t* trx)
 {
 	/* We are reading trx->state without holding trx_sys->mutex
 	here, because the rollback should be invoked for a running
@@ -195,7 +191,6 @@ trx_rollback_low(
 	that is associated with the current thread. */
 
 	switch (trx->state) {
-	case TRX_STATE_FORCED_ROLLBACK:
 	case TRX_STATE_NOT_STARTED:
 		trx->will_lock = 0;
 		ut_ad(trx->in_mysql_trx_list);
@@ -263,28 +258,6 @@ trx_rollback_low(
 }
 
 /*******************************************************************//**
-Rollback a transaction used in MySQL.
-@return error code or DB_SUCCESS */
-dberr_t
-trx_rollback_for_mysql(
-/*===================*/
-	trx_t*	trx)	/*!< in/out: transaction */
-{
-	/* Avoid the tracking of async rollback killer
-	thread to enter into InnoDB. */
-	if (TrxInInnoDB::is_async_rollback(trx)) {
-
-		return(trx_rollback_low(trx));
-
-	} else {
-
-		TrxInInnoDB	trx_in_innodb(trx, true);
-
-		return(trx_rollback_low(trx));
-	}
-}
-
-/*******************************************************************//**
 Rollback the latest SQL statement for MySQL.
 @return error code or DB_SUCCESS */
 dberr_t
@@ -301,7 +274,6 @@ trx_rollback_last_sql_stat_for_mysql(
 	ut_ad(trx->in_mysql_trx_list);
 
 	switch (trx->state) {
-	case TRX_STATE_FORCED_ROLLBACK:
 	case TRX_STATE_NOT_STARTED:
 		return(DB_SUCCESS);
 
@@ -488,12 +460,9 @@ trx_rollback_to_savepoint_for_mysql(
 
 	switch (trx->state) {
 	case TRX_STATE_NOT_STARTED:
-	case TRX_STATE_FORCED_ROLLBACK:
-
 		ib::error() << "Transaction has a savepoint "
 			<< savep->name
 			<< " though it is not started";
-
 		return(DB_ERROR);
 
 	case TRX_STATE_ACTIVE:
@@ -781,7 +750,6 @@ fake_prepared:
 	case TRX_STATE_PREPARED:
 		goto func_exit;
 	case TRX_STATE_NOT_STARTED:
-	case TRX_STATE_FORCED_ROLLBACK:
 		break;
 	}
 

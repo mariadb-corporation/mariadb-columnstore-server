@@ -27,6 +27,7 @@
 #include "sql_const.h"                 /* RAND_TABLE_BIT, MAX_FIELD_NAME */
 #include "field.h"                              /* Derivation */
 #include "sql_type.h"
+#include "sql_time.h"
 
 C_MODE_START
 #include <ma_dyncol.h>
@@ -1366,11 +1367,19 @@ public:
   bool get_time(MYSQL_TIME *ltime)
   { return get_date(ltime, TIME_TIME_ONLY | TIME_INVALID_DATES); }
   // Get date with automatic TIME->DATETIME conversion
+  bool convert_time_to_datetime(THD *thd, MYSQL_TIME *ltime, ulonglong fuzzydate)
+  {
+    MYSQL_TIME tmp;
+    if (time_to_datetime_with_warn(thd, ltime, &tmp, fuzzydate))
+      return null_value= true;
+    *ltime= tmp;
+    return false;
+  }
   bool get_date_with_conversion(MYSQL_TIME *ltime, ulonglong fuzzydate);
   /*
     Get time with automatic DATE/DATETIME to TIME conversion.
 
-    Performce a reserve operation to get_date_with_conversion().
+    Performes a reverse operation to get_date_with_conversion().
     Suppose:
     - we have a set of items (typically with the native MYSQL_TYPE_TIME type)
       whose item->get_date() return TIME1 value, and
@@ -3849,7 +3858,7 @@ class Item_date_literal_for_invalid_dates: public Item_date_literal
 
     Item_date_literal_for_invalid_dates::get_date()
     (unlike the regular Item_date_literal::get_date())
-    does not check the result for NO_ZERO_IN_DATE and NO_ZER_DATE,
+    does not check the result for NO_ZERO_IN_DATE and NO_ZERO_DATE,
     always returns success (false), and does not produce error/warning messages.
 
     We need these _for_invalid_dates classes to be able to rewrite:
@@ -5550,8 +5559,17 @@ public:
   enum Item_result cmp_type () const
   { return Type_handler_hybrid_field_type::cmp_type(); }
 
-  static Item_cache* get_cache(THD *thd, const Item *item);
-  static Item_cache* get_cache(THD *thd, const Item* item, const Item_result type);
+  static Item_cache* get_cache(THD *thd, const Item* item,
+                         const Item_result type, const enum_field_types f_type);
+  static Item_cache* get_cache(THD *thd, const Item* item,
+                         const Item_result type)
+  {
+    return get_cache(thd, item, type, item->field_type());
+  }
+  static Item_cache* get_cache(THD *thd, const Item *item)
+  {
+    return get_cache(thd, item, item->cmp_type());
+  }
   virtual void keep_array() {}
   virtual void print(String *str, enum_query_type query_type);
   bool eq_def(const Field *field) 
@@ -5596,7 +5614,7 @@ public:
   virtual void store(Item *item);
   virtual bool cache_value()= 0;
   bool basic_const_item() const
-  { return MY_TEST(example && example->basic_const_item()); }
+  { return example && example->basic_const_item(); }
   virtual void clear() { null_value= TRUE; value_cached= FALSE; }
   bool is_null() { return !has_value(); }
   virtual bool is_expensive()
