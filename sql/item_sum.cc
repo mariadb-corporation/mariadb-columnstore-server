@@ -36,9 +36,9 @@
   used in Item_sum_*
 */
 
-ulonglong Item_sum::ram_limitation(THD *thd)
+size_t Item_sum::ram_limitation(THD *thd)
 {
-  return MY_MIN(thd->variables.tmp_memory_table_size,
+  return (size_t)MY_MIN(thd->variables.tmp_memory_table_size,
                 thd->variables.max_heap_table_size);
 }
 
@@ -2065,6 +2065,18 @@ void Item_sum_hybrid::clear()
   null_value= 1;
 }
 
+bool
+Item_sum_hybrid::get_date(MYSQL_TIME *ltime, ulonglong fuzzydate)
+{
+  DBUG_ASSERT(fixed == 1);
+  if (null_value)
+    return true;
+  bool retval= value->get_date(ltime, fuzzydate);
+  if ((null_value= value->null_value))
+    DBUG_ASSERT(retval == true);
+  return retval;
+}
+
 double Item_sum_hybrid::val_real()
 {
   DBUG_ASSERT(fixed == 1);
@@ -2245,7 +2257,7 @@ bool Item_sum_bit::remove_as_window(ulonglong value)
   }
 
   // Prevent overflow;
-  num_values_added = std::min(num_values_added, num_values_added - 1);
+  num_values_added = MY_MIN(num_values_added, num_values_added - 1);
   set_bits_from_counters();
   return 0;
 }
@@ -2258,7 +2270,7 @@ bool Item_sum_bit::add_as_window(ulonglong value)
     bit_counters[i]+= (value & (1ULL << i)) ? 1 : 0;
   }
   // Prevent overflow;
-  num_values_added = std::max(num_values_added, num_values_added + 1);
+  num_values_added = MY_MAX(num_values_added, num_values_added + 1);
   set_bits_from_counters();
   return 0;
 }
@@ -3668,7 +3680,7 @@ bool Item_func_group_concat::setup(THD *thd)
       syntax of this function). If there is no ORDER BY clause, we don't
       create this tree.
     */
-    init_tree(tree, (uint) MY_MIN(thd->variables.max_heap_table_size,
+    init_tree(tree, (size_t)MY_MIN(thd->variables.max_heap_table_size,
                                thd->variables.sortbuff_size/16), 0,
               tree_key_length, 
               group_concat_key_cmp_with_order, NULL, (void*) this,
@@ -3745,7 +3757,7 @@ void Item_func_group_concat::print(String *str, enum_query_type query_type)
     }
   }
   str->append(STRING_WITH_LEN(" separator \'"));
-  str->append(*separator);
+  str->append_for_single_quote(separator->ptr(), separator->length());
   str->append(STRING_WITH_LEN("\')"));
 }
 

@@ -41,7 +41,7 @@
 #include <sql_common.h>
 #include <errmsg.h>
 #include <ssl_compat.h>
-#include <mysqld_error.h>
+#include "unireg.h"
 #include <mysys_err.h>
 #include "rpl_handler.h"
 #include <signal.h>
@@ -3213,7 +3213,6 @@ static int init_slave_thread(THD* thd, Master_info *mi,
   thd->variables.sql_log_slow= opt_log_slow_slave_statements;
   thd->variables.log_slow_filter= global_system_variables.log_slow_filter;
   set_slave_thread_options(thd);
-  thd->client_capabilities = CLIENT_LOCAL_FILES;
 
   if (thd_type == SLAVE_THD_SQL)
     THD_STAGE_INFO(thd, stage_waiting_for_the_next_event_in_relay_log);
@@ -3462,11 +3461,11 @@ sql_delay_event(Log_event *ev, THD *thd, rpl_group_info *rgi)
                         "ev->when= %lu "
                         "rli->mi->clock_diff_with_master= %lu "
                         "now= %ld "
-                        "sql_delay_end= %lu "
+                        "sql_delay_end= %llu "
                         "nap_time= %ld",
                         sql_delay, (long)ev->when,
                         rli->mi->clock_diff_with_master,
-                        (long)now, sql_delay_end, (long)nap_time));
+                        (long)now, (ulonglong)sql_delay_end, (long)nap_time));
 
     if (sql_delay_end > now)
     {
@@ -4526,12 +4525,12 @@ Stopping slave I/O thread due to out-of-memory error from master");
           lastchecktime = currenttime;
           if(tokenamount < network_read_len)
           {
-            ulonglong micro_time = 1000*1000 * (network_read_len - tokenamount) / speed_limit_in_bytes ;  
-            ulonglong second_time = micro_time / (1000 * 1000);
-            micro_time = micro_time % (1000 * 1000);
+            ulonglong duration =1000ULL*1000 * (network_read_len - tokenamount) / speed_limit_in_bytes;
+            time_t second_time = (time_t)(duration / (1000 * 1000));
+            uint micro_time = duration % (1000 * 1000);
 
             // at least sleep 1000 micro second
-            my_sleep(micro_time > 1000 ? micro_time : 1000); 
+            my_sleep(MY_MAX(micro_time,1000));
 
             /*
               If it sleep more than one second, 

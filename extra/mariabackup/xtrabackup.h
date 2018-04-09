@@ -109,6 +109,7 @@ extern my_bool		opt_force_non_empty_dirs;
 extern my_bool		opt_noversioncheck;
 extern my_bool		opt_no_backup_locks;
 extern my_bool		opt_decompress;
+extern my_bool		opt_remove_original;
 
 extern char		*opt_incremental_history_name;
 extern char		*opt_incremental_history_uuid;
@@ -147,10 +148,6 @@ extern ulong opt_binlog_info;
 void xtrabackup_io_throttling(void);
 my_bool xb_write_delta_metadata(const char *filename,
 				const xb_delta_info_t *info);
-
-/** @return the tablespace flags from a given data file
-@retval	ULINT_UNDEFINED	if the file is not readable */
-ulint xb_get_space_flags(pfs_os_file_t file);
 
 /************************************************************************
 Checks if a table specified as a name in the form "database/name" (InnoDB 5.6)

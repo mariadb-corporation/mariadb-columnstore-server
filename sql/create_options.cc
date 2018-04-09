@@ -124,8 +124,8 @@ static bool set_one_value(ha_create_table_option *opt,
                           MEM_ROOT *root)
 {
   DBUG_ENTER("set_one_value");
-  DBUG_PRINT("enter", ("opt: 0x%lx type: %u name '%s' value: '%s'",
-                       (ulong) opt,
+  DBUG_PRINT("enter", ("opt: %p type: %u name '%s' value: '%s'",
+                       opt,
                        opt->type, opt->name,
                        (value->str ? value->str : "<DEFAULT>")));
   switch (opt->type)
@@ -613,7 +613,8 @@ uchar *engine_option_value::frm_image(uchar *buff)
 {
   if (value.str)
   {
-    *buff++= name.length;
+    DBUG_ASSERT(name.length <= 0xff);
+    *buff++= (uchar)name.length;
     memcpy(buff, name.str, name.length);
     buff+= name.length;
     int2store(buff, value.length | (quoted_value ? FRM_QUOTED_VALUE : 0));

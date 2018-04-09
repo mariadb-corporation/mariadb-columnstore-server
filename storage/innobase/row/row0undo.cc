@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1997, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -171,8 +172,9 @@ row_undo_search_clust_to_pcur(
 	ulint*		offsets		= offsets_;
 	rec_offs_init(offsets_);
 
+	ut_ad(!node->table->skip_alter_undo);
+
 	mtr_start(&mtr);
-	dict_disable_redo_if_temporary(node->table, &mtr);
 
 	clust_index = dict_table_get_first_index(node->table);
 
@@ -339,6 +341,13 @@ row_undo_step(
 	node = static_cast<undo_node_t*>(thr->run_node);
 
 	ut_ad(que_node_get_type(node) == QUE_NODE_UNDO);
+
+	if (UNIV_UNLIKELY(trx == trx_roll_crash_recv_trx)
+	    && trx_roll_must_shutdown()) {
+		/* Shutdown has been initiated. */
+		trx->error_state = DB_INTERRUPTED;
+		return(NULL);
+	}
 
 	err = row_undo(node, thr);
 

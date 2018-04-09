@@ -91,6 +91,7 @@ use My::Platform;
 use My::SafeProcess;
 use My::ConfigFactory;
 use My::Options;
+use My::Tee;
 use My::Find;
 use My::SysInfo;
 use My::CoreDump;
@@ -384,6 +385,11 @@ sub main {
   initialize_servers();
   init_timers();
 
+  unless (IS_WINDOWS) {
+    binmode(STDOUT,":via(My::Tee)") or die "binmode(STDOUT, :via(My::Tee)):$!";
+    binmode(STDERR,":via(My::Tee)") or die "binmode(STDERR, :via(My::Tee)):$!";
+  }
+
   mtr_report("Checking supported features...");
 
   executable_setup();
@@ -431,16 +437,21 @@ sub main {
   my $num_tests= @$tests;
   if ( $opt_parallel eq "auto" ) {
     # Try to find a suitable value for number of workers
-    my $sys_info= My::SysInfo->new();
-
-    $opt_parallel= $sys_info->num_cpus();
-    for my $limit (2000, 1500, 1000, 500){
-      $opt_parallel-- if ($sys_info->min_bogomips() < $limit);
+    if (IS_WINDOWS)
+    {
+      $opt_parallel= $ENV{NUMBER_OF_PROCESSORS} || 1;
+    }
+    else
+    {
+      my $sys_info= My::SysInfo->new();
+      $opt_parallel= $sys_info->num_cpus();
+      for my $limit (2000, 1500, 1000, 500){
+        $opt_parallel-- if ($sys_info->min_bogomips() < $limit);
+      }
     }
     my $max_par= $ENV{MTR_MAX_PARALLEL} || 8;
     $opt_parallel= $max_par if ($opt_parallel > $max_par);
     $opt_parallel= $num_tests if ($opt_parallel > $num_tests);
-    $opt_parallel= 1 if (IS_WINDOWS and $sys_info->isvm());
     $opt_parallel= 1 if ($opt_parallel < 1);
     mtr_report("Using parallel: $opt_parallel");
   }
@@ -1584,6 +1595,7 @@ sub command_line_setup {
        $opt_manual_debug || $opt_dbx || $opt_client_dbx || $opt_manual_dbx || 
        $opt_debugger || $opt_client_debugger )
   {
+    $ENV{ASAN_OPTIONS}= 'abort_on_error=1:'.($ENV{ASAN_OPTIONS} || '');
     if ( using_extern() )
     {
       mtr_error("Can't use --extern when using debugger");
@@ -2802,7 +2814,7 @@ sub mysql_server_start($) {
       # Some InnoDB options are incompatible with the default bootstrap.
       # If they are used, re-bootstrap
       if ( $extra_opts and
-           "@$extra_opts" =~ /--innodb[-_](?:page[-_]size|checksum[-_]algorithm|undo[-_]tablespaces|log[-_]group[-_]home[-_]dir|data[-_]home[-_]dir)/ )
+           "@$extra_opts" =~ /--innodb[-_](?:page[-_]size|checksum[-_]algorithm|undo[-_]tablespaces|log[-_]group[-_]home[-_]dir|data[-_]home[-_]dir)|data[-_]file[-_]path/ )
       {
         mysql_install_db($mysqld, undef, $extra_opts);
       }
@@ -3183,6 +3195,9 @@ sub mysql_install_db {
       mtr_appendfile_to_file("$sql_dir/mysql_performance_tables.sql",
                             $bootstrap_sql_file);
 
+      # Don't install anonymous users
+      mtr_tofile($bootstrap_sql_file, "set \@skip_auth_anonymous=1;\n");
+
       # Add the mysql system tables initial data
       # for a production system
       mtr_appendfile_to_file("$sql_dir/mysql_system_tables_data.sql",
@@ -3216,10 +3231,6 @@ sub mysql_install_db {
       mtr_tofile($bootstrap_sql_file,
            sql_to_bootstrap($text));
     }
-
-    # Remove anonymous users
-    mtr_tofile($bootstrap_sql_file,
-         "DELETE FROM mysql.user where user= '';\n");
 
     # Create mtr database
     mtr_tofile($bootstrap_sql_file,
@@ -5028,7 +5039,7 @@ sub mysqld_start ($$) {
   my $args;
   mtr_init_args(\$args);
 
-  if ( $opt_valgrind_mysqld )
+  if ( $opt_valgrind_mysqld and not $opt_gdb and not $opt_manual_gdb )
   {
     valgrind_arguments($args, \$exe);
   }
@@ -5055,9 +5066,9 @@ sub mysqld_start ($$) {
   }
 
 
-  # "Dynamic" version of MYSQLD_CMD is reevaluated with each mysqld_start.
-  # Use it to restart the server at testing a failing server start (e.g
-  # due to incompatible options).
+  # Command line for mysqld started for *this particular test*.
+  # Differs from "generic" MYSQLD_CMD by including all command line
+  # options from *.opt and *.combination files.
   $ENV{'MYSQLD_LAST_CMD'}= "$exe  @$args";
 
   if ( $opt_gdb || $opt_manual_gdb )
@@ -5616,11 +5627,20 @@ sub gdb_arguments {
   unlink($gdb_init_file);
 
   # Put $args into a single string
-  my $str= join(" ", @$$args);
   $input = $input ? "< $input" : "";
 
-  # write init file for mysqld or client
-  mtr_tofile($gdb_init_file, "set args $str $input\n");
+  if ($type ne 'client' and $opt_valgrind_mysqld) {
+    my $v = $$exe;
+    my $vargs = [];
+    valgrind_arguments($vargs, \$v);
+    mtr_tofile($gdb_init_file, <<EOF);
+shell @My::SafeProcess::safe_process_cmd --parent-pid=`pgrep -x gdb` -- $v --vgdb-error=0 @$vargs @$$args &
+shell sleep 1
+target remote | /usr/lib64/valgrind/../../bin/vgdb
+EOF
+  } else {
+    mtr_tofile($gdb_init_file, "set args @$$args $input\n");
+  }
 
   if ( $opt_manual_gdb )
   {
@@ -6239,7 +6259,8 @@ sub xterm_stat {
     my $done = $num_tests - $left;
     my $spent = time - $^T;
 
-    printf "\e];mtr: spent %s on %d tests. %s (%d tests) left\a",
+    syswrite STDOUT, sprintf
+           "\e];mtr: spent %s on %d tests. %s (%d tests) left\a",
            time_format($spent), $done,
            time_format($spent/$done * $left), $left;
   }

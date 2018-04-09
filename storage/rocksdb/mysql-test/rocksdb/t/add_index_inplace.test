@@ -173,10 +173,17 @@ set @tmp_rocksdb_strict_collation_check= @@rocksdb_strict_collation_check;
 set global rocksdb_strict_collation_check=1;
 CREATE TABLE t1 (a INT, b TEXT);
 
---error ER_UNSUPPORTED_COLLATION
+--echo # MariaDB no longer gives ER_UNSUPPORTED_COLLATION
 ALTER TABLE t1 ADD KEY kb(b(10));
 ALTER TABLE t1 ADD PRIMARY KEY(a);
 DROP TABLE t1;
+
+CREATE TABLE t1 (a INT, b TEXT collate utf8_general_ci);
+--echo # MariaDB no longer gives ER_UNSUPPORTED_COLLATION
+ALTER TABLE t1 ADD KEY kb(b(10));
+ALTER TABLE t1 ADD PRIMARY KEY(a);
+DROP TABLE t1;
+
 set global rocksdb_strict_collation_check= @tmp_rocksdb_strict_collation_check;
 
 # make sure race condition between connection close and alter on another
@@ -190,8 +197,8 @@ connect (con1,localhost,root,,);
 --echo # Switch to connection con1
 connection con1;
 
-show global variables like 'rocksdb_bulk_load';
-show session variables like 'rocksdb_bulk_load';
+show global variables like 'rocksdb_bulk_load%';
+show session variables like 'rocksdb_bulk_load%';
 
 CREATE TABLE t1 (i INT, j INT, PRIMARY KEY (i)) ENGINE = ROCKSDB;
 
@@ -259,9 +266,9 @@ SET @prior_rocksdb_merge_buf_size = @@rocksdb_merge_buf_size;
 
 SET global rocksdb_strict_collation_check = off;
 SET session rocksdb_merge_combine_read_size = 566;
-SET session rocksdb_merge_buf_size = 336;
+SET session rocksdb_merge_buf_size = 340;
 
-show variables like '%rocksdb_bulk_load%';
+show variables like 'rocksdb_bulk_load%';
 CREATE TABLE t1 (a VARCHAR(80)) ENGINE=RocksDB;
 INSERT INTO t1 (a) VALUES (REPEAT("a", 80));
 INSERT INTO t1 (a) VALUES (REPEAT("a", 80));

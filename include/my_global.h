@@ -591,6 +591,11 @@ typedef SOCKET_SIZE_TYPE size_socket;
 #ifndef O_CLOEXEC
 #define O_CLOEXEC       0
 #endif
+#ifdef __GLIBC__
+#define STR_O_CLOEXEC "e"
+#else
+#define STR_O_CLOEXEC ""
+#endif
 #ifndef SOCK_CLOEXEC
 #define SOCK_CLOEXEC    0
 #endif
@@ -1091,11 +1096,19 @@ static inline char *dlerror(void)
 #ifndef HAVE_DLERROR
 #define dlerror() ""
 #endif
+#ifndef HAVE_DLADDR
+#define dladdr(A, B) 0
+/* Dummy definition in case we're missing dladdr() */
+typedef struct { const char *dli_fname, dli_fbase; } Dl_info;
+#endif
 #else
 #define dlerror() "No support for dynamic loading (static build?)"
 #define dlopen(A,B) 0
 #define dlsym(A,B) 0
 #define dlclose(A) 0
+#define dladdr(A, B) 0
+/* Dummy definition in case we're missing dladdr() */
+typedef struct { const char *dli_fname, dli_fbase; } Dl_info;
 #endif
 
 /*

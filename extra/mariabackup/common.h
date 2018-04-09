@@ -25,9 +25,12 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
 #include <mysql_version.h>
 #include <fcntl.h>
 #include <stdarg.h>
+#include <my_sys.h>
 
 
-# define fil_is_user_tablespace_id(i) ((i) > srv_undo_tablespaces_open)
+/** Determine if (i) is a user tablespace id or not. */
+# define fil_is_user_tablespace_id(i) (i != 0 \
+				       && !srv_is_undo_tablespace(i))
 
 #ifdef _MSC_VER
 #define stat _stati64

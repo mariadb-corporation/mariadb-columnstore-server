@@ -136,9 +136,9 @@ PGLOBAL PlugInit(LPCSTR Language, uint worksize)
 {
 	PGLOBAL g;
 
-	if (trace > 1)
+	if (trace(2))
 		htrc("PlugInit: Language='%s'\n",
-		((!Language) ? "Null" : (char*)Language));
+			((!Language) ? "Null" : (char*)Language));
 
 	try {
 		g = new GLOBAL;
@@ -160,13 +160,11 @@ PGLOBAL PlugInit(LPCSTR Language, uint worksize)
 	/*******************************************************************/
 	/*  Allocate the main work segment.                                */
 	/*******************************************************************/
-	if (worksize && !(g->Sarea = PlugAllocMem(g, worksize))) {
+	if (worksize && AllocSarea(g, worksize)) {
 		char errmsg[MAX_STR];
-		sprintf(errmsg, MSG(WORK_AREA), g->Message);
+		snprintf(errmsg, sizeof(errmsg) - 1, MSG(WORK_AREA), g->Message);
 		strcpy(g->Message, errmsg);
-		g->Sarea_Size = 0;
-	} else
-		g->Sarea_Size = worksize;
+	} // endif Sarea
 
 	g->jump_level = -1;   /* New setting to allow recursive call of Plug */
 	return(g);
@@ -183,15 +181,7 @@ int PlugExit(PGLOBAL g)
 		if (dup)
 			free(dup);
 
-		if (g->Sarea) {
-#if !defined(DEVELOPMENT)
-			if (trace)
-#endif
-				htrc("Freeing Sarea at %p size=%d\n", g->Sarea, g->Sarea_Size);
-
-			free(g->Sarea);
-		}	// endif Sarea
-
+		FreeSarea(g);
 		delete g;
 	}	// endif g
 
@@ -215,7 +205,7 @@ LPSTR PlugRemoveType(LPSTR pBuff, LPCSTR FileName)
 
   _splitpath(FileName, drive, direc, fname, ftype);
 
-  if (trace > 1) {
+  if (trace(2)) {
     htrc("after _splitpath: FileName=%s\n", FileName);
     htrc("drive=%s dir=%s fname=%s ext=%s\n",
           SVP(drive), direc, fname, ftype);
@@ -223,7 +213,7 @@ LPSTR PlugRemoveType(LPSTR pBuff, LPCSTR FileName)
 
   _makepath(pBuff, drive, direc, fname, "");
 
-  if (trace > 1)
+  if (trace(2))
     htrc("buff='%s'\n", pBuff);
 
   return pBuff;
@@ -256,7 +246,7 @@ LPCSTR PlugSetPath(LPSTR pBuff, LPCSTR prefix, LPCSTR FileName, LPCSTR defpath)
   char *drive = NULL, *defdrv = NULL;
 #endif
 
-	if (trace > 1)
+	if (trace(2))
 		htrc("prefix=%s fn=%s path=%s\n", prefix, FileName, defpath);
 
   if (!strncmp(FileName, "//", 2) || !strncmp(FileName, "\\\\", 2)) {
@@ -273,7 +263,7 @@ LPCSTR PlugSetPath(LPSTR pBuff, LPCSTR prefix, LPCSTR FileName, LPCSTR defpath)
 #if !defined(__WIN__)
   if (*FileName == '~') {
     if (_fullpath(pBuff, FileName, _MAX_PATH)) {
-      if (trace > 1)
+      if (trace(2))
         htrc("pbuff='%s'\n", pBuff);
 
      return pBuff;
@@ -308,7 +298,7 @@ LPCSTR PlugSetPath(LPSTR pBuff, LPCSTR prefix, LPCSTR FileName, LPCSTR defpath)
 
   _splitpath(tmpdir, defdrv, defdir, NULL, NULL);
 
-  if (trace > 1) {
+  if (trace(2)) {
     htrc("after _splitpath: FileName=%s\n", FileName);
 #if defined(__WIN__)
     htrc("drive=%s dir=%s fname=%s ext=%s\n", drive, direc, fname, ftype);
@@ -335,11 +325,11 @@ LPCSTR PlugSetPath(LPSTR pBuff, LPCSTR prefix, LPCSTR FileName, LPCSTR defpath)
 
   _makepath(newname, drive, direc, fname, ftype);
 
-  if (trace > 1)
+  if (trace(2))
     htrc("newname='%s'\n", newname);
 
   if (_fullpath(pBuff, newname, _MAX_PATH)) {
-    if (trace > 1)
+    if (trace(2))
       htrc("pbuff='%s'\n", pBuff);
 
     return pBuff;
@@ -459,30 +449,65 @@ short GetLineLength(PGLOBAL g)
 /***********************************************************************/
 /*  Program for memory allocation of work and language areas.          */
 /***********************************************************************/
-void *PlugAllocMem(PGLOBAL g, uint size)
+bool AllocSarea(PGLOBAL g, uint size)
 {
-  void *areap;                     /* Pointer to allocated area        */
-
   /*********************************************************************/
   /*  This is the allocation routine for the WIN32/UNIX/AIX version.   */
   /*********************************************************************/
-  if (!(areap = malloc(size)))
-    sprintf(g->Message, MSG(MALLOC_ERROR), "malloc");
+#if defined(__WIN__)
+	if (size >= 1048576)			 // 1M
+		g->Sarea = VirtualAlloc(NULL, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	else
+#endif
+		g->Sarea = malloc(size);
+
+	if (!g->Sarea) {
+		sprintf(g->Message, MSG(MALLOC_ERROR), "malloc");
+		g->Sarea_Size = 0;
+	}	else
+		g->Sarea_Size = size;
 
 #if defined(DEVELOPMENT)
 	if (true) {
 #else
-	if (trace) {
+	if (trace(8)) {
 #endif
-    if (areap)
-      htrc("Memory of %u allocated at %p\n", size, areap);
+    if (g->Sarea)
+      htrc("Work area of %u allocated at %p\n", size, g->Sarea);
     else
-      htrc("PlugAllocMem: %s\n", g->Message);
+      htrc("SareaAlloc: %s\n", g->Message);
 
   } // endif trace
 
-  return (areap);
-} // end of PlugAllocMem
+  return (!g->Sarea);
+} // end of AllocSarea
+
+/***********************************************************************/
+/*  Program for memory freeing the work area.                          */
+/***********************************************************************/
+void FreeSarea(PGLOBAL g)
+{
+	if (g->Sarea) {
+#if defined(__WIN__)
+		if (g->Sarea_Size >= 1048576)			 // 1M
+			VirtualFree(g->Sarea, 0, MEM_RELEASE);
+		else
+#endif
+			free(g->Sarea);
+
+#if defined(DEVELOPMENT)
+		if (true)
+#else
+		if (trace(8))
+#endif
+			htrc("Freeing Sarea at %p size = %d\n", g->Sarea, g->Sarea_Size);
+
+		g->Sarea = NULL;
+		g->Sarea_Size = 0;
+	} // endif Sarea
+
+	return;
+} // end of FreeSarea
 
 /***********************************************************************/
 /*  Program for SubSet initialization of memory pools.                 */
@@ -520,7 +545,7 @@ void *PlugSubAlloc(PGLOBAL g, void *memp, size_t size)
   size = ((size + 7) / 8) * 8;       /* Round up size to multiple of 8 */
   pph = (PPOOLHEADER)memp;
 
-  if (trace > 3)
+  if (trace(16))
     htrc("SubAlloc in %p size=%d used=%d free=%d\n",
           memp, size, pph->To_Free, pph->FreeBlk);
 
@@ -531,10 +556,10 @@ void *PlugSubAlloc(PGLOBAL g, void *memp, size_t size)
       "Not enough memory in %s area for request of %u (used=%d free=%d)",
                           pname, (uint)size, pph->To_Free, pph->FreeBlk);
 
-    if (trace)
+    if (trace(1))
       htrc("PlugSubAlloc: %s\n", g->Message);
 
-		throw 1234;
+    abort();
     } /* endif size OS32 code */
 
   /*********************************************************************/
@@ -544,7 +569,7 @@ void *PlugSubAlloc(PGLOBAL g, void *memp, size_t size)
   pph->To_Free += (OFFSET)size;       /* New offset of pool free block */
   pph->FreeBlk -= (uint)size;         /* New size   of pool free block */
 
-  if (trace > 3)
+  if (trace(16))
     htrc("Done memp=%p used=%d free=%d\n",
           memp, pph->To_Free, pph->FreeBlk);
 

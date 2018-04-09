@@ -130,7 +130,9 @@ DROP TABLE t1;
 --echo #
 --echo # try CRUD operations
 --echo #
+--disable_query_log
 --exec $MONGO --eval "db.testcoll.drop()" --quiet
+--enable_query_log
 eval CREATE TABLE t1 (_id INT(4) NOT NULL, msg CHAR(64))
 ENGINE=CONNECT TABLE_TYPE=$TYPE TABNAME='testcoll'
 OPTION_LIST='Driver=$DRV,Version=$VERS' $CONN;
@@ -147,7 +149,9 @@ DROP TABLE t1;
 --echo #
 --echo # List states whose population is equal or more than 10 millions
 --echo #
+--disable_query_log
 --exec $MONGO --eval "db.cities.drop()" --quiet
+--enable_query_log
 --exec $MONGOIMPORT --quiet $MTR_SUITE_DIR/std_data/cities.json
 eval CREATE TABLE t1 (
   _id char(5) NOT NULL,
@@ -156,7 +160,7 @@ eval CREATE TABLE t1 (
   loc_1 char(12) NOT NULL `FIELD_FORMAT`='loc.1',
   pop int(11) NOT NULL,
   state char(2) NOT NULL)
-ENGINE=CONNECT CONNECTION='mongodb://localhost:27017' TABLE_TYPE='MONGO' TABNAME='cities'
+ENGINE=CONNECT CONNECTION='mongodb://localhost:27017' TABLE_TYPE=$TYPE TABNAME='cities'
 OPTION_LIST='Driver=$DRV,Version=$VERS' $CONN DATA_CHARSET='utf8';
 --echo # Using SQL for grouping
 SELECT state, sum(pop) AS totalPop FROM t1 GROUP BY state HAVING totalPop >= 10000000 ORDER BY totalPop DESC;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2008, 2016, Oracle and/or its affiliates. All rights reserved.
+/* Copyright (c) 2008, 2017, Oracle and/or its affiliates. All rights reserved.
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -1265,7 +1265,7 @@ static int build_prefix(const LEX_STRING *prefix, const char *category,
   out_ptr+= len;
   *out_ptr= '/';
   out_ptr++;
-  *output_length= out_ptr - output;
+  *output_length= (int)(out_ptr - output);
 
   return 0;
 }
@@ -1942,7 +1942,7 @@ static void set_thread_id_v1(PSI_thread *thread, ulonglong processlist_id)
   PFS_thread *pfs= reinterpret_cast<PFS_thread*> (thread);
   if (unlikely(pfs == NULL))
     return;
-  pfs->m_processlist_id= processlist_id;
+  pfs->m_processlist_id= (ulong)processlist_id;
 }
 
 /**
@@ -2020,7 +2020,8 @@ static void set_thread_account_v1(const char *user, int user_len,
   DBUG_ASSERT((uint) user_len <= sizeof(pfs->m_username));
   DBUG_ASSERT((host != NULL) || (host_len == 0));
   DBUG_ASSERT(host_len >= 0);
-  DBUG_ASSERT((uint) host_len <= sizeof(pfs->m_hostname));
+
+  host_len= MY_MIN(host_len, static_cast<int>(sizeof(pfs->m_hostname)));
 
   if (unlikely(pfs == NULL))
     return;
@@ -5121,7 +5122,7 @@ static void set_socket_info_v1(PSI_socket *socket,
 
   /** Set socket descriptor */
   if (fd != NULL)
-    pfs->m_fd= *fd;
+    pfs->m_fd= (uint)*fd;
 
   /** Set raw socket address and length */
   if (likely(addr != NULL && addr_len > 0))

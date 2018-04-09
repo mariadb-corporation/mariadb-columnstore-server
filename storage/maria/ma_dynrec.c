@@ -275,7 +275,7 @@ my_bool _ma_update_blob_record(MARIA_HA *info, MARIA_RECORD_POS pos,
 {
   uchar *rec_buff;
   int error;
-  ulong reclength,extra;
+  ulong reclength,reclength2,extra;
 
   extra= (ALIGN_SIZE(MARIA_MAX_DYN_BLOCK_HEADER)+MARIA_SPLIT_LENGTH+
 	  MARIA_DYN_DELETE_BLOCK_HEADER);
@@ -293,11 +293,12 @@ my_bool _ma_update_blob_record(MARIA_HA *info, MARIA_RECORD_POS pos,
     my_errno= HA_ERR_OUT_OF_MEM; /* purecov: inspected */
     return(1);
   }
-  reclength= _ma_rec_pack(info,rec_buff+ALIGN_SIZE(MARIA_MAX_DYN_BLOCK_HEADER),
+  reclength2= _ma_rec_pack(info,rec_buff+ALIGN_SIZE(MARIA_MAX_DYN_BLOCK_HEADER),
 			 record);
+  DBUG_ASSERT(reclength2 <= reclength);
   error=update_dynamic_record(info,pos,
 			      rec_buff+ALIGN_SIZE(MARIA_MAX_DYN_BLOCK_HEADER),
-			      reclength);
+			      reclength2);
   my_safe_afree(rec_buff, reclength);
   return(error != 0);
 }
@@ -1343,8 +1344,8 @@ ulong _ma_rec_unpack(register MARIA_HA *info, register uchar *to, uchar *from,
 
 err:
   _ma_set_fatal_error(info->s, HA_ERR_WRONG_IN_RECORD);
-  DBUG_PRINT("error",("to_end: 0x%lx -> 0x%lx  from_end: 0x%lx -> 0x%lx",
-		      (long) to, (long) to_end, (long) from, (long) from_end));
+  DBUG_PRINT("error",("to_end: %p -> %p  from_end: %p -> %p",
+		      to, to_end, from, from_end));
   DBUG_DUMP("from", info->rec_buff, info->s->base.min_pack_length);
   DBUG_RETURN(MY_FILE_ERROR);
 } /* _ma_rec_unpack */

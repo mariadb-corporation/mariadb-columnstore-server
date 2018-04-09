@@ -325,11 +325,7 @@ int main(int argc, char **argv)
   MY_INIT(argv[0]);
   sf_leaking_memory=1; /* don't report memory leaks on early exits */
 
-  if (load_defaults("my",load_default_groups,&argc,&argv))
-  {
-    my_end(0);
-    exit(1);
-  }
+  load_defaults_or_exit("my", load_default_groups, &argc, &argv);
   defaults_argv=argv;
   if (get_options(&argc,&argv))
   {
@@ -587,8 +583,8 @@ static struct my_option my_long_options[] =
     &auto_generate_sql_number, &auto_generate_sql_number,
     0, GET_ULL, REQUIRED_ARG, 100, 0, 0, 0, 0, 0},
   {"character-sets-dir", OPT_CHARSETS_DIR,
-   "Directory for character set files.", &charsets_dir,
-   &charsets_dir, 0, GET_STR, REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
+   "Directory for character set files.", (char **)&charsets_dir,
+   (char **)&charsets_dir, 0, GET_STR, REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
   {"commit", OPT_SLAP_COMMIT, "Commit records every X number of statements.",
     &commit_rate, &commit_rate, 0, GET_UINT, REQUIRED_ARG,
     0, 0, 0, 0, 0, 0},
@@ -779,8 +775,12 @@ get_one_option(int optid, const struct my_option *opt __attribute__((unused)),
 #endif
     break;
   case OPT_MYSQL_PROTOCOL:
-    opt_protocol= find_type_or_exit(argument, &sql_protocol_typelib,
-                                    opt->name);
+    if ((opt_protocol= find_type_with_warning(argument, &sql_protocol_typelib,
+                                              opt->name)) <= 0)
+    {
+      sf_leaking_memory= 1; /* no memory leak reports here */
+      exit(1);
+    }
     break;
   case '#':
     DBUG_PUSH(argument ? argument : default_dbug_option);
@@ -817,7 +817,7 @@ get_random_string(char *buf)
   DBUG_ENTER("get_random_string");
   for (x= RAND_STRING_SIZE; x > 0; x--)
     *buf_ptr++= ALPHANUMERICS[random() % ALPHANUMERICS_SIZE];
-  DBUG_RETURN(buf_ptr - buf);
+  DBUG_RETURN((uint)(buf_ptr - buf));
 }
 
 

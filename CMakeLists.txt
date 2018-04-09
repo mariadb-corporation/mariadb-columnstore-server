@@ -14,7 +14,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
 
-CMAKE_MINIMUM_REQUIRED(VERSION 2.8.3)
+CMAKE_MINIMUM_REQUIRED(VERSION 2.8.12)
 
 # explicitly set the policy to OLD
 # (cannot use NEW, not everyone is on cmake-2.8.12 yet)
@@ -49,9 +49,9 @@ ENDIF()
 SET(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING
    "Choose the type of build, options are: None(CMAKE_CXX_FLAGS or CMAKE_C_FLAGS used) Debug Release RelWithDebInfo MinSizeRel")
 
-# MAX_INDEXES - Set the maximum number of indexes per table, default 64U
+# MAX_INDEXES - Set the maximum number of indexes per table, default 64
 IF (NOT MAX_INDEXES)
-  SET(MAX_INDEXES 64U)
+  SET(MAX_INDEXES 64)
 ENDIF(NOT MAX_INDEXES)
 
 IF (${MAX_INDEXES} GREATER 128)
@@ -161,6 +161,7 @@ INCLUDE(plugin)
 INCLUDE(install_macros)
 INCLUDE(systemd)
 INCLUDE(mysql_add_executable)
+INCLUDE(compile_flags)
 INCLUDE(crc32-vpmsum)
 
 # Handle options

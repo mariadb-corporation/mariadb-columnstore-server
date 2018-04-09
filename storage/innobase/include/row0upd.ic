@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1996, 2015, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2017, MariaDB Corporation.
+Copyright (c) 2017, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -95,22 +95,10 @@ upd_field_set_field_no(
 	upd_field_t*	upd_field,	/*!< in: update vector field */
 	ulint		field_no,	/*!< in: field number in a clustered
 					index */
-	dict_index_t*	index,		/*!< in: index */
-	trx_t*		trx)		/*!< in: transaction */
+	dict_index_t*	index)		/*!< in: index */
 {
 	upd_field->field_no = unsigned(field_no);
 	upd_field->orig_len = 0;
-
-	if (UNIV_UNLIKELY(field_no >= dict_index_get_n_fields(index))) {
-		ib::error()
-			<< " trying to access field " << field_no
-			<< " in " << index->name
-			<< " of table " << index->table->name
-			<< " which contains only " << index->n_fields
-			<< " fields";
-		ut_ad(0);
-	}
-
 	dict_col_copy_type(dict_index_get_nth_col(index, field_no),
 			   dfield_get_type(&upd_field->new_val));
 }
@@ -177,8 +165,7 @@ row_upd_rec_sys_fields(
 	dict_index_t*	index,	/*!< in: clustered index */
 	const ulint*	offsets,/*!< in: rec_get_offsets(rec, index) */
 	const trx_t*	trx,	/*!< in: transaction */
-	roll_ptr_t	roll_ptr)/*!< in: roll ptr of the undo log record,
-				 can be 0 during IMPORT */
+	roll_ptr_t	roll_ptr)/*!< in: DB_ROLL_PTR to the undo log */
 {
 	ut_ad(dict_index_is_clust(index));
 	ut_ad(rec_offs_validate(rec, index, offsets));

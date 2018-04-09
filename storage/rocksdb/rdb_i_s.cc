@@ -41,6 +41,7 @@
 #include "./rdb_cf_manager.h"
 #include "./rdb_datadic.h"
 #include "./rdb_utils.h"
+#include "./rdb_mariadb_server_port.h"
 
 #include "./rdb_mariadb_port.h"
 
@@ -728,7 +729,6 @@ static int rdb_i_s_global_info_fill_table(
   DBUG_ASSERT(tables != nullptr);
 
   static const uint32_t INT_BUF_LEN = 21;
-  static const uint32_t GTID_BUF_LEN = 60;
   static const uint32_t CF_ID_INDEX_BUF_LEN = 60;
 
   int ret = 0;
@@ -849,17 +849,22 @@ static int rdb_i_s_compact_stats_fill_table(
       continue;
     }
 
-    std::map<std::string, double> props;
+    std::map<std::string, std::string> props;
     bool bool_ret MY_ATTRIBUTE((__unused__));
     bool_ret = rdb->GetMapProperty(cfh, "rocksdb.cfstats", &props);
     DBUG_ASSERT(bool_ret);
 
+    const std::string prop_name_prefix = "compaction.";
     for (auto const &prop_ent : props) {
       std::string prop_name = prop_ent.first;
-      double value = prop_ent.second;
-      std::size_t del_pos = prop_name.find('.');
+      if (prop_name.find(prop_name_prefix) != 0) {
+        continue;
+      }
+      std::string value = prop_ent.second;
+      std::size_t del_pos = prop_name.find('.', prop_name_prefix.size());
       DBUG_ASSERT(del_pos != std::string::npos);
-      std::string level_str = prop_name.substr(0, del_pos);
+      std::string level_str = prop_name.substr(
+          prop_name_prefix.size(), del_pos - prop_name_prefix.size());
       std::string type_str = prop_name.substr(del_pos + 1);
 
       Field **field = tables->table->field;
@@ -868,7 +873,7 @@ static int rdb_i_s_compact_stats_fill_table(
       field[0]->store(cf_name.c_str(), cf_name.size(), system_charset_info);
       field[1]->store(level_str.c_str(), level_str.size(), system_charset_info);
       field[2]->store(type_str.c_str(), type_str.size(), system_charset_info);
-      field[3]->store(value, true);
+      field[3]->store(std::stod(value));
 
       ret |= static_cast<int>(
           my_core::schema_table_store_record(thd, tables->table));
@@ -1478,7 +1483,7 @@ struct st_maria_plugin rdb_i_s_cfstats = {
     nullptr, /* status variables */
     nullptr, /* system variables */
     nullptr, /* config options */
-    0,       /* flags */
+    MYROCKS_MARIADB_PLUGIN_MATURITY_LEVEL
 };
 
 struct st_maria_plugin rdb_i_s_dbstats = {
@@ -1494,7 +1499,7 @@ struct st_maria_plugin rdb_i_s_dbstats = {
     nullptr, /* status variables */
     nullptr, /* system variables */
     nullptr, /* config options */
-    0,       /* flags */
+    MYROCKS_MARIADB_PLUGIN_MATURITY_LEVEL
 };
 
 struct st_maria_plugin rdb_i_s_perf_context = {
@@ -1510,7 +1515,7 @@ struct st_maria_plugin rdb_i_s_perf_context = {
     nullptr, /* status variables */
     nullptr, /* system variables */
     nullptr, /* config options */
-    0,       /* flags */
+    MYROCKS_MARIADB_PLUGIN_MATURITY_LEVEL
 };
 
 struct st_maria_plugin rdb_i_s_perf_context_global = {
@@ -1526,7 +1531,7 @@ struct st_maria_plugin rdb_i_s_perf_context_global = {
     nullptr, /* status variables */
     nullptr, /* system variables */
     nullptr, /* config options */
-    0,       /* flags */
+    MYROCKS_MARIADB_PLUGIN_MATURITY_LEVEL
 };
 
 struct st_maria_plugin rdb_i_s_cfoptions = {
@@ -1542,7 +1547,7 @@ struct st_maria_plugin rdb_i_s_cfoptions = {
     nullptr, /* status variables */
     nullptr, /* system variables */
     nullptr, /* config options */
-    0,       /* flags */
+    MYROCKS_MARIADB_PLUGIN_MATURITY_LEVEL
 };
 
 struct st_maria_plugin rdb_i_s_global_info = {
@@ -1558,7 +1563,7 @@ struct st_maria_plugin rdb_i_s_global_info = {
     nullptr, /* status variables */
     nullptr, /* system variables */
     nullptr, /* config options */
-    0,       /* flags */
+    MYROCKS_MARIADB_PLUGIN_MATURITY_LEVEL
 };
 
 struct st_maria_plugin rdb_i_s_compact_stats = {
@@ -1574,7 +1579,7 @@ struct st_maria_plugin rdb_i_s_compact_stats = {
     nullptr, /* status variables */
     nullptr, /* system variables */
     nullptr, /* config options */
-    0,       /* flags */
+    MYROCKS_MARIADB_PLUGIN_MATURITY_LEVEL
 };
 
 struct st_maria_plugin rdb_i_s_ddl = {
@@ -1590,7 +1595,7 @@ struct st_maria_plugin rdb_i_s_ddl = {
     nullptr, /* status variables */
     nullptr, /* system variables */
     nullptr, /* config options */
-    0,       /* flags */
+    MYROCKS_MARIADB_PLUGIN_MATURITY_LEVEL
 };
 
 struct st_maria_plugin rdb_i_s_index_file_map = {
@@ -1606,7 +1611,7 @@ struct st_maria_plugin rdb_i_s_index_file_map = {
     nullptr, /* status variables */
     nullptr, /* system variables */
     nullptr, /* config options */
-    0,       /* flags */
+    MYROCKS_MARIADB_PLUGIN_MATURITY_LEVEL
 };
 
 struct st_maria_plugin rdb_i_s_lock_info = {
@@ -1622,7 +1627,7 @@ struct st_maria_plugin rdb_i_s_lock_info = {
     nullptr, /* status variables */
     nullptr, /* system variables */
     nullptr, /* config options */
-    0,       /* flags */
+    MYROCKS_MARIADB_PLUGIN_MATURITY_LEVEL
 };
 
 struct st_maria_plugin rdb_i_s_trx_info = {
@@ -1638,6 +1643,6 @@ struct st_maria_plugin rdb_i_s_trx_info = {
     nullptr, /* status variables */
     nullptr, /* system variables */
     nullptr, /* config options */
-    0,       /* flags */
+    MYROCKS_MARIADB_PLUGIN_MATURITY_LEVEL
 };
 } // namespace myrocks

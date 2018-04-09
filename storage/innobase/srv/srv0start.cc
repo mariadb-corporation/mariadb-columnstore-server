@@ -3,7 +3,7 @@
 Copyright (c) 1996, 2017, Oracle and/or its affiliates. All rights reserved.
 Copyright (c) 2008, Google Inc.
 Copyright (c) 2009, Percona Inc.
-Copyright (c) 2013, 2017, MariaDB Corporation.
+Copyright (c) 2013, 2018, MariaDB Corporation.
 
 Portions of this file contain modifications contributed and copyrighted by
 Google, Inc. Those modifications are gratefully acknowledged and are described
@@ -88,7 +88,6 @@ Created 2/16/1996 Heikki Tuuri
 #include "dict0load.h"
 #include "dict0stats_bg.h"
 #include "que0que.h"
-#include "usr0sess.h"
 #include "lock0lock.h"
 #include "trx0roll.h"
 #include "trx0purge.h"
@@ -378,8 +377,7 @@ create_log_file(
 	ib::info() << "Setting log file " << name << " size to "
 		<< srv_log_file_size << " bytes";
 
-	ret = os_file_set_size(name, *file, srv_log_file_size,
-			       srv_read_only_mode);
+	ret = os_file_set_size(name, *file, srv_log_file_size);
 	if (!ret) {
 		ib::error() << "Cannot set log file " << name << " size to "
 			<< srv_log_file_size << " bytes";
@@ -398,13 +396,14 @@ create_log_file(
 /** Delete all log files.
 @param[in,out]	logfilename	buffer for log file name
 @param[in]	dirnamelen	length of the directory path
-@param[in]	n_files		number of files to delete */
+@param[in]	n_files		number of files to delete
+@param[in]	i		first file to delete */
 static
 void
-delete_log_files(char* logfilename, size_t dirnamelen, unsigned n_files)
+delete_log_files(char* logfilename, size_t dirnamelen, uint n_files, uint i=0)
 {
 	/* Remove any old log files. */
-	for (unsigned i = 0; i < n_files; i++) {
+	for (; i < n_files; i++) {
 		sprintf(logfilename + dirnamelen, "ib_logfile%u", i);
 
 		/* Ignore errors about non-existent files or files
@@ -658,8 +657,7 @@ srv_undo_tablespace_create(
 			<< "wait...";
 
 		ret = os_file_set_size(
-			name, fh, size << UNIV_PAGE_SIZE_SHIFT,
-			srv_read_only_mode);
+			name, fh, os_offset_t(size) << UNIV_PAGE_SIZE_SHIFT);
 
 		if (!ret) {
 			ib::info() << "Error in creating " << name
@@ -688,8 +686,8 @@ srv_undo_tablespace_open(
 	dberr_t		err	= DB_ERROR;
 	char		undo_name[sizeof "innodb_undo000"];
 
-	ut_snprintf(undo_name, sizeof(undo_name),
-		   "innodb_undo%03u", static_cast<unsigned>(space_id));
+	snprintf(undo_name, sizeof(undo_name),
+		 "innodb_undo%03u", static_cast<unsigned>(space_id));
 
 	if (!srv_file_check_mode(name)) {
 		ib::error() << "UNDO tablespaces must be " <<
@@ -767,7 +765,7 @@ srv_check_undo_redo_logs_exists()
 	/* Check if any undo tablespaces exist */
 	for (ulint i = 1; i <= srv_undo_tablespaces; ++i) {
 
-		ut_snprintf(
+		snprintf(
 			name, sizeof(name),
 			"%s%cundo%03zu",
 			srv_undo_dir, OS_PATH_SEPARATOR,
@@ -864,7 +862,7 @@ srv_undo_tablespaces_init(bool create_new_db)
 		DBUG_EXECUTE_IF("innodb_undo_upgrade",
 				space_id = i + 3;);
 
-		ut_snprintf(
+		snprintf(
 			name, sizeof(name),
 			"%s%cundo%03zu",
 			srv_undo_dir, OS_PATH_SEPARATOR, space_id);
@@ -900,12 +898,11 @@ srv_undo_tablespaces_init(bool create_new_db)
 	switch (srv_operation) {
 	case SRV_OPERATION_RESTORE_DELTA:
 	case SRV_OPERATION_BACKUP:
-		/* MDEV-13561 FIXME: Determine srv_undo_space_id_start
-		from the undo001 file. */
-		srv_undo_space_id_start = 1;
 		for (i = 0; i < n_undo_tablespaces; i++) {
 			undo_tablespace_ids[i] = i + srv_undo_space_id_start;
 		}
+
+		prev_space_id = srv_undo_space_id_start - 1;
 		break;
 	case SRV_OPERATION_NORMAL:
 		if (create_new_db) {
@@ -913,6 +910,7 @@ srv_undo_tablespaces_init(bool create_new_db)
 		}
 		/* fall through */
 	case SRV_OPERATION_RESTORE:
+	case SRV_OPERATION_RESTORE_EXPORT:
 		ut_ad(!create_new_db);
 
 		/* Check if any of the UNDO tablespace needs fix-up because
@@ -925,10 +923,10 @@ srv_undo_tablespaces_init(bool create_new_db)
 
 				char	name[OS_FILE_MAX_PATH];
 
-				ut_snprintf(name, sizeof(name),
-					    "%s%cundo%03zu",
-					    srv_undo_dir, OS_PATH_SEPARATOR,
-					    undo_tablespace_ids[i]);
+				snprintf(name, sizeof(name),
+					 "%s%cundo%03zu",
+					 srv_undo_dir, OS_PATH_SEPARATOR,
+					 undo_tablespace_ids[i]);
 
 				os_file_delete(innodb_data_file_key, name);
 
@@ -958,14 +956,14 @@ srv_undo_tablespaces_init(bool create_new_db)
 	for (i = 0; i < n_undo_tablespaces; ++i) {
 		char	name[OS_FILE_MAX_PATH];
 
-		ut_snprintf(
+		snprintf(
 			name, sizeof(name),
 			"%s%cundo%03zu",
 			srv_undo_dir, OS_PATH_SEPARATOR,
 			undo_tablespace_ids[i]);
 
 		/* Should be no gaps in undo tablespace ids. */
-		ut_a(prev_space_id + 1 == undo_tablespace_ids[i]);
+		ut_a(!i || prev_space_id + 1 == undo_tablespace_ids[i]);
 
 		/* The system space id should not be in this array. */
 		ut_a(undo_tablespace_ids[i] != 0);
@@ -993,14 +991,14 @@ srv_undo_tablespaces_init(bool create_new_db)
 	not in use and therefore not required by recovery. We only check
 	that there are no gaps. */
 
-	for (i = prev_space_id + 1; i < TRX_SYS_N_RSEGS; ++i) {
+	for (i = prev_space_id + 1;
+	     i < srv_undo_space_id_start + TRX_SYS_N_RSEGS; ++i) {
 		char	name[OS_FILE_MAX_PATH];
 
-		ut_snprintf(
+		snprintf(
 			name, sizeof(name),
 			"%s%cundo%03zu", srv_undo_dir, OS_PATH_SEPARATOR, i);
 
-		/* Undo space ids start from 1. */
 		err = srv_undo_tablespace_open(name, i);
 
 		if (err != DB_SUCCESS) {
@@ -1104,12 +1102,10 @@ srv_undo_tablespaces_init(bool create_new_db)
 			     = undo::Truncate::s_fix_up_spaces.begin();
 		     it != undo::Truncate::s_fix_up_spaces.end();
 		     ++it) {
-
-			buf_LRU_flush_or_remove_pages(
-				TRX_SYS_SPACE, BUF_REMOVE_FLUSH_WRITE, NULL);
-
-			buf_LRU_flush_or_remove_pages(
-				*it, BUF_REMOVE_FLUSH_WRITE, NULL);
+			FlushObserver dummy(TRX_SYS_SPACE, NULL, NULL);
+			buf_LRU_flush_or_remove_pages(TRX_SYS_SPACE, &dummy);
+			FlushObserver dummy2(*it, NULL, NULL);
+			buf_LRU_flush_or_remove_pages(*it, &dummy2);
 
 			/* Remove the truncate redo log file. */
 			undo::Truncate	undo_trunc;
@@ -1323,6 +1319,7 @@ srv_shutdown_all_bg_threads()
 			break;
 		case SRV_OPERATION_NORMAL:
 		case SRV_OPERATION_RESTORE:
+		case SRV_OPERATION_RESTORE_EXPORT:
 			if (!buf_page_cleaner_is_active
 			    && os_aio_all_slots_free()) {
 				os_aio_wake_all_threads_at_shutdown();
@@ -1414,7 +1411,11 @@ srv_prepare_to_delete_redo_log_files(
 		{
 			ib::info	info;
 			if (srv_log_file_size == 0) {
-				info << "Upgrading redo log: ";
+				info << ((log_sys->log.format
+					  & ~LOG_HEADER_FORMAT_ENCRYPTED)
+					 != LOG_HEADER_FORMAT_10_3
+					 ? "Upgrading redo log: "
+					 : "Downgrading redo log: ");
 			} else if (n_files != srv_n_log_files
 				   || srv_log_file_size
 				   != srv_log_file_size_requested) {
@@ -1443,6 +1444,7 @@ srv_prepare_to_delete_redo_log_files(
 			     << " bytes; LSN=" << flushed_lsn;
 		}
 
+		srv_start_lsn = flushed_lsn;
 		/* Flush the old log files. */
 		log_mutex_exit();
 
@@ -1494,7 +1496,8 @@ innobase_start_or_create_for_mysql()
 	unsigned	i = 0;
 
 	ut_ad(srv_operation == SRV_OPERATION_NORMAL
-	      || srv_operation == SRV_OPERATION_RESTORE);
+	      || srv_operation == SRV_OPERATION_RESTORE
+	      || srv_operation == SRV_OPERATION_RESTORE_EXPORT);
 
 	if (srv_force_recovery == SRV_FORCE_NO_LOG_REDO) {
 		srv_read_only_mode = true;
@@ -1898,9 +1901,6 @@ innobase_start_or_create_for_mysql()
 		return(srv_init_abort(DB_ERROR));
 	}
 
-	compile_time_assert(ulonglong(ULINT_MAX) * UNIV_PAGE_SIZE_MIN
-			    >= 512ULL << 30);
-
 	os_normalize_path(srv_data_home);
 
 	/* Check if the data files exist or not. */
@@ -1987,7 +1987,9 @@ innobase_start_or_create_for_mysql()
 			if (err == DB_NOT_FOUND) {
 				if (i == 0) {
 					if (srv_operation
-					    == SRV_OPERATION_RESTORE) {
+					    == SRV_OPERATION_RESTORE
+					    || srv_operation
+					    == SRV_OPERATION_RESTORE_EXPORT) {
 						return(DB_SUCCESS);
 					}
 					if (flushed_lsn
@@ -2051,6 +2053,26 @@ innobase_start_or_create_for_mysql()
 			}
 
 			if (i == 0) {
+				if (size == 0
+				    && (srv_operation
+					== SRV_OPERATION_RESTORE
+					|| srv_operation
+					== SRV_OPERATION_RESTORE_EXPORT)) {
+					/* Tolerate an empty ib_logfile0
+					from a previous run of
+					mariabackup --prepare. */
+					return(DB_SUCCESS);
+				}
+				/* The first log file must consist of
+				at least the following 512-byte pages:
+				header, checkpoint page 1, empty,
+				checkpoint page 2, redo log page(s) */
+				if (size <= OS_FILE_LOG_BLOCK_SIZE * 4) {
+					ib::error() << "Log file "
+						<< logfilename << " size "
+						<< size << " is too small";
+					return(srv_init_abort(DB_ERROR));
+				}
 				srv_log_file_size = size;
 			} else if (size != srv_log_file_size) {
 
@@ -2223,17 +2245,32 @@ files_checked:
 
 		recv_sys->dblwr.pages.clear();
 
-		if (err == DB_SUCCESS) {
-			/* Initialize the change buffer. */
-			err = dict_boot();
-		}
-
 		if (err != DB_SUCCESS) {
 			return(srv_init_abort(err));
 		}
 
-		/* This must precede recv_apply_hashed_log_recs(true). */
-		trx_sys_init_at_db_start();
+		switch (srv_operation) {
+		case SRV_OPERATION_NORMAL:
+		case SRV_OPERATION_RESTORE_EXPORT:
+			/* Initialize the change buffer. */
+			err = dict_boot();
+			if (err != DB_SUCCESS) {
+				return(srv_init_abort(err));
+			}
+			/* This must precede
+			recv_apply_hashed_log_recs(true). */
+			trx_sys_init_at_db_start();
+			break;
+		case SRV_OPERATION_RESTORE_DELTA:
+		case SRV_OPERATION_BACKUP:
+			ut_ad(!"wrong mariabackup mode");
+			/* fall through */
+		case SRV_OPERATION_RESTORE:
+			/* mariabackup --prepare only deals with
+			the redo log and the data files, not with
+			transactions or the data dictionary. */
+			break;
+		}
 
 		if (srv_force_recovery < SRV_FORCE_NO_LOG_REDO) {
 			/* Apply the hashed log records to the
@@ -2317,11 +2354,13 @@ files_checked:
 
 		recv_recovery_from_checkpoint_finish();
 
-		if (srv_operation == SRV_OPERATION_RESTORE) {
+		if (srv_operation == SRV_OPERATION_RESTORE
+		    || srv_operation == SRV_OPERATION_RESTORE_EXPORT) {
 			/* After applying the redo log from
 			SRV_OPERATION_BACKUP, flush the changes
-			to the data files and delete the log file.
-			No further change to InnoDB files is needed. */
+			to the data files and truncate or delete the log.
+			Unless --export is specified, no further change to
+			InnoDB files is needed. */
 			ut_ad(!srv_force_recovery);
 			ut_ad(srv_n_log_files_found <= 1);
 			ut_ad(recv_no_log_write);
@@ -2331,8 +2370,18 @@ files_checked:
 			fil_close_log_files(true);
 			log_group_close_all();
 			if (err == DB_SUCCESS) {
+				bool trunc = srv_operation
+					== SRV_OPERATION_RESTORE;
+				/* Delete subsequent log files. */
 				delete_log_files(logfilename, dirnamelen,
-						 srv_n_log_files_found);
+						 srv_n_log_files_found, trunc);
+				if (trunc) {
+					/* Truncate the first log file. */
+					strcpy(logfilename + dirnamelen,
+					       "ib_logfile0");
+					FILE* f = fopen(logfilename, "w");
+					fclose(f);
+				}
 			}
 			return(err);
 		}
@@ -2602,8 +2651,6 @@ files_checked:
 		trx_temp_rseg_create();
 	}
 
-	srv_is_being_started = false;
-
 	ut_a(trx_purge_state() == PURGE_STATE_INIT);
 
 	/* Create the master thread which does purge and other utility
@@ -2651,6 +2698,8 @@ files_checked:
 	} else {
 		purge_sys->state = PURGE_STATE_DISABLED;
 	}
+
+	srv_is_being_started = false;
 
 	if (!srv_read_only_mode) {
 		/* wake main loop of page cleaner up */
@@ -2790,13 +2839,16 @@ srv_shutdown_bg_undo_sources()
 void
 innodb_shutdown()
 {
-	ut_ad(!srv_running);
+	ut_ad(!my_atomic_loadptr_explicit(reinterpret_cast<void**>
+					  (&srv_running),
+					  MY_MEMORY_ORDER_RELAXED));
 	ut_ad(!srv_undo_sources);
 
 	switch (srv_operation) {
 	case SRV_OPERATION_BACKUP:
 	case SRV_OPERATION_RESTORE:
 	case SRV_OPERATION_RESTORE_DELTA:
+	case SRV_OPERATION_RESTORE_EXPORT:
 		fil_close_all_files();
 		break;
 	case SRV_OPERATION_NORMAL:

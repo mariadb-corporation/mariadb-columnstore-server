@@ -17,7 +17,7 @@
 /*  Include relevant MariaDB header file.                              */
 /***********************************************************************/
 #include <my_global.h>
-#include <m_string.h>
+//#include <m_string.h>
 #if defined(__WIN__)
 #include <direct.h>                      // for getcwd
 #if defined(__BORLANDC__)
@@ -57,6 +57,7 @@ extern "C" HINSTANCE s_hModule;           // Saved module handle
 extern char *JvmPath;   // The connect_jvm_path global variable value
 extern char *ClassPath; // The connect_class_path global variable value
 
+char *GetPluginDir(void);
 char *GetJavaWrapper(void);		// The connect_java_wrapper variable value
 
 /***********************************************************************/
@@ -362,7 +363,7 @@ bool JAVAConn::GetJVM(PGLOBAL g)
 bool JAVAConn::Open(PGLOBAL g)
 {
 	bool		 brc = true, err = false;
-	jboolean jt = (trace > 0);
+	jboolean jt = (trace(1));
 
 	// Link or check whether jvm library was linked
 	if (GetJVM(g))
@@ -429,7 +430,7 @@ bool JAVAConn::Open(PGLOBAL g)
 			jpop->Append(cp);
 		} // endif cp
 
-		if (trace) {
+		if (trace(1)) {
 			htrc("ClassPath=%s\n", ClassPath);
 			htrc("CLASSPATH=%s\n", cp);
 			htrc("%s\n", jpop->GetStr());
@@ -453,7 +454,7 @@ bool JAVAConn::Open(PGLOBAL g)
 		vm_args.options = options;
 		vm_args.ignoreUnrecognized = false; // invalid options make the JVM init fail
 
-																				//=============== load and initialize Java VM and JNI interface =============
+		//=============== load and initialize Java VM and JNI interface =============
 		rc = CreateJavaVM(&jvm, (void**)&env, &vm_args);  // YES !!
 		delete options;    // we then no longer need the initialisation options.
 
@@ -485,7 +486,7 @@ bool JAVAConn::Open(PGLOBAL g)
 				break;
 		} // endswitch rc
 
-		if (trace)
+		if (trace(1))
 			htrc("%s\n", g->Message);
 
 		if (brc)

@@ -436,6 +436,8 @@ bool mysql_create_view(THD *thd, TABLE_LIST *views,
     goto err;
   }
 
+  WSREP_TO_ISOLATION_BEGIN(WSREP_MYSQL_DB, NULL, NULL)
+
   /*
     ignore lock specs for CREATE statement
   */
@@ -641,7 +643,8 @@ bool mysql_create_view(THD *thd, TABLE_LIST *views,
 
   if (!res && mysql_bin_log.is_open())
   {
-    String buff;
+    StringBuffer<128> buff(thd->variables.character_set_client);
+    DBUG_ASSERT(buff.charset()->mbminlen == 1);
     const LEX_STRING command[3]=
       {{ C_STRING_WITH_LEN("CREATE ") },
        { C_STRING_WITH_LEN("ALTER ") },
@@ -702,6 +705,10 @@ err:
   lex->link_first_table_back(view, link_to_local);
   unit->cleanup();
   DBUG_RETURN(res || thd->is_error());
+#ifdef WITH_WSREP
+ error:
+  DBUG_RETURN(true);
+#endif /* WITH_WSREP */
 }
 
 
@@ -1151,7 +1158,7 @@ bool mysql_make_view(THD *thd, TABLE_SHARE *share, TABLE_LIST *table,
   bool result, view_is_mergeable;
   TABLE_LIST *UNINIT_VAR(view_main_select_tables);
   DBUG_ENTER("mysql_make_view");
-  DBUG_PRINT("info", ("table: 0x%lx (%s)", (ulong) table, table->table_name));
+  DBUG_PRINT("info", ("table: %p (%s)", table, table->table_name));
 
   if (table->required_type == FRMTYPE_TABLE)
   {
@@ -1187,8 +1194,6 @@ bool mysql_make_view(THD *thd, TABLE_SHARE *share, TABLE_LIST *table,
       See MDEV-6668 for details.
     */
     mysql_derived_reinit(thd, NULL, table);
-
-    thd->select_number+= table->view->number_of_selects;
 
     DEBUG_SYNC(thd, "after_cached_view_opened");
     DBUG_RETURN(0);
@@ -1344,7 +1349,7 @@ bool mysql_make_view(THD *thd, TABLE_SHARE *share, TABLE_LIST *table,
 
     lex_start(thd);
     view_select= &lex->select_lex;
-    view_select->select_number= ++thd->select_number;
+    view_select->select_number= ++thd->stmt_lex->current_select_number;
 
     sql_mode_t saved_mode= thd->variables.sql_mode;
     /* switch off modes which can prevent normal parsing of VIEW
@@ -1377,9 +1382,6 @@ bool mysql_make_view(THD *thd, TABLE_SHARE *share, TABLE_LIST *table,
     /* Parse the query. */
 
     parse_status= parse_sql(thd, & parser_state, table->view_creation_ctx);
-
-    lex->number_of_selects=
-      (thd->select_number - view_select->select_number) + 1;
 
     /* Restore environment. */
 

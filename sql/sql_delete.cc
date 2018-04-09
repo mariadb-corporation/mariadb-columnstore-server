@@ -766,7 +766,7 @@ l
     DBUG_RETURN(TRUE);
   if ((wild_num && setup_wild(thd, table_list, field_list, NULL, wild_num)) ||
       setup_fields(thd, Ref_ptr_array(),
-                   field_list, MARK_COLUMNS_READ, NULL, 0) ||
+                   field_list, MARK_COLUMNS_READ, NULL, NULL, 0) ||
       setup_conds(thd, table_list, select_lex->leaf_tables, conds) ||
       setup_ftfuncs(select_lex))
     DBUG_RETURN(TRUE);
@@ -798,7 +798,7 @@ l
   Delete multiple tables from join 
 ***************************************************************************/
 
-#define MEM_STRIP_BUF_SIZE current_thd->variables.sortbuff_size
+#define MEM_STRIP_BUF_SIZE (size_t)(current_thd->variables.sortbuff_size)
 
 extern "C" int refpos_order_cmp(void* arg, const void *a,const void *b)
 {
@@ -1345,7 +1345,11 @@ bool multi_delete::send_eof()
 
   if (!local_error && !thd->lex->analyze_stmt)
   {
-    ::my_ok(thd, deleted);
+    if ((thd->infinidb_vtable.isInfiniDBDML))
+    // MCOL-1156. Hack to use THD.m_row_count_func value as affected rows number source. Must be removed.
+	    ::my_ok(thd, thd->get_row_count_func());
+    else
+        ::my_ok(thd, deleted);
   }
   return 0;
 }

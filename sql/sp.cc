@@ -760,7 +760,6 @@ static sp_head *sp_compile(THD *thd, String *defstr, sql_mode_t sql_mode,
   else
   {
     sp= thd->lex->sphead;
-    sp->set_select_number(thd->select_number);
   }
 
   thd->pop_internal_handler();
@@ -1277,8 +1276,8 @@ log:
   {
     thd->clear_error();
 
-    String log_query;
-    log_query.set_charset(system_charset_info);
+    StringBuffer<128> log_query(thd->variables.character_set_client);
+    DBUG_ASSERT(log_query.charset()->mbminlen == 1);
 
     if (!show_create_sp(thd, &log_query,
                        sp->m_type,
@@ -1754,11 +1753,11 @@ sp_find_routine(THD *thd, stored_procedure_type type, sp_name *name,
     String retstr(64);
     retstr.set_charset(sp->get_creation_ctx()->get_client_cs());
 
-    DBUG_PRINT("info", ("found: 0x%lx", (ulong)sp));
+    DBUG_PRINT("info", ("found:%p", sp));
     if (sp->m_first_free_instance)
     {
-      DBUG_PRINT("info", ("first free: 0x%lx  level: %lu  flags %x",
-                          (ulong)sp->m_first_free_instance,
+      DBUG_PRINT("info", ("first free:%p  level: %lu  flags %x",
+                          sp->m_first_free_instance,
                           sp->m_first_free_instance->m_recursion_level,
                           sp->m_first_free_instance->m_flags));
       DBUG_ASSERT(!(sp->m_first_free_instance->m_flags & sp_head::IS_INVOKED));
@@ -1798,8 +1797,8 @@ sp_find_routine(THD *thd, stored_procedure_type type, sp_name *name,
       new_sp->m_recursion_level= level;
       new_sp->m_first_instance= sp;
       sp->m_last_cached_sp= sp->m_first_free_instance= new_sp;
-      DBUG_PRINT("info", ("added level: 0x%lx, level: %lu, flags %x",
-                          (ulong)new_sp, new_sp->m_recursion_level,
+      DBUG_PRINT("info", ("added level:%p, level: %lu, flags %x",
+                          new_sp, new_sp->m_recursion_level,
                           new_sp->m_flags));
       DBUG_RETURN(new_sp);
     }
@@ -1810,8 +1809,8 @@ sp_find_routine(THD *thd, stored_procedure_type type, sp_name *name,
     if (db_find_routine(thd, type, name, &sp) == SP_OK)
     {
       sp_cache_insert(cp, sp);
-      DBUG_PRINT("info", ("added new: 0x%lx, level: %lu, flags %x",
-                          (ulong)sp, sp->m_recursion_level,
+      DBUG_PRINT("info", ("added new:%p, level: %lu, flags %x",
+                          sp, sp->m_recursion_level,
                           sp->m_flags));
     }
   }

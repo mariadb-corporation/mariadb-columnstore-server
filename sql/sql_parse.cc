@@ -1,5 +1,5 @@
 /* Copyright (c) 2000, 2017, Oracle and/or its affiliates.
-   Copyright (c) 2008, 2017, MariaDB
+   Copyright (c) 2008, 2018, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -525,6 +525,7 @@ void init_update_queries(void)
   server_command_flags[COM_SHUTDOWN]= CF_SKIP_WSREP_CHECK;
   server_command_flags[COM_SLEEP]= CF_SKIP_WSREP_CHECK;
   server_command_flags[COM_TIME]= CF_SKIP_WSREP_CHECK;
+  server_command_flags[COM_INIT_DB]= CF_SKIP_WSREP_CHECK;
   server_command_flags[COM_END]= CF_SKIP_WSREP_CHECK;
   for (uint i= COM_MDB_GAP_BEG; i <= COM_MDB_GAP_END; i++)
   {
@@ -538,6 +539,8 @@ void init_update_queries(void)
   server_command_flags[COM_QUERY]= CF_SKIP_WSREP_CHECK;
   server_command_flags[COM_SET_OPTION]= CF_SKIP_WSREP_CHECK;
   server_command_flags[COM_STMT_PREPARE]= CF_SKIP_QUESTIONS | CF_SKIP_WSREP_CHECK;
+  server_command_flags[COM_STMT_EXECUTE]= CF_SKIP_WSREP_CHECK;
+  server_command_flags[COM_STMT_FETCH]=   CF_SKIP_WSREP_CHECK;
   server_command_flags[COM_STMT_CLOSE]= CF_SKIP_QUESTIONS | CF_SKIP_WSREP_CHECK;
   server_command_flags[COM_STMT_RESET]= CF_SKIP_QUESTIONS | CF_SKIP_WSREP_CHECK;
   server_command_flags[COM_STMT_EXECUTE]= CF_SKIP_WSREP_CHECK;
@@ -1165,21 +1168,26 @@ static enum enum_server_command fetch_command(THD *thd, char *packet)
 }
 
 
-#ifndef EMBEDDED_LIBRARY
-
 #ifdef WITH_WSREP
-static bool wsrep_node_is_ready(THD *thd)
+static bool wsrep_tables_accessible_when_detached(const TABLE_LIST *tables)
 {
-  if (thd->variables.wsrep_on && !thd->wsrep_applier && !wsrep_ready)
+  for (const TABLE_LIST *table= tables; table; table= table->next_global)
   {
-    my_message(ER_UNKNOWN_COM_ERROR,
-               "WSREP has not yet prepared node for application use",
-               MYF(0));
-    return false;
+    TABLE_CATEGORY c;
+    LEX_STRING     db, tn;
+    lex_string_set(&db, table->db);
+    lex_string_set(&tn, table->table_name);
+    c= get_table_category(&db, &tn);
+    if (c != TABLE_CATEGORY_INFORMATION &&
+        c != TABLE_CATEGORY_PERFORMANCE)
+    {
+      return false;
+    }
   }
   return true;
 }
-#endif
+#endif /* WITH_WSREP */
+#ifndef EMBEDDED_LIBRARY
 
 /**
   Read one command from connection and execute it (query or simple command).
@@ -1355,8 +1363,9 @@ bool do_command(THD *thd)
   /*
     Bail out if DB snapshot has not been installed.
   */
-  if (!(server_command_flags[command] & CF_SKIP_WSREP_CHECK) &&
-      !wsrep_node_is_ready(thd))
+  if (thd->variables.wsrep_on && !thd->wsrep_applier &&
+      (!wsrep_ready || wsrep_reject_queries != WSREP_REJECT_NONE) &&
+      (server_command_flags[command] & CF_SKIP_WSREP_CHECK) == 0)
   {
     thd->protocol->end_statement();
 
@@ -1433,8 +1442,7 @@ out:
     @retval FALSE The statement isn't updating any relevant tables.
 */
 
-static my_bool deny_updates_if_read_only_option(THD *thd,
-                                                TABLE_LIST *all_tables)
+static bool deny_updates_if_read_only_option(THD *thd, TABLE_LIST *all_tables)
 {
   DBUG_ENTER("deny_updates_if_read_only_option");
 
@@ -1443,11 +1451,7 @@ static my_bool deny_updates_if_read_only_option(THD *thd,
 
   LEX *lex= thd->lex;
 
-  const my_bool user_is_super=
-    ((ulong)(thd->security_ctx->master_access & SUPER_ACL) ==
-     (ulong)SUPER_ACL);
-
-  if (user_is_super)
+  if (thd->security_ctx->master_access & SUPER_ACL)
     DBUG_RETURN(FALSE);
 
   if (!(sql_command_flags[lex->sql_command] & CF_CHANGES_DATA))
@@ -1457,28 +1461,26 @@ static my_bool deny_updates_if_read_only_option(THD *thd,
   if (lex->sql_command == SQLCOM_UPDATE_MULTI)
     DBUG_RETURN(FALSE);
 
+  if (lex->sql_command == SQLCOM_CREATE_DB ||
+      lex->sql_command == SQLCOM_DROP_DB)
+    DBUG_RETURN(TRUE);
+
   /*
     a table-to-be-created is not in the temp table list yet,
     so CREATE TABLE needs a special treatment
   */
-  const bool update_real_tables= lex->sql_command == SQLCOM_CREATE_TABLE ?
-        !lex->tmp_table() : some_non_temp_table_to_be_updated(thd, all_tables);
+  if (lex->sql_command == SQLCOM_CREATE_TABLE)
+    DBUG_RETURN(!lex->tmp_table());
 
-  const bool create_or_drop_databases=
-    (lex->sql_command == SQLCOM_CREATE_DB) ||
-    (lex->sql_command == SQLCOM_DROP_DB);
+  /*
+    a table-to-be-dropped might not exist (DROP TEMPORARY TABLE IF EXISTS),
+    cannot use the temp table list either.
+  */
+  if (lex->sql_command == SQLCOM_DROP_TABLE && lex->tmp_table())
+    DBUG_RETURN(FALSE);
 
-  if (update_real_tables || create_or_drop_databases)
-  {
-      /*
-        An attempt was made to modify one or more non-temporary tables.
-      */
-      DBUG_RETURN(TRUE);
-  }
-
-
-  /* Assuming that only temporary tables are modified. */
-  DBUG_RETURN(FALSE);
+  /* Now, check thd->temporary_tables list */
+  DBUG_RETURN(some_non_temp_table_to_be_updated(thd, all_tables));
 }
 
 
@@ -1501,10 +1503,10 @@ uint maria_multi_check(THD *thd, char *packet, uint packet_length)
   {
     char *packet_start= packet;
     size_t subpacket_length= net_field_length((uchar **)&packet_start);
-    uint length_length= packet_start - packet;
+    size_t length_length= packet_start - packet;
     // length of command + 3 bytes where that length was stored
-    DBUG_PRINT("info", ("sub-packet length: %ld + %d  command: %x",
-                        (ulong)subpacket_length, length_length,
+    DBUG_PRINT("info", ("sub-packet length: %zu + %zu  command: %x",
+                        subpacket_length, length_length,
                         packet_start[3]));
 
     if (subpacket_length == 0 ||
@@ -1588,7 +1590,8 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
     if (thd->wsrep_conflict_state == ABORTED &&
         command != COM_STMT_CLOSE && command != COM_QUIT)
     {
-      my_error(ER_LOCK_DEADLOCK, MYF(0), "wsrep aborted transaction");
+      my_message(ER_LOCK_DEADLOCK, "Deadlock: wsrep aborted transaction",
+                 MYF(0));
       WSREP_DEBUG("Deadlock error for: %s", thd->query());
       mysql_mutex_unlock(&thd->LOCK_wsrep_thd);
       thd->reset_killed();
@@ -1828,7 +1831,6 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
 	// InfiniDB: Do InfiniDB Processing.
 	if (idb_vtable_process(thd, old_optimizer_switch, NULL))   // returns non 0 when not InfiniDB query
 	{
-	  thd->set_row_count_func(0); //Bug 5315
 	  thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
 
       if (WSREP_ON)
@@ -1964,7 +1966,7 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
       (The packet is guaranteed to end with an end zero)
     */
     arg_end= strend(packet);
-    uint arg_length= arg_end - packet;
+    uint arg_length= (uint)(arg_end - packet);
 
     /* Check given table name length. */
     if (packet_length - arg_length > NAME_LEN + 1 || arg_length > SAFE_NAME_LEN)
@@ -2205,7 +2207,7 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
 
     length= my_snprintf(buff, buff_len - 1,
                         "Uptime: %lu  Threads: %d  Questions: %lu  "
-                        "Slow queries: %lu  Opens: %lu  Flush tables: %lu  "
+                        "Slow queries: %lu  Opens: %lu  Flush tables: %lld  "
                         "Open tables: %u  Queries per second avg: %u.%03u",
                         uptime,
                         (int) thread_count, (ulong) thd->query_id,
@@ -2294,7 +2296,7 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
       char *packet_start= packet;
       /* We have to store next length because it will be destroyed by '\0' */
       size_t next_subpacket_length= net_field_length((uchar **)&packet_start);
-      uint next_length_length= packet_start - packet;
+      size_t next_length_length= packet_start - packet;
       unsigned char *readbuff= net->buff;
 
       if (net_allocate_new_packet(net, thd, MYF(0)))
@@ -2309,7 +2311,7 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
       {
         current_com++;
         size_t subpacket_length= next_subpacket_length + next_length_length;
-        uint length_length= next_length_length;
+        size_t length_length= next_length_length;
         if (subpacket_length < packet_length)
         {
           packet_start= packet + subpacket_length;
@@ -2324,7 +2326,8 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
 
         if (server_command_flags[subcommand] & CF_NO_COM_MULTI)
         {
-          my_error(ER_BAD_COMMAND_IN_MULTI, MYF(0), command_name[subcommand]);
+          my_error(ER_BAD_COMMAND_IN_MULTI, MYF(0),
+                   command_name[subcommand].str);
           goto com_multi_end;
         }
 
@@ -2428,11 +2431,12 @@ com_multi_end:
 
   THD_STAGE_INFO(thd, stage_cleaning_up);
   thd->reset_query();
-  thd->set_examined_row_count(0);                   // For processlist
-  thd->set_command(COM_SLEEP);
 
   /* Performance Schema Interface instrumentation, end */
   MYSQL_END_STATEMENT(thd->m_statement_psi, thd->get_stmt_da());
+  thd->set_examined_row_count(0);                   // For processlist
+  thd->set_command(COM_SLEEP);
+
   thd->m_statement_psi= NULL;
   thd->m_digest= NULL;
 
@@ -2923,6 +2927,13 @@ static bool do_execute_sp(THD *thd, sp_head *sp)
   thd->variables.select_limit= HA_POS_ERROR;
 
   /*
+    Reset current_select as it may point to random data as a
+    result of previous parsing.
+  */
+  thd->lex->current_select= NULL;
+  thd->lex->in_sum_func= 0;                     // For Item_field::fix_fields()
+
+  /*
     We never write CALL statements into binlog:
      - If the mode is non-prelocked, each statement will be logged
        separately.
@@ -3035,6 +3046,9 @@ mysql_execute_command(THD *thd)
     if (all_tables)
       thd->get_stmt_da()->opt_clear_warning_info(thd->query_id);
   }
+
+  if (check_dependencies_in_with_clauses(thd->lex->with_clauses_list))
+    DBUG_RETURN(1);
 
 #ifdef HAVE_REPLICATION
   if (unlikely(thd->slave_thread))
@@ -3179,20 +3193,23 @@ mysql_execute_command(THD *thd)
     }
 
     /*
-      Bail out if DB snapshot has not been installed. SET and SHOW commands,
-      however, are always allowed.
-      Select query is also allowed if it does not access any table.
-      We additionally allow all other commands that do not change data in
-      case wsrep_dirty_reads is enabled.
-    */
-    if (lex->sql_command != SQLCOM_SET_OPTION  &&
-        !wsrep_is_show_query(lex->sql_command) &&
-        !(thd->variables.wsrep_dirty_reads     &&
-          !is_update_query(lex->sql_command))  &&
-        !(lex->sql_command == SQLCOM_SELECT    &&
-          !all_tables)                         &&
-        !wsrep_node_is_ready(thd))
+     * Bail out if DB snapshot has not been installed. We however,
+     * allow SET and SHOW queries and reads from information schema
+     * and dirty reads (if configured)
+     */
+    if (thd->variables.wsrep_on &&
+	!thd->wsrep_applier &&
+        !(wsrep_ready && wsrep_reject_queries == WSREP_REJECT_NONE)        &&
+        !(thd->variables.wsrep_dirty_reads &&
+          (sql_command_flags[lex->sql_command] & CF_CHANGES_DATA) == 0)    &&
+        !wsrep_tables_accessible_when_detached(all_tables)                 &&
+        lex->sql_command != SQLCOM_SET_OPTION                              &&
+        !wsrep_is_show_query(lex->sql_command))
+    {
+      my_message(ER_UNKNOWN_COM_ERROR,
+                 "WSREP has not yet prepared node for application use", MYF(0));
       goto error;
+    }
   }
 #endif /* WITH_WSREP */
   status_var_increment(thd->status_var.com_stat[lex->sql_command]);
@@ -3836,7 +3853,7 @@ mysql_execute_command(THD *thd)
 #ifdef WITH_PARTITION_STORAGE_ENGINE
     {
       partition_info *part_info= thd->lex->part_info;
-      if (part_info && !(part_info= thd->lex->part_info->get_clone(thd)))
+      if (part_info && !(part_info= part_info->get_clone(thd)))
       {
         res= -1;
         goto end_with_restore_list;
@@ -3917,8 +3934,7 @@ mysql_execute_command(THD *thd)
       /* Copy temporarily the statement flags to thd for lock_table_names() */
       uint save_thd_create_info_options= thd->lex->create_info.options;
       thd->lex->create_info.options|= create_info.options;
-      if (!(res= check_dependencies_in_with_clauses(lex->with_clauses_list)))
-        res= open_and_lock_tables(thd, create_info, lex->query_tables, TRUE, 0);
+      res= open_and_lock_tables(thd, create_info, lex->query_tables, TRUE, 0);
       thd->lex->create_info.options= save_thd_create_info_options;
       if (res)
       {
@@ -4313,7 +4329,7 @@ end_with_restore_list:
     if (up_result != 2)
       break;
   }
-    /* Fall through */
+  /* fall through */
   case SQLCOM_UPDATE_MULTI:
   {
     DBUG_ASSERT(first_table == all_tables && first_table != 0);
@@ -4424,7 +4440,7 @@ end_with_restore_list:
       DBUG_PRINT("debug", ("Just after generate_incident()"));
     }
 #endif
-  /* fall through */
+    /* fall through */
   case SQLCOM_INSERT:
   {
     WSREP_SYNC_WAIT(thd, WSREP_SYNC_WAIT_BEFORE_INSERT_REPLACE);
@@ -4531,8 +4547,7 @@ end_with_restore_list:
 
     unit->set_limit(select_lex);
 
-    if (!(res= check_dependencies_in_with_clauses(lex->with_clauses_list)) &&
-	!(res=open_and_lock_tables(thd, all_tables, TRUE, 0)))
+    if (!(res=open_and_lock_tables(thd, all_tables, TRUE, 0)))
     {
       MYSQL_INSERT_SELECT_START(thd->query());
       /*
@@ -5114,7 +5129,6 @@ end_with_restore_list:
     if (res)
       break;
 
-    WSREP_TO_ISOLATION_BEGIN(WSREP_MYSQL_DB, NULL, NULL)
     switch (lex->sql_command) {
     case SQLCOM_CREATE_EVENT:
     {
@@ -5148,7 +5162,6 @@ end_with_restore_list:
                                    lex->spname->m_name);
     break;
   case SQLCOM_DROP_EVENT:
-    WSREP_TO_ISOLATION_BEGIN(WSREP_MYSQL_DB, NULL, NULL)
     if (!(res= Events::drop_event(thd,
                                   lex->spname->m_db, lex->spname->m_name,
                                   lex->if_exists())))
@@ -5606,14 +5619,19 @@ end_with_restore_list:
       thd->print_aborted_warning(3, "RELEASE");
     }
 #ifdef WITH_WSREP
-    if (WSREP(thd) && (thd->wsrep_conflict_state != NO_CONFLICT &&
-                       thd->wsrep_conflict_state != REPLAYING))
-    {
-      DBUG_ASSERT(thd->is_error()); // the error is already issued
-    }
-    else
+    if (WSREP(thd)) {
+
+      if (thd->wsrep_conflict_state == NO_CONFLICT ||
+          thd->wsrep_conflict_state == REPLAYING)
+      {
+        my_ok(thd);
+      }
+    } else {
 #endif /* WITH_WSREP */
-      my_ok(thd);
+	my_ok(thd);
+#ifdef WITH_WSREP
+    }
+#endif /* WITH_WSREP */
     break;
   }
   case SQLCOM_ROLLBACK:
@@ -5650,13 +5668,16 @@ end_with_restore_list:
     if (tx_release)
       thd->set_killed(KILL_CONNECTION);
 #ifdef WITH_WSREP
-    if (WSREP(thd) && thd->wsrep_conflict_state != NO_CONFLICT)
-    {
-      DBUG_ASSERT(thd->is_error()); // the error is already issued
-    }
-    else
+    if (WSREP(thd)) {
+      if (thd->wsrep_conflict_state == NO_CONFLICT) {
+        my_ok(thd);
+      }
+    } else {
 #endif /* WITH_WSREP */
-      my_ok(thd);
+	my_ok(thd);
+#ifdef WITH_WSREP
+    }
+#endif /* WITH_WSREP */
    break;
   }
   case SQLCOM_RELEASE_SAVEPOINT:
@@ -6061,7 +6082,6 @@ end_with_restore_list:
         Note: SQLCOM_CREATE_VIEW also handles 'ALTER VIEW' commands
         as specified through the thd->lex->create_view_mode flag.
       */
-      WSREP_TO_ISOLATION_BEGIN(WSREP_MYSQL_DB, NULL, NULL)
       res= mysql_create_view(thd, first_table, thd->lex->create_view_mode);
       break;
     }
@@ -6077,7 +6097,6 @@ end_with_restore_list:
   case SQLCOM_CREATE_TRIGGER:
   {
     /* Conditionally writes to binlog. */
-    WSREP_TO_ISOLATION_BEGIN(WSREP_MYSQL_DB, NULL, NULL)
     res= mysql_create_or_drop_trigger(thd, all_tables, 1);
 
     break;
@@ -6085,7 +6104,6 @@ end_with_restore_list:
   case SQLCOM_DROP_TRIGGER:
   {
     /* Conditionally writes to binlog. */
-    WSREP_TO_ISOLATION_BEGIN(WSREP_MYSQL_DB, NULL, NULL)
     res= mysql_create_or_drop_trigger(thd, all_tables, 0);
     break;
   }
@@ -6150,13 +6168,11 @@ end_with_restore_list:
       my_ok(thd);
     break;
   case SQLCOM_INSTALL_PLUGIN:
-    WSREP_TO_ISOLATION_BEGIN(WSREP_MYSQL_DB, NULL, NULL)
     if (! (res= mysql_install_plugin(thd, &thd->lex->comment,
                                      &thd->lex->ident)))
       my_ok(thd);
     break;
   case SQLCOM_UNINSTALL_PLUGIN:
-    WSREP_TO_ISOLATION_BEGIN(WSREP_MYSQL_DB, NULL, NULL)
     if (! (res= mysql_uninstall_plugin(thd, &thd->lex->comment,
                                        &thd->lex->ident)))
       my_ok(thd);
@@ -6284,6 +6300,25 @@ finish:
     }
     if (thd->is_error() || (thd->variables.option_bits & OPTION_MASTER_SQL_ERROR))
       trans_rollback_stmt(thd);
+#ifdef WITH_WSREP
+    if (thd->spcont &&
+             (thd->wsrep_conflict_state == MUST_ABORT ||
+              thd->wsrep_conflict_state == ABORTED    ||
+              thd->wsrep_conflict_state == CERT_FAILURE))
+    {
+      /*
+        The error was cleared, but THD was aborted by wsrep and
+        wsrep_conflict_state is still set accordingly. This
+        situation is expected if we are running a stored procedure
+        that declares a handler that catches ER_LOCK_DEADLOCK error.
+        In which case the error may have been cleared in method
+        sp_rcontext::handle_sql_condition().
+      */
+      trans_rollback_stmt(thd);
+      thd->wsrep_conflict_state= NO_CONFLICT;
+      thd->killed= NOT_KILLED;
+    }
+#endif /* WITH_WSREP */
     else
     {
       /* If commit fails, we should be able to reset the OK status. */
@@ -6391,8 +6426,6 @@ static bool execute_sqlcom_select(THD *thd, TABLE_LIST *all_tables)
         new (thd->mem_root) Item_int(thd,
                                      (ulonglong) thd->variables.select_limit);
   }
-  if (check_dependencies_in_with_clauses(lex->with_clauses_list))
-    return 1;
 
   if (!(res= open_and_lock_tables(thd, all_tables, TRUE, 0)))
   {
@@ -7453,7 +7486,12 @@ void THD::reset_for_next_command(bool do_clear_error)
     clear_error(1);
 
   thd->free_list= 0;
-  thd->select_number= 1;
+  /*
+    We also assign thd->stmt_lex in lex_start(), but during bootstrap this
+    code is executed first.
+  */
+  thd->stmt_lex= &main_lex; thd->stmt_lex->current_select_number= 1;
+  DBUG_PRINT("info", ("Lex %p stmt_lex: %p", thd->lex, thd->stmt_lex));
   /*
     Those two lines below are theoretically unneeded as
     THD::cleanup_after_query() should take care of this already.
@@ -7503,10 +7541,9 @@ void THD::reset_for_next_command(bool do_clear_error)
   thd->thread_specific_used= FALSE;
 
   if (opt_bin_log)
-  {
     reset_dynamic(&thd->user_var_events);
-    thd->user_var_events_alloc= thd->mem_root;
-  }
+  DBUG_ASSERT(thd->user_var_events_alloc == &thd->main_mem_root);
+
   thd->get_stmt_da()->reset_for_next_command();
   thd->rand_used= 0;
   thd->m_sent_row_count= thd->m_examined_row_count= 0;
@@ -7571,7 +7608,7 @@ mysql_new_select(LEX *lex, bool move_down)
 
   if (!(select_lex= new (thd->mem_root) SELECT_LEX()))
     DBUG_RETURN(1);
-  select_lex->select_number= ++thd->select_number;
+  select_lex->select_number= ++thd->stmt_lex->current_select_number;
   select_lex->parent_lex= lex; /* Used in init_query. */
   select_lex->init_query();
   select_lex->init_select();
@@ -7687,7 +7724,7 @@ void create_select_for_variable(const char *var_name)
   if ((var= get_system_var(thd, OPT_SESSION, tmp, null_lex_str)))
   {
     end= strxmov(buff, "@@session.", var_name, NullS);
-    var->set_name(thd, buff, end-buff, system_charset_info);
+    var->set_name(thd, buff, (uint)(end-buff), system_charset_info);
     add_item_to_list(thd, var);
   }
   DBUG_VOID_RETURN;
@@ -7749,7 +7786,6 @@ static void wsrep_mysql_parse(THD *thd, char *rawbuf, uint length,
           thd->wsrep_conflict_state == CERT_FAILURE)
       {
         thd->reset_for_next_command();
-        thd->reset_killed();
         if (is_autocommit                           &&
             thd->lex->sql_command != SQLCOM_SELECT  &&
             (thd->wsrep_retry_counter < thd->variables.wsrep_retry_autocommit))
@@ -7777,18 +7813,20 @@ static void wsrep_mysql_parse(THD *thd, char *rawbuf, uint length,
                       (longlong) thd->thread_id, is_autocommit,
                       thd->wsrep_retry_counter, 
                       thd->variables.wsrep_retry_autocommit, thd->query());
-          my_error(ER_LOCK_DEADLOCK, MYF(0), "wsrep aborted transaction");
-          thd->reset_killed();
+          my_message(ER_LOCK_DEADLOCK, "Deadlock: wsrep aborted transaction",
+                     MYF(0));
           thd->wsrep_conflict_state= NO_CONFLICT;
           if (thd->wsrep_conflict_state != REPLAYING)
             thd->wsrep_retry_counter= 0;             //  reset
         }
+        mysql_mutex_unlock(&thd->LOCK_wsrep_thd);
+        thd->reset_killed();
       }
       else
       {
         set_if_smaller(thd->wsrep_retry_counter, 0); // reset; eventually ok
+        mysql_mutex_unlock(&thd->LOCK_wsrep_thd);
       }
-      mysql_mutex_unlock(&thd->LOCK_wsrep_thd);
     }
 
     /* If retry is requested clean up explain structure */
@@ -7936,7 +7974,7 @@ void mysql_parse(THD *thd, char *rawbuf, uint length,
     sp_cache_enforce_limit(thd->sp_func_cache, stored_program_cache_size);
     thd->end_statement();
     thd->cleanup_after_query();
-    DBUG_ASSERT(thd->change_list.is_empty());
+    DBUG_ASSERT(thd->Item_change_list::is_empty());
   }
   else
   {
@@ -10166,7 +10204,11 @@ int idb_parse_vtable(THD* thd, String& vquery, THD::infinidb_state vtable_state)
 	#ifdef INFINIDB_DEBUG
 	printf("<<< Parse vtable: %s\n", vquery.c_ptr());
 	#endif
+    // MCOL-1082: the drop table clears row_count and this may be a SELECT to
+    // get the row_count.
+    longlong row_count= thd->get_row_count_func();
 	mysql_parse(thd, thd->query(), thd->query_length(), &parser_state, false, false);
+    thd->set_row_count_func(row_count);
 	delete_explain_query(thd->lex);
 	close_thread_tables(thd);
 
@@ -10715,7 +10757,6 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 					thd->infinidb_vtable.vtable_state = THD::INFINIDB_INIT;
 					thd->infinidb_vtable.duplicate_field_name = false;
 					thd->infinidb_vtable.isUnion = false;
-					thd->infinidb_vtable.mysql_optimizer_off = false;
 					thd->infinidb_vtable.impossibleWhereOnUnion = false;
 					thd->infinidb_vtable.isInfiniDBDML = false;
 					thd->infinidb_vtable.hasInfiniDBTable = false;
@@ -10730,33 +10771,39 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 					else if (thd->infinidb_vtable.vtable_state == THD::INFINIDB_REDO_PHASE1)
 					{
 						// redo phase 1;
+                        int redo_count = 0;
 						while (thd->infinidb_vtable.vtable_state == THD::INFINIDB_REDO_PHASE1)
 						{
 							idb_parse_vtable(thd, thd->infinidb_vtable.drop_vtable_query, THD::INFINIDB_DROP_VTABLE);
+#if 0
+							// This code was dead (would never be exected -- there used to be an if around it).
 
 							// If the execution plan failed InfiniDB, turn off the optimizer constant re-write
 							// and let the query go through optimizer again. Change it to CREATE_PHASE
 							// because we want to re-generate and send InfiniDB plan.
-							if (thd->infinidb_vtable.mysql_optimizer_off)
-							{
-								thd->infinidb_vtable.vtable_state = THD::INFINIDB_CREATE_VTABLE;
-								thd->infinidb_vtable.create_vtable_query.free();
-								thd->infinidb_vtable.create_vtable_query.append(create.c_str(), create.length());
-								thd->infinidb_vtable.select_vtable_query.free();
-								thd->infinidb_vtable.select_vtable_query.append(select.c_str(), select.length());
-							}
+                            thd->infinidb_vtable.vtable_state = THD::INFINIDB_CREATE_VTABLE;
+                            thd->infinidb_vtable.create_vtable_query.free();
+                            thd->infinidb_vtable.create_vtable_query.append(create.c_str(), create.length());
+                            thd->infinidb_vtable.select_vtable_query.free();
+                            thd->infinidb_vtable.select_vtable_query.append(select.c_str(), select.length());
+#endif
 							thd->infinidb_vtable.isUnion = false; // make state change to create_vtable in sql_select
 	#ifdef INFINIDB_DEBUG
 							printf("<<< V-TABLE Redo Phase 1: %s\n", thd->query());
 	#endif
 							idb_parse_vtable(thd, thd->infinidb_vtable.create_vtable_query, THD::INFINIDB_CREATE_VTABLE);
-							if (thd->infinidb_vtable.mysql_optimizer_off)
-								thd->infinidb_vtable.mysql_optimizer_off = false;
 							if ((thd->get_stmt_da()->is_error()) || ( thd->killed > 0 )) //@Bug 2974 Handle ctrl-c
 							{
-								thd->infinidb_vtable.vtable_state = THD::INFINIDB_ERROR;
-								break;
+                                thd->infinidb_vtable.vtable_state = THD::INFINIDB_ERROR_REDO_PHASE1;
+                                break;
 							}
+                            if (redo_count > 5)
+                            {
+                                // If we don't get it after five tries, give up.
+                                thd->infinidb_vtable.vtable_state = THD::INFINIDB_ERROR_REDO_PHASE1;
+                                break;
+                            }
+							++redo_count;
 						}
 					}
 					else if (thd->infinidb_vtable.vtable_state == THD::INFINIDB_REDO_QUERY)
@@ -10776,7 +10823,8 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 					}
 
 					// error out Calpont non-supported error
-					if (thd->infinidb_vtable.vtable_state == THD::INFINIDB_ERROR)
+					if (thd->infinidb_vtable.vtable_state == THD::INFINIDB_ERROR
+					||  thd->infinidb_vtable.vtable_state == THD::INFINIDB_ERROR_REDO_PHASE1)
 					{
 						if (thd->infinidb_vtable.autoswitch || isExplain)
 						{
@@ -10799,6 +10847,20 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 						{
 							// error out -- vtable mode = 1
 							thd->killed = KILL_QUERY;
+                            thd->infinidb_vtable.isNewQuery = true;  // reset for next query since rnd_end may not be called.
+                            if (thd->infinidb_vtable.vtable_state == THD::INFINIDB_ERROR_REDO_PHASE1)
+                            {
+                                // Reseting the diagnostic area is a kludge to remove the error
+                                // that caused us to get here and replace it.
+                                // It may seem strange to hide the real error here, but it's not
+                                // a real error in most cases. A real error would have been detected
+                                // before we did a redo phase1. This error is caused by
+                                // the CS code not handling what it re-wrote. Most often
+                                // caused by a CTE with a complex order by. 
+                                thd->get_stmt_da()->reset_diagnostics_area();
+                                thd->get_stmt_da()->set_overwrite_status(true);
+                                thd->raise_error_printf(ER_INTERNAL_ERROR, "Query cannot be processed using operational mode 1 (vtable mode)");
+                            }
 						}
 					}
 					else if ( thd->infinidb_vtable.vtable_state == THD::INFINIDB_CREATE_VTABLE )
@@ -10856,7 +10918,6 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 		}
 
 		thd->lex->restore_backup_query_tables_list(&backup);
-		//------------------ End InfiniDB -------------------------------
 	}
 	DBUG_RETURN(0);
 }

@@ -156,29 +156,20 @@ void user_connect::SetHandler(ha_connect *hc)
 bool user_connect::CheckCleanup(bool force)
 {
   if (thdp->query_id > last_query_id || force) {
-    uint worksize= GetWorkSize();
+    uint worksize= GetWorkSize(), size = g->Sarea_Size;
 
     PlugCleanup(g, true);
 
-    if (g->Sarea_Size != worksize) {
-			if (g->Sarea) {
-#if !defined(DEVELOPMENT)
-				if (trace)
-#endif
-					htrc("CheckCleanup: Free Sarea at %p size=%d\n",
-																g->Sarea, g->Sarea_Size);
-
-				free(g->Sarea);
-			}	// endif Size
+    if (size != worksize) {
+			FreeSarea(g);
 
       // Check whether the work area could be allocated
-      if (!(g->Sarea = PlugAllocMem(g, worksize))) {
-        g->Sarea = PlugAllocMem(g, g->Sarea_Size);
+      if (AllocSarea(g, worksize)) {
+				AllocSarea(g, size);
         SetWorkSize(g->Sarea_Size);       // Was too big
-      } else
-        g->Sarea_Size = worksize;         // Ok
+      } // endif sarea
 
-      } // endif worksize
+    } // endif worksize
 
     PlugSubSet(g, g->Sarea, g->Sarea_Size);
     g->Xchk = NULL;
@@ -187,7 +178,7 @@ bool user_connect::CheckCleanup(bool force)
     g->Mrr = 0;
     last_query_id= thdp->query_id;
 
-    if (trace && !force)
+    if (trace(65) && !force)
       printf("=====> Begin new query %llu\n", last_query_id);
 
     return true;

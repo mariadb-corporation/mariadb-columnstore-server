@@ -1,6 +1,6 @@
 /*
-  Copyright (c) 2005, 2013, Oracle and/or its affiliates.
-  Copyright (c) 2009, 2013, Monty Program Ab & SkySQL Ab
+  Copyright (c) 2005, 2017, Oracle and/or its affiliates.
+  Copyright (c) 2009, 2018, MariaDB
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -1933,7 +1933,7 @@ int ha_partition::change_partitions(HA_CREATE_INFO *create_info,
           cleanup_new_partition(part_count);
           DBUG_RETURN(error);
         }
-        
+
         DBUG_PRINT("info", ("Add partition %s", part_name_buff));
         if ((error= prepare_new_partition(table, create_info,
                                           new_file_array[i],
@@ -2184,38 +2184,19 @@ void ha_partition::update_create_info(HA_CREATE_INFO *create_info)
         DBUG_ASSERT(sub_elem);
         part= i * num_subparts + j;
         DBUG_ASSERT(part < m_file_tot_parts && m_file[part]);
-        if (ha_legacy_type(m_file[part]->ht) == DB_TYPE_INNODB)
-        {
-          dummy_info.data_file_name= dummy_info.index_file_name = NULL;
-          m_file[part]->update_create_info(&dummy_info);
-
-          if (dummy_info.data_file_name || sub_elem->data_file_name)
-          {
-            sub_elem->data_file_name = (char*) dummy_info.data_file_name;
-          }
-          if (dummy_info.index_file_name || sub_elem->index_file_name)
-          {
-            sub_elem->index_file_name = (char*) dummy_info.index_file_name;
-          }
-        }
+        dummy_info.data_file_name= dummy_info.index_file_name = NULL;
+        m_file[part]->update_create_info(&dummy_info);
+        sub_elem->data_file_name = (char*) dummy_info.data_file_name;
+        sub_elem->index_file_name = (char*) dummy_info.index_file_name;
       }
     }
     else
     {
       DBUG_ASSERT(m_file[i]);
-      if (ha_legacy_type(m_file[i]->ht) == DB_TYPE_INNODB)
-      {
-        dummy_info.data_file_name= dummy_info.index_file_name= NULL;
-        m_file[i]->update_create_info(&dummy_info);
-        if (dummy_info.data_file_name || part_elem->data_file_name)
-        {
-          part_elem->data_file_name = (char*) dummy_info.data_file_name;
-        }
-        if (dummy_info.index_file_name || part_elem->index_file_name)
-        {
-          part_elem->index_file_name = (char*) dummy_info.index_file_name;
-        }
-      }
+      dummy_info.data_file_name= dummy_info.index_file_name= NULL;
+      m_file[i]->update_create_info(&dummy_info);
+      part_elem->data_file_name = (char*) dummy_info.data_file_name;
+      part_elem->index_file_name = (char*) dummy_info.index_file_name;
     }
   }
   DBUG_VOID_RETURN;
@@ -2508,7 +2489,7 @@ register_query_cache_dependant_tables(THD *thd,
         part= i * num_subparts + j;
         /* we store the end \0 as part of the key */
         end= strmov(engine_pos, sub_elem->partition_name);
-        length= end - engine_key;
+        length= (uint)(end - engine_key);
         /* Copy the suffix also to query cache key */
         memcpy(query_cache_key_end, engine_key_end, (end - engine_key_end));
         if (reg_query_cache_dependant_table(thd, engine_key, length,
@@ -2524,7 +2505,7 @@ register_query_cache_dependant_tables(THD *thd,
     else
     {
       char *end= engine_pos+1;                  // copy end \0
-      uint length= end - engine_key;
+      uint length= (uint)(end - engine_key);
       /* Copy the suffix also to query cache key */
       memcpy(query_cache_key_end, engine_key_end, (end - engine_key_end));
       if (reg_query_cache_dependant_table(thd, engine_key, length,
@@ -4803,8 +4784,8 @@ int ha_partition::rnd_init(bool scan)
   }
 
   /* Now we see what the index of our first important partition is */
-  DBUG_PRINT("info", ("m_part_info->read_partitions: 0x%lx",
-                      (long) m_part_info->read_partitions.bitmap));
+  DBUG_PRINT("info", ("m_part_info->read_partitions: %p",
+                      m_part_info->read_partitions.bitmap));
   part_id= bitmap_get_first_set(&(m_part_info->read_partitions));
   DBUG_PRINT("info", ("m_part_spec.start_part %d", part_id));
 
@@ -6738,7 +6719,7 @@ int ha_partition::info(uint flag)
       /* Get variables if not already done */
       if (!(flag & HA_STATUS_VARIABLE) ||
           !bitmap_is_set(&(m_part_info->read_partitions),
-                         (file_array - m_file)))
+                         (uint)(file_array - m_file)))
         file->info(HA_STATUS_VARIABLE | no_lock_flag | extra_var_flag);
       if (file->stats.records > max_records)
       {
@@ -7274,6 +7255,10 @@ int ha_partition::extra(enum ha_extra_function operation)
   */
   case HA_EXTRA_MARK_AS_LOG_TABLE:
     DBUG_RETURN(ER_UNSUPORTED_LOG_ENGINE);
+  case HA_EXTRA_BEGIN_ALTER_COPY:
+  case HA_EXTRA_END_ALTER_COPY:
+  case HA_EXTRA_FAKE_START_STMT:
+    DBUG_RETURN(loop_extra(operation));
   default:
   {
     /* Temporary crash to discover what is wrong */
@@ -7704,7 +7689,7 @@ ha_rows ha_partition::estimate_rows_upper_bound()
 
   do
   {
-    if (bitmap_is_set(&(m_part_info->read_partitions), (file - m_file)))
+    if (bitmap_is_set(&(m_part_info->read_partitions), (uint)(file - m_file)))
     {
       rows= (*file)->estimate_rows_upper_bound();
       if (rows == HA_POS_ERROR)
@@ -8160,20 +8145,36 @@ uint ha_partition::alter_table_flags(uint flags)
 bool ha_partition::check_if_incompatible_data(HA_CREATE_INFO *create_info,
                                               uint table_changes)
 {
-  handler **file;
-  bool ret= COMPATIBLE_DATA_YES;
-
   /*
     The check for any partitioning related changes have already been done
     in mysql_alter_table (by fix_partition_func), so it is only up to
     the underlying handlers.
   */
-  for (file= m_file; *file; file++)
-    if ((ret=  (*file)->check_if_incompatible_data(create_info,
-                                                   table_changes)) !=
-        COMPATIBLE_DATA_YES)
-      break;
-  return ret;
+  List_iterator<partition_element> part_it(m_part_info->partitions);
+  HA_CREATE_INFO dummy_info= *create_info;
+  uint i=0;
+  while (partition_element *part_elem= part_it++)
+  {
+    if (m_is_sub_partitioned)
+    {
+      List_iterator<partition_element> subpart_it(part_elem->subpartitions);
+      while (partition_element *sub_elem= subpart_it++)
+      {
+        dummy_info.data_file_name= sub_elem->data_file_name;
+        dummy_info.index_file_name= sub_elem->index_file_name;
+        if (m_file[i++]->check_if_incompatible_data(&dummy_info, table_changes))
+          return COMPATIBLE_DATA_NO;
+      }
+    }
+    else
+    {
+      dummy_info.data_file_name= part_elem->data_file_name;
+      dummy_info.index_file_name= part_elem->index_file_name;
+      if (m_file[i++]->check_if_incompatible_data(&dummy_info, table_changes))
+        return COMPATIBLE_DATA_NO;
+    }
+  }
+  return COMPATIBLE_DATA_YES;
 }
 
 

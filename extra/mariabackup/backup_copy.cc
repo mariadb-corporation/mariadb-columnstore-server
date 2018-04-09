@@ -46,6 +46,7 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 #include <ut0mem.h>
 #include <srv0start.h>
 #include <fil0fil.h>
+#include <trx0sys.h>
 #include <set>
 #include <string>
 #include <mysqld.h>
@@ -251,9 +252,8 @@ datadir_iter_next_database(datadir_iter_t *it)
 			it->dbpath = static_cast<char*>(
 				malloc(it->dbpath_len));
 		}
-		ut_snprintf(it->dbpath, it->dbpath_len,
-			    "%s/%s", it->datadir_path,
-			    it->dbinfo.name);
+		snprintf(it->dbpath, it->dbpath_len, "%s/%s",
+			 it->datadir_path, it->dbinfo.name);
 		os_normalize_path(it->dbpath);
 
 		if (it->dbinfo.type == OS_FILE_TYPE_FILE) {
@@ -1033,8 +1033,8 @@ move_file(ds_ctxt_t *datasink,
 	char dst_dir_abs[FN_REFLEN];
 	size_t dirname_length;
 
-	ut_snprintf(dst_file_path_abs, sizeof(dst_file_path_abs),
-			"%s/%s", dst_dir, dst_file_path);
+	snprintf(dst_file_path_abs, sizeof(dst_file_path_abs),
+		 "%s/%s", dst_dir, dst_file_path);
 
 	dirname_part(dst_dir_abs, dst_file_path_abs, &dirname_length);
 
@@ -1251,8 +1251,8 @@ backup_files(const char *from, bool prep_mode)
 		} else if (!prep_mode) {
 			/* backup fake file into empty directory */
 			char path[FN_REFLEN];
-			ut_snprintf(path, sizeof(path),
-					"%s/db.opt", node.filepath);
+			snprintf(path, sizeof(path),
+				 "%s/db.opt", node.filepath);
 			if (!(ret = backup_file_printf(
 					trim_dotslash(path), "%s", ""))) {
 				msg("Failed to create file %s\n", path);
@@ -1464,11 +1464,9 @@ bool backup_finish()
 		return(false);
 	}
 
-	if (!write_xtrabackup_info(mysql_connection)) {
+	if (!write_xtrabackup_info(mysql_connection, XTRABACKUP_INFO, opt_history != 0)) {
 		return(false);
 	}
-
-
 
 	return(true);
 }
@@ -1680,25 +1678,29 @@ copy_back()
 	ut_crc32_init();
 
 	/* copy undo tablespaces */
-	if (srv_undo_tablespaces > 0) {
 
-		dst_dir = (srv_undo_dir && *srv_undo_dir)
-				? srv_undo_dir : mysql_data_home;
 
-		ds_data = ds_create(dst_dir, DS_TYPE_LOCAL);
+	dst_dir = (srv_undo_dir && *srv_undo_dir)
+			? srv_undo_dir : mysql_data_home;
 
-		for (ulong i = 1; i <= srv_undo_tablespaces; i++) {
-			char filename[20];
-			sprintf(filename, "undo%03lu", i);
-			if (!(ret = copy_or_move_file(filename, filename,
-				                      dst_dir, 1))) {
-				goto cleanup;
-			}
+	ds_data = ds_create(dst_dir, DS_TYPE_LOCAL);
+
+	for (uint i = 1; i <= TRX_SYS_MAX_UNDO_SPACES; i++) {
+		char filename[20];
+		sprintf(filename, "undo%03u", i);
+		if (!file_exists(filename)) {
+			break;
 		}
-
-		ds_destroy(ds_data);
-		ds_data = NULL;
+		if (!(ret = copy_or_move_file(filename, filename,
+					      dst_dir, 1))) {
+			goto cleanup;
+		}
 	}
+
+	ds_destroy(ds_data);
+	ds_data = NULL;
+
+	/* copy redo logs */
 
 	dst_dir = (srv_log_group_home_dir && *srv_log_group_home_dir)
 		? srv_log_group_home_dir : mysql_data_home;
@@ -1707,7 +1709,8 @@ copy_back()
 	if it exists. */
 
 	ds_data = ds_create(dst_dir, DS_TYPE_LOCAL);
-	if (!file_exists("ib_logfile0")) {
+	MY_STAT stat_arg;
+	if (!my_stat("ib_logfile0", &stat_arg, MYF(0)) || !stat_arg.st_size) {
 		/* After completed --prepare, redo log files are redundant.
 		We must delete any redo logs at the destination, so that
 		the database will not jump to a different log sequence number
@@ -1824,7 +1827,7 @@ copy_back()
 		}
 	}
 
-	/* copy buufer pool dump */
+	/* copy buffer pool dump */
 
 	if (innobase_buffer_pool_filename) {
 		const char *src_name;
@@ -1895,6 +1898,13 @@ decrypt_decompress_file(const char *filepath, uint thread_n)
 	 	if (system(cmd.str().c_str()) != 0) {
 	 		return(false);
 	 	}
+
+		if (opt_remove_original) {
+			msg_ts("[%02u] removing %s\n", thread_n, filepath);
+			if (my_delete(filepath, MYF(MY_WME)) != 0) {
+				return(false);
+			}
+		}
 	 }
 
  	return(true);

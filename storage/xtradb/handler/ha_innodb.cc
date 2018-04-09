@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2000, 2017, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2013, 2017, MariaDB Corporation.
+Copyright (c) 2013, 2018, MariaDB Corporation.
 Copyright (c) 2008, 2009 Google Inc.
 Copyright (c) 2009, Percona Inc.
 Copyright (c) 2012, Facebook Inc.
@@ -372,6 +372,23 @@ static TYPELIB innodb_lock_schedule_algorithm_typelib = {
 };
 
 
+/** Possible values for system variable "innodb_default_row_format". */
+static const char* innodb_default_row_format_names[] = {
+	"redundant",
+	"compact",
+	"dynamic",
+	NullS
+};
+
+/** Used to define an enumerate type of the system variable
+innodb_default_row_format. */
+static TYPELIB innodb_default_row_format_typelib = {
+	array_elements(innodb_default_row_format_names) - 1,
+	"innodb_default_row_format_typelib",
+	innodb_default_row_format_names,
+	NULL
+};
+
 /* The following counter is used to convey information to InnoDB
 about server activity: in case of normal DML ops it is not
 sensible to call srv_active_wake_master_thread after each
@@ -391,6 +408,35 @@ static const char* innobase_change_buffering_values[IBUF_USE_COUNT] = {
 	"purges",	/* IBUF_USE_DELETE */
 	"all"		/* IBUF_USE_ALL */
 };
+
+
+/** Note we cannot use rec_format_enum because we do not allow
+COMPRESSED row format for innodb_default_row_format option. */
+enum default_row_format_enum {
+	DEFAULT_ROW_FORMAT_REDUNDANT = 0,
+	DEFAULT_ROW_FORMAT_COMPACT = 1,
+	DEFAULT_ROW_FORMAT_DYNAMIC = 2
+};
+
+/** Convert an InnoDB ROW_FORMAT value.
+@param[in]	row_format	row_format from "innodb_default_row_format"
+@return converted ROW_FORMAT */
+static rec_format_t get_row_format(ulong row_format)
+{
+	switch (row_format) {
+	case DEFAULT_ROW_FORMAT_REDUNDANT:
+		return REC_FORMAT_REDUNDANT;
+	case DEFAULT_ROW_FORMAT_COMPACT:
+		return REC_FORMAT_COMPACT;
+	case DEFAULT_ROW_FORMAT_DYNAMIC:
+		return REC_FORMAT_DYNAMIC;
+	default:
+		ut_ad(0);
+		return REC_FORMAT_COMPACT;
+	}
+}
+
+static ulong	innodb_default_row_format;
 
 /* Call back function array defined by MySQL and used to
 retrieve FTS results. */
@@ -1294,6 +1340,8 @@ static SHOW_VAR innodb_status_variables[]= {
   (char*) &export_vars.innodb_sec_rec_cluster_reads,	  SHOW_LONG},
   {"secondary_index_triggered_cluster_reads_avoided",
   (char*) &export_vars.innodb_sec_rec_cluster_reads_avoided, SHOW_LONG},
+  {"buffered_aio_submitted",
+  (char*) &export_vars.innodb_buffered_aio_submitted,	  SHOW_LONG},
 
   /* Encryption */
   {"encryption_rotation_pages_read_from_cache",
@@ -1380,18 +1428,11 @@ innobase_close_connection(
 	THD*		thd);		/*!< in: MySQL thread handle for
 					which to close the connection */
 
+/** Cancel any pending lock request associated with the current THD.
+@sa THD::awake() @sa ha_kill_query() */
+static void innobase_kill_query(handlerton*, THD* thd, enum thd_kill_levels);
 static void innobase_commit_ordered(handlerton *hton, THD* thd, bool all);
 static void innobase_checkpoint_request(handlerton *hton, void *cookie);
-
-/*****************************************************************//**
-Cancel any pending lock request associated with the current THD. */
-static
-void
-innobase_kill_connection(
-/*======================*/
-        handlerton*	hton,	/*!< in:  innobase handlerton */
-	THD*	thd,	/*!< in: handle to the MySQL thread being killed */
-        thd_kill_levels);
 
 /*****************************************************************//**
 Commits a transaction in an InnoDB database or marks an SQL statement
@@ -3807,7 +3848,7 @@ innobase_init(
 	innobase_hton->flags = HTON_SUPPORTS_EXTENDED_KEYS |
 		HTON_SUPPORTS_FOREIGN_KEYS;
 
-	innobase_hton->kill_query = innobase_kill_connection;
+	innobase_hton->kill_query = innobase_kill_query;
 
         if (srv_file_per_table)
           innobase_hton->tablefile_extensions = ha_innobase_exts;
@@ -3902,6 +3943,17 @@ innobase_init(
 			goto error;
 		}
 	}
+
+#ifdef WITH_WSREP
+	/* Currently, Galera does not support VATS lock schedule algorithm. */
+	if (innodb_lock_schedule_algorithm == INNODB_LOCK_SCHEDULE_ALGORITHM_VATS
+	    && global_system_variables.wsrep_on) {
+		/* Do not allow InnoDB startup with VATS and Galera */
+		sql_print_error("In Galera, innodb_lock_schedule_algorithm=vats"
+			" is not supported.");
+		goto error;
+	}
+#endif /* WITH_WSREP */
 
 #ifndef HAVE_LZ4
 	if (innodb_compression_algorithm == PAGE_LZ4_ALGORITHM) {
@@ -4602,7 +4654,7 @@ innobase_commit_low(
 		trx_commit_for_mysql(trx);
 	}
 #ifdef WITH_WSREP
-	if (wsrep_on(thd)) { thd_proc_info(thd, tmp); }
+	if (thd && wsrep_on(thd)) { thd_proc_info(thd, tmp); }
 #endif /* WITH_WSREP */
 }
 
@@ -5406,20 +5458,11 @@ ha_innobase::get_row_type() const
 	return(ROW_TYPE_NOT_USED);
 }
 
-/*****************************************************************//**
-Cancel any pending lock request associated with the current THD. */
-static
-void
-innobase_kill_connection(
-/*======================*/
-        handlerton*	hton,	/*!< in:  innobase handlerton */
-	THD*	thd,	/*!< in: handle to the MySQL thread being killed */
-        thd_kill_levels)
+/** Cancel any pending lock request associated with the current THD.
+@sa THD::awake() @sa ha_kill_query() */
+static void innobase_kill_query(handlerton*, THD* thd, enum thd_kill_levels)
 {
-	trx_t*	trx;
-
-	DBUG_ENTER("innobase_kill_connection");
-	DBUG_ASSERT(hton == innodb_hton_ptr);
+	DBUG_ENTER("innobase_kill_query");
 
 #ifdef WITH_WSREP
 	wsrep_thd_LOCK(thd);
@@ -5435,49 +5478,36 @@ innobase_kill_connection(
 	}
 	wsrep_thd_UNLOCK(thd);
 #endif /* WITH_WSREP */
-	trx = thd_to_trx(thd);
+	if (trx_t* trx = thd_to_trx(thd)) {
+		ut_ad(trx->mysql_thd == thd);
 
-	if (trx && trx->lock.wait_lock) {
-		/* In wsrep BF we have already took lock_sys and trx
-		mutex either on wsrep_abort_transaction() or
-		before wsrep_kill_victim(). In replication we
-		could own lock_sys mutex taken in
-		lock_deadlock_check_and_resolve().*/
-
-		WSREP_DEBUG("Killing victim trx %p BF %d trx BF %d trx_id " TRX_ID_FMT " ABORT %d thd %p"
-			" current_thd %p BF %d wait_lock_modes: %s\n",
-			trx, wsrep_thd_is_BF(trx->mysql_thd, FALSE),
-			wsrep_thd_is_BF(thd, FALSE),
-			trx->id, trx->abort_type,
-			trx->mysql_thd,
-			current_thd,
-			wsrep_thd_is_BF(current_thd, FALSE),
-			lock_get_info(trx->lock.wait_lock).c_str());
-
-		if (!wsrep_thd_is_BF(trx->mysql_thd, FALSE) &&
-		    trx->abort_type == TRX_SERVER_ABORT) {
-			ut_ad(!lock_mutex_own());
-			lock_mutex_enter();
-		}
-
-		if (trx->abort_type != TRX_WSREP_ABORT) {
+		switch (trx->abort_type) {
+#ifdef WITH_WSREP
+		case TRX_WSREP_ABORT:
+			break;
+#endif
+		case TRX_SERVER_ABORT:
+			if (!wsrep_thd_is_BF(trx->mysql_thd, FALSE)) {
+				lock_mutex_enter();
+			}
+			/* fall through */
+		case TRX_REPLICATION_ABORT:
 			trx_mutex_enter(trx);
 		}
-
-		ut_ad(lock_mutex_own());
-		ut_ad(trx_mutex_own(trx));
-
-		if (trx->lock.wait_lock) {
-			lock_cancel_waiting_and_release(trx->lock.wait_lock);
-		}
-
-		if (trx->abort_type != TRX_WSREP_ABORT) {
+		/* Cancel a pending lock request if there are any */
+		lock_trx_handle_wait(trx);
+		switch (trx->abort_type) {
+#ifdef WITH_WSREP
+		case TRX_WSREP_ABORT:
+			break;
+#endif
+		case TRX_SERVER_ABORT:
+			if (!wsrep_thd_is_BF(trx->mysql_thd, FALSE)) {
+				lock_mutex_exit();
+			}
+			/* fall through */
+		case TRX_REPLICATION_ABORT:
 			trx_mutex_exit(trx);
-		}
-
-		if (!wsrep_thd_is_BF(trx->mysql_thd, FALSE) &&
-		    trx->abort_type == TRX_SERVER_ABORT) {
-			lock_mutex_exit();
 		}
 	}
 
@@ -5952,8 +5982,6 @@ innobase_match_index_columns(
 			if (innodb_idx_fld >= innodb_idx_fld_end) {
 				DBUG_RETURN(FALSE);
 			}
-
-			mtype = innodb_idx_fld->col->mtype;
 		}
 
 		if (col_type != mtype) {
@@ -8835,7 +8863,7 @@ no_commit:
 			table->next_number_field);
 
 		/* Get the value that MySQL attempted to store in the table.*/
-		auto_inc = table->next_number_field->val_int();
+		auto_inc = table->next_number_field->val_uint();
 
 		switch (error) {
 		case DB_DUPLICATE_KEY:
@@ -9427,7 +9455,7 @@ ha_innobase::update_row(
 		ulonglong	auto_inc;
 		ulonglong	col_max_value;
 
-		auto_inc = table->next_number_field->val_int();
+		auto_inc = table->next_number_field->val_uint();
 
 		/* We need the upper limit of the col type to check for
 		whether we update the table autoinc counter or not. */
@@ -9578,7 +9606,7 @@ ha_innobase::unlock_row(void)
 	But there are some calls to this function from the SQL layer when the
 	transaction is in state TRX_STATE_NOT_STARTED.  The check on
 	prebuilt->select_lock_type above gets around this issue. */
-	ut_ad(trx_state_eq(prebuilt->trx, TRX_STATE_ACTIVE));
+	ut_ad(trx_state_eq(prebuilt->trx, TRX_STATE_ACTIVE, true));
 
 	switch (prebuilt->row_read_type) {
 	case ROW_READ_WITH_LOCKS:
@@ -10949,7 +10977,7 @@ wsrep_append_foreign_key(
 		shared ? WSREP_KEY_SHARED : WSREP_KEY_EXCLUSIVE,
                 copy);
 	if (rcode) {
-		DBUG_PRINT("wsrep", ("row key failed: %lu", rcode));
+		DBUG_PRINT("wsrep", ("row key failed: %zu", rcode));
 		WSREP_ERROR("Appending cascaded fk row key failed: %s, %lu",
 			    (wsrep_thd_query(thd)) ?
 			    wsrep_thd_query(thd) : "void", rcode);
@@ -11848,8 +11876,6 @@ create_options_are_invalid(
 		CHECK_ERROR_ROW_TYPE_NEEDS_GT_ANTELOPE;
 		break;
 	case ROW_TYPE_DYNAMIC:
-		CHECK_ERROR_ROW_TYPE_NEEDS_FILE_PER_TABLE(use_tablespace);
-		CHECK_ERROR_ROW_TYPE_NEEDS_GT_ANTELOPE;
 		/* ROW_FORMAT=DYNAMIC also shuns KEY_BLOCK_SIZE */
 		/* fall through */
 	case ROW_TYPE_COMPACT:
@@ -12084,7 +12110,8 @@ innobase_table_flags(
 	bool		zip_allowed = true;
 	ulint		zip_ssize = 0;
 	enum row_type	row_format;
-	rec_format_t	innodb_row_format = REC_FORMAT_COMPACT;
+	rec_format_t	innodb_row_format =
+		get_row_format(innodb_default_row_format);
 	bool		use_data_dir;
 	ha_table_option_struct *options= form->s->option_struct;
 
@@ -12226,38 +12253,29 @@ index_bad:
 
 	/* Validate the row format.  Correct it if necessary */
 	switch (row_format) {
+	case ROW_TYPE_DEFAULT:
+		break;
 	case ROW_TYPE_REDUNDANT:
 		innodb_row_format = REC_FORMAT_REDUNDANT;
 		break;
-
-	case ROW_TYPE_COMPRESSED:
 	case ROW_TYPE_DYNAMIC:
+		innodb_row_format = REC_FORMAT_DYNAMIC;
+		break;
+	case ROW_TYPE_COMPRESSED:
 		if (!use_tablespace) {
 			push_warning_printf(
 				thd, Sql_condition::WARN_LEVEL_WARN,
 				ER_ILLEGAL_HA_CREATE_OPTION,
-				"InnoDB: ROW_FORMAT=%s requires"
-				" innodb_file_per_table.",
-				get_row_format_name(row_format));
+				"InnoDB: ROW_FORMAT=COMPRESSED requires"
+				" innodb_file_per_table.");
 		} else if (file_format_allowed == UNIV_FORMAT_A) {
 			push_warning_printf(
 				thd, Sql_condition::WARN_LEVEL_WARN,
 				ER_ILLEGAL_HA_CREATE_OPTION,
-				"InnoDB: ROW_FORMAT=%s requires"
-				" innodb_file_format > Antelope.",
-				get_row_format_name(row_format));
+				"InnoDB: ROW_FORMAT=COMPRESSED requires"
+				" innodb_file_format > Antelope.");
 		} else {
-			switch(row_format) {
-			  case ROW_TYPE_COMPRESSED:
-			    innodb_row_format = REC_FORMAT_COMPRESSED;
-			    break;
-			  case ROW_TYPE_DYNAMIC:
-			    innodb_row_format = REC_FORMAT_DYNAMIC;
-                            break;
-			  default:
-			    /* Not possible, avoid compiler warning */
-			    break;
-			}
+			innodb_row_format = REC_FORMAT_COMPRESSED;
 			break; /* Correct row_format */
 		}
 		zip_allowed = FALSE;
@@ -12272,10 +12290,8 @@ index_bad:
 			ER_ILLEGAL_HA_CREATE_OPTION,
 			"InnoDB: assuming ROW_FORMAT=COMPACT.");
 		/* fall through */
-	case ROW_TYPE_DEFAULT:
-		/* If we fell through, set row format to Compact. */
-		row_format = ROW_TYPE_COMPACT;
 	case ROW_TYPE_COMPACT:
+		innodb_row_format = REC_FORMAT_COMPACT;
 		break;
 	}
 
@@ -13664,7 +13680,7 @@ ha_innobase::records_in_range(
 
 		n_rows = btr_estimate_n_rows_in_range(index, range_start,
 						      mode1, range_end,
-						      mode2, prebuilt->trx);
+						      mode2);
 	} else {
 
 		n_rows = HA_POS_ERROR;
@@ -19421,7 +19437,7 @@ buffer_pool_load_now(
 	const void*			save)	/*!< in: immediate result from
 						check function */
 {
-	if (*(my_bool*) save) {
+	if (*(my_bool*) save && !srv_read_only_mode) {
 		buf_load_start();
 	}
 }
@@ -19444,7 +19460,7 @@ buffer_pool_load_abort(
 	const void*			save)	/*!< in: immediate result from
 						check function */
 {
-	if (*(my_bool*) save) {
+	if (*(my_bool*) save && !srv_read_only_mode) {
 		buf_load_abort();
 	}
 }
@@ -19716,11 +19732,11 @@ wsrep_innobase_kill_one_trx(
 			wsrep_thd_awake(thd, signal);
 		} else {
 			/* abort currently executing query */
-			DBUG_PRINT("wsrep",("sending KILL_QUERY to: %ld",
+			DBUG_PRINT("wsrep",("sending KILL_QUERY to: %lu",
                                             thd_get_thread_id(thd)));
 			WSREP_DEBUG("kill query for: %ld",
 				thd_get_thread_id(thd));
-			/* Note that innobase_kill_connection will take lock_mutex
+			/* Note that innobase_kill_query will take lock_mutex
 			and trx_mutex */
 			wsrep_thd_UNLOCK(thd);
 			wsrep_thd_awake(thd, signal);
@@ -19843,7 +19859,8 @@ wsrep_fake_trx_id(
 	mutex_enter(&trx_sys->mutex);
 	trx_id_t trx_id = trx_sys_get_new_trx_id();
 	mutex_exit(&trx_sys->mutex);
-	WSREP_DEBUG("innodb fake trx id: %lu thd: %s", trx_id, wsrep_thd_query(thd));
+	WSREP_DEBUG("innodb fake trx id: " TRX_ID_FMT " thd: %s",
+		    trx_id, wsrep_thd_query(thd));
 	wsrep_ws_handle_for_trx(wsrep_thd_ws_handle(thd), trx_id);
 }
 
@@ -20464,7 +20481,7 @@ static MYSQL_SYSVAR_ENUM(empty_free_list_algorithm,
   &innodb_empty_free_list_algorithm_typelib);
 
 static MYSQL_SYSVAR_ENUM(lock_schedule_algorithm, innodb_lock_schedule_algorithm,
-  PLUGIN_VAR_RQCMDARG,
+  PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
   "The algorithm Innodb uses for deciding which locks to grant next when"
   " a lock is released. Possible values are"
   " FCFS"
@@ -21034,6 +21051,13 @@ static MYSQL_SYSVAR_BOOL(print_all_deadlocks, srv_print_all_deadlocks,
   "Print all deadlocks to MySQL error log (off by default)",
   NULL, NULL, FALSE);
 
+static MYSQL_SYSVAR_BOOL(
+  print_lock_wait_timeout_info,
+  srv_print_lock_wait_timeout_info,
+  PLUGIN_VAR_OPCMDARG,
+  "Print lock wait timeout info to MySQL error log (off by default)",
+  NULL, NULL, FALSE);
+
 static MYSQL_SYSVAR_ULONG(compression_failure_threshold_pct,
   zip_failure_threshold_pct, PLUGIN_VAR_OPCMDARG,
   "If the compression failure rate of a table is greater than this number"
@@ -21057,6 +21081,14 @@ static MYSQL_SYSVAR_BOOL(cmp_per_index_enabled, srv_cmp_per_index_enabled,
   "Enable INFORMATION_SCHEMA.innodb_cmp_per_index, "
   "may have negative impact on performance (off by default)",
   NULL, innodb_cmp_per_index_update, FALSE);
+
+static MYSQL_SYSVAR_ENUM(default_row_format, innodb_default_row_format,
+  PLUGIN_VAR_RQCMDARG,
+  "The default ROW FORMAT for all innodb tables created without explicit"
+  " ROW_FORMAT. Possible values are REDUNDANT, COMPACT, and DYNAMIC."
+  " The ROW_FORMAT value COMPRESSED is not allowed",
+  NULL, NULL, DEFAULT_ROW_FORMAT_COMPACT,
+  &innodb_default_row_format_typelib);
 
 #ifdef UNIV_DEBUG
 static MYSQL_SYSVAR_UINT(trx_rseg_n_slots_debug, trx_rseg_n_slots_debug,
@@ -21492,6 +21524,7 @@ static struct st_mysql_sys_var* innobase_system_variables[]= {
   MYSQL_SYSVAR(foreground_preflush),
   MYSQL_SYSVAR(empty_free_list_algorithm),
   MYSQL_SYSVAR(print_all_deadlocks),
+  MYSQL_SYSVAR(print_lock_wait_timeout_info),
   MYSQL_SYSVAR(cmp_per_index_enabled),
   MYSQL_SYSVAR(undo_logs),
   MYSQL_SYSVAR(rollback_segments),
@@ -21500,6 +21533,7 @@ static struct st_mysql_sys_var* innobase_system_variables[]= {
   MYSQL_SYSVAR(sync_array_size),
   MYSQL_SYSVAR(compression_failure_threshold_pct),
   MYSQL_SYSVAR(compression_pad_pct_max),
+  MYSQL_SYSVAR(default_row_format),
 #ifdef UNIV_DEBUG
   MYSQL_SYSVAR(trx_rseg_n_slots_debug),
   MYSQL_SYSVAR(limit_optimistic_insert_debug),

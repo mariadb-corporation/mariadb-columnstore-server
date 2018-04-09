@@ -119,7 +119,6 @@ sp_get_item_value(THD *thd, Item *item, String *str)
   case DECIMAL_RESULT:
     if (item->field_type() != MYSQL_TYPE_BIT)
       return item->val_str(str);
-    else {/* Bit type is handled as binary string */}
     /* fall through */
   case STRING_RESULT:
     {
@@ -549,7 +548,7 @@ sp_head::operator new(size_t size) throw()
   if (sp == NULL)
     DBUG_RETURN(NULL);
   sp->main_mem_root= own_root;
-  DBUG_PRINT("info", ("mem_root 0x%lx", (ulong) &sp->mem_root));
+  DBUG_PRINT("info", ("mem_root %p", &sp->mem_root));
   DBUG_RETURN(sp);
 }
 
@@ -566,8 +565,8 @@ sp_head::operator delete(void *ptr, size_t size) throw()
 
   /* Make a copy of main_mem_root as free_root will free the sp */
   own_root= sp->main_mem_root;
-  DBUG_PRINT("info", ("mem_root 0x%lx moved to 0x%lx",
-                      (ulong) &sp->mem_root, (ulong) &own_root));
+  DBUG_PRINT("info", ("mem_root %p moved to %p",
+                      &sp->mem_root, &own_root));
   free_root(&own_root, MYF(0));
 
   DBUG_VOID_RETURN;
@@ -579,7 +578,7 @@ sp_head::sp_head()
    m_flags(0),
    m_sp_cache_version(0),
    m_creation_ctx(0),
-   unsafe_flags(0), m_select_number(1),
+   unsafe_flags(0),
    m_recursion_level(0),
    m_next_cached_sp(0),
    m_cont_level(0)
@@ -823,7 +822,7 @@ sp_head::~sp_head()
     thd->lex->sphead= NULL;
     lex_end(thd->lex);
     delete thd->lex;
-    thd->lex= lex;
+    thd->lex= thd->stmt_lex= lex;
   }
 
   my_hash_free(&m_sptabs);
@@ -1130,12 +1129,13 @@ sp_head::execute(THD *thd, bool merge_da_on_success)
               backup_arena;
   query_id_t old_query_id;
   TABLE *old_derived_tables;
-  LEX *old_lex;
+  LEX *old_lex, *old_stmt_lex;
   Item_change_list old_change_list;
   String old_packet;
   uint old_server_status;
   const uint status_backup_mask= SERVER_STATUS_CURSOR_EXISTS |
                                  SERVER_STATUS_LAST_ROW_SENT;
+  MEM_ROOT *user_var_events_alloc_saved= 0;
   Reprepare_observer *save_reprepare_observer= thd->m_reprepare_observer;
   Object_creation_ctx *UNINIT_VAR(saved_creation_ctx);
   Diagnostics_area *da= thd->get_stmt_da();
@@ -1154,9 +1154,9 @@ sp_head::execute(THD *thd, bool merge_da_on_success)
   if (m_next_cached_sp)
   {
     DBUG_PRINT("info",
-               ("first free for 0x%lx ++: 0x%lx->0x%lx  level: %lu  flags %x",
-                (ulong)m_first_instance, (ulong) this,
-                (ulong) m_next_cached_sp,
+               ("first free for %p ++: %p->%p  level: %lu  flags %x",
+               m_first_instance, this,
+                m_next_cached_sp,
                 m_next_cached_sp->m_recursion_level,
                 m_next_cached_sp->m_flags));
   }
@@ -1233,11 +1233,12 @@ sp_head::execute(THD *thd, bool merge_da_on_success)
     do it in each instruction
   */
   old_lex= thd->lex;
+  old_stmt_lex= thd->stmt_lex;
   /*
     We should also save Item tree change list to avoid rollback something
     too early in the calling query.
   */
-  thd->change_list.move_elements_to(&old_change_list);
+  thd->Item_change_list::move_elements_to(&old_change_list);
   /*
     Cursors will use thd->packet, so they may corrupt data which was prepared
     for sending by upper level. OTOH cursors in the same routine can share this
@@ -1314,9 +1315,11 @@ sp_head::execute(THD *thd, bool merge_da_on_success)
       Will write this SP statement into binlog separately.
       TODO: consider changing the condition to "not inside event union".
     */
-    MEM_ROOT *user_var_events_alloc_saved= thd->user_var_events_alloc;
     if (thd->locked_tables_mode <= LTM_LOCK_TABLES)
+    {
+      user_var_events_alloc_saved= thd->user_var_events_alloc;
       thd->user_var_events_alloc= thd->mem_root;
+    }
 
     sql_digest_state *parent_digest= thd->m_digest;
     thd->m_digest= NULL;
@@ -1377,9 +1380,10 @@ sp_head::execute(THD *thd, bool merge_da_on_success)
   /* Restore all saved */
   thd->server_status= (thd->server_status & ~status_backup_mask) | old_server_status;
   old_packet.swap(thd->packet);
-  DBUG_ASSERT(thd->change_list.is_empty());
-  old_change_list.move_elements_to(&thd->change_list);
+  DBUG_ASSERT(thd->Item_change_list::is_empty());
+  old_change_list.move_elements_to(thd);
   thd->lex= old_lex;
+  thd->stmt_lex= old_stmt_lex;
   thd->set_query_id(old_query_id);
   DBUG_ASSERT(!thd->derived_tables);
   thd->derived_tables= old_derived_tables;
@@ -1454,10 +1458,10 @@ sp_head::execute(THD *thd, bool merge_da_on_success)
   }
   m_flags&= ~IS_INVOKED;
   DBUG_PRINT("info",
-             ("first free for 0x%lx --: 0x%lx->0x%lx, level: %lu, flags %x",
-              (ulong) m_first_instance,
-              (ulong) m_first_instance->m_first_free_instance,
-              (ulong) this, m_recursion_level, m_flags));
+             ("first free for %p --: %p->%p, level: %lu, flags %x",
+              m_first_instance,
+              m_first_instance->m_first_free_instance,
+              this, m_recursion_level, m_flags));
   /*
     Check that we have one of following:
 
@@ -2110,26 +2114,7 @@ sp_head::execute_procedure(THD *thd, List<Item> *args)
 
   if (!err_status)
   {
-    /*
-      Normally the counter is not reset between parsing and first execution,
-      but it is possible in case of error to have parsing on one CALL and
-      first execution (where VIEW will be parsed and added). So we store the
-      counter after parsing and restore it before execution just to avoid
-      repeating SELECT numbers.
-    */
-    thd->select_number= m_select_number;
-
     err_status= execute(thd, TRUE);
-    DBUG_PRINT("info", ("execute returned %d", (int) err_status));
-    /*
-      This execution of the SP was aborted with an error (e.g. "Table not
-      found").  However it might still have consumed some numbers from the
-      thd->select_number counter.  The next sp->exec() call must not use the
-      consumed numbers, so we remember the first free number (We know that
-      nobody will use it as this execution has stopped with an error).
-    */
-    if (err_status)
-      set_select_number(thd->select_number);
   }
 
   if (save_log_general)
@@ -2235,7 +2220,7 @@ sp_head::reset_lex(THD *thd)
   if (sublex == 0)
     DBUG_RETURN(TRUE);
 
-  thd->lex= sublex;
+  thd->lex= thd->stmt_lex= sublex;
   (void)m_lex.push_front(oldlex);
 
   /* Reset most stuff. */
@@ -2346,8 +2331,8 @@ sp_head::backpatch(sp_label *lab)
   {
     if (bp->lab == lab)
     {
-      DBUG_PRINT("info", ("backpatch: (m_ip %d, label 0x%lx <%s>) to dest %d",
-                          bp->instr->m_ip, (ulong) lab, lab->name.str, dest));
+      DBUG_PRINT("info", ("backpatch: (m_ip %d, label %p <%s>) to dest %d",
+                          bp->instr->m_ip, lab, lab->name.str, dest));
       bp->instr->backpatch(dest, lab->ctx);
     }
   }
@@ -2483,8 +2468,8 @@ sp_head::reset_thd_mem_root(THD *thd)
   DBUG_ENTER("sp_head::reset_thd_mem_root");
   m_thd_root= thd->mem_root;
   thd->mem_root= &main_mem_root;
-  DBUG_PRINT("info", ("mem_root 0x%lx moved to thd mem root 0x%lx",
-                      (ulong) &mem_root, (ulong) &thd->mem_root));
+  DBUG_PRINT("info", ("mem_root %p moved to thd mem root %p",
+                      &mem_root, &thd->mem_root));
   free_list= thd->free_list; // Keep the old list
   thd->free_list= NULL; // Start a new one
   m_thd= thd;
@@ -2514,8 +2499,8 @@ sp_head::restore_thd_mem_root(THD *thd)
   set_query_arena(thd);         // Get new free_list and mem_root
   state= STMT_INITIALIZED_FOR_SP;
 
-  DBUG_PRINT("info", ("mem_root 0x%lx returned from thd mem root 0x%lx",
-                      (ulong) &mem_root, (ulong) &thd->mem_root));
+  DBUG_PRINT("info", ("mem_root %p returned from thd mem root %p",
+                      &mem_root, &thd->mem_root));
   thd->free_list= flist;        // Restore the old one
   thd->mem_root= m_thd_root;
   m_thd= NULL;
@@ -2545,10 +2530,18 @@ bool check_show_routine_access(THD *thd, sp_head *sp, bool *full_access)
   *full_access= ((!check_table_access(thd, SELECT_ACL, &tables, FALSE,
                                      1, TRUE) &&
                   (tables.grant.privilege & SELECT_ACL) != 0) ||
+                 /* Check if user owns the routine. */
                  (!strcmp(sp->m_definer_user.str,
                           thd->security_ctx->priv_user) &&
                   !strcmp(sp->m_definer_host.str,
-                          thd->security_ctx->priv_host)));
+                          thd->security_ctx->priv_host)) ||
+                 /* Check if current role or any of the sub-granted roles
+                    own the routine. */
+                 (sp->m_definer_host.length == 0 &&
+                  (!strcmp(sp->m_definer_user.str,
+                           thd->security_ctx->priv_role) ||
+                   check_role_is_granted(thd->security_ctx->priv_role, NULL,
+                                         sp->m_definer_user.str))));
   if (!*full_access)
     return check_some_routine_access(thd, sp->m_db.str, sp->m_name.str,
                                      sp->m_type == TYPE_ENUM_PROCEDURE);
@@ -2965,13 +2958,13 @@ sp_lex_keeper::reset_lex_and_exec_core(THD *thd, uint *nextp,
   bool parent_modified_non_trans_table= thd->transaction.stmt.modified_non_trans_table;
   thd->transaction.stmt.modified_non_trans_table= FALSE;
   DBUG_ASSERT(!thd->derived_tables);
-  DBUG_ASSERT(thd->change_list.is_empty());
+  DBUG_ASSERT(thd->Item_change_list::is_empty());
   /*
     Use our own lex.
     We should not save old value since it is saved/restored in
     sp_head::execute() when we are entering/leaving routine.
   */
-  thd->lex= m_lex;
+  thd->lex= thd->stmt_lex= m_lex;
 
   thd->set_query_id(next_query_id());
 
@@ -4327,4 +4320,3 @@ sp_add_to_query_tables(THD *thd, LEX *lex,
   lex->add_to_query_tables(table);
   return table;
 }
-

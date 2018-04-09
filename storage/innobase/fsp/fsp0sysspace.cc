@@ -410,8 +410,7 @@ SysTablespace::set_size(
 
 	bool	success = os_file_set_size(
 		file.m_filepath, file.m_handle,
-		static_cast<os_offset_t>(file.m_size << UNIV_PAGE_SIZE_SHIFT),
-		m_ignore_read_only ? false : srv_read_only_mode);
+		static_cast<os_offset_t>(file.m_size) << UNIV_PAGE_SIZE_SHIFT);
 
 	if (success) {
 		ib::info() << "File '" << file.filepath() << "' size is now "
@@ -568,8 +567,9 @@ SysTablespace::read_lsn_and_check_flags(lsn_t* flushed_lsn)
 
 	ut_a(it->order() == 0);
 
-
-	buf_dblwr_init_or_load_pages(it->handle(), it->filepath());
+	if (srv_operation == SRV_OPERATION_NORMAL) {
+		buf_dblwr_init_or_load_pages(it->handle(), it->filepath());
+	}
 
 	/* Check the contents of the first page of the
 	first datafile. */

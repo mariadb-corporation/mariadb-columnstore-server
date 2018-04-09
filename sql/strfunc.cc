@@ -158,7 +158,7 @@ uint find_type2(const TYPELIB *typelib, const char *x, uint length,
   int pos;
   const char *j;
   DBUG_ENTER("find_type2");
-  DBUG_PRINT("enter",("x: '%.*s'  lib: 0x%lx", length, x, (long) typelib));
+  DBUG_PRINT("enter",("x: '%.*s'  lib: %p", length, x, typelib));
 
   if (!typelib->count)
   {
@@ -339,7 +339,7 @@ int find_string_in_array(LEX_STRING * const haystack, LEX_STRING * const needle,
     if (!cs->coll->strnncollsp(cs, (uchar *) pos->str, pos->length,
                                (uchar *) needle->str, needle->length))
     {
-      return (pos - haystack);
+      return (int)(pos - haystack);
     }
   return -1;
 }

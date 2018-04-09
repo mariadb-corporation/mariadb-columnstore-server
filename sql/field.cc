@@ -1,6 +1,6 @@
 /*
-   Copyright (c) 2000, 2013, Oracle and/or its affiliates.
-   Copyright (c) 2008, 2013, Monty Program Ab.
+   Copyright (c) 2000, 2017, Oracle and/or its affiliates.
+   Copyright (c) 2008, 2017, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -231,7 +231,7 @@ static enum_field_types field_types_merge_rules [FIELDTYPE_NUM][FIELDTYPE_NUM]=
   //MYSQL_TYPE_NULL         MYSQL_TYPE_TIMESTAMP
     MYSQL_TYPE_FLOAT,       MYSQL_TYPE_VARCHAR,
   //MYSQL_TYPE_LONGLONG     MYSQL_TYPE_INT24
-    MYSQL_TYPE_FLOAT,       MYSQL_TYPE_FLOAT,
+    MYSQL_TYPE_DOUBLE,      MYSQL_TYPE_FLOAT,
   //MYSQL_TYPE_DATE         MYSQL_TYPE_TIME
     MYSQL_TYPE_VARCHAR,     MYSQL_TYPE_VARCHAR,
   //MYSQL_TYPE_DATETIME     MYSQL_TYPE_YEAR
@@ -2190,7 +2190,7 @@ uint Field::fill_cache_field(CACHE_FIELD *copy)
 {
   uint store_length;
   copy->str= ptr;
-  copy->length= pack_length();
+  copy->length= pack_length_in_rec();
   copy->field= this;
   if (flags & BLOB_FLAG)
   {
@@ -2335,15 +2335,15 @@ Field *Field::clone(MEM_ROOT *root, my_ptrdiff_t diff)
   return tmp;
 }
 
-void Field::set_default()
+int Field::set_default()
 {
   if (default_value)
   {
     Query_arena backup_arena;
     table->in_use->set_n_backup_active_arena(table->expr_arena, &backup_arena);
-    (void) default_value->expr->save_in_field(this, 0);
+    int rc= default_value->expr->save_in_field(this, 0);
     table->in_use->restore_active_arena(table->expr_arena, &backup_arena);
-    return;
+    return rc;
   }
   /* Copy constant value stored in s->default_values */
   my_ptrdiff_t l_offset= (my_ptrdiff_t) (table->s->default_values -
@@ -2352,6 +2352,7 @@ void Field::set_default()
   if (maybe_null_in_table())
     *null_ptr= ((*null_ptr & (uchar) ~null_bit) |
                 (null_ptr[l_offset] & null_bit));
+  return 0;
 }
 
 
@@ -4806,6 +4807,15 @@ double Field_double::val_real(void)
 }
 
 
+longlong Field_double::val_int_from_real(bool want_unsigned_result)
+{
+  Converter_double_to_longlong conv(val_real(), want_unsigned_result);
+  if (!want_unsigned_result && conv.error())
+    conv.push_warning(get_thd(), Field_double::val_real(), false);
+  return conv.result();
+}
+
+
 my_decimal *Field_real::val_decimal(my_decimal *decimal_value)
 {
   ASSERT_COLUMN_MARKED_FOR_READ;
@@ -5595,7 +5605,7 @@ int Field_temporal_with_date::store(double nr)
   ErrConvDouble str(nr);
 
   longlong tmp= double_to_datetime(nr, &ltime,
-                                    sql_mode_for_dates(thd), &error);
+                                    (uint) sql_mode_for_dates(thd), &error);
   return store_TIME_with_warning(&ltime, &str, error, tmp != -1);
 }
 
@@ -5801,6 +5811,13 @@ static void calc_datetime_days_diff(MYSQL_TIME *ltime, long days)
                            ltime->second) * 1000000LL +
                            ltime->second_part);
     unpack_time(timediff, ltime);
+    /*
+      unpack_time() broke down hours into ltime members hour,day,month.
+      Mix them back to ltime->hour using the same factors
+      that pack_time()/unpack_time() use (i.e. 32 for month).
+    */
+    ltime->hour+= (ltime->month * 32 + ltime->day) * 24;
+    ltime->month= ltime->day= 0;
   }
   ltime->time_type= MYSQL_TIMESTAMP_TIME;
 }
@@ -7949,7 +7966,7 @@ int Field_blob::store(const char *from,uint length,CHARSET_INFO *cs)
     DBUG_ASSERT(length <= max_data_length());
     
     new_length= length;
-    copy_length= table->in_use->variables.group_concat_max_len;
+    copy_length= (uint)MY_MIN(UINT_MAX,table->in_use->variables.group_concat_max_len);
     if (new_length > copy_length)
     {
       new_length= Well_formed_prefix(cs,
@@ -8361,8 +8378,8 @@ const uchar *Field_blob::unpack(uchar *to, const uchar *from,
                                 const uchar *from_end, uint param_data)
 {
   DBUG_ENTER("Field_blob::unpack");
-  DBUG_PRINT("enter", ("to: 0x%lx; from: 0x%lx; param_data: %u",
-                       (ulong) to, (ulong) from, param_data));
+  DBUG_PRINT("enter", ("to: %p; from: %p; param_data: %u",
+                       to, from, param_data));
   uint const master_packlength=
     param_data > 0 ? param_data & 0xFF : packlength;
   if (from + master_packlength > from_end)
@@ -8496,7 +8513,7 @@ uint gis_field_options_read(const uchar *buf, uint buf_len,
   }
 
 end_of_record:
-  return cbuf - buf;
+  return (uint)(cbuf - buf);
 }
 
 
@@ -8912,13 +8929,13 @@ String *Field_set::val_str(String *val_buffer,
   ulonglong tmp=(ulonglong) Field_enum::val_int();
   uint bitnr=0;
 
+  /*
+    Some callers expect *val_buffer to contain the result,
+    so we assign to it, rather than doing 'return &empty_set_string.
+  */
+  *val_buffer= empty_set_string;
   if (tmp == 0)
   {
-    /*
-      Some callers expect *val_buffer to contain the result,
-      so we assign to it, rather than doing 'return &empty_set_string.
-     */
-    *val_buffer= empty_set_string;
     return val_buffer;
   }
 
@@ -9216,8 +9233,8 @@ Field_bit::do_last_null_byte() const
     bits. On systems with CHAR_BIT > 8 (not very common), the storage
     will lose the extra bits.
   */
-  DBUG_PRINT("test", ("bit_ofs: %d, bit_len: %d  bit_ptr: 0x%lx",
-                      bit_ofs, bit_len, (long) bit_ptr));
+  DBUG_PRINT("test", ("bit_ofs: %d, bit_len: %d  bit_ptr: %p",
+                      bit_ofs, bit_len, bit_ptr));
   uchar *result;
   if (bit_len == 0)
     result= null_ptr;
@@ -9425,7 +9442,7 @@ int Field_bit::key_cmp(const uchar *str, uint length)
     str++;
     length--;
   }
-  return memcmp(ptr, str, length);
+  return memcmp(ptr, str, bytes_in_rec);
 }
 
 
@@ -9665,7 +9682,7 @@ Field_bit::unpack(uchar *to, const uchar *from, const uchar *from_end,
 }
 
 
-void Field_bit::set_default()
+int Field_bit::set_default()
 {
   if (bit_len > 0)
   {
@@ -9673,7 +9690,7 @@ void Field_bit::set_default()
     uchar bits= get_rec_bits(bit_ptr + col_offset, bit_ofs, bit_len);
     set_rec_bits(bits, bit_ptr, bit_ofs, bit_len);
   }
-  Field::set_default();
+  return Field::set_default();
 }
 
 /*
@@ -9750,8 +9767,9 @@ void Column_definition::create_length_to_internal_length(void)
   case MYSQL_TYPE_STRING:
   case MYSQL_TYPE_VARCHAR:
     length*= charset->mbmaxlen;
-    key_length= length;
-    pack_length= calc_pack_length(sql_type, length);
+    DBUG_ASSERT(length <= UINT_MAX32);
+    key_length= (uint32)length;
+    pack_length= calc_pack_length(sql_type, key_length);
     break;
   case MYSQL_TYPE_ENUM:
   case MYSQL_TYPE_SET:
@@ -9766,21 +9784,21 @@ void Column_definition::create_length_to_internal_length(void)
     }
     else
     {
-      pack_length= length / 8;
+      pack_length= (uint)(length / 8);
       /* We need one extra byte to store the bits we save among the null bits */
       key_length= pack_length + MY_TEST(length & 7);
     }
     break;
   case MYSQL_TYPE_NEWDECIMAL:
     key_length= pack_length=
-      my_decimal_get_binary_size(my_decimal_length_to_precision(length,
+      my_decimal_get_binary_size(my_decimal_length_to_precision((uint)length,
 								decimals,
 								flags &
 								UNSIGNED_FLAG),
 				 decimals);
     break;
   default:
-    key_length= pack_length= calc_pack_length(sql_type, length);
+    key_length= pack_length= calc_pack_length(sql_type, (uint)length);
     break;
   }
 }
@@ -9937,7 +9955,7 @@ bool Column_definition::check(THD *thd)
     if (decimals >= NOT_FIXED_DEC)
     {
       my_error(ER_TOO_BIG_SCALE, MYF(0), static_cast<ulonglong>(decimals),
-               field_name, static_cast<ulong>(NOT_FIXED_DEC - 1));
+               field_name, static_cast<uint>(NOT_FIXED_DEC - 1));
       DBUG_RETURN(TRUE);
     }
     my_decimal_trim(&length, &decimals);
@@ -9953,9 +9971,9 @@ bool Column_definition::check(THD *thd)
       DBUG_RETURN(TRUE);
     }
     length=
-      my_decimal_precision_to_length(length, decimals, flags & UNSIGNED_FLAG);
+      my_decimal_precision_to_length((uint)length, decimals, flags & UNSIGNED_FLAG);
     pack_length=
-      my_decimal_get_binary_size(length, decimals);
+      my_decimal_get_binary_size((uint)length, decimals);
     break;
   case MYSQL_TYPE_VARCHAR:
     /*
@@ -9995,7 +10013,7 @@ bool Column_definition::check(THD *thd)
     if (decimals != NOT_FIXED_DEC && decimals >= FLOATING_POINT_DECIMALS)
     {
       my_error(ER_TOO_BIG_SCALE, MYF(0), static_cast<ulonglong>(decimals),
-               field_name, static_cast<ulong>(FLOATING_POINT_DECIMALS-1));
+               field_name, static_cast<uint>(FLOATING_POINT_DECIMALS-1));
       DBUG_RETURN(TRUE);
     }
     break;
@@ -10015,7 +10033,7 @@ bool Column_definition::check(THD *thd)
     if (decimals != NOT_FIXED_DEC && decimals >= FLOATING_POINT_DECIMALS)
     {
       my_error(ER_TOO_BIG_SCALE, MYF(0), static_cast<ulonglong>(decimals),
-               field_name, static_cast<ulong>(FLOATING_POINT_DECIMALS-1));
+               field_name, static_cast<uint>(FLOATING_POINT_DECIMALS-1));
       DBUG_RETURN(TRUE);
     }
     break;
@@ -10077,14 +10095,14 @@ bool Column_definition::check(THD *thd)
                  static_cast<ulong>(MAX_BIT_FIELD_LENGTH));
         DBUG_RETURN(TRUE);
       }
-      pack_length= (length + 7) / 8;
+      pack_length= ((uint)length + 7) / 8;
       break;
     }
   case MYSQL_TYPE_DECIMAL:
     DBUG_ASSERT(0); /* Was obsolete */
   }
   /* Remember the value of length */
-  char_length= length;
+  char_length= (uint)length;
 
   /*
     Set NO_DEFAULT_VALUE_FLAG if this field doesn't have a default value and
@@ -10546,7 +10564,7 @@ Column_definition::Column_definition(THD *thd, Field *old_field,
     interval= ((Field_enum*) old_field)->typelib;
   else
     interval=0;
-  char_length= length;
+  char_length= (uint)length;
 
   /*
     Copy the default (constant/function) from the column object orig_field, if
@@ -10839,7 +10857,7 @@ bool Field::save_in_field_default_value(bool view_error_processing)
     {
       my_message(ER_CANT_CREATE_GEOMETRY_OBJECT,
                  ER_THD(thd, ER_CANT_CREATE_GEOMETRY_OBJECT), MYF(0));
-      return -1;
+      return true;
     }
 
     if (view_error_processing)
@@ -10858,13 +10876,13 @@ bool Field::save_in_field_default_value(bool view_error_processing)
                           ER_THD(thd, ER_NO_DEFAULT_FOR_FIELD),
                           field_name);
     }
-    return 1;
+    return true;
   }
   set_default();
   return
     !is_null() &&
     validate_value_in_record_with_warn(thd, table->record[0]) &&
-    thd->is_error() ? -1 : 0;
+    thd->is_error();
 }
 
 

@@ -559,7 +559,7 @@ ulong max_prepared_stmt_count;
   statements.
 */
 ulong prepared_stmt_count=0;
-my_thread_id global_thread_id= 1;
+my_thread_id global_thread_id= 0;
 ulong current_pid;
 ulong slow_launch_threads = 0;
 uint sync_binlog_period= 0, sync_relaylog_period= 0,
@@ -766,6 +766,9 @@ mysql_mutex_t LOCK_stats, LOCK_global_user_client_stats,
 /* This protects against changes in master_info_index */
 mysql_mutex_t LOCK_active_mi;
 
+/* This protects connection id.*/
+mysql_mutex_t LOCK_thread_id;
+
 /**
   The below lock protects access to two global server variables:
   max_prepared_stmt_count and prepared_stmt_count. These variables
@@ -778,7 +781,7 @@ mysql_mutex_t LOCK_prepared_stmt_count;
 mysql_mutex_t LOCK_des_key_file;
 #endif
 mysql_rwlock_t LOCK_grant, LOCK_sys_init_connect, LOCK_sys_init_slave;
-mysql_rwlock_t LOCK_system_variables_hash;
+mysql_prlock_t LOCK_system_variables_hash;
 mysql_cond_t COND_thread_count, COND_start_thread;
 pthread_t signal_thread;
 pthread_attr_t connection_attrib;
@@ -933,6 +936,7 @@ PSI_mutex_key key_BINLOG_LOCK_index, key_BINLOG_LOCK_xid_list,
   key_LOCK_thread_count, key_LOCK_thread_cache,
   key_PARTITION_LOCK_auto_inc;
 PSI_mutex_key key_RELAYLOG_LOCK_index;
+PSI_mutex_key key_LOCK_thread_id;
 PSI_mutex_key key_LOCK_slave_state, key_LOCK_binlog_state,
   key_LOCK_rpl_thread, key_LOCK_rpl_thread_pool, key_LOCK_parallel_entry;
 
@@ -970,6 +974,7 @@ static PSI_mutex_info all_server_mutexes[]=
   { &key_hash_filo_lock, "hash_filo::lock", 0},
   { &key_LOCK_active_mi, "LOCK_active_mi", PSI_FLAG_GLOBAL},
   { &key_LOCK_connection_count, "LOCK_connection_count", PSI_FLAG_GLOBAL},
+  { &key_LOCK_thread_id, "LOCK_thread_id", PSI_FLAG_GLOBAL},
   { &key_LOCK_crypt, "LOCK_crypt", PSI_FLAG_GLOBAL},
   { &key_LOCK_delayed_create, "LOCK_delayed_create", PSI_FLAG_GLOBAL},
   { &key_LOCK_delayed_insert, "LOCK_delayed_insert", PSI_FLAG_GLOBAL},
@@ -1594,8 +1599,8 @@ static void close_connections(void)
 
   /* kill connection thread */
 #if !defined(__WIN__)
-  DBUG_PRINT("quit", ("waiting for select thread: 0x%lx",
-                      (ulong) select_thread));
+  DBUG_PRINT("quit", ("waiting for select thread: %lu",
+                      (ulong)select_thread));
 
   mysql_mutex_lock(&LOCK_start_thread);
   while (select_thread_in_use)
@@ -2048,8 +2053,8 @@ pthread_handler_t kill_server_thread(void *arg __attribute__((unused)))
 extern "C" sig_handler print_signal_warning(int sig)
 {
   if (global_system_variables.log_warnings)
-    sql_print_warning("Got signal %d from thread %ld", sig,
-                      (ulong) my_thread_id());
+    sql_print_warning("Got signal %d from thread %u", sig,
+                      (uint)my_thread_id());
 #ifdef SIGNAL_HANDLER_RESET_ON_DELIVERY
   my_sigset(sig,print_signal_warning);		/* int. thread system calls */
 #endif
@@ -2161,15 +2166,15 @@ static void mysqld_exit(int exit_code)
   shutdown_performance_schema();        // we do it as late as possible
 #endif
   set_malloc_size_cb(NULL);
-  if (!opt_debugging && !my_disable_leak_check)
+  if (opt_endinfo && global_status_var.global_memory_used)
+    fprintf(stderr, "Warning: Memory not freed: %ld\n",
+            (long) global_status_var.global_memory_used);
+  if (!opt_debugging && !my_disable_leak_check && exit_code == 0)
   {
     DBUG_ASSERT(global_status_var.global_memory_used == 0);
   }
   cleanup_tls();
   DBUG_LEAVE;
-  if (opt_endinfo && global_status_var.global_memory_used)
-    fprintf(stderr, "Warning: Memory not freed: %ld\n",
-            (long) global_status_var.global_memory_used);
   sd_notify(0, "STATUS=MariaDB server is down");
   exit(exit_code); /* purecov: inspected */
 }
@@ -2335,6 +2340,7 @@ static void clean_up_mutexes()
   mysql_mutex_destroy(&LOCK_crypt);
   mysql_mutex_destroy(&LOCK_user_conn);
   mysql_mutex_destroy(&LOCK_connection_count);
+  mysql_mutex_destroy(&LOCK_thread_id);
   mysql_mutex_destroy(&LOCK_stats);
   mysql_mutex_destroy(&LOCK_global_user_client_stats);
   mysql_mutex_destroy(&LOCK_global_table_stats);
@@ -2354,7 +2360,7 @@ static void clean_up_mutexes()
   mysql_rwlock_destroy(&LOCK_sys_init_connect);
   mysql_rwlock_destroy(&LOCK_sys_init_slave);
   mysql_mutex_destroy(&LOCK_global_system_variables);
-  mysql_rwlock_destroy(&LOCK_system_variables_hash);
+  mysql_prlock_destroy(&LOCK_system_variables_hash);
   mysql_mutex_destroy(&LOCK_short_uuid_generator);
   mysql_mutex_destroy(&LOCK_prepared_stmt_count);
   mysql_mutex_destroy(&LOCK_error_messages);
@@ -2893,7 +2899,7 @@ void signal_thd_deleted()
 void unlink_thd(THD *thd)
 {
   DBUG_ENTER("unlink_thd");
-  DBUG_PRINT("enter", ("thd: 0x%lx", (long) thd));
+  DBUG_PRINT("enter", ("thd: %p", thd));
 
   /*
     Do not decrement when its wsrep system thread. wsrep_applier is set for
@@ -2954,6 +2960,10 @@ static bool cache_thread(THD *thd)
     while (_db_is_pushed_())
       _db_pop_();
 #endif
+
+    /* Clear warnings. */
+    if (!thd->get_stmt_da()->is_warning_info_empty())
+      thd->get_stmt_da()->clear_warning_info(thd->query_id);
 
     set_timespec(abstime, THREAD_CACHE_TIMEOUT);
     while (!abort_loop && ! wake_thread && ! kill_cached_threads)
@@ -3640,23 +3650,10 @@ void my_message_sql(uint error, const char *str, myf MyFlags)
 
 
 extern "C" void *my_str_malloc_mysqld(size_t size);
-extern "C" void my_str_free_mysqld(void *ptr);
-extern "C" void *my_str_realloc_mysqld(void *ptr, size_t size);
 
 void *my_str_malloc_mysqld(size_t size)
 {
   return my_malloc(size, MYF(MY_FAE));
-}
-
-
-void my_str_free_mysqld(void *ptr)
-{
-  my_free(ptr);
-}
-
-void *my_str_realloc_mysqld(void *ptr, size_t size)
-{
-  return my_realloc(ptr, size, MYF(MY_FAE));
 }
 
 
@@ -3715,14 +3712,8 @@ check_enough_stack_size(int recurse_level)
 }
 
 
-/*
-   Initialize my_str_malloc() and my_str_free()
-*/
 static void init_libstrings()
 {
-  my_str_malloc= &my_str_malloc_mysqld;
-  my_str_free= &my_str_free_mysqld;
-  my_str_realloc= &my_str_realloc_mysqld;
 #ifndef EMBEDDED_LIBRARY
   my_string_stack_guard= check_enough_stack_size;
 #endif
@@ -3733,7 +3724,7 @@ ulonglong my_pcre_frame_size;
 static void init_pcre()
 {
   pcre_malloc= pcre_stack_malloc= my_str_malloc_mysqld;
-  pcre_free= pcre_stack_free= my_str_free_mysqld;
+  pcre_free= pcre_stack_free= my_free;
   pcre_stack_guard= check_enough_stack_size_slow;
   /* See http://pcre.org/original/doc/html/pcrestack.html */
   my_pcre_frame_size= -pcre_exec(NULL, NULL, NULL, -999, -999, 0, NULL, 0);
@@ -4217,7 +4208,7 @@ static int init_common_variables()
   /* TODO: remove this when my_time_t is 64 bit compatible */
   if (!IS_TIME_T_VALID_FOR_TIMESTAMP(server_start_time))
   {
-    sql_print_error("This MySQL server doesn't support dates later then 2038");
+    sql_print_error("This MySQL server doesn't support dates later than 2038");
     exit(1);
   }
 
@@ -4400,21 +4391,6 @@ static int init_common_variables()
     SYSVAR_AUTOSIZE(threadpool_size, my_getncpus());
 #endif
 
-  /* Fix host_cache_size. */
-  if (IS_SYSVAR_AUTOSIZE(&host_cache_size))
-  {
-    if (max_connections <= 628 - 128)
-      SYSVAR_AUTOSIZE(host_cache_size, 128 + max_connections);
-    else if (max_connections <= ((ulong)(2000 - 628)) * 20 + 500)
-      SYSVAR_AUTOSIZE(host_cache_size, 628 + ((max_connections - 500) / 20));
-    else
-      SYSVAR_AUTOSIZE(host_cache_size, 2000);
-  }
-
-  /* Fix back_log (back_log == 0 added for MySQL compatibility) */
-  if (back_log == 0 || IS_SYSVAR_AUTOSIZE(&back_log))
-    SYSVAR_AUTOSIZE(back_log, MY_MIN(900, (50 + max_connections / 5)));
-
   /* connections and databases needs lots of files */
   {
     uint files, wanted_files, max_open_files;
@@ -4439,7 +4415,7 @@ static int init_common_variables()
 
     if (files < wanted_files)
     {
-      if (!open_files_limit)
+      if (!open_files_limit || IS_SYSVAR_AUTOSIZE(&open_files_limit))
       {
         /*
           If we have requested too much file handles than we bring
@@ -4468,6 +4444,36 @@ static int init_common_variables()
     }
     SYSVAR_AUTOSIZE(open_files_limit, files);
   }
+
+  /*
+    Max_connections is now set.
+    Now we can fix other variables depending on this variable.
+  */
+
+  /* Fix host_cache_size */
+  if (IS_SYSVAR_AUTOSIZE(&host_cache_size))
+  {
+    /*
+      The default value is 128.
+      The autoset value is 128, plus 1 for a value of max_connections
+      up to 500, plus 1 for every increment of 20 over 500 in the
+      max_connections value, capped at 2000.
+    */
+    uint size= (HOST_CACHE_SIZE + MY_MIN(max_connections, 500) +
+                MY_MAX(((long) max_connections)-500,0)/20);
+    SYSVAR_AUTOSIZE(host_cache_size, size);
+  }
+
+  /* Fix back_log (back_log == 0 added for MySQL compatibility) */
+  if (back_log == 0 || IS_SYSVAR_AUTOSIZE(&back_log))
+  {
+    /*
+      The default value is 150.
+      The autoset value is 50 + max_connections / 5 capped at 900
+    */
+    SYSVAR_AUTOSIZE(back_log, MY_MIN(900, (50 + max_connections / 5)));
+  }
+
   unireg_init(opt_specialflag); /* Set up extern variabels */
   if (!(my_default_lc_messages=
         my_locale_by_name(lc_messages)))
@@ -4684,7 +4690,7 @@ static int init_thread_environment()
                    &LOCK_global_system_variables, MY_MUTEX_INIT_FAST);
   mysql_mutex_record_order(&LOCK_active_mi, &LOCK_global_system_variables);
   mysql_mutex_record_order(&LOCK_status, &LOCK_thread_count);
-  mysql_rwlock_init(key_rwlock_LOCK_system_variables_hash,
+  mysql_prlock_init(key_rwlock_LOCK_system_variables_hash,
                     &LOCK_system_variables_hash);
   mysql_mutex_init(key_LOCK_prepared_stmt_count,
                    &LOCK_prepared_stmt_count, MY_MUTEX_INIT_FAST);
@@ -4694,6 +4700,8 @@ static int init_thread_environment()
                    &LOCK_short_uuid_generator, MY_MUTEX_INIT_FAST);
   mysql_mutex_init(key_LOCK_connection_count,
                    &LOCK_connection_count, MY_MUTEX_INIT_FAST);
+  mysql_mutex_init(key_LOCK_thread_id,
+                   &LOCK_thread_id, MY_MUTEX_INIT_FAST);
   mysql_mutex_init(key_LOCK_stats, &LOCK_stats, MY_MUTEX_INIT_FAST);
   mysql_mutex_init(key_LOCK_global_user_client_stats,
                    &LOCK_global_user_client_stats, MY_MUTEX_INIT_FAST);
@@ -4833,7 +4841,7 @@ static void init_ssl()
 					  opt_ssl_ca, opt_ssl_capath,
 					  opt_ssl_cipher, &error,
                                           opt_ssl_crl, opt_ssl_crlpath);
-    DBUG_PRINT("info",("ssl_acceptor_fd: 0x%lx", (long) ssl_acceptor_fd));
+    DBUG_PRINT("info",("ssl_acceptor_fd: %p", ssl_acceptor_fd));
     if (!ssl_acceptor_fd)
     {
       sql_print_warning("Failed to setup SSL");
@@ -4956,7 +4964,8 @@ static int init_server_components()
     global_system_variables.query_cache_type= 1;
   }
   query_cache_init();
-  query_cache_resize(query_cache_size);
+  DBUG_ASSERT(query_cache_size < ULONG_MAX);
+  query_cache_resize((ulong)query_cache_size);
   my_rnd_init(&sql_rand,(ulong) server_start_time,(ulong) server_start_time/2);
   setup_fpu();
   init_thr_lock();
@@ -5650,8 +5659,7 @@ int mysqld_main(int argc, char **argv)
   orig_argc= argc;
   orig_argv= argv;
   my_getopt_use_args_separator= TRUE;
-  if (load_defaults(MYSQL_CONFIG_NAME, load_default_groups, &argc, &argv))
-    return 1;
+  load_defaults_or_exit(MYSQL_CONFIG_NAME, load_default_groups, &argc, &argv);
   my_getopt_use_args_separator= FALSE;
   defaults_argc= argc;
   defaults_argv= argv;
@@ -5800,7 +5808,7 @@ int mysqld_main(int argc, char **argv)
 
   ulonglong new_thread_stack_size;
   new_thread_stack_size= my_setstacksize(&connection_attrib,
-                                         my_thread_stack_size);
+                                         (size_t)my_thread_stack_size);
   if (new_thread_stack_size != my_thread_stack_size)
     SYSVAR_AUTOSIZE(my_thread_stack_size, new_thread_stack_size);
 
@@ -5859,9 +5867,6 @@ int mysqld_main(int argc, char **argv)
 #ifdef __WIN__
   if (!opt_console)
   {
-    if (reopen_fstreams(log_error_file, stdout, stderr))
-      unireg_abort(1);
-    setbuf(stderr, NULL);
     FreeConsole();				// Remove window
   }
 
@@ -6023,12 +6028,14 @@ int mysqld_main(int argc, char **argv)
                           mysqld_port, MYSQL_COMPILATION_COMMENT);
   }
 
+#ifndef _WIN32
   // try to keep fd=0 busy
-  if (!freopen(IF_WIN("NUL","/dev/null"), "r", stdin))
+  if (!freopen("/dev/null", "r", stdin))
   {
     // fall back on failure
     fclose(stdin);
   }
+#endif
 
 #if defined(_WIN32) && !defined(EMBEDDED_LIBRARY)
   Service.SetRunning();
@@ -7855,9 +7862,9 @@ static int show_table_definitions(THD *thd, SHOW_VAR *var, char *buff,
 static int show_flush_commands(THD *thd, SHOW_VAR *var, char *buff,
                                enum enum_var_type scope)
 {
-  var->type= SHOW_LONG;
+  var->type= SHOW_LONGLONG;
   var->value= buff;
-  *((long *) buff)= (long) tdc_refresh_version();
+  *((longlong *) buff)= (longlong)tdc_refresh_version();
   return 0;
 }
 
@@ -8766,7 +8773,7 @@ static int mysql_init_variables(void)
   denied_connections= 0;
   executed_events= 0;
   global_query_id= 1;
-  global_thread_id= 1;
+  global_thread_id= 0;
   strnmov(server_version, MYSQL_SERVER_VERSION, sizeof(server_version)-1);
   threads.empty();
   thread_cache.empty();
@@ -8783,8 +8790,8 @@ static int mysql_init_variables(void)
 
   /* Set directory paths */
   mysql_real_data_home_len=
-    strmake_buf(mysql_real_data_home,
-                get_relative_path(MYSQL_DATADIR)) - mysql_real_data_home;
+    (uint)(strmake_buf(mysql_real_data_home,
+                get_relative_path(MYSQL_DATADIR)) - mysql_real_data_home);
   /* Replication parameters */
   master_info_file= (char*) "master.info",
     relay_log_info_file= (char*) "relay-log.info";
@@ -10426,3 +10433,96 @@ void init_server_psi_keys(void)
 }
 
 #endif /* HAVE_PSI_INTERFACE */
+
+
+/*
+  Connection ID allocation.
+
+  We need to maintain thread_ids in the 32bit range,
+  because this is how it is passed to the client in the protocol.
+
+  The idea is to maintain a id range, initially set to
+ (0,UINT32_MAX). Whenever new id is needed, we increment the
+  lower limit and return its new value.
+
+  On "overflow", if id can not be generated anymore(i.e lower == upper -1),
+  we recalculate the range boundaries.
+  To do that, we first collect thread ids that are in use, by traversing
+  THD list, and find largest region within (0,UINT32_MAX), that is still free.
+
+*/
+
+static my_thread_id thread_id_max= UINT_MAX32;
+
+#include <vector>
+#include <algorithm>
+
+/*
+  Find largest unused thread_id range.
+
+  i.e for every number N within the returned range,
+  there is no existing connection with thread_id equal to N.
+
+  The range is exclusive, lower bound is always >=0 and
+  upper bound <=MAX_UINT32.
+
+  @param[out] low  - lower bound for the range
+  @param[out] high - upper bound for the range
+*/
+static void recalculate_thread_id_range(my_thread_id *low, my_thread_id *high)
+{
+  std::vector<my_thread_id> ids;
+
+  // Add sentinels
+  ids.push_back(0);
+  ids.push_back(UINT_MAX32);
+
+  mysql_mutex_lock(&LOCK_thread_count);
+
+  I_List_iterator<THD> it(threads);
+  THD *thd;
+  while ((thd=it++))
+    ids.push_back(thd->thread_id);
+
+  mysql_mutex_unlock(&LOCK_thread_count);
+
+  std::sort(ids.begin(), ids.end());
+  my_thread_id max_gap= 0;
+  for (size_t i= 0; i < ids.size() - 1; i++)
+  {
+    my_thread_id gap= ids[i+1] - ids[i];
+    if (gap > max_gap)
+    {
+      *low= ids[i];
+      *high= ids[i+1];
+      max_gap= gap;
+    }
+  }
+
+  if (max_gap < 2)
+  {
+    /* Can't find free id. This is not really possible,
+      we'd need 2^32 connections for this to happen.*/
+    sql_print_error("Cannot find free connection id.");
+    abort();
+  }
+}
+
+
+my_thread_id next_thread_id(void)
+{
+  my_thread_id retval;
+  DBUG_EXECUTE_IF("thread_id_overflow", global_thread_id= thread_id_max-2;);
+
+  mysql_mutex_lock(&LOCK_thread_id);
+
+  if (unlikely(global_thread_id == thread_id_max - 1))
+  {
+    recalculate_thread_id_range(&global_thread_id, &thread_id_max);
+  }
+
+  retval= ++global_thread_id;
+
+  mysql_mutex_unlock(&LOCK_thread_id);
+  return retval;
+}

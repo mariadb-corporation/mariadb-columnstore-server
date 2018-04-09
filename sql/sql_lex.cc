@@ -1,5 +1,5 @@
 /* Copyright (c) 2000, 2014, Oracle and/or its affiliates.
-   Copyright (c) 2009, 2017, MariaDB
+   Copyright (c) 2009, 2018, MariaDB Corporation
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -379,7 +379,7 @@ void Lex_input_stream::body_utf8_append(const char *ptr,
   if (m_cpp_utf8_processed_ptr >= ptr)
     return;
 
-  int bytes_to_copy= ptr - m_cpp_utf8_processed_ptr;
+  size_t bytes_to_copy= ptr - m_cpp_utf8_processed_ptr;
 
   memcpy(m_body_utf8_ptr, m_cpp_utf8_processed_ptr, bytes_to_copy);
   m_body_utf8_ptr += bytes_to_copy;
@@ -654,6 +654,7 @@ void lex_start(THD *thd)
 {
   LEX *lex= thd->lex;
   DBUG_ENTER("lex_start");
+  DBUG_PRINT("info", ("Lex %p stmt_lex: %p", thd->lex, thd->stmt_lex));
 
   lex->thd= lex->unit.thd= thd;
   
@@ -665,6 +666,7 @@ void lex_start(THD *thd)
   /* 'parent_lex' is used in init_query() so it must be before it. */
   lex->select_lex.parent_lex= lex;
   lex->select_lex.init_query();
+  lex->current_select_number= 1;
   lex->curr_with_clause= 0;
   lex->with_clauses_list= 0;
   lex->with_clauses_list_last_next= &lex->with_clauses_list;
@@ -759,7 +761,7 @@ void lex_start(THD *thd)
 void lex_end(LEX *lex)
 {
   DBUG_ENTER("lex_end");
-  DBUG_PRINT("enter", ("lex: 0x%lx", (long) lex));
+  DBUG_PRINT("enter", ("lex: %p", lex));
 
   lex_end_stage1(lex);
   lex_end_stage2(lex);
@@ -808,6 +810,7 @@ void lex_end_stage2(LEX *lex)
 
   /* Reset LEX_MASTER_INFO */
   lex->mi.reset(lex->sql_command == SQLCOM_CHANGE_MASTER);
+  delete_dynamic(&lex->delete_gtid_domain);
 
   DBUG_VOID_RETURN;
 }
@@ -2304,6 +2307,28 @@ st_select_lex_node *st_select_lex_node:: insert_chain_before(
   return this;
 }
 
+
+/*
+  Detach the node from its master and attach it to a new master
+*/
+
+void st_select_lex_node::move_as_slave(st_select_lex_node *new_master)
+{
+  exclude_from_tree();
+  if (new_master->slave)
+  {
+    st_select_lex_node *curr= new_master->slave;
+    for ( ; curr->next ; curr= curr->next) ;
+    prev= &curr->next;
+  }
+  else
+    prev= &new_master->slave;
+  *prev= this;
+  next= 0;
+  master= new_master;
+}
+
+
 /*
   Exclude a node from the tree lex structure, but leave it in the global
   list of nodes.
@@ -2594,7 +2619,7 @@ bool st_select_lex::add_gorder_to_list(THD *thd, Item *item, bool asc)
 bool st_select_lex::add_item_to_list(THD *thd, Item *item)
 {
   DBUG_ENTER("st_select_lex::add_item_to_list");
-  DBUG_PRINT("info", ("Item: 0x%lx", (long) item));
+  DBUG_PRINT("info", ("Item: %p", item));
   DBUG_RETURN(item_list.push_back(item, thd->mem_root));
 }
 
@@ -2909,6 +2934,10 @@ LEX::LEX()
                       INITIAL_LEX_PLUGIN_LIST_SIZE, 0);
   reset_query_tables_list(TRUE);
   mi.init();
+  init_dynamic_array2(&delete_gtid_domain, sizeof(ulong*),
+                      gtid_domain_static_buffer,
+                      initial_gtid_domain_buffer_size,
+                      initial_gtid_domain_buffer_size, 0);
 }
 
 
@@ -4404,7 +4433,8 @@ void st_select_lex::set_explain_type(bool on_the_fly)
               pos_in_table_list=NULL for e.g. post-join aggregation JOIN_TABs.
             */
             if (tab->table && tab->table->pos_in_table_list &&
-                tab->table->pos_in_table_list->with)
+                tab->table->pos_in_table_list->with &&
+                tab->table->pos_in_table_list->with->is_recursive)
             {
               uses_cte= true;
               break;
@@ -4657,9 +4687,9 @@ bool LEX::set_arena_for_set_stmt(Query_arena *backup)
         Query_arena_memroot(mem_root_for_set_stmt,
                             Query_arena::STMT_INITIALIZED)))
     DBUG_RETURN(1);
-  DBUG_PRINT("info", ("mem_root: 0x%lx  arena: 0x%lx",
-                      (ulong) mem_root_for_set_stmt,
-                      (ulong) arena_for_set_stmt));
+  DBUG_PRINT("info", ("mem_root: %p  arena: %p",
+                      mem_root_for_set_stmt,
+                      arena_for_set_stmt));
   thd->set_n_backup_active_arena(arena_for_set_stmt, backup);
   DBUG_RETURN(0);
 }
@@ -4670,9 +4700,9 @@ void LEX::reset_arena_for_set_stmt(Query_arena *backup)
   DBUG_ENTER("LEX::reset_arena_for_set_stmt");
   DBUG_ASSERT(arena_for_set_stmt);
   thd->restore_active_arena(arena_for_set_stmt, backup);
-  DBUG_PRINT("info", ("mem_root: 0x%lx  arena: 0x%lx",
-                      (ulong) arena_for_set_stmt->mem_root,
-                      (ulong) arena_for_set_stmt));
+  DBUG_PRINT("info", ("mem_root: %p  arena: %p",
+                      arena_for_set_stmt->mem_root,
+                      arena_for_set_stmt));
   DBUG_VOID_RETURN;
 }
 
@@ -4682,9 +4712,9 @@ void LEX::free_arena_for_set_stmt()
   DBUG_ENTER("LEX::free_arena_for_set_stmt");
   if (!arena_for_set_stmt)
     return;
-  DBUG_PRINT("info", ("mem_root: 0x%lx  arena: 0x%lx",
-                      (ulong) arena_for_set_stmt->mem_root,
-                      (ulong) arena_for_set_stmt));
+  DBUG_PRINT("info", ("mem_root: %p  arena: %p",
+                      arena_for_set_stmt->mem_root,
+                      arena_for_set_stmt));
   arena_for_set_stmt->free_items();
   delete(arena_for_set_stmt);
   free_root(mem_root_for_set_stmt, MYF(MY_KEEP_PREALLOC));

@@ -207,6 +207,9 @@ public:
 
   Explain_select(MEM_ROOT *root, bool is_analyze) : 
   Explain_basic_join(root),
+#ifndef DBUG_OFF
+    select_lex(NULL),
+#endif
     message(NULL),
     having(NULL), having_value(Item::COND_UNDEF),
     using_temporary(false), using_filesort(false),
@@ -215,6 +218,9 @@ public:
   {}
 
 public:
+#ifndef DBUG_OFF
+  SELECT_LEX *select_lex;
+#endif
   const char *select_type;
 
   /*
@@ -282,6 +288,7 @@ public:
 class Explain_aggr_filesort : public Explain_aggr_node
 {
   List<Item> sort_items;
+  List<ORDER::enum_order> sort_directions;
 public:
   enum_explain_aggr_node_type get_type() { return AGGR_OP_FILESORT; }
   Filesort_tracker tracker;

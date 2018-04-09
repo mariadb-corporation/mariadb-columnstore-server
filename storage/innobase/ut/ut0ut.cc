@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 1994, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1994, 2017, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
@@ -39,6 +39,9 @@ Created 5/11/1994 Heikki Tuuri
 #include "log.h"
 
 #ifdef _WIN32
+typedef VOID(WINAPI *time_fn)(LPFILETIME);
+static time_fn ut_get_system_time_as_file_time = GetSystemTimeAsFileTime;
+
 /*****************************************************************//**
 NOTE: The Windows epoch starts from 1601/01/01 whereas the Unix
 epoch starts from 1970/1/1. For selection of constant see:
@@ -64,7 +67,7 @@ ut_gettimeofday(
 		return(-1);
 	}
 
-	GetSystemTimeAsFileTime(&ft);
+	ut_get_system_time_as_file_time(&ft);
 
 	tm = (int64_t) ft.dwHighDateTime << 32;
 	tm |= ft.dwLowDateTime;
@@ -522,65 +525,6 @@ ut_copy_file(
 	} while (len > 0);
 }
 
-#ifdef _WIN32
-# include <stdarg.h>
-/**********************************************************************//**
-A substitute for vsnprintf(3), formatted output conversion into
-a limited buffer. Note: this function DOES NOT return the number of
-characters that would have been printed if the buffer was unlimited because
-VC's _vsnprintf() returns -1 in this case and we would need to call
-_vscprintf() in addition to estimate that but we would need another copy
-of "ap" for that and VC does not provide va_copy(). */
-void
-ut_vsnprintf(
-/*=========*/
-	char*		str,	/*!< out: string */
-	size_t		size,	/*!< in: str size */
-	const char*	fmt,	/*!< in: format */
-	va_list		ap)	/*!< in: format values */
-{
-	_vsnprintf(str, size, fmt, ap);
-	str[size - 1] = '\0';
-}
-
-/**********************************************************************//**
-A substitute for snprintf(3), formatted output conversion into
-a limited buffer.
-@return number of characters that would have been printed if the size
-were unlimited, not including the terminating '\0'. */
-int
-ut_snprintf(
-/*========*/
-	char*		str,	/*!< out: string */
-	size_t		size,	/*!< in: str size */
-	const char*	fmt,	/*!< in: format */
-	...)			/*!< in: format values */
-{
-	int	res;
-	va_list	ap1;
-	va_list	ap2;
-
-	va_start(ap1, fmt);
-	va_start(ap2, fmt);
-
-	res = _vscprintf(fmt, ap1);
-	ut_a(res != -1);
-
-	if (size > 0) {
-		_vsnprintf(str, size, fmt, ap2);
-
-		if ((size_t) res >= size) {
-			str[size - 1] = '\0';
-		}
-	}
-
-	va_end(ap1);
-	va_end(ap2);
-
-	return(res);
-}
-#endif /* _WIN32 */
-
 /** Convert an error number to a human readable text message.
 The returned string is static and should not be freed or modified.
 @param[in]	num	InnoDB internal error number
@@ -638,8 +582,6 @@ ut_strerr(
 		return("Rollback");
 	case DB_DUPLICATE_KEY:
 		return("Duplicate key");
-	case DB_QUE_THR_SUSPENDED:
-		return("The queue thread has been suspended");
 	case DB_MISSING_HISTORY:
 		return("Required history data has been deleted");
 	case DB_CLUSTER_NOT_FOUND:
@@ -834,12 +776,25 @@ error::~error()
 	sql_print_error("InnoDB: %s", m_oss.str().c_str());
 }
 
+#ifdef _MSC_VER
+/* disable warning
+  "ib::fatal::~fatal': destructor never returns, potential memory leak"
+   on Windows.
+*/
+#pragma warning (push)
+#pragma warning (disable : 4722)
+#endif
+
 ATTRIBUTE_NORETURN
 fatal::~fatal()
 {
 	sql_print_error("[FATAL] InnoDB: %s", m_oss.str().c_str());
 	abort();
 }
+
+#ifdef _MSC_VER
+#pragma warning (pop)
+#endif
 
 error_or_warn::~error_or_warn()
 {

@@ -280,7 +280,7 @@ MARIA_HA *maria_open(const char *name, int mode, uint open_flags)
   size_t info_length;
   char name_buff[FN_REFLEN], org_name[FN_REFLEN], index_name[FN_REFLEN],
        data_name[FN_REFLEN];
-  uchar *disk_cache, *disk_pos, *end_pos;
+  uchar *UNINIT_VAR(disk_cache), *disk_pos, *end_pos;
   MARIA_HA info, *UNINIT_VAR(m_info), *old_info;
   MARIA_SHARE share_buff,*share;
   double *rec_per_key_part;
@@ -918,6 +918,7 @@ MARIA_HA *maria_open(const char *name, int mode, uint open_flags)
     if (internal_table)
       set_if_smaller(share->base.max_data_file_length,
                      max_data_file_length);
+    if (share->now_transactional)
     {
       /* Setup initial state that is visible for all */
       MARIA_STATE_HISTORY_CLOSED *history;
@@ -1382,7 +1383,7 @@ uint _ma_state_info_write(MARIA_SHARE *share, uint pWrite)
       is too new). Recovery does it by itself.
     */
     share->state.is_of_horizon= translog_get_horizon();
-    DBUG_PRINT("info", ("is_of_horizon set to LSN (%lu,0x%lx)",
+    DBUG_PRINT("info", ("is_of_horizon set to LSN " LSN_FMT,
                         LSN_IN_PARTS(share->state.is_of_horizon)));
   }
   res= _ma_state_info_write_sub(share->kfile.file, &share->state, pWrite);

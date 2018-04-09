@@ -1,5 +1,5 @@
 /* Copyright (c) 2000, 2016, Oracle and/or its affiliates.
-   Copyright (c) 2009, 2016, MariaDB
+   Copyright (c) 2009, 2018, MariaDB Corporation.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -257,7 +257,7 @@ handler *get_new_handler(TABLE_SHARE *share, MEM_ROOT *alloc,
 {
   handler *file;
   DBUG_ENTER("get_new_handler");
-  DBUG_PRINT("enter", ("alloc: 0x%lx", (long) alloc));
+  DBUG_PRINT("enter", ("alloc: %p", alloc));
 
   if (db_type && db_type->state == SHOW_OPTION_YES && db_type->create)
   {
@@ -404,7 +404,7 @@ static int ha_finish_errors(void)
 }
 
 static volatile int32 need_full_discover_for_existence= 0;
-static volatile int32 engines_with_discover_table_names= 0;
+static volatile int32 engines_with_discover_file_names= 0;
 static volatile int32 engines_with_discover= 0;
 
 static int full_discover_for_existence(handlerton *, const char *, const char *)
@@ -429,8 +429,8 @@ static void update_discovery_counters(handlerton *hton, int val)
   if (hton->discover_table_existence == full_discover_for_existence)
     my_atomic_add32(&need_full_discover_for_existence,  val);
 
-  if (hton->discover_table_names)
-    my_atomic_add32(&engines_with_discover_table_names, val);
+  if (hton->discover_table_names && hton->tablefile_extensions[0])
+    my_atomic_add32(&engines_with_discover_file_names, val);
 
   if (hton->discover_table)
     my_atomic_add32(&engines_with_discover, val);
@@ -811,7 +811,9 @@ static my_bool closecon_handlerton(THD *thd, plugin_ref plugin,
 */
 void ha_close_connection(THD* thd)
 {
-  plugin_foreach(thd, closecon_handlerton, MYSQL_STORAGE_ENGINE_PLUGIN, 0);
+  plugin_foreach_with_mask(thd, closecon_handlerton,
+                           MYSQL_STORAGE_ENGINE_PLUGIN,
+                           PLUGIN_IS_DELETED|PLUGIN_IS_READY, 0);
 }
 
 static my_bool kill_handlerton(THD *thd, plugin_ref plugin,
@@ -1392,7 +1394,7 @@ int ha_commit_trans(THD *thd, bool all)
   uint rw_ha_count= ha_check_and_coalesce_trx_read_only(thd, ha_info, all);
   /* rw_trans is TRUE when we in a transaction changing data */
   bool rw_trans= is_real_trans &&
-                 (rw_ha_count > !thd->is_current_stmt_binlog_disabled());
+                 (rw_ha_count > (thd->is_current_stmt_binlog_disabled()?0U:1U));
   MDL_request mdl_request;
   DBUG_PRINT("info", ("is_real_trans: %d  rw_trans:  %d  rw_ha_count: %d",
                       is_real_trans, rw_trans, rw_ha_count));
@@ -3211,8 +3213,8 @@ void handler::column_bitmaps_signal()
 {
   DBUG_ENTER("column_bitmaps_signal");
   if (table)
-    DBUG_PRINT("info", ("read_set: 0x%lx  write_set: 0x%lx",
-                        (long) table->read_set, (long) table->write_set));
+    DBUG_PRINT("info", ("read_set: %p  write_set: %p",
+                        table->read_set, table->write_set));
   DBUG_VOID_RETURN;
 }
 
@@ -3344,9 +3346,11 @@ void print_keydup_error(TABLE *table, KEY *key, const char *msg, myf errflag)
 
   if (key == NULL)
   {
-    /* Key is unknown */
-    str.copy("", 0, system_charset_info);
-    my_printf_error(ER_DUP_ENTRY, msg, errflag, str.c_ptr(), "*UNKNOWN*");
+    /*
+      Key is unknown. Should only happen if storage engine reports wrong
+      duplicate key number.
+    */
+    my_printf_error(ER_DUP_ENTRY, msg, errflag, "", "*UNKNOWN*");
   }
   else
   {
@@ -3446,11 +3450,9 @@ void handler::print_error(int error, myf errflag)
     if (table)
     {
       uint key_nr=get_dup_key(error);
-      if ((int) key_nr >= 0)
+      if ((int) key_nr >= 0 && key_nr < table->s->keys)
       {
-        print_keydup_error(table,
-                           key_nr == MAX_KEY ? NULL : &table->key_info[key_nr],
-                           errflag);
+        print_keydup_error(table, &table->key_info[key_nr], errflag);
         DBUG_VOID_RETURN;
       }
     }
@@ -5092,10 +5094,15 @@ bool ha_table_exists(THD *thd, const char *db, const char *table_name,
     {
       char engine_buf[NAME_CHAR_LEN + 1];
       LEX_STRING engine= { engine_buf, 0 };
+      frm_type_enum type;
 
-      if (dd_frm_type(thd, path, &engine) != FRMTYPE_VIEW)
+      if ((type= dd_frm_type(thd, path, &engine)) == FRMTYPE_ERROR)
+        DBUG_RETURN(0);
+
+      if (type != FRMTYPE_VIEW)
       {
-        plugin_ref p=  plugin_lock_by_name(thd, &engine,  MYSQL_STORAGE_ENGINE_PLUGIN);
+        plugin_ref p= plugin_lock_by_name(thd, &engine,
+                                          MYSQL_STORAGE_ENGINE_PLUGIN);
         *hton= p ? plugin_hton(p) : NULL;
         if (*hton)
           // verify that the table really exists
@@ -5220,6 +5227,7 @@ void Discovered_table_list::remove_duplicates()
 {
   LEX_STRING **src= tables->front();
   LEX_STRING **dst= src;
+  sort();
   while (++dst <= tables->back())
   {
     LEX_STRING *s= *src, *d= *dst;
@@ -5287,10 +5295,12 @@ int ha_discover_table_names(THD *thd, LEX_STRING *db, MY_DIR *dirp,
   int error;
   DBUG_ENTER("ha_discover_table_names");
 
-  if (engines_with_discover_table_names == 0 && !reusable)
+  if (engines_with_discover_file_names == 0 && !reusable)
   {
-    error= ext_table_discovery_simple(dirp, result);
-    result->sort();
+    st_discover_names_args args= {db, NULL, result, 0};
+    error= ext_table_discovery_simple(dirp, result) ||
+           plugin_foreach(thd, discover_names,
+                            MYSQL_STORAGE_ENGINE_PLUGIN, &args);
   }
   else
   {
@@ -5303,8 +5313,6 @@ int ha_discover_table_names(THD *thd, LEX_STRING *db, MY_DIR *dirp,
     error= extension_based_table_discovery(dirp, reg_ext, result) ||
            plugin_foreach(thd, discover_names,
                             MYSQL_STORAGE_ENGINE_PLUGIN, &args);
-    result->sort();
-
     if (args.possible_duplicates > 0)
       result->remove_duplicates();
   }
@@ -5577,9 +5585,9 @@ TYPELIB *ha_known_exts(void)
 }
 
 
-static bool stat_print(THD *thd, const char *type, uint type_len,
-                       const char *file, uint file_len,
-                       const char *status, uint status_len)
+static bool stat_print(THD *thd, const char *type, size_t type_len,
+                       const char *file, size_t file_len,
+                       const char *status, size_t status_len)
 {
   Protocol *protocol= thd->protocol;
   protocol->prepare_for_resend();
@@ -5688,29 +5696,6 @@ bool handler::check_table_binlog_row_based_internal(bool binlog_row)
 {
   THD *thd= table->in_use;
 
-#ifdef WITH_WSREP
-  /* only InnoDB tables will be replicated through binlog emulation */
-  if (binlog_row &&
-      ((WSREP_EMULATE_BINLOG(thd) &&
-       table->file->partition_ht()->db_type != DB_TYPE_INNODB) ||
-       (thd->wsrep_ignore_table == true)))
-    return 0;
-
-  /* enforce wsrep_max_ws_rows */
-  if (WSREP(thd) && table->s->tmp_table == NO_TMP_TABLE)
-  {
-    thd->wsrep_affected_rows++;
-    if (wsrep_max_ws_rows &&
-        thd->wsrep_exec_mode != REPL_RECV &&
-        thd->wsrep_affected_rows > wsrep_max_ws_rows)
-    {
-      trans_rollback_stmt(thd) || trans_rollback(thd);
-      my_message(ER_ERROR_DURING_COMMIT, "wsrep_max_ws_rows exceeded", MYF(0));
-      return ER_ERROR_DURING_COMMIT;
-    }
-  }
-#endif
-
   return (table->s->cached_row_logging_check &&
           thd->is_current_stmt_binlog_format_row() &&
           /*
@@ -5761,9 +5746,9 @@ bool handler::check_table_binlog_row_based_internal(bool binlog_row)
 static int write_locked_table_maps(THD *thd)
 {
   DBUG_ENTER("write_locked_table_maps");
-  DBUG_PRINT("enter", ("thd: 0x%lx  thd->lock: 0x%lx "
-                       "thd->extra_lock: 0x%lx",
-                       (long) thd, (long) thd->lock, (long) thd->extra_lock));
+  DBUG_PRINT("enter", ("thd:%p  thd->lock:%p "
+                       "thd->extra_lock: %p",
+                       thd, thd->lock, thd->extra_lock));
 
   DBUG_PRINT("debug", ("get_binlog_table_maps(): %d", thd->get_binlog_table_maps()));
 
@@ -5821,8 +5806,6 @@ static int write_locked_table_maps(THD *thd)
 
 typedef bool Log_func(THD*, TABLE*, bool, const uchar*, const uchar*);
 
-static int check_wsrep_max_ws_rows();
-
 static int binlog_log_row_internal(TABLE* table,
                                    const uchar *before_record,
                                    const uchar *after_record,
@@ -5850,13 +5833,6 @@ static int binlog_log_row_internal(TABLE* table,
     bool const has_trans= thd->lex->sql_command == SQLCOM_CREATE_TABLE ||
       table->file->has_transactions();
     error= (*log_func)(thd, table, has_trans, before_record, after_record);
-
-    /*
-      Now that the record has been logged, increment wsrep_affected_rows and
-      also check whether its within the allowable limits (wsrep_max_ws_rows).
-    */
-    if (error == 0)
-      error= check_wsrep_max_ws_rows();
   }
   return error ? HA_ERR_RBR_LOGGING_FAILED : 0;
 }
@@ -5866,6 +5842,30 @@ static inline int binlog_log_row(TABLE* table,
                                  const uchar *after_record,
                                  Log_func *log_func)
 {
+#ifdef WITH_WSREP
+  THD *const thd= table->in_use;
+
+  /* only InnoDB tables will be replicated through binlog emulation */
+  if ((WSREP_EMULATE_BINLOG(thd) &&
+       table->file->partition_ht()->db_type != DB_TYPE_INNODB) ||
+       (thd->wsrep_ignore_table == true))
+    return 0;
+
+  /* enforce wsrep_max_ws_rows */
+  if (WSREP(thd) && table->s->tmp_table == NO_TMP_TABLE)
+  {
+    thd->wsrep_affected_rows++;
+    if (wsrep_max_ws_rows &&
+        thd->wsrep_exec_mode != REPL_RECV &&
+        thd->wsrep_affected_rows > wsrep_max_ws_rows)
+    {
+      trans_rollback_stmt(thd) || trans_rollback(thd);
+      my_message(ER_ERROR_DURING_COMMIT, "wsrep_max_ws_rows exceeded", MYF(0));
+      return ER_ERROR_DURING_COMMIT;
+    }
+  }
+#endif
+
   if (!table->file->check_table_binlog_row_based(1))
     return 0;
   return binlog_log_row_internal(table, before_record, after_record, log_func);
@@ -5972,30 +5972,6 @@ int handler::ha_reset()
   cancel_pushed_idx_cond();
   /* Reset information about pushed index conditions */
   DBUG_RETURN(reset());
-}
-
-
-static int check_wsrep_max_ws_rows()
-{
-#ifdef WITH_WSREP
-  if (wsrep_max_ws_rows)
-  {
-    THD *thd= current_thd;
-
-    if (!WSREP(thd))
-      return 0;
-
-    thd->wsrep_affected_rows++;
-    if (thd->wsrep_exec_mode != REPL_RECV &&
-        thd->wsrep_affected_rows > wsrep_max_ws_rows)
-    {
-      trans_rollback_stmt(thd) || trans_rollback(thd);
-      my_message(ER_ERROR_DURING_COMMIT, "wsrep_max_ws_rows exceeded", MYF(0));
-      return ER_ERROR_DURING_COMMIT;
-    }
-  }
-#endif /* WITH_WSREP */
-  return 0;
 }
 
 

@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2011, 2016, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2016, MariaDB Corporation. All Rights reserved.
+Copyright (c) 2016, 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -456,20 +456,6 @@ fts_update_next_doc_id(
 	doc_id_t		doc_id);	/*!< in: DOC ID to set */
 
 /******************************************************************//**
-Create a new document id .
-@return DB_SUCCESS if all went well else error */
-dberr_t
-fts_create_doc_id(
-/*==============*/
-	dict_table_t*	table,			/*!< in: row is of this
-						table. */
-	dtuple_t*	row,			/*!< in/out: add doc id
-						value to this row. This is the
-						current row that is being
-						inserted. */
-	mem_heap_t*	heap);			/*!< in: heap */
-
-/******************************************************************//**
 Create a new fts_doc_ids_t.
 @return new fts_doc_ids_t. */
 fts_doc_ids_t*
@@ -579,7 +565,6 @@ fts_commit(
 @param[in]	query_str	FTS query
 @param[in]	query_len	FTS query string len in bytes
 @param[in,out]	result		result doc ids
-@param[in]	limit		limit value
 @return DB_SUCCESS if successful otherwise error code */
 dberr_t
 fts_query(
@@ -588,8 +573,7 @@ fts_query(
 	uint		flags,
 	const byte*	query_str,
 	ulint		query_len,
-	fts_result_t**	result,
-	ulonglong	limit)
+	fts_result_t**	result)
 	MY_ATTRIBUTE((warn_unused_result));
 
 /******************************************************************//**
@@ -1031,6 +1015,27 @@ fts_check_corrupt(
 	dict_table_t*	base_table,
 	trx_t*		trx);
 
+/** Fetch the document from tuple, tokenize the text data and
+insert the text data into fts auxiliary table and
+its cache. Moreover this tuple fields doesn't contain any information
+about externally stored field. This tuple contains data directly
+converted from mysql.
+@param[in]     ftt     FTS transaction table
+@param[in]     doc_id  doc id
+@param[in]     tuple   tuple from where data can be retrieved
+                       and tuple should be arranged in table
+                       schema order. */
+void
+fts_add_doc_from_tuple(
+	fts_trx_table_t*ftt,
+	doc_id_t        doc_id,
+	const dtuple_t* tuple);
+
+/** Create an FTS trx.
+@param[in,out] trx     InnoDB Transaction
+@return FTS transaction. */
+fts_trx_t*
+fts_trx_create(
+	trx_t*  trx);
 
 #endif /*!< fts0fts.h */
-

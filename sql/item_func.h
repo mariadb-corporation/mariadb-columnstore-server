@@ -67,7 +67,8 @@ public:
                   NOW_FUNC, NOW_UTC_FUNC, SYSDATE_FUNC, TRIG_COND_FUNC,
                   SUSERVAR_FUNC, GUSERVAR_FUNC, COLLATE_FUNC,
                   EXTRACT_FUNC, CHAR_TYPECAST_FUNC, FUNC_SP, UDF_FUNC,
-                  NEG_FUNC, GSYSVAR_FUNC, DYNCOL_FUNC, JSON_EXTRACT_FUNC };
+                  NEG_FUNC, GSYSVAR_FUNC, IN_OPTIMIZER_FUNC, DYNCOL_FUNC,
+                  JSON_EXTRACT_FUNC };
   enum Type type() const { return FUNC_ITEM; }
   virtual enum Functype functype() const   { return UNKNOWN_FUNC; }
   Item_func(THD *thd): Item_func_or_sum(thd), allowed_arg_cols(1)
@@ -126,7 +127,7 @@ public:
     Item_func_or_sum::cleanup();
     used_tables_and_const_cache_init();
   }
-  void fix_after_pullout(st_select_lex *new_parent, Item **ref);
+  void fix_after_pullout(st_select_lex *new_parent, Item **ref, bool merge);
   void quick_fix_field();
   table_map not_null_tables() const;
   void update_used_tables()
@@ -1954,12 +1955,6 @@ public:
            create_tmp_field(false, table, MY_INT32_NUM_DECIMAL_DIGITS) :
            tmp_table_field_from_field_type(table, false, true);
   }
-  table_map used_tables() const
-  {
-    return used_tables_cache | RAND_TABLE_BIT;
-  }
-  bool const_item() const { return 0; }
-  bool is_expensive() { return 1; }
   void print(String *str, enum_query_type query_type);
   enum precedence precedence() const { return ASSIGN_PRECEDENCE; }
   void print_as_stmt(String *str, enum_query_type query_type);
@@ -2373,6 +2368,13 @@ public:
     return sp_result_field->val_decimal(dec_buf);
   }
 
+  bool get_date(MYSQL_TIME *ltime, ulonglong fuzzydate)
+  {
+    if (execute())
+      return true;
+    return sp_result_field->get_date(ltime, fuzzydate);
+  }
+
   String *val_str(String *str)
   {
     String buf;
@@ -2506,7 +2508,6 @@ Item *get_system_var(THD *thd, enum_var_type var_type, LEX_STRING name,
 extern bool check_reserved_words(LEX_STRING *name);
 extern enum_field_types agg_field_type(Item **items, uint nitems,
                                        bool treat_bit_as_number);
-Item *find_date_time_item(Item **args, uint nargs, uint col);
 double my_double_round(double value, longlong dec, bool dec_unsigned,
                        bool truncate);
 bool eval_const_cond(COND *cond);

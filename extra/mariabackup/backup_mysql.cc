@@ -589,7 +589,7 @@ select_incremental_lsn_from_history(lsn_t *incremental_lsn)
 		mysql_real_escape_string(mysql_connection, buf,
 				opt_incremental_history_name,
 				(unsigned long)strlen(opt_incremental_history_name));
-		ut_snprintf(query, sizeof(query),
+		snprintf(query, sizeof(query),
 			"SELECT innodb_to_lsn "
 			"FROM PERCONA_SCHEMA.xtrabackup_history "
 			"WHERE name = '%s' "
@@ -602,7 +602,7 @@ select_incremental_lsn_from_history(lsn_t *incremental_lsn)
 		mysql_real_escape_string(mysql_connection, buf,
 				opt_incremental_history_uuid,
 				(unsigned long)strlen(opt_incremental_history_uuid));
-		ut_snprintf(query, sizeof(query),
+		snprintf(query, sizeof(query),
 			"SELECT innodb_to_lsn "
 			"FROM PERCONA_SCHEMA.xtrabackup_history "
 			"WHERE uuid = '%s' "
@@ -766,7 +766,7 @@ kill_long_queries(MYSQL *connection, time_t timeout)
 		    	is_select_query(info))) {
 			msg_ts("Killing query %s (duration %d sec): %s\n",
 			       id, (int)duration, info);
-			ut_snprintf(kill_stmt, sizeof(kill_stmt),
+			snprintf(kill_stmt, sizeof(kill_stmt),
 				    "KILL %s", id);
 			xb_mysql_query(connection, kill_stmt, false, false);
 		}
@@ -1288,8 +1288,8 @@ write_current_binlog_file(MYSQL *connection)
 			goto cleanup;
 		}
 
-		ut_snprintf(filepath, sizeof(filepath), "%s%c%s",
-				log_bin_dir, FN_LIBCHAR, log_bin_file);
+		snprintf(filepath, sizeof(filepath), "%s%c%s",
+			 log_bin_dir, FN_LIBCHAR, log_bin_file);
 		result = copy_file(ds_data, filepath, log_bin_file, 0);
 	}
 
@@ -1398,7 +1398,7 @@ PERCONA_SCHEMA.xtrabackup_history and writes a new history record to the
 table containing all the history info particular to the just completed
 backup. */
 bool
-write_xtrabackup_info(MYSQL *connection)
+write_xtrabackup_info(MYSQL *connection, const char * filename, bool history)
 {
 
 	char *uuid = NULL;
@@ -1426,7 +1426,7 @@ write_xtrabackup_info(MYSQL *connection)
 		|| xtrabackup_databases_exclude
 		);
 
-	backup_file_printf(XTRABACKUP_INFO,
+	backup_file_printf(filename,
 		"uuid = %s\n"
 		"name = %s\n"
 		"tool_name = %s\n"
@@ -1463,7 +1463,7 @@ write_xtrabackup_info(MYSQL *connection)
 		xb_stream_name[xtrabackup_stream_fmt], /* format */
 		xtrabackup_compress ? "compressed" : "N"); /* compressed */
 
-	if (!opt_history) {
+	if (!history) {
 		goto cleanup;
 	}
 
@@ -1574,8 +1574,8 @@ char *make_argv(char *buf, size_t len, int argc, char **argv)
 		if (strncmp(*argv, "--password", strlen("--password")) == 0) {
 			arg = "--password=...";
 		}
-		left-= ut_snprintf(buf + len - left, left,
-			"%s%c", arg, argc > 1 ? ' ' : 0);
+		left-= snprintf(buf + len - left, left,
+				"%s%c", arg, argc > 1 ? ' ' : 0);
 		++argv; --argc;
 	}
 

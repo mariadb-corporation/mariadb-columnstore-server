@@ -224,17 +224,35 @@ my_bool _ma_write_keypage(MARIA_PAGE *page, enum pagecache_page_lock lock,
 #endif
 
   page_cleanup(share, page);
-  res= pagecache_write(share->pagecache,
-                       &share->kfile,
-                       (pgcache_page_no_t) (page->pos / block_size),
-                       level, buff, share->page_type,
-                       lock,
-                       lock == PAGECACHE_LOCK_LEFT_WRITELOCKED ?
-                       PAGECACHE_PIN_LEFT_PINNED :
-                       (lock == PAGECACHE_LOCK_WRITE_UNLOCK ?
-                        PAGECACHE_UNPIN : PAGECACHE_PIN),
-                       PAGECACHE_WRITE_DELAY, &page_link.link,
-		       LSN_IMPOSSIBLE);
+  {
+    PAGECACHE_BLOCK_LINK **link;
+    enum pagecache_page_pin pin;
+    if (lock == PAGECACHE_LOCK_LEFT_WRITELOCKED)
+    {
+      pin= PAGECACHE_PIN_LEFT_PINNED;
+      link= &page_link.link;
+    }
+    else if (lock == PAGECACHE_LOCK_WRITE_UNLOCK)
+    {
+      pin= PAGECACHE_UNPIN;
+      /*
+        We  unlock this page so link should be 0 to prevent it usage
+        even accidentally
+      */
+      link= NULL;
+    }
+    else
+    {
+      pin= PAGECACHE_PIN;
+      link= &page_link.link;
+    }
+    res= pagecache_write(share->pagecache,
+                         &share->kfile,
+                         (pgcache_page_no_t) (page->pos / block_size),
+                         level, buff, share->page_type,
+                         lock, pin, PAGECACHE_WRITE_DELAY, link,
+                         LSN_IMPOSSIBLE);
+  }
 
   if (lock == PAGECACHE_LOCK_WRITE)
   {
@@ -544,8 +562,8 @@ my_bool _ma_compact_keypage(MARIA_PAGE *ma_page, TrID min_read_from)
   {
     if (!(page= (*ma_page->keyinfo->skip_key)(&key, 0, 0, page)))
     {
-      DBUG_PRINT("error",("Couldn't find last key:  page_pos: 0x%lx",
-                          (long) page));
+      DBUG_PRINT("error",("Couldn't find last key:  page_pos: %p",
+                          page));
       _ma_set_fatal_error(share, HA_ERR_CRASHED);
       DBUG_RETURN(1);
     }

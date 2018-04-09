@@ -249,8 +249,12 @@ get_one_option(int optid, const struct my_option *opt __attribute__((unused)),
     break;
 #endif
   case OPT_MYSQL_PROTOCOL:
-    opt_protocol= find_type_or_exit(argument, &sql_protocol_typelib,
-                                    opt->name);
+    if ((opt_protocol= find_type_with_warning(argument, &sql_protocol_typelib,
+                                              opt->name)) <= 0)
+    {
+      sf_leaking_memory= 1; /* no memory leak reports here */
+      exit(1);
+    }
     break;
   case '#':
     DBUG_PUSH(argument ? argument : "d:t:o");
@@ -639,8 +643,7 @@ int main(int argc, char **argv)
   MY_INIT(argv[0]);
   sf_leaking_memory=1; /* don't report memory leaks on early exits */
 
-  if (load_defaults("my",load_default_groups,&argc,&argv))
-    return 1;
+  load_defaults_or_exit("my", load_default_groups, &argc, &argv);
   /* argv is changed in the program */
   argv_to_free= argv;
   if (get_options(&argc, &argv))

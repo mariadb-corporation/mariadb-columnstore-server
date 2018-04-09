@@ -22,17 +22,10 @@
 #include "filter.h"
 #include "cmgoconn.h"
 
+bool CMgoConn::IsInit = false;
+
 bool IsNum(PSZ s);
-
-// Required to initialize libmongoc's internals
-void mongo_init(bool init)
-{
-	if (init)
-		mongoc_init();
-	else
-		mongoc_cleanup();
-
-}	// end of mongo_init
+bool MakeSelector(PGLOBAL g, PFIL fp, PSTRG s);
 
 /* --------------------------- Class INCOL --------------------------- */
 
@@ -140,10 +133,35 @@ CMgoConn::CMgoConn(PGLOBAL g, PCPARM pcg)
 } // end of CMgoConn standard constructor
 
 /***********************************************************************/
+/*  Required to initialize libmongoc's internals.											 */
+/***********************************************************************/
+void CMgoConn::mongo_init(bool init)
+{
+	if (init)
+		mongoc_init();
+	else if (IsInit)
+		mongoc_cleanup();
+
+	IsInit = init;
+}	// end of mongo_init
+
+/***********************************************************************/
 /*  Connect to the MongoDB server and get the collection.              */
 /***********************************************************************/
 bool CMgoConn::Connect(PGLOBAL g)
 {
+	if (!IsInit)
+#if defined(__WIN__)
+		__try {
+		  mongo_init(true);
+	  } __except (EXCEPTION_EXECUTE_HANDLER) {
+		  strcpy(g->Message, "Cannot load MongoDB C driver");
+		  return true;
+	  }	// end try/except
+#else   // !__WIN__
+		mongo_init(true);
+#endif  // !__WIN__
+
 	Uri = mongoc_uri_new(Pcg->Uristr);
 
 	if (!Uri) {
@@ -240,12 +258,13 @@ int CMgoConn::CollSize(PGLOBAL g)
 /***********************************************************************/
 bool CMgoConn::MakeCursor(PGLOBAL g)
 {
-	const char      *p;
-	bool             id, b = false, all = false;
-	PCSZ             options = Pcg->Options;
-	PTDB             tp = Pcg->Tdbp;
-	PCOL             cp;
-	PSTRG            s = NULL;
+	const char *p;
+	bool  id, b = false, all = false;
+	PCSZ  options = Pcg->Options;
+	PTDB  tp = Pcg->Tdbp;
+	PCOL  cp;
+	PSTRG s = NULL;
+	PFIL  filp = tp->GetFilter();
 
 	id = (tp->GetMode() != MODE_READ);
 
@@ -261,7 +280,7 @@ bool CMgoConn::MakeCursor(PGLOBAL g)
 			all = true;
 
 	if (Pcg->Pipe) {
-		if (trace)
+		if (trace(1))
 			htrc("Pipeline: %s\n", options);
 
 		p = strrchr(options, ']');
@@ -274,10 +293,10 @@ bool CMgoConn::MakeCursor(PGLOBAL g)
 
 		s = new(g) STRING(g, 1023, (PSZ)options);
 
-		if (tp->GetFilter()) {
+		if (filp) {
 			s->Append(",{\"$match\":");
 
-			if (tp->GetFilter()->MakeSelector(g, s)) {
+			if (MakeSelector(g, filp, s)) {
 				strcpy(g->Message, "Failed making selector");
 				return true;
 			} else
@@ -311,7 +330,7 @@ bool CMgoConn::MakeCursor(PGLOBAL g)
 		*(char*)p = ']';		 // Restore Colist for discovery
 		p = s->GetStr();
 
-		if (trace)
+		if (trace(33))
 			htrc("New Pipeline: %s\n", p);
 
 		Query = bson_new_from_json((const uint8_t *)p, -1, &Error);
@@ -330,15 +349,15 @@ bool CMgoConn::MakeCursor(PGLOBAL g)
 		} // endif error
 
 	} else {
-		if (Pcg->Filter || tp->GetFilter()) {
-			if (trace) {
+		if (Pcg->Filter || filp) {
+			if (trace(1)) {
 				if (Pcg->Filter)
 					htrc("Filter: %s\n", Pcg->Filter);
 
-				if (tp->GetFilter()) {
+				if (filp) {
 					char buf[512];
 
-					tp->GetFilter()->Prints(g, buf, 511);
+					filp->Prints(g, buf, 511);
 					htrc("To_Filter: %s\n", buf);
 				} // endif To_Filter
 
@@ -346,11 +365,11 @@ bool CMgoConn::MakeCursor(PGLOBAL g)
 
 			s = new(g) STRING(g, 1023, (PSZ)Pcg->Filter);
 
-			if (tp->GetFilter()) {
+			if (filp) {
 				if (Pcg->Filter)
 					s->Append(',');
 
-				if (tp->GetFilter()->MakeSelector(g, s)) {
+				if (MakeSelector(g, filp, s)) {
 					strcpy(g->Message, "Failed making selector");
 					return NULL;
 				}	// endif Selector
@@ -358,7 +377,7 @@ bool CMgoConn::MakeCursor(PGLOBAL g)
 				tp->SetFilter(NULL);   // Not needed anymore
 			} // endif To_Filter
 
-			if (trace)
+			if (trace(33))
 				htrc("selector: %s\n", s->GetStr());
 
 			s->Resize(s->GetLength() + 1);
@@ -374,7 +393,7 @@ bool CMgoConn::MakeCursor(PGLOBAL g)
 
 		if (!all) {
 			if (options && *options) {
-				if (trace)
+				if (trace(1))
 					htrc("options=%s\n", options);
 
 				p = options;
@@ -431,10 +450,10 @@ int CMgoConn::ReadNext(PGLOBAL g)
 	if (!Cursor && MakeCursor(g)) {
 		rc = RC_FX;
 	} else if (mongoc_cursor_next(Cursor, &Document)) {
-		if (trace > 1) {
+		if (trace(512)) {
 			bson_iter_t iter;
 			ShowDocument(&iter, Document, "");
-		} else if (trace == 1)
+		} else if (trace(1))
 			htrc("%s\n", GetDocument(g));
 
 	} else if (mongoc_cursor_error(Cursor, &Error)) {
@@ -570,7 +589,7 @@ int CMgoConn::Write(PGLOBAL g)
 		if (DocWrite(g, Fpc))
 			return RC_FX;
 
-		if (trace) {
+		if (trace(2)) {
 			char *str = bson_as_json(Fpc->Child, NULL);
 			htrc("Inserting: %s\n", str);
 			bson_free(str);
@@ -604,7 +623,7 @@ int CMgoConn::Write(PGLOBAL g)
 		} // endif iter
 
 		if (b) {
-			if (trace) {
+			if (trace(2)) {
 				char *str = bson_as_json(query, NULL);
 				htrc("update query: %s\n", str);
 				bson_free(str);

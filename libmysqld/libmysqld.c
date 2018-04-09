@@ -121,6 +121,9 @@ mysql_real_connect(MYSQL *mysql,const char *host, const char *user,
     my_free(mysql->options.my_cnf_file);
     my_free(mysql->options.my_cnf_group);
     mysql->options.my_cnf_file=mysql->options.my_cnf_group=0;
+
+    if (mysql->options.protocol == UINT_MAX32)
+      goto error;
   }
 
   if (!db || !db[0])
@@ -205,7 +208,7 @@ mysql_real_connect(MYSQL *mysql,const char *host, const char *user,
     }
   }
 
-  DBUG_PRINT("exit",("Mysql handler: 0x%lx", (long) mysql));
+  DBUG_PRINT("exit",("Mysql handler: %p", mysql));
   DBUG_RETURN(mysql);
 
 error:

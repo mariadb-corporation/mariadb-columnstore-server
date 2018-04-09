@@ -331,7 +331,10 @@ typedef struct st_maria_file_bitmap
   pgcache_page_no_t last_bitmap_page; /* Last possible bitmap page */
   my_bool changed;                     /* 1 if page needs to be written */
   my_bool changed_not_flushed;         /* 1 if some bitmap is not flushed */
+  my_bool return_first_match;          /* Shortcut find_head() */
   uint used_size;                      /* Size of bitmap head that is not 0 */
+  uint full_head_size;                 /* Where to start search for head */
+  uint full_tail_size;                 /* Where to start search for tail */
   uint flush_all_requested;            /**< If _ma_bitmap_flush_all waiting */
   uint waiting_for_flush_all_requested; /* If someone is waiting for above */
   uint non_flushable;                  /**< 0 if bitmap and log are in sync */
@@ -600,6 +603,7 @@ struct st_maria_handler
   struct st_ma_transaction *trn;        /* Pointer to active transaction */
   MARIA_STATUS_INFO *state, state_save;
   MARIA_STATUS_INFO *state_start;       /* State at start of transaction */
+  MARIA_USED_TABLES *used_tables;
   MARIA_ROW cur_row;                    /* The active row that we just read */
   MARIA_ROW new_row;			/* Storage for a row during update */
   MARIA_KEY last_key;                   /* Last found key */
@@ -1182,7 +1186,7 @@ extern ulonglong transid_get_packed(MARIA_SHARE *share, const uchar *from);
 #ifdef IDENTICAL_PAGES_AFTER_RECOVERY
 void page_cleanup(MARIA_SHARE *share, MARIA_PAGE *page)
 #else
-#define page_cleanup(A,B) while (0)
+#define page_cleanup(A,B) do { } while (0)
 #endif
 
 extern MARIA_KEY *_ma_make_key(MARIA_HA *info, MARIA_KEY *int_key, uint keynr,

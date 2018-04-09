@@ -2772,7 +2772,33 @@ SELECT 1 MOD ADDTIME( '13:58:57', '00:00:01' ) + 2;
 1 MOD ADDTIME( '13:58:57', '00:00:01' ) + 2
 3
 #
-# Start of 10.0 tests
+# MDEV-11819 NO_ZERO_IN_DATE: Incorrect generated column value
+#
+SET sql_mode='NO_ZERO_IN_DATE';
+CREATE TABLE t1 (a TIME(6));
+INSERT INTO t1 SELECT timediff(timestamp'2008-12-31 23:59:59.000001',timestamp'2008-12-30 01:01:01.000002');
+SELECT * FROM t1;
+a
+46:58:57.999999
+DROP TABLE t1;
+SET sql_mode=DEFAULT;
+#
+# MDEV-13972 crash in Item_func_sec_to_time::get_date
+#
+DO TO_DAYS(SEC_TO_TIME(TIME(CEILING(UUID()))));
+DO TO_DAYS(SEC_TO_TIME(MAKEDATE('',RAND(~('')))));
+Warnings:
+Warning	1292	Truncated incorrect INTEGER value: ''
+Warning	1292	Truncated incorrect INTEGER value: ''
+Warning	1292	Truncated incorrect INTEGER value: ''
+Warning	1292	Truncated incorrect time value: '20000101'
+SELECT SEC_TO_TIME(MAKEDATE(0,RAND(~0)));
+SEC_TO_TIME(MAKEDATE(0,RAND(~0)))
+838:59:59
+Warnings:
+Warning	1292	Truncated incorrect time value: '20000101'
+#
+# End of 5.5 tests
 #
 #
 # MDEV-8205 timediff returns null when comparing decimal time to time string value
@@ -2875,6 +2901,30 @@ Warnings:
 Warning	1441	Datetime function: datetime field overflow
 SELECT ADDDATE(DATE'0000-01-01', INTERVAL '0:0:5259490559:315569433599' DAY_SECOND);
 ADDDATE(DATE'0000-01-01', INTERVAL '0:0:5259490559:315569433599' DAY_SECOND)
+NULL
+Warnings:
+Warning	1441	Datetime function: datetime field overflow
+#
+# MDEV-13202 Assertion `ltime->neg == 0' failed in date_to_datetime
+#
+CREATE TABLE t1 (i INT, d DATE);
+INSERT INTO t1 VALUES (1, '1970-01-01');
+SELECT MAX(NULLIF(i,1)) FROM t1 ORDER BY DATE_SUB(d,INTERVAL 17300000 HOUR);
+MAX(NULLIF(i,1))
+NULL
+Warnings:
+Warning	1441	Datetime function: datetime field overflow
+DROP TABLE t1;
+CREATE TABLE t1 (i INT, d DATE);
+INSERT INTO t1 VALUES (1, '1970-01-01');
+SELECT CONCAT(DATE_SUB(d, INTERVAL 17300000 HOUR)) FROM t1;
+CONCAT(DATE_SUB(d, INTERVAL 17300000 HOUR))
+NULL
+Warnings:
+Warning	1441	Datetime function: datetime field overflow
+DROP TABLE t1;
+SELECT CONCAT(DATE_SUB(TIMESTAMP'1970-01-01 00:00:00', INTERVAL 17300000 HOUR));
+CONCAT(DATE_SUB(TIMESTAMP'1970-01-01 00:00:00', INTERVAL 17300000 HOUR))
 NULL
 Warnings:
 Warning	1441	Datetime function: datetime field overflow

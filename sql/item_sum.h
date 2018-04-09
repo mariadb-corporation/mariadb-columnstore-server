@@ -382,7 +382,7 @@ protected:
   */
   Item **orig_args, *tmp_orig_args[2];
   
-  static ulonglong ram_limitation(THD *thd);
+  static size_t ram_limitation(THD *thd);
 
 public:  
   Item **get_orig_args() {return orig_args;}
@@ -1037,6 +1037,7 @@ protected:
   double val_real();
   longlong val_int();
   my_decimal *val_decimal(my_decimal *);
+  bool get_date(MYSQL_TIME *ltime, ulonglong fuzzydate);
   void reset_field();
   String *val_str(String *);
   bool keep_field_type(void) const { return 1; }

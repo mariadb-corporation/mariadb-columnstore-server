@@ -367,8 +367,12 @@ get_one_option(int optid, const struct my_option *opt __attribute__((unused)),
     print_version(); exit(0);
     break;
   case OPT_MYSQL_PROTOCOL:
-    opt_protocol= find_type_or_exit(argument, &sql_protocol_typelib,
-                                    opt->name);
+    if ((opt_protocol= find_type_with_warning(argument, &sql_protocol_typelib,
+                                              opt->name)) <= 0)
+    {
+      sf_leaking_memory= 1; /* no memory leak reports here */
+      exit(1);
+    }
     break;
   }
 
@@ -1162,9 +1166,7 @@ int main(int argc, char **argv)
   /*
   ** Check out the args
   */
-  if (load_defaults("my", load_default_groups, &argc, &argv))
-    goto end2;
-
+  load_defaults_or_exit("my", load_default_groups, &argc, &argv);
   defaults_argv= argv;
   if (get_options(&argc, &argv))
     goto end1;
@@ -1240,7 +1242,6 @@ int main(int argc, char **argv)
   my_free(shared_memory_base_name);
   mysql_library_end();
   free_defaults(defaults_argv);
- end2:
   my_end(my_end_arg);
   return ret;
 } /* main */

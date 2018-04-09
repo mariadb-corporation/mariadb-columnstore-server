@@ -1,7 +1,7 @@
 # MariaDB ColumnStore Server (version 1.1)
 
-This is the server part of MariaDB ColumnStore 1.1.1.
-MariaDB ColumnStore 1.1.0 is a Beta of MariaDB ColumnStore. 
+This is the server part of MariaDB ColumnStore 1.1.
+MariaDB ColumnStore 1.1 is a GA of MariaDB ColumnStore. 
 It is built by porting InfiniDB 4.6.7 on MariaDB 10.2 and adding entirely 
 new features not found anywhere else.
 
@@ -22,7 +22,8 @@ Issue tracking of MariaDB ColumnStore happens in JIRA, https://jira.mariadb.org/
 
 * Branch "master" - this is the latest released version of the source code.  Each major release is tagged.
 * Branch "develop-1.0" - this is the 1.0 mainline development branch.
-* Branch "develop" - this is the 1.1 unstable development branch.
+* Branch "develop-1.1" - this is the 1.1 unstable development branch.
+* Branch "develop" - this is the 1.2 unstable development branch.
 * Branch "mcol-xxx" - these are specific bug and feature branches. These are merged into development which is merged to master.
 
 MariaDB ColumnStore server and the engine are in separate repositories.
@@ -258,7 +259,7 @@ yum install expect perl perl-DBI openssl zlib file sudo libaio rsync snappy net-
 These packages need to be installed:
 
 ```bash
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync snappy net-tools
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1v5 net-tools
 ```
 
 ## For Debian 8

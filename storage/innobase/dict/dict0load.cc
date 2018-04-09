@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2016, 2017, MariaDB Corporation.
+Copyright (c) 2016, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -377,8 +377,7 @@ dict_getnext_system(
 
 /********************************************************************//**
 This function processes one SYS_TABLES record and populate the dict_table_t
-struct for the table. Extracted out of dict_print() to be used by
-both monitor table output and information schema innodb_sys_tables output.
+struct for the table.
 @return error message, or NULL on success */
 const char*
 dict_process_sys_tables_rec_and_mtr_commit(
@@ -990,7 +989,7 @@ dict_replace_tablespace_and_filepath(
 	SYS_DATAFILES. Assume the record is also missing in
 	SYS_TABLESPACES.  Insert records into them both. */
 	err = dict_replace_tablespace_in_dictionary(
-		space_id, name, fsp_flags, filepath, trx, false);
+		space_id, name, fsp_flags, filepath, trx);
 
 	trx_commit_for_mysql(trx);
 	trx->dict_operation_lock_mode = 0;
@@ -1472,8 +1471,6 @@ dict_check_sys_tables(
 		char*	filepath = dict_get_first_path(space_id);
 
 		/* Check that the .ibd file exists. */
-		validate = true; /* Encryption */
-
 		dberr_t	err = fil_ibd_open(
 			validate,
 			!srv_read_only_mode && srv_log_file_size != 0,
@@ -3079,6 +3076,12 @@ err_exit:
 		} else {
 			dict_mem_table_fill_foreign_vcol_set(table);
 			table->fk_max_recusive_level = 0;
+
+			if (table->space
+			    && !fil_space_get_size(table->space)) {
+				table->corrupted = true;
+				table->file_unreadable = true;
+			}
 		}
 	} else {
 		dict_index_t*   index;

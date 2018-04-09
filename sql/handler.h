@@ -766,9 +766,9 @@ struct TABLE_SHARE;
 struct HA_CREATE_INFO;
 struct st_foreign_key_info;
 typedef struct st_foreign_key_info FOREIGN_KEY_INFO;
-typedef bool (stat_print_fn)(THD *thd, const char *type, uint type_len,
-                             const char *file, uint file_len,
-                             const char *status, uint status_len);
+typedef bool (stat_print_fn)(THD *thd, const char *type, size_t type_len,
+                             const char *file, size_t file_len,
+                             const char *status, size_t status_len);
 enum ha_stat_type { HA_ENGINE_STATUS, HA_ENGINE_LOGS, HA_ENGINE_MUTEX };
 extern st_plugin_int *hton2plugin[MAX_HA];
 
@@ -1763,6 +1763,13 @@ struct HA_CREATE_INFO: public Table_scope_and_contents_source_st,
     table_charset= default_table_charset= cs;
     used_fields|= (HA_CREATE_USED_CHARSET | HA_CREATE_USED_DEFAULT_CHARSET);  
     return false;
+  }
+  ulong table_options_with_row_type()
+  {
+    if (row_type == ROW_TYPE_DYNAMIC || row_type == ROW_TYPE_PAGE)
+      return table_options | HA_OPTION_PACK_RECORD;
+    else
+      return table_options;
   }
 };
 

@@ -1,6 +1,6 @@
 /*
    Copyright (c) 2000, 2011, Oracle and/or its affiliates.
-   Copyright (c) 2009, 2013, Monty Program Ab.
+   Copyright (c) 2009, 2018, MariaDB Corporation
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -87,7 +87,7 @@ static uchar *extra2_write(uchar *pos, enum extra2_frm_value_type type,
   return extra2_write(pos, type, reinterpret_cast<LEX_STRING *>(str));
 }
 
-/**
+/*
   Create a frm (table definition) file
 
   @param thd                    Thread handler
@@ -175,7 +175,8 @@ LEX_CUSTRING build_frm_image(THD *thd, const char *table,
   DBUG_PRINT("info", ("Options length: %u", options_len));
 
   if (validate_comment_length(thd, &create_info->comment, TABLE_COMMENT_MAXLEN,
-                              ER_TOO_LONG_TABLE_COMMENT, table))
+                              ER_TOO_LONG_TABLE_COMMENT,
+                              table))
      DBUG_RETURN(frm);
   /*
     If table comment is longer than TABLE_COMMENT_INLINE_MAXLEN bytes,
@@ -280,6 +281,14 @@ LEX_CUSTRING build_frm_image(THD *thd, const char *table,
 
   DBUG_ASSERT(pos == frm_ptr + uint2korr(fileinfo+6));
   key_info_length= pack_keys(pos, keys, key_info, data_offset);
+  if (key_info_length > UINT_MAX16)
+  {
+    my_printf_error(ER_CANT_CREATE_TABLE,
+                    "Cannot create table %`s: index information is too long. "
+                    "Decrease number of indexes or use shorter index names or shorter comments.",
+                    MYF(0), table);
+    goto err;
+  }
 
   int2store(forminfo+2, frm.length - filepos);
   int4store(fileinfo+10, frm.length);
@@ -452,9 +461,9 @@ static uint pack_keys(uchar *keybuff, uint key_count, KEY *keyinfo,
     int2store(pos+6, key->block_size);
     pos+=8;
     key_parts+=key->user_defined_key_parts;
-    DBUG_PRINT("loop", ("flags: %lu  key_parts: %d  key_part: 0x%lx",
+    DBUG_PRINT("loop", ("flags: %lu  key_parts: %d  key_part: %p",
                         key->flags, key->user_defined_key_parts,
-                        (long) key->key_part));
+                        key->key_part));
     for (key_part=key->key_part,key_part_end=key_part+key->user_defined_key_parts ;
 	 key_part != key_part_end ;
 	 key_part++)
@@ -619,7 +628,7 @@ static bool pack_header(THD *thd, uchar *forminfo,
                                 ER_TOO_LONG_FIELD_COMMENT, field->field_name))
        DBUG_RETURN(1);
 
-    totlength+= field->length;
+    totlength+= (size_t)field->length;
     com_length+= field->comment.length;
     /*
       We mark first TIMESTAMP field with NOW() in DEFAULT or ON UPDATE
@@ -949,7 +958,7 @@ static bool make_empty_rec(THD *thd, uchar *buff, uint table_options,
     /* regfield don't have to be deleted as it's allocated on THD::mem_root */
     Field *regfield= make_field(&share, thd->mem_root,
                                 buff+field->offset + data_offset,
-                                field->length,
+                                (uint32)field->length,
                                 null_pos + null_count / 8,
                                 null_count & 7,
                                 field->pack_flag,
@@ -979,13 +988,17 @@ static bool make_empty_rec(THD *thd, uchar *buff, uint table_options,
       null_count+= field->length & 7;
 
     if (field->default_value && !field->default_value->flags &&
-        !(field->flags & BLOB_FLAG))
+        (!(field->flags & BLOB_FLAG) || field->sql_type == MYSQL_TYPE_GEOMETRY))
     {
       Item *expr= field->default_value->expr;
+
       int res= !expr->fixed && // may be already fixed if ALTER TABLE
                 expr->fix_fields(thd, &expr);
       if (!res)
         res= expr->save_in_field(regfield, 1);
+      if (!res && (field->flags & BLOB_FLAG))
+        regfield->reset();
+
       /* If not ok or warning of level 'note' */
       if (res != 0 && res != 3)
       {
@@ -994,6 +1007,7 @@ static bool make_empty_rec(THD *thd, uchar *buff, uint table_options,
         delete regfield; //To avoid memory leak
         goto err;
       }
+      delete regfield; //To avoid memory leak
     }
     else if (regfield->real_type() == MYSQL_TYPE_ENUM &&
 	     (field->flags & NOT_NULL_FLAG))

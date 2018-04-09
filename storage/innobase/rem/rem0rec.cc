@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1994, 2016, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2017, MariaDB Corporation.
+Copyright (c) 2017, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -570,9 +570,10 @@ rec_get_offsets_func(
 		case REC_STATUS_SUPREMUM:
 			/* infimum or supremum record */
 			ut_ad(rec_get_heap_no_new(rec)
-			      == (rec_get_status(rec) == REC_STATUS_INFIMUM
-				  ? PAGE_HEAP_NO_INFIMUM
-				  : PAGE_HEAP_NO_SUPREMUM));
+			      == ulint(rec_get_status(rec)
+                                       == REC_STATUS_INFIMUM
+                                       ? PAGE_HEAP_NO_INFIMUM
+                                       : PAGE_HEAP_NO_SUPREMUM));
 			n = 1;
 			break;
 		default:
@@ -593,6 +594,7 @@ rec_get_offsets_func(
 		ut_ad(is_user_rec || n == 1);
 		ut_ad(!is_user_rec || leaf || index->is_dummy
 		      || dict_index_is_ibuf(index)
+		      || n == n_fields /* dict_stats_analyze_index_level() */
 		      || n
 		      == dict_index_get_n_unique_in_tree_nonleaf(index) + 1);
 		ut_ad(!is_user_rec || !leaf || index->is_dummy
@@ -892,21 +894,18 @@ rec_get_converted_size_comp_prefix_low(
 
 		if (fixed_len) {
 #ifdef UNIV_DEBUG
-			ulint	mbminlen = DATA_MBMINLEN(col->mbminmaxlen);
-			ulint	mbmaxlen = DATA_MBMAXLEN(col->mbminmaxlen);
-
 			ut_ad(len <= fixed_len);
 
 			if (dict_index_is_spatial(index)) {
 				ut_ad(type->mtype == DATA_SYS_CHILD
-				      || !mbmaxlen
-				      || len >= mbminlen * (fixed_len
-							    / mbmaxlen));
+				      || !col->mbmaxlen
+				      || len >= col->mbminlen
+				      * fixed_len / col->mbmaxlen);
 			} else {
 				ut_ad(type->mtype != DATA_SYS_CHILD);
-				ut_ad(!mbmaxlen
-				      || len >= mbminlen * (fixed_len
-							    / mbmaxlen));
+				ut_ad(!col->mbmaxlen
+				      || len >= col->mbminlen
+				      * fixed_len / col->mbmaxlen);
 			}
 
 			/* dict_index_add_col() should guarantee this */
@@ -933,49 +932,6 @@ rec_get_converted_size_comp_prefix_low(
 	}
 
 	return(extra_size + data_size);
-}
-
-/** Determine the converted size of virtual column data in a temporary file.
-@see rec_convert_dtuple_to_temp_v()
-@param[in]	index	clustered index
-@param[in]	v	clustered index record augmented with the values
-			of virtual columns
-@return size in bytes */
-ulint
-rec_get_converted_size_temp_v(const dict_index_t* index, const dtuple_t* v)
-{
-	ut_ad(dict_index_is_clust(index));
-
-	/* length marker */
-	ulint data_size = 2;
-	const ulint n_v_fields = dtuple_get_n_v_fields(v);
-
-	for (ulint i = 0; i < n_v_fields; i++) {
-		const dict_v_col_t*     col
-			= dict_table_get_nth_v_col(index->table, i);
-
-		/* Only those indexed needs to be logged */
-		if (!col->m_col.ord_part) {
-			continue;
-		}
-
-		data_size += mach_get_compressed_size(i + REC_MAX_N_FIELDS);
-		const dfield_t* vfield = dtuple_get_nth_v_field(v, col->v_pos);
-		ulint		flen = vfield->len;
-
-		if (flen != UNIV_SQL_NULL) {
-			flen = ut_min(
-				flen,
-				static_cast<ulint>(
-					DICT_MAX_FIELD_LEN_BY_FORMAT(
-						index->table)));
-			data_size += flen;
-		}
-
-		data_size += mach_get_compressed_size(flen);
-	}
-
-	return(data_size);
 }
 
 /**********************************************************//**
@@ -1337,15 +1293,11 @@ rec_convert_dtuple_to_rec_comp(
 		0..127.  The length will be encoded in two bytes when
 		it is 128 or more, or when the field is stored externally. */
 		if (fixed_len) {
-#ifdef UNIV_DEBUG
-			ulint	mbminlen = DATA_MBMINLEN(col->mbminmaxlen);
-			ulint	mbmaxlen = DATA_MBMAXLEN(col->mbminmaxlen);
-
 			ut_ad(len <= fixed_len);
-			ut_ad(!mbmaxlen || len >= mbminlen
-			      * (fixed_len / mbmaxlen));
+			ut_ad(!col->mbmaxlen
+			      || len >= col->mbminlen
+			      * fixed_len / col->mbmaxlen);
 			ut_ad(!dfield_is_ext(field));
-#endif /* UNIV_DEBUG */
 		} else if (dfield_is_ext(field)) {
 			ut_ad(DATA_BIG_COL(col));
 			ut_ad(len <= REC_ANTELOPE_MAX_INDEX_COL_LEN
@@ -1373,68 +1325,6 @@ rec_convert_dtuple_to_rec_comp(
 			end += len;
 		}
 	}
-}
-
-/** Write indexed virtual column data into a temporary file.
-@see rec_get_converted_size_temp_v()
-@param[out]	rec	serialized record
-@param[in]	index	clustered index
-@param[in]	v_entry	clustered index record augmented with the values
-			of virtual columns */
-void
-rec_convert_dtuple_to_temp_v(
-	byte*			rec,
-	const dict_index_t*	index,
-	const dtuple_t*		v_entry)
-{
-	ut_ad(dict_index_is_clust(index));
-	const ulint num_v = dtuple_get_n_v_fields(v_entry);
-
-	/* reserve 2 bytes for writing length */
-	byte*	ptr = rec;
-	ptr += 2;
-
-	/* Now log information on indexed virtual columns */
-	for (ulint col_no = 0; col_no < num_v; col_no++) {
-		dfield_t*       vfield;
-		ulint		flen;
-
-		const dict_v_col_t*     col
-			= dict_table_get_nth_v_col(index->table, col_no);
-
-		if (col->m_col.ord_part) {
-			ulint   pos = col_no;
-
-			pos += REC_MAX_N_FIELDS;
-
-			ptr += mach_write_compressed(ptr, pos);
-
-			vfield = dtuple_get_nth_v_field(
-				v_entry, col->v_pos);
-
-			flen = vfield->len;
-
-			if (flen != UNIV_SQL_NULL) {
-				/* The virtual column can only be in sec
-				index, and index key length is bound by
-				DICT_MAX_FIELD_LEN_BY_FORMAT */
-				flen = ut_min(
-					flen,
-					static_cast<ulint>(
-					DICT_MAX_FIELD_LEN_BY_FORMAT(
-						index->table)));
-			}
-
-			ptr += mach_write_compressed(ptr, flen);
-
-			if (flen != UNIV_SQL_NULL) {
-				ut_memcpy(ptr, dfield_get_data(vfield), flen);
-				ptr += flen;
-			}
-		}
-	}
-
-	mach_write_to_2(rec, ptr - rec);
 }
 
 /*********************************************************//**
@@ -2270,8 +2160,6 @@ rec_get_trx_id(
 	const rec_t*		rec,
 	const dict_index_t*	index)
 {
-	const page_t*	page
-		= page_align(rec);
 	ulint		trx_id_col
 		= dict_index_get_sys_col_pos(index, DATA_TRX_ID);
 	const byte*	trx_id;
@@ -2282,11 +2170,7 @@ rec_get_trx_id(
 	ulint* offsets = offsets_;
 
 	ut_ad(trx_id_col <= MAX_REF_PARTS);
-	ut_ad(fil_page_index_page_check(page));
-	ut_ad(mach_read_from_8(page + PAGE_HEADER + PAGE_INDEX_ID)
-	      == index->id);
 	ut_ad(dict_index_is_clust(index));
-	ut_ad(page_rec_is_leaf(rec));
 	ut_ad(trx_id_col > 0);
 	ut_ad(trx_id_col != ULINT_UNDEFINED);
 

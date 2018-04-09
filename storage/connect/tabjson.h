@@ -15,6 +15,7 @@ enum JMODE {MODE_OBJECT, MODE_ARRAY, MODE_VALUE};
 typedef class JSONDEF *PJDEF;
 typedef class TDBJSON *PJTDB;
 typedef class JSONCOL *PJCOL;
+class TDBJSN;
 
 /***********************************************************************/
 /*  The JSON tree node. Can be an Object or an Array.           	  	 */
@@ -29,6 +30,47 @@ typedef struct _jnode {
   int   Nx;                     // Next to read row number
 } JNODE, *PJNODE;
 
+typedef struct _jncol {
+	struct _jncol *Next;
+	char *Name;
+	char *Fmt;
+	int   Type;
+	int   Len;
+	int   Scale;
+	bool  Cbn;
+	bool  Found;
+} JCOL, *PJCL;
+
+/***********************************************************************/
+/*  Class used to get the columns of a mongo collection.               */
+/***********************************************************************/
+class JSONDISC : public BLOCK {
+public:
+	// Constructor
+	JSONDISC(PGLOBAL g, uint *lg);
+
+	// Functions
+	int  GetColumns(PGLOBAL g, PCSZ db, PCSZ dsn, PTOS topt);
+	bool Find(PGLOBAL g, PJVAL jvp, int j);
+	void AddColumn(PGLOBAL g);
+
+	// Members
+	JCOL    jcol;
+	PJCL    jcp, fjcp, pjcp;
+	PVAL    valp;
+	PJDEF   tdp;
+	TDBJSN *tjnp;
+	PJTDB   tjsp;
+	PJPR    jpp;
+	PJSON   jsp;
+	PJOB    row;
+	PCSZ    sep;
+	char    colname[65], fmt[129], buf[16];
+	uint   *length;
+	int     i, n, bf, ncol, lvl;
+	bool    all;
+}; // end of JSONDISC
+
 /***********************************************************************/
 /*  JSON table.                                                        */
 /***********************************************************************/
@@ -36,15 +78,13 @@ class DllExport JSONDEF : public DOSDEF {         /* Table description */
   friend class TDBJSON;
   friend class TDBJSN;
   friend class TDBJCL;
-#if defined(MONGO_SUPPORT)
+	friend class JSONDISC;
 #if defined(CMGO_SUPPORT)
 	friend class CMGFAM;
 #endif   // CMGO_SUPPORT
-#if defined(JDBC_SUPPORT)
+#if defined(JAVA_SUPPORT)
 	friend class JMGFAM;
-#endif   // JDBC_SUPPORT
-#endif   // MONGO_SUPPORT
-	friend PQRYRES JSONColumns(PGLOBAL, PCSZ, PCSZ, PTOS, bool);
+#endif   // JAVA_SUPPORT
 public:
   // Constructor
   JSONDEF(void);
@@ -68,17 +108,13 @@ public:
   bool  Strict;                 /* Strict syntax checking              */
 	char  Sep;                    /* The Jpath separator                 */
 	const char *Uri;							/* MongoDB connection URI              */
-#if defined(MONGO_SUPPORT)
 	PCSZ  Collname;               /* External collection name            */
 	PSZ   Options;                /* Colist ; Pipe                       */
 	PSZ   Filter;                 /* Filter                              */
 	PSZ   Driver;									/* MongoDB Driver (C or JAVA)          */
 	bool  Pipe;							      /* True if Colist is a pipeline        */
 	int   Version;							  /* Driver version                      */
-#if defined(JDBC_SUPPORT)
 	PSZ   Wrapname;								/* MongoDB java wrapper name           */
-#endif   // JDBC_SUPPORT
-#endif   // MONGO_SUPPORT
   }; // end of JSONDEF
 
 /* -------------------------- TDBJSN class --------------------------- */
@@ -90,14 +126,12 @@ public:
 class DllExport TDBJSN : public TDBDOS {
   friend class JSONCOL;
 	friend class JSONDEF;
-#if defined(MONGO_SUPPORT)
 #if defined(CMGO_SUPPORT)
 	friend class CMGFAM;
 #endif   // CMGO_SUPPORT
-#if defined(JDBC_SUPPORT)
+#if defined(JAVA_SUPPORT)
 	friend class JMGFAM;
-#endif   // JDBC_SUPPORT
-#endif   // MONGO_SUPPORT
+#endif   // JAVA_SUPPORT
 public:
   // Constructor
    TDBJSN(PJDEF tdp, PTXF txfp);
@@ -162,14 +196,12 @@ public:
 class DllExport JSONCOL : public DOSCOL {
   friend class TDBJSN;
   friend class TDBJSON;
-#if defined(MONGO_SUPPORT)
 #if defined(CMGO_SUPPORT)
 	friend class CMGFAM;
 #endif   // CMGO_SUPPORT
-#if defined(JDBC_SUPPORT)
+#if defined(JAVA_SUPPORT)
 	friend class JMGFAM;
-#endif   // JDBC_SUPPORT
-#endif   // MONGO_SUPPORT
+#endif   // JAVA_SUPPORT
 public:
   // Constructors
   JSONCOL(PGLOBAL g, PCOLDEF cdp, PTDB tdbp, PCOL cprec, int i);

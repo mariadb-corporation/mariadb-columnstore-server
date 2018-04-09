@@ -34,9 +34,9 @@
 
 char *host= NULL, *user= 0, *opt_password= 0,
      *default_charset= (char*) MYSQL_AUTODETECT_CHARSET_NAME;
-char truncated_var_names[MAX_MYSQL_VAR][MAX_TRUNC_LENGTH];
-char ex_var_names[MAX_MYSQL_VAR][FN_REFLEN];
-ulonglong last_values[MAX_MYSQL_VAR];
+char truncated_var_names[MAX_MYSQL_VAR+100][MAX_TRUNC_LENGTH];
+char ex_var_names[MAX_MYSQL_VAR+100][FN_REFLEN];
+ulonglong last_values[MAX_MYSQL_VAR+100];
 static int interval=0;
 static my_bool option_force=0,interrupted=0,new_line=0,
                opt_compress= 0, opt_local= 0, opt_relative= 0, opt_verbose= 0,
@@ -299,8 +299,12 @@ get_one_option(int optid, const struct my_option *opt __attribute__((unused)),
 #endif
     break;
   case OPT_MYSQL_PROTOCOL:
-    opt_protocol= find_type_or_exit(argument, &sql_protocol_typelib,
-                                    opt->name);
+    if ((opt_protocol= find_type_with_warning(argument, &sql_protocol_typelib,
+                                              opt->name)) <= 0)
+    {
+      sf_leaking_memory= 1; /* no memory leak reports here */
+      exit(1);
+    }
     break;
   }
   return 0;
@@ -316,8 +320,7 @@ int main(int argc,char *argv[])
   MY_INIT(argv[0]);
   mysql_init(&mysql);
   sf_leaking_memory=1; /* don't report memory leaks on early exits */
-  if ((error= load_defaults("my",load_default_groups,&argc,&argv)))
-    goto err1;
+  load_defaults_or_exit("my", load_default_groups, &argc, &argv);
   save_argv = argv;				/* Save for free_defaults */
 
   if ((error=handle_options(&argc, &argv, my_long_options, get_one_option)))
@@ -497,10 +500,8 @@ err2:
   my_free(shared_memory_base_name);
 #endif
   free_defaults(save_argv);
-err1:
   my_end(my_end_arg);
-  exit(error);
-  return 0;
+  return error;
 }
 
 
@@ -885,7 +886,7 @@ static int execute_commands(MYSQL *mysql,int argc, char **argv)
 	return -1;
       }
 
-      DBUG_ASSERT(mysql_num_rows(res) < MAX_MYSQL_VAR);
+      DBUG_ASSERT(mysql_num_rows(res) < MAX_MYSQL_VAR+100);
 
       if (!opt_vertical)
 	print_header(res);

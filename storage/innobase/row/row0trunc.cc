@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2013, 2017, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2017, MariaDB Corporation.
+Copyright (c) 2017, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -36,7 +36,8 @@ Created 2013-04-12 Sunny Bains
 #include "srv0start.h"
 #include "row0trunc.h"
 #include "os0file.h"
-#include <vector>
+#include "que0que.h"
+#include "trx0undo.h"
 
 /* FIXME: For temporary tables, use a simple approach of btr_free()
 and btr_create() of each index tree. */
@@ -293,13 +294,13 @@ public:
 			log_file_name_len = strlen(m_log_file_name);
 		}
 
-		ut_snprintf(m_log_file_name + log_file_name_len,
-			    log_file_name_buf_sz - log_file_name_len,
-			    "%s%lu_%lu_%s",
-			    TruncateLogger::s_log_prefix,
-			    (ulong) m_table->space,
-			    (ulong) m_table->id,
-			    TruncateLogger::s_log_ext);
+		snprintf(m_log_file_name + log_file_name_len,
+			 log_file_name_buf_sz - log_file_name_len,
+			 "%s%lu_%lu_%s",
+			 TruncateLogger::s_log_prefix,
+			 (ulong) m_table->space,
+			 (ulong) m_table->id,
+			 TruncateLogger::s_log_ext);
 
 		return(DB_SUCCESS);
 

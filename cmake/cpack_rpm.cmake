@@ -157,6 +157,7 @@ SETA(CPACK_RPM_server_PACKAGE_OBSOLETES
   "MariaDB-Galera-server")
 SETA(CPACK_RPM_server_PACKAGE_PROVIDES
   "MariaDB"
+  "MariaDB-server"
   "MySQL"
   "MySQL-server"
   "msqlormysql"
@@ -172,9 +173,14 @@ SETA(CPACK_RPM_server_PACKAGE_REQUIRES
   "mariadb-columnstore-client")
 
 IF(WITH_WSREP)
-SETA(CPACK_RPM_server_PACKAGE_REQUIRES
-  "galera" "rsync" "lsof" "grep" "gawk" "iproute"
-  "coreutils" "findutils" "tar" "which")
+  SETA(CPACK_RPM_server_PACKAGE_REQUIRES
+    "galera" "rsync" "lsof" "grep" "gawk" "iproute"
+    "coreutils" "findutils" "tar")
+  IF (RPM MATCHES "sles11")
+    SETA(CPACK_RPM_server_PACKAGE_REQUIRES "util-linux")
+  ELSE()
+    SETA(CPACK_RPM_server_PACKAGE_REQUIRES "which")
+  ENDIF()
 ENDIF()
 
 SET(CPACK_RPM_server_PRE_INSTALL_SCRIPT_FILE ${CMAKE_SOURCE_DIR}/support-files/rpm/server-prein.sh)

@@ -1,5 +1,5 @@
 /******************************************************
-XtraBackup: hot backup tool for InnoDB
+MariaBackup: hot backup tool for InnoDB
 (c) 2009-2017 Percona LLC and/or its affiliates
 Originally Created 3/3/2009 Yasufumi Kinoshita
 Written by Alexey Kopytov, Aleksandr Kuzminsky, Stewart Smith, Vadim Tkachenko,
@@ -69,6 +69,7 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 #include <row0mysql.h>
 #include <row0quiesce.h>
 #include <srv0start.h>
+#include "trx0sys.h"
 #include <buf0dblwr.h>
 
 #include <list>
@@ -295,6 +296,7 @@ my_bool opt_force_non_empty_dirs = FALSE;
 my_bool opt_noversioncheck = FALSE;
 my_bool opt_no_backup_locks = FALSE;
 my_bool opt_decompress = FALSE;
+my_bool opt_remove_original;
 
 my_bool opt_lock_ddl_per_table = FALSE;
 
@@ -432,6 +434,61 @@ datafiles_iter_free(datafiles_iter_t *it)
 	free(it);
 }
 
+void mdl_lock_all()
+{
+	mdl_lock_init();
+	datafiles_iter_t *it = datafiles_iter_new(fil_system);
+	if (!it)
+		return;
+
+	while (fil_node_t *node = datafiles_iter_next(it)){
+		if (fil_is_user_tablespace_id(node->space->id)
+			&& check_if_skip_table(node->space->name))
+			continue;
+
+		mdl_lock_table(node->space->id);
+	}
+	datafiles_iter_free(it);
+}
+
+/** Check if the space id belongs to the table which name should
+be skipped based on the --tables, --tables-file and --table-exclude
+options.
+@param[in]	space_id	space id to check
+@return true if the space id belongs to skip table/database list. */
+static bool backup_includes(space_id_t space_id)
+{
+	datafiles_iter_t *it = datafiles_iter_new(fil_system);
+	if (!it)
+		return true;
+
+	while (fil_node_t *node = datafiles_iter_next(it)){
+		if (space_id == 0
+		    || (node->space->id == space_id
+			&& !check_if_skip_table(node->space->name))) {
+
+			msg("mariabackup: Unsupported redo log detected "
+			"and it belongs to %s\n",
+			space_id ? node->name: "the InnoDB system tablespace");
+
+			msg("mariabackup: ALTER TABLE or OPTIMIZE TABLE "
+			"was being executed during the backup.\n");
+
+			if (!opt_lock_ddl_per_table) {
+				msg("mariabackup: Use --lock-ddl-per-table "
+				"parameter to lock all the table before "
+				"backup operation.\n");
+			}
+
+			datafiles_iter_free(it);
+			return false;
+		}
+	}
+
+	datafiles_iter_free(it);
+	return true;
+}
+
 /* ======== Date copying thread context ======== */
 
 typedef struct {
@@ -526,6 +583,7 @@ enum options_xtrabackup
   OPT_DECOMPRESS,
   OPT_INCREMENTAL_HISTORY_NAME,
   OPT_INCREMENTAL_HISTORY_UUID,
+  OPT_REMOVE_ORIGINAL,
   OPT_LOCK_WAIT_QUERY_TYPE,
   OPT_KILL_LONG_QUERY_TYPE,
   OPT_HISTORY,
@@ -808,6 +866,11 @@ struct my_option xb_client_options[] =
    (uchar*) &opt_incremental_history_uuid, 0, GET_STR,
    REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
 
+  {"remove-original", OPT_REMOVE_ORIGINAL, "Remove .qp files after decompression.",
+   (uchar *) &opt_remove_original,
+   (uchar *) &opt_remove_original,
+   0, GET_BOOL, NO_ARG, 0, 0, 0, 0, 0, 0},
+
   {"ftwrl-wait-query-type", OPT_LOCK_WAIT_QUERY_TYPE,
    "This option specifies which types of queries are allowed to complete "
    "before innobackupex will issue the global lock. Default is all.",
@@ -1053,11 +1116,13 @@ struct my_option xb_server_options[] =
    (G_PTR*) &defaults_group, (G_PTR*) &defaults_group,
    0, GET_STR, REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
 
-  {"plugin-dir", OPT_PLUGIN_DIR, "Server plugin directory",
+  {"plugin-dir", OPT_PLUGIN_DIR,
+  "Server plugin directory. Used to load encryption plugin during 'prepare' phase."
+  "Has no effect in the 'backup' phase (plugin directory during backup is the same as server's)",
   &xb_plugin_dir, &xb_plugin_dir,
   0, GET_STR, REQUIRED_ARG, 0, 0, 0, 0, 0, 0 },
 
-  { "plugin-load", OPT_PLUGIN_LOAD, "encrypton plugin to load",
+  { "plugin-load", OPT_PLUGIN_LOAD, "encrypton plugin to load during 'prepare' phase.",
   &xb_plugin_load, &xb_plugin_load,
   0, GET_STR, REQUIRED_ARG, 0, 0, 0, 0, 0, 0 },
 
@@ -1119,13 +1184,13 @@ debug_sync_point(const char *name)
 		 xtrabackup_target_dir);
 	fp = fopen(pid_path, "w");
 	if (fp == NULL) {
-		msg("xtrabackup: Error: cannot open %s\n", pid_path);
+		msg("mariabackup: Error: cannot open %s\n", pid_path);
 		exit(EXIT_FAILURE);
 	}
 	fprintf(fp, "%u\n", (uint) pid);
 	fclose(fp);
 
-	msg("xtrabackup: DEBUG: Suspending at debug sync point '%s'. "
+	msg("mariabackup: DEBUG: Suspending at debug sync point '%s'. "
 	    "Resume with 'kill -SIGCONT %u'.\n", name, (uint) pid);
 
 	debug_sync_resumed= 0;
@@ -1135,7 +1200,7 @@ debug_sync_point(const char *name)
 	}
 
 	/* On resume */
-	msg("xtrabackup: DEBUG: removing the pid file.\n");
+	msg("mariabackup: DEBUG: removing the pid file.\n");
 	my_delete(pid_path, MYF(MY_WME));
 #endif
 }
@@ -1198,8 +1263,8 @@ static int prepare_export()
   if (strncmp(orig_argv1,"--defaults-file=",16) == 0)
   {
     sprintf(cmdline, 
-     IF_WIN("\"","") "\"%s\" --mysqld \"%s\" --defaults-group-suffix=%s"
-      " --defaults-extra-file=./backup-my.cnf --datadir=."
+     IF_WIN("\"","") "\"%s\" --mysqld \"%s\" "
+      " --defaults-extra-file=./backup-my.cnf --defaults-group-suffix=%s --datadir=."
       " --innodb --innodb-fast-shutdown=0"
       " --innodb_purge_rseg_truncate_frequency=1 --innodb-buffer-pool-size=%llu"
       " --console  --skip-log-error --bootstrap  < "  BOOTSTRAP_FILENAME IF_WIN("\"",""),
@@ -1211,11 +1276,12 @@ static int prepare_export()
   {
     sprintf(cmdline,
      IF_WIN("\"","") "\"%s\" --mysqld"
-      " --defaults-file=./backup-my.cnf --datadir=."
+      " --defaults-file=./backup-my.cnf --defaults-group-suffix=%s --datadir=."
       " --innodb --innodb-fast-shutdown=0"
       " --innodb_purge_rseg_truncate_frequency=1 --innodb-buffer-pool-size=%llu"
       " --console  --log-error= --bootstrap  < "  BOOTSTRAP_FILENAME IF_WIN("\"",""),
       mariabackup_exe,
+      (my_defaults_group_suffix?my_defaults_group_suffix:""),
       xtrabackup_use_memory);
   }
 
@@ -1238,10 +1304,10 @@ end:
 
 
 static const char *xb_client_default_groups[]=
-	{ "xtrabackup", "client", 0, 0, 0 };
+	{ "xtrabackup", "mariabackup", "client", 0, 0, 0 };
 
 static const char *xb_server_default_groups[]=
-	{ "xtrabackup", "mysqld", 0, 0, 0 };
+	{ "xtrabackup", "mariabackup", "mysqld", 0, 0, 0 };
 
 static void print_version(void)
 {
@@ -1268,7 +1334,7 @@ GNU General Public License for more details.\n\
 \n\
 You can download full text of the license on http://www.gnu.org/licenses/gpl-2.0.txt\n");
 
-  printf("Usage: [%s [--defaults-file=#] --backup | %s [--defaults-file=#] --prepare] [OPTIONS]\n",my_progname,my_progname);
+  printf("Usage: %s [--defaults-file=#] [--backup | --prepare | --copy-back | --move-back] [OPTIONS]\n",my_progname);
   print_defaults("my", xb_server_default_groups);
   my_print_help(xb_client_options);
   my_print_help(xb_server_options);
@@ -1412,8 +1478,12 @@ xb_get_one_option(int optid,
   case OPT_PROTOCOL:
     if (argument)
     {
-       opt_protocol= find_type_or_exit(argument, &sql_protocol_typelib,
-                                    opt->name);
+      if ((opt_protocol= find_type_with_warning(argument, &sql_protocol_typelib,
+                                                opt->name)) <= 0)
+      {
+        sf_leaking_memory= 1; /* no memory leak reports here */
+        exit(1);
+      }
     }
     break;
 #include "sslopt-case.h"
@@ -1469,12 +1539,12 @@ innodb_init_param(void)
 	/* Check that values don't overflow on 32-bit systems. */
 	if (sizeof(ulint) == 4) {
 		if (xtrabackup_use_memory > UINT_MAX32) {
-			msg("xtrabackup: use-memory can't be over 4GB"
+			msg("mariabackup: use-memory can't be over 4GB"
 			    " on 32-bit systems\n");
 		}
 
 		if (innobase_buffer_pool_size > UINT_MAX32) {
-			msg("xtrabackup: innobase_buffer_pool_size can't be "
+			msg("mariabackup: innobase_buffer_pool_size can't be "
 			    "over 4GB on 32-bit systems\n");
 
 			goto error;
@@ -1488,9 +1558,9 @@ innodb_init_param(void)
 	read from MySQL .cnf file */
 
 	if (xtrabackup_backup) {
-		msg("xtrabackup: using the following InnoDB configuration:\n");
+		msg("mariabackup: using the following InnoDB configuration:\n");
 	} else {
-		msg("xtrabackup: using the following InnoDB configuration "
+		msg("mariabackup: using the following InnoDB configuration "
 		    "for recovery:\n");
 	}
 
@@ -1500,7 +1570,7 @@ innodb_init_param(void)
 
 	srv_data_home = (xtrabackup_backup && innobase_data_home_dir
 			 ? innobase_data_home_dir : default_path);
-	msg("xtrabackup:   innodb_data_home_dir = %s\n", srv_data_home);
+	msg("mariabackup:   innodb_data_home_dir = %s\n", srv_data_home);
 
 	/* Set default InnoDB data file size to 10 MB and let it be
   	auto-extending. Thus users can use InnoDB in >= 4.0 without having
@@ -1509,7 +1579,7 @@ innodb_init_param(void)
 	if (!innobase_data_file_path) {
   		innobase_data_file_path = (char*) "ibdata1:10M:autoextend";
 	}
-	msg("xtrabackup:   innodb_data_file_path = %s\n",
+	msg("mariabackup:   innodb_data_file_path = %s\n",
 	    innobase_data_file_path);
 
 	/* This is the first time univ_page_size is used.
@@ -1536,7 +1606,7 @@ innodb_init_param(void)
 	if (xtrabackup_prepare && xtrabackup_incremental_dir) {
 		srv_log_group_home_dir = xtrabackup_incremental_dir;
 	}
-	msg("xtrabackup:   innodb_log_group_home_dir = %s\n",
+	msg("mariabackup:   innodb_log_group_home_dir = %s\n",
 	    srv_log_group_home_dir);
 
 	os_normalize_path(srv_log_group_home_dir);
@@ -1637,7 +1707,7 @@ innodb_init_param(void)
 	return(FALSE);
 
 error:
-	msg("xtrabackup: innodb_init_param(): Error occured.\n");
+	msg("mariabackup: innodb_init_param(): Error occured.\n");
 	return(TRUE);
 }
 
@@ -1645,7 +1715,7 @@ static bool innodb_init()
 {
 	dberr_t err = innobase_start_or_create_for_mysql();
 	if (err != DB_SUCCESS) {
-		msg("xtrabackup: innodb_init() returned %d (%s).\n",
+		msg("mariabackup: innodb_init() returned %d (%s).\n",
 		    err, ut_strerr(err));
 		innodb_shutdown();
 		return(TRUE);
@@ -1669,7 +1739,7 @@ xtrabackup_read_metadata(char *filename)
 
 	fp = fopen(filename,"r");
 	if(!fp) {
-		msg("xtrabackup: Error: cannot open %s\n", filename);
+		msg("mariabackup: Error: cannot open %s\n", filename);
 		return(FALSE);
 	}
 
@@ -1748,7 +1818,7 @@ xtrabackup_stream_metadata(ds_ctxt_t *ds_ctxt)
 
 	stream = ds_open(ds_ctxt, XTRABACKUP_METADATA_FILENAME, &mystat);
 	if (stream == NULL) {
-		msg("xtrabackup: Error: cannot open output stream "
+		msg("mariabackup: Error: cannot open output stream "
 		    "for %s\n", XTRABACKUP_METADATA_FILENAME);
 		return(FALSE);
 	}
@@ -1781,7 +1851,7 @@ xtrabackup_write_metadata(const char *filepath)
 
 	fp = fopen(filepath, "w");
 	if(!fp) {
-		msg("xtrabackup: Error: cannot open %s\n", filepath);
+		msg("mariabackup: Error: cannot open %s\n", filepath);
 		return(FALSE);
 	}
 	if (fwrite(buf, len, 1, fp) < 1) {
@@ -1830,7 +1900,7 @@ xb_read_delta_metadata(const char *filepath, xb_delta_info_t *info)
 	fclose(fp);
 
 	if (page_size == ULINT_UNDEFINED) {
-		msg("xtrabackup: page_size is required in %s\n", filepath);
+		msg("mariabackup: page_size is required in %s\n", filepath);
 		r = FALSE;
 	} else {
 		info->page_size = page_size_t(zip_size ? zip_size : page_size,
@@ -1838,7 +1908,7 @@ xb_read_delta_metadata(const char *filepath, xb_delta_info_t *info)
 	}
 
 	if (info->space_id == ULINT_UNDEFINED) {
-		msg("xtrabackup: Warning: This backup was taken with XtraBackup 2.0.1 "
+		msg("mariabackup: Warning: This backup was taken with XtraBackup 2.0.1 "
 			"or earlier, some DDL operations between full and incremental "
 			"backups may be handled incorrectly\n");
 	}
@@ -1859,9 +1929,9 @@ xb_write_delta_metadata(const char *filename, const xb_delta_info_t *info)
 	MY_STAT		mystat;
 
 	snprintf(buf, sizeof(buf),
-		 "page_size = %lu\n"
-		 "zip_size = %lu\n"
-		 "space_id = %lu\n",
+		 "page_size = " ULINTPF "\n"
+		 "zip_size = " ULINTPF " \n"
+		 "space_id = " ULINTPF "\n",
 		 info->page_size.logical(),
 		 info->page_size.is_compressed()
 		 ? info->page_size.physical() : 0,
@@ -1873,7 +1943,7 @@ xb_write_delta_metadata(const char *filename, const xb_delta_info_t *info)
 
 	f = ds_open(ds_meta, filename, &mystat);
 	if (f == NULL) {
-		msg("xtrabackup: Error: cannot open output stream for %s\n",
+		msg("mariabackup: Error: cannot open output stream for %s\n",
 		    filename);
 		return(FALSE);
 	}
@@ -2130,28 +2200,6 @@ check_if_skip_table(
 	return(FALSE);
 }
 
-/** @return the tablespace flags from a given data file
-@retval	ULINT_UNDEFINED	if the file is not readable */
-ulint xb_get_space_flags(pfs_os_file_t file)
-{
-	byte	*buf;
-	byte	*page;
-	ulint	flags;
-
-	buf = static_cast<byte *>(malloc(2 * UNIV_PAGE_SIZE));
-	page = static_cast<byte *>(ut_align(buf, UNIV_PAGE_SIZE));
-
-	if (os_file_read(IORequestRead, file, page, 0, UNIV_PAGE_SIZE)) {
-		flags = fsp_header_get_flags(page);
-	} else {
-		flags = ULINT_UNDEFINED;
-	}
-
-	free(buf);
-
-	return(flags);
-}
-
 const char*
 xb_get_copy_action(const char *dflt)
 {
@@ -2208,10 +2256,6 @@ xtrabackup_copy_datafile(fil_node_t* node, uint thread_n)
 		return(FALSE);
 	}
 
-	if (opt_lock_ddl_per_table) {
-		mdl_lock_table(node->space->id);
-	}
-
 	if (!changed_page_bitmap) {
 		read_filter = &rf_pass_through;
 	}
@@ -2239,14 +2283,14 @@ xtrabackup_copy_datafile(fil_node_t* node, uint thread_n)
 
 	if (write_filter->init != NULL &&
 	    !write_filter->init(&write_filt_ctxt, dst_name, &cursor)) {
-		msg("[%02u] xtrabackup: error: "
+		msg("[%02u] mariabackup: error: "
 		    "failed to initialize page write filter.\n", thread_n);
 		goto error;
 	}
 
 	dstfile = ds_open(ds_data, dst_name, &cursor.statinfo);
 	if (dstfile == NULL) {
-		msg("[%02u] xtrabackup: error: "
+		msg("[%02u] mariabackup: error: "
 		    "cannot open the destination stream for %s\n",
 		    thread_n, dst_name);
 		goto error;
@@ -2296,7 +2340,7 @@ error:
 	if (write_filter && write_filter->deinit) {
 		write_filter->deinit(&write_filt_ctxt);;
 	}
-	msg("[%02u] xtrabackup: Error: "
+	msg("[%02u] mariabackup: Error: "
 	    "xtrabackup_copy_datafile() failed.\n", thread_n);
 	return(TRUE); /*ERROR*/
 
@@ -2308,10 +2352,10 @@ skip:
 	if (write_filter && write_filter->deinit) {
 		write_filter->deinit(&write_filt_ctxt);
 	}
-	msg("[%02u] xtrabackup: Warning: We assume the "
+	msg("[%02u] mariabackup: Warning: We assume the "
 	    "table was dropped during xtrabackup execution "
 	    "and ignore the file.\n", thread_n);
-	msg("[%02u] xtrabackup: Warning: skipping tablespace %s.\n",
+	msg("[%02u] mariabackup: Warning: skipping tablespace %s.\n",
 	    thread_n, node_name);
 	return(FALSE);
 }
@@ -2337,8 +2381,8 @@ lsn_t
 xtrabackup_copy_log(copy_logfile copy, lsn_t start_lsn, lsn_t end_lsn)
 {
 	lsn_t	scanned_lsn	= start_lsn;
-
 	const byte* log_block = log_sys->buf;
+	bool more_data = false;
 
 	for (ulint scanned_checkpoint = 0;
 	     scanned_lsn < end_lsn;
@@ -2353,7 +2397,14 @@ xtrabackup_copy_log(copy_logfile copy, lsn_t start_lsn, lsn_t end_lsn)
 		}
 
 		scanned_checkpoint = checkpoint;
+
 		ulint	data_len = log_block_get_data_len(log_block);
+
+		more_data = recv_sys_add_to_parsing_buf(
+				log_block,
+				scanned_lsn + data_len);
+
+		recv_sys->scanned_lsn = scanned_lsn + data_len;
 
 		if (data_len == OS_FILE_LOG_BLOCK_SIZE) {
 			/* We got a full log block. */
@@ -2370,6 +2421,15 @@ xtrabackup_copy_log(copy_logfile copy, lsn_t start_lsn, lsn_t end_lsn)
 		}
 	}
 
+	if (more_data && recv_parse_log_recs(0, STORE_NO, false)) {
+
+		msg("mariabackup: copying the log failed \n");
+
+		return(0);
+	}
+
+	recv_sys_justify_left_parsing_buf();
+
 	log_sys->log.scanned_lsn = scanned_lsn;
 
 	end_lsn = copy == COPY_LAST
@@ -2382,7 +2442,7 @@ xtrabackup_copy_log(copy_logfile copy, lsn_t start_lsn, lsn_t end_lsn)
 		}
 
 		if (ds_write(dst_log_file, log_sys->buf, write_size)) {
-			msg("xtrabackup: Error: "
+			msg("mariabackup: Error: "
 			    "write to logfile failed\n");
 			return(0);
 		}
@@ -2403,9 +2463,12 @@ xtrabackup_copy_logfile(copy_logfile copy)
 	lsn_t	start_lsn;
 	lsn_t	end_lsn;
 
+	recv_sys->parse_start_lsn = log_copy_scanned_lsn;
+	recv_sys->scanned_lsn = log_copy_scanned_lsn;
+	recv_sys->recovered_lsn = log_copy_scanned_lsn;
+
 	start_lsn = ut_uint64_align_down(log_copy_scanned_lsn,
 					 OS_FILE_LOG_BLOCK_SIZE);
-
 	/* When copying the first or last part of the log, retry a few
 	times to ensure that all log up to the last checkpoint will be
 	read. */
@@ -2416,8 +2479,15 @@ xtrabackup_copy_logfile(copy_logfile copy)
 
 		log_mutex_enter();
 
-		lsn_t lsn = log_group_read_log_seg(log_sys->buf, &log_sys->log,
-						   start_lsn, end_lsn);
+		lsn_t lsn= start_lsn;
+		for(int retries= 0; retries < 100; retries++) {
+			if (log_group_read_log_seg(log_sys->buf, &log_sys->log,
+				&lsn, end_lsn)){
+				break;
+			}
+			msg("Retrying read of a redo log block");
+			my_sleep(1000);
+		}
 
 		start_lsn = xtrabackup_copy_log(copy, start_lsn, lsn);
 
@@ -2426,7 +2496,7 @@ xtrabackup_copy_logfile(copy_logfile copy)
 		if (!start_lsn) {
 			ds_close(dst_log_file);
 			dst_log_file = NULL;
-			msg("xtrabackup: Error: xtrabackup_copy_logfile()"
+			msg("mariabackup: Error: xtrabackup_copy_logfile()"
 			    " failed.\n");
 			return(true);
 		}
@@ -2460,7 +2530,7 @@ static os_thread_ret_t log_copying_thread(void*)
 
 	log_copying_running = false;
 	my_thread_end();
-	os_thread_exit(NULL);
+	os_thread_exit();
 
 	return(0);
 }
@@ -2483,7 +2553,7 @@ static os_thread_ret_t io_watching_thread(void*)
 
 	io_watching_thread_running = false;
 
-	os_thread_exit(NULL);
+	os_thread_exit();
 
 	return(0);
 }
@@ -2512,7 +2582,7 @@ data_copy_thread_func(
 
 		/* copy the datafile */
 		if(xtrabackup_copy_datafile(node, num)) {
-			msg("[%02u] xtrabackup: Error: "
+			msg("[%02u] mariabackup: Error: "
 			    "failed to copy datafile.\n", num);
 			exit(EXIT_FAILURE);
 		}
@@ -2523,7 +2593,7 @@ data_copy_thread_func(
 	pthread_mutex_unlock(&ctxt->count_mutex);
 
 	my_thread_end();
-	os_thread_exit(NULL);
+	os_thread_exit();
 	OS_THREAD_DUMMY_RETURN;
 }
 
@@ -2678,10 +2748,10 @@ xb_load_single_table_tablespace(
 	name = static_cast<char*>(ut_malloc_nokey(pathlen));
 
 	if (dirname != NULL) {
-		ut_snprintf(name, pathlen, "%s/%s", dirname, filname);
+		snprintf(name, pathlen, "%s/%s", dirname, filname);
 		name[pathlen - 5] = 0;
 	} else {
-		ut_snprintf(name, pathlen, "%s", filname);
+		snprintf(name, pathlen, "%s", filname);
 		name[pathlen - 5] = 0;
 	}
 
@@ -2799,8 +2869,8 @@ static dberr_t enumerate_ibd_files(process_single_tablespace_func_t callback)
 
 			dbpath = static_cast<char*>(ut_malloc_nokey(dbpath_len));
 		}
-		ut_snprintf(dbpath, dbpath_len,
-			    "%s/%s", fil_path_to_mysql_datadir, dbinfo.name);
+		snprintf(dbpath, dbpath_len,
+			 "%s/%s", fil_path_to_mysql_datadir, dbinfo.name);
 		os_normalize_path(dbpath);
 
 		if (check_if_skip_database_by_path(dbpath)) {
@@ -2831,7 +2901,7 @@ static dberr_t enumerate_ibd_files(process_single_tablespace_func_t callback)
 				/* We found a symlink or a file */
 				if (strlen(fileinfo.name) > 4) {
 					bool is_isl= false;
-					if (ends_with(fileinfo.name, ".ibd") || ((is_isl = ends_with(fileinfo.name, ".ibd"))))
+					if (ends_with(fileinfo.name, ".ibd") || ((is_isl = ends_with(fileinfo.name, ".isl"))))
 						(*callback)(dbinfo.name, fileinfo.name, is_isl);
 				}
 			}
@@ -2869,6 +2939,83 @@ next_datadir_item:
 	return(err);
 }
 
+/** Assign srv_undo_space_id_start variable if there are undo tablespace present.
+Read the TRX_SYS page from ibdata1 file and get the minimum space id from
+the first slot rollback segments of TRX_SYS_PAGE_NO.
+@retval DB_ERROR if file open or page read failed.
+@retval DB_SUCCESS if srv_undo_space_id assigned successfully. */
+static dberr_t xb_assign_undo_space_start()
+{
+	ulint		dirnamelen;
+	char		name[1000];
+	pfs_os_file_t	file;
+	byte*		buf;
+	byte*		page;
+	bool		ret;
+	dberr_t		error = DB_SUCCESS;
+	ulint		space, page_no;
+
+	if (srv_undo_tablespaces == 0) {
+		return error;
+	}
+
+	os_normalize_path(srv_data_home);
+	dirnamelen = strlen(srv_data_home);
+	memcpy(name, srv_data_home, dirnamelen);
+
+	if (dirnamelen && name[dirnamelen - 1] != OS_PATH_SEPARATOR) {
+		name[dirnamelen++] = OS_PATH_SEPARATOR;
+	}
+
+	snprintf(name + dirnamelen, strlen(name) + strlen("ibdata1"),
+		 "%s", "ibdata1");
+
+	file = os_file_create(0, name, OS_FILE_OPEN,
+			      OS_FILE_NORMAL, OS_DATA_FILE, true, &ret);
+
+	if (!ret) {
+		msg("mariabackup: Error in opening %s\n", name);
+		return DB_ERROR;
+	}
+
+	buf = static_cast<byte*>(ut_malloc_nokey(2 * UNIV_PAGE_SIZE));
+	page = static_cast<byte*>(ut_align(buf, UNIV_PAGE_SIZE));
+
+retry:
+	if (!os_file_read(IORequestRead, file, page, TRX_SYS_PAGE_NO * UNIV_PAGE_SIZE,
+			  UNIV_PAGE_SIZE)) {
+		msg("mariabackup: Reading TRX_SYS page failed.\n");
+		error = DB_ERROR;
+		goto func_exit;
+	}
+
+	/* TRX_SYS page can't be compressed or encrypted. */
+	if (buf_page_is_corrupted(false, page, univ_page_size)) {
+		goto retry;
+	}
+
+	/* 0th slot always points to system tablespace.
+	1st slot should point to first undotablespace which is minimum. */
+
+	page_no = mach_read_ulint(TRX_SYS + TRX_SYS_RSEGS
+				  + TRX_SYS_RSEG_SLOT_SIZE
+				  + TRX_SYS_RSEG_PAGE_NO + page, MLOG_4BYTES);
+	ut_ad(page_no != FIL_NULL);
+
+	space = mach_read_ulint(TRX_SYS + TRX_SYS_RSEGS
+				+ TRX_SYS_RSEG_SLOT_SIZE
+				+ TRX_SYS_RSEG_SPACE + page, MLOG_4BYTES);
+
+	srv_undo_space_id_start = space;
+
+func_exit:
+	ut_free(buf);
+	ret = os_file_close(file);
+	ut_a(ret);
+
+	return error;
+}
+
 /****************************************************************************
 Populates the tablespace memory cache by scanning for and opening data files.
 @returns DB_SUCCESS or error code.*/
@@ -2888,7 +3035,7 @@ xb_load_tablespaces()
 
 	/* create_new_db must not be true. */
 	if (err != DB_SUCCESS || create_new_db) {
-		msg("xtrabackup: could not find data files at the "
+		msg("mariabackup: could not find data files at the "
 		    "specified datadir\n");
 		return(DB_ERROR);
 	}
@@ -2897,23 +3044,17 @@ xb_load_tablespaces()
 					   &flush_lsn);
 
 	if (err != DB_SUCCESS) {
-		msg("xtrabackup: Could not open or create data files.\n"
-		    "xtrabackup: If you tried to add new data files, and it "
-		    "failed here,\n"
-		    "xtrabackup: you should now edit innodb_data_file_path in "
-		    "my.cnf back\n"
-		    "xtrabackup: to what it was, and remove the new ibdata "
-		    "files InnoDB created\n"
-		    "xtrabackup: in this failed attempt. InnoDB only wrote "
-		    "those files full of\n"
-		    "xtrabackup: zeros, but did not yet use them in any way. "
-		    "But be careful: do not\n"
-		    "xtrabackup: remove old data files which contain your "
-		    "precious data!\n");
+		msg("mariabackup: Could not open data files.\n");
 		return(err);
 	}
 
 	/* Add separate undo tablespaces to fil_system */
+
+	err = xb_assign_undo_space_start();
+
+	if (err != DB_SUCCESS) {
+		return err;
+	}
 
 	err = srv_undo_tablespaces_init(false);
 
@@ -2925,7 +3066,7 @@ xb_load_tablespaces()
 	srv_undo_tablespaces_init(), because fil_is_user_tablespace_id() *
 	relies on srv_undo_tablespaces_open to be properly initialized */
 
-	msg("xtrabackup: Generating a list of tablespaces\n");
+	msg("mariabackup: Generating a list of tablespaces\n");
 
 	err = enumerate_ibd_files(xb_load_single_table_tablespace);
 	if (err != DB_SUCCESS) {
@@ -3028,12 +3169,12 @@ xb_validate_name(
 	/* perform only basic validation. validate length and
 	path symbols */
 	if (len > NAME_LEN) {
-		msg("xtrabackup: name `%s` is too long.\n", name);
+		msg("mariabackup: name `%s` is too long.\n", name);
 		exit(EXIT_FAILURE);
 	}
 	p = strpbrk(name, "/\\~");
-	if (p && p - name < NAME_LEN) {
-		msg("xtrabackup: name `%s` is not valid.\n", name);
+	if (p && (uint) (p - name) < NAME_LEN) {
+		msg("mariabackup: name `%s` is not valid.\n", name);
 		exit(EXIT_FAILURE);
 	}
 }
@@ -3112,7 +3253,7 @@ xb_register_table(
 	const char* name)	/*!< in: name of table */
 {
 	if (strchr(name, '.') == NULL) {
-		msg("xtrabackup: `%s` is not fully qualified name.\n", name);
+		msg("mariabackup: `%s` is not fully qualified name.\n", name);
 		exit(EXIT_FAILURE);
 	}
 
@@ -3134,7 +3275,7 @@ xb_add_regex_to_list(
 
 	if (ret != 0) {
 		regerror(ret, &compiled_regex, errbuf, sizeof(errbuf));
-		msg("xtrabackup: error: %s regcomp(%s): %s\n",
+		msg("mariabackup: error: %s regcomp(%s): %s\n",
 			error_context, regex, errbuf);
 		exit(EXIT_FAILURE);
 	}
@@ -3203,7 +3344,7 @@ xb_load_list_file(
 	/* read and store the filenames */
 	fp = fopen(filename, "r");
 	if (!fp) {
-		msg("xtrabackup: cannot open %s\n",
+		msg("mariabackup: cannot open %s\n",
 		    filename);
 		exit(EXIT_FAILURE);
 	}
@@ -3212,7 +3353,7 @@ xb_load_list_file(
 		if (p) {
 			*p = '\0';
 		} else {
-			msg("xtrabackup: `%s...` name is too long", name_buf);
+			msg("mariabackup: `%s...` name is too long", name_buf);
 			exit(EXIT_FAILURE);
 		}
 
@@ -3434,7 +3575,7 @@ static void stop_backup_threads()
 
 	if (log_copying_stop) {
 		os_event_set(log_copying_stop);
-		msg("xtrabackup: Stopping log copying thread.\n");
+		msg("mariabackup: Stopping log copying thread.\n");
 		while (log_copying_running) {
 			msg(".");
 			os_thread_sleep(200000); /*0.2 sec*/
@@ -3468,12 +3609,12 @@ xtrabackup_backup_low()
 		    && log_sys->log.format != 0) {
 			metadata_to_lsn = mach_read_from_8(
 				log_sys->checkpoint_buf + LOG_CHECKPOINT_LSN);
-			msg("xtrabackup: The latest check point"
+			msg("mariabackup: The latest check point"
 			    " (for incremental): '" LSN_PF "'\n",
 			    metadata_to_lsn);
 		} else {
 			metadata_to_lsn = 0;
-			msg("xtrabackup: Error: recv_find_max_checkpoint() failed.\n");
+			msg("mariabackup: Error: recv_find_max_checkpoint() failed.\n");
 		}
 		log_mutex_exit();
 	}
@@ -3501,7 +3642,7 @@ xtrabackup_backup_low()
 	metadata_last_lsn = log_copy_scanned_lsn;
 
 	if (!xtrabackup_stream_metadata(ds_meta)) {
-		msg("xtrabackup: Error: failed to stream metadata.\n");
+		msg("mariabackup: Error: failed to stream metadata.\n");
 		return false;
 	}
 	if (xtrabackup_extra_lsndir) {
@@ -3510,11 +3651,17 @@ xtrabackup_backup_low()
 		sprintf(filename, "%s/%s", xtrabackup_extra_lsndir,
 			XTRABACKUP_METADATA_FILENAME);
 		if (!xtrabackup_write_metadata(filename)) {
-			msg("xtrabackup: Error: failed to write metadata "
+			msg("mariabackup: Error: failed to write metadata "
 			    "to '%s'.\n", filename);
 			return false;
 		}
-
+		sprintf(filename, "%s/%s", xtrabackup_extra_lsndir,
+			XTRABACKUP_INFO);
+		if (!write_xtrabackup_info(mysql_connection, filename, false)) {
+			msg("mariabackup: Error: failed to write info "
+			 "to '%s'.\n", filename);
+			return false;
+		}
 	}
 
 	return true;
@@ -3533,19 +3680,19 @@ xtrabackup_backup_func()
 	data_thread_ctxt_t 	*data_threads;
 
 #ifdef USE_POSIX_FADVISE
-	msg("xtrabackup: uses posix_fadvise().\n");
+	msg("mariabackup: uses posix_fadvise().\n");
 #endif
 
 	/* cd to datadir */
 
 	if (my_setwd(mysql_real_data_home,MYF(MY_WME)))
 	{
-		msg("xtrabackup: cannot my_setwd %s\n", mysql_real_data_home);
+		msg("mariabackup: cannot my_setwd %s\n", mysql_real_data_home);
 		return(false);
 	}
-	msg("xtrabackup: cd to %s\n", mysql_real_data_home);
+	msg("mariabackup: cd to %s\n", mysql_real_data_home);
 
-	msg("xtrabackup: open files limit requested %u, set to %u\n",
+	msg("mariabackup: open files limit requested %u, set to %u\n",
 	    (uint) xb_open_files_limit,
 	    xb_set_max_open_files(xb_open_files_limit));
 
@@ -3559,20 +3706,18 @@ xtrabackup_backup_func()
 	srv_operation = SRV_OPERATION_BACKUP;
 
 	if (xb_close_files)
-		msg("xtrabackup: warning: close-files specified. Use it "
+		msg("mariabackup: warning: close-files specified. Use it "
 		    "at your own risk. If there are DDL operations like table DROP TABLE "
 		    "or RENAME TABLE during the backup, inconsistent backup will be "
 		    "produced.\n");
-
-	if (opt_lock_ddl_per_table) {
-		mdl_lock_init();
-	}
 
 	/* initialize components */
         if(innodb_init_param()) {
 fail:
 		stop_backup_threads();
-		innodb_shutdown();
+		if (fil_system) {
+			innodb_shutdown();
+		}
 		return(false);
 	}
 
@@ -3589,28 +3734,22 @@ fail:
 
 	} else if (0 == ut_strcmp(srv_file_flush_method_str, "O_DIRECT")) {
 		srv_file_flush_method = SRV_O_DIRECT;
-		msg("xtrabackup: using O_DIRECT\n");
+		msg("mariabackup: using O_DIRECT\n");
 	} else if (0 == ut_strcmp(srv_file_flush_method_str, "littlesync")) {
 		srv_file_flush_method = SRV_LITTLESYNC;
 	} else if (0 == ut_strcmp(srv_file_flush_method_str, "nosync")) {
 		srv_file_flush_method = SRV_NOSYNC;
 	} else if (0 == ut_strcmp(srv_file_flush_method_str, "ALL_O_DIRECT")) {
 		srv_file_flush_method = SRV_ALL_O_DIRECT_FSYNC;
-		msg("xtrabackup: using ALL_O_DIRECT\n");
+		msg("mariabackup: using ALL_O_DIRECT\n");
 	} else if (0 == ut_strcmp(srv_file_flush_method_str,
 				  "O_DIRECT_NO_FSYNC")) {
 		srv_file_flush_method = SRV_O_DIRECT_NO_FSYNC;
-		msg("xtrabackup: using O_DIRECT_NO_FSYNC\n");
+		msg("mariabackup: using O_DIRECT_NO_FSYNC\n");
 	} else {
-		msg("xtrabackup: Unrecognized value %s for "
+		msg("mariabackup: Unrecognized value %s for "
 		    "innodb_flush_method\n", srv_file_flush_method_str);
 		goto fail;
-	}
-
-	/* We can only use synchronous unbuffered IO on Windows for now */
-	if (srv_file_flush_method_str != NULL) {
-		msg("xtrabackupp: Warning: "
-		    "ignoring innodb_flush_method = %s on Windows.\n", srv_file_flush_method_str);
 	}
 
 #ifdef _WIN32
@@ -3640,7 +3779,6 @@ fail:
 	/* Reset the system variables in the recovery module. */
 	recv_sys_var_init();
 	trx_pool_init();
-	row_mysql_init();
 
 	ut_crc32_init();
 	crc_init();
@@ -3687,12 +3825,12 @@ fail:
 		}
 		if ((log_opened && log_created)) {
 			msg(
-	"xtrabackup: Error: all log files must be created at the same time.\n"
-	"xtrabackup: All log files must be created also in database creation.\n"
-	"xtrabackup: If you want bigger or smaller log files, shut down the\n"
-	"xtrabackup: database and make sure there were no errors in shutdown.\n"
-	"xtrabackup: Then delete the existing log files. Edit the .cnf file\n"
-	"xtrabackup: and start the database again.\n");
+	"mariabackup: Error: all log files must be created at the same time.\n"
+	"mariabackup: All log files must be created also in database creation.\n"
+	"mariabackup: If you want bigger or smaller log files, shut down the\n"
+	"mariabackup: database and make sure there were no errors in shutdown.\n"
+	"mariabackup: Then delete the existing log files. Edit the .cnf file\n"
+	"mariabackup: and start the database again.\n");
 
 			goto fail;
 		}
@@ -3700,7 +3838,7 @@ fail:
 
 	/* log_file_created must not be TRUE, if online */
 	if (log_file_created) {
-		msg("xtrabackup: Something wrong with source files...\n");
+		msg("mariabackup: Something wrong with source files...\n");
 		goto fail;
 	}
 
@@ -3710,7 +3848,7 @@ fail:
 	if (xtrabackup_extra_lsndir
 		&&!my_stat(xtrabackup_extra_lsndir,&stat_info,MYF(0))
 		&& (my_mkdir(xtrabackup_extra_lsndir,0777,MYF(0)) < 0)) {
-		msg("xtrabackup: Error: cannot mkdir %d: %s\n",
+		msg("mariabackup: Error: cannot mkdir %d: %s\n",
 		    my_errno, xtrabackup_extra_lsndir);
 		goto fail;
 	}
@@ -3718,7 +3856,7 @@ fail:
 	/* create target dir if not exist */
 	if (!xtrabackup_stream_str && !my_stat(xtrabackup_target_dir,&stat_info,MYF(0))
 		&& (my_mkdir(xtrabackup_target_dir,0777,MYF(0)) < 0)){
-		msg("xtrabackup: Error: cannot mkdir %d: %s\n",
+		msg("mariabackup: Error: cannot mkdir %d: %s\n",
 		    my_errno, xtrabackup_target_dir);
 		goto fail;
 	}
@@ -3746,7 +3884,7 @@ log_fail:
 
 	if (log_sys->log.format == 0) {
 old_format:
-		msg("xtrabackup: Error: cannot process redo log"
+		msg("mariabackup: Error: cannot process redo log"
 		    " before MariaDB 10.2.2\n");
 		log_mutex_exit();
 		goto log_fail;
@@ -3792,7 +3930,7 @@ reread_log_header:
 	memset(&stat_info, 0, sizeof(MY_STAT));
 	dst_log_file = ds_open(ds_redo, "ib_logfile0", &stat_info);
 	if (dst_log_file == NULL) {
-		msg("xtrabackup: error: failed to open the target stream for "
+		msg("mariabackup: error: failed to open the target stream for "
 		    "'ib_logfile0'.\n");
 		goto fail;
 	}
@@ -3810,7 +3948,7 @@ reread_log_header:
 	/* Write the log header. */
 	if (ds_write(dst_log_file, log_hdr, sizeof log_hdr)) {
 	log_write_fail:
-		msg("xtrabackup: error: write to logfile failed\n");
+		msg("mariabackup: error: write to logfile failed\n");
 		goto fail;
 	}
 	/* Adjust the checkpoint page. */
@@ -3844,6 +3982,14 @@ reread_log_header:
 				 &io_watching_thread_id);
 	}
 
+	/* Populate fil_system with tablespaces to copy */
+	err = xb_load_tablespaces();
+	if (err != DB_SUCCESS) {
+		msg("mariabackup: error: xb_load_tablespaces() failed with"
+		    " error %s.\n", ut_strerr(err));
+		goto fail;
+	}
+
 	/* copy log file by current position */
 	log_copy_scanned_lsn = checkpoint_lsn_start;
 	if (xtrabackup_copy_logfile(COPY_FIRST))
@@ -3852,14 +3998,6 @@ reread_log_header:
 	log_copying_stop = os_event_create(0);
 	log_copying_running = true;
 	os_thread_create(log_copying_thread, NULL, &log_copying_thread_id);
-
-	/* Populate fil_system with tablespaces to copy */
-	err = xb_load_tablespaces();
-	if (err != DB_SUCCESS) {
-		msg("xtrabackup: error: xb_load_tablespaces() failed with"
-		    "error code %u\n", err);
-		goto fail;
-	}
 
 	/* FLUSH CHANGED_PAGE_BITMAPS call */
 	if (!flush_changed_page_bitmaps()) {
@@ -3872,25 +4010,29 @@ reread_log_header:
 			changed_page_bitmap = xb_page_bitmap_init();
 		}
 		if (!changed_page_bitmap) {
-			msg("xtrabackup: using the full scan for incremental "
+			msg("mariabackup: using the full scan for incremental "
 			    "backup\n");
 		} else if (incremental_lsn != checkpoint_lsn_start) {
 			/* Do not print that bitmaps are used when dummy bitmap
 			is build for an empty LSN range. */
-			msg("xtrabackup: using the changed page bitmap\n");
+			msg("mariabackup: using the changed page bitmap\n");
 		}
 	}
 
 	ut_a(xtrabackup_parallel > 0);
 
 	if (xtrabackup_parallel > 1) {
-		msg("xtrabackup: Starting %u threads for parallel data "
+		msg("mariabackup: Starting %u threads for parallel data "
 		    "files transfer\n", xtrabackup_parallel);
+	}
+
+	if (opt_lock_ddl_per_table) {
+		mdl_lock_all();
 	}
 
 	it = datafiles_iter_new(fil_system);
 	if (it == NULL) {
-		msg("xtrabackup: Error: datafiles_iter_new() failed.\n");
+		msg("mariabackup: Error: datafiles_iter_new() failed.\n");
 		goto fail;
 	}
 
@@ -3951,7 +4093,7 @@ reread_log_header:
 
 	xtrabackup_destroy_datasinks();
 
-	msg("xtrabackup: Redo log (from LSN " LSN_PF " to " LSN_PF
+	msg("mariabackup: Redo log (from LSN " LSN_PF " to " LSN_PF
 	    ") was copied.\n", checkpoint_lsn_start, log_copy_scanned_lsn);
 	xb_filters_free();
 
@@ -3959,7 +4101,7 @@ reread_log_header:
 
 	/* Make sure that the latest checkpoint was included */
 	if (metadata_to_lsn > log_copy_scanned_lsn) {
-		msg("xtrabackup: error: failed to copy enough redo log ("
+		msg("mariabackup: error: failed to copy enough redo log ("
 		    "LSN=" LSN_PF "; checkpoint LSN=" LSN_PF ").\n",
 		    log_copy_scanned_lsn, metadata_to_lsn);
 		goto fail;
@@ -4017,15 +4159,14 @@ xb_space_create_file(
 	*file = os_file_create_simple_no_error_handling(
 		0, path, OS_FILE_CREATE, OS_FILE_READ_WRITE, false, &ret);
 	if (!ret) {
-		msg("xtrabackup: cannot create file %s\n", path);
+		msg("mariabackup: cannot create file %s\n", path);
 		return ret;
 	}
 
 	ret = os_file_set_size(path, *file,
-			       FIL_IBD_FILE_INITIAL_SIZE * UNIV_PAGE_SIZE,
-			       false);
+			       FIL_IBD_FILE_INITIAL_SIZE * UNIV_PAGE_SIZE);
 	if (!ret) {
-		msg("xtrabackup: cannot set size for file %s\n", path);
+		msg("mariabackup: cannot set size for file %s\n", path);
 		os_file_close(*file);
 		os_file_delete(0, path);
 		return ret;
@@ -4043,7 +4184,7 @@ xb_space_create_file(
 	const page_size_t page_size(flags);
 
 	if (!page_size.is_compressed()) {
-		buf_flush_init_for_writing(NULL, page, NULL, 0, false);
+		buf_flush_init_for_writing(NULL, page, NULL, 0);
 
 		ret = os_file_write(IORequestWrite, path, *file, page, 0,
 				    UNIV_PAGE_SIZE);
@@ -4060,7 +4201,7 @@ xb_space_create_file(
 			page_zip.m_end = page_zip.m_nonempty =
 			page_zip.n_blobs = 0;
 
-		buf_flush_init_for_writing(NULL, page, &page_zip, 0, false);
+		buf_flush_init_for_writing(NULL, page, &page_zip, 0);
 
 		ret = os_file_write(IORequestWrite, path, *file,
 				    page_zip.data, 0, zip_size);
@@ -4069,7 +4210,7 @@ xb_space_create_file(
 	free(buf);
 
 	if (!ret) {
-		msg("xtrabackup: could not write the first page to %s\n",
+		msg("mariabackup: could not write the first page to %s\n",
 		    path);
 		os_file_close(*file);
 		os_file_delete(0, path);
@@ -4130,7 +4271,7 @@ xb_delta_open_matching_space(
 
 	/* Create the database directory if it doesn't exist yet */
 	if (!os_file_create_directory(dest_dir, FALSE)) {
-		msg("xtrabackup: error: cannot create dir %s\n", dest_dir);
+		msg("mariabackup: error: cannot create dir %s\n", dest_dir);
 		return file;
 	}
 
@@ -4144,7 +4285,7 @@ found:
 			OS_FILE_OPEN, OS_FILE_READ_WRITE, false, success);
 
 		if (!*success) {
-			msg("xtrabackup: Cannot open file %s\n", real_name);
+			msg("mariabackup: Cannot open file %s\n", real_name);
 		}
 exit:
 		log_mutex_exit();
@@ -4174,10 +4315,10 @@ exit:
 
 			char	tmpname[FN_REFLEN];
 
-			snprintf(tmpname, FN_REFLEN, "%s/xtrabackup_tmp_#%lu",
+			snprintf(tmpname, FN_REFLEN, "%s/xtrabackup_tmp_#" ULINTPF,
 				 dbname, fil_space->id);
 
-			msg("xtrabackup: Renaming %s to %s.ibd\n",
+			msg("mariabackup: Renaming %s to %s.ibd\n",
 				fil_space->name, tmpname);
 
 			if (!fil_rename_tablespace(
@@ -4185,7 +4326,7 @@ exit:
 				fil_space->chain.start->name,
 				tmpname, NULL))
 			{
-				msg("xtrabackup: Cannot rename %s to %s\n",
+				msg("mariabackup: Cannot rename %s to %s\n",
 					fil_space->name, tmpname);
 				goto exit;
 			}
@@ -4194,7 +4335,7 @@ exit:
 
 	if (info.space_id == ULINT_UNDEFINED)
 	{
-		msg("xtrabackup: Error: Cannot handle DDL operation on tablespace "
+		msg("mariabackup: Error: Cannot handle DDL operation on tablespace "
 		    "%s\n", dest_space_name);
 		exit(EXIT_FAILURE);
 	}
@@ -4206,7 +4347,7 @@ exit:
 
 		strncpy(tmpname, dest_space_name, FN_REFLEN);
 
-		msg("xtrabackup: Renaming %s to %s\n",
+		msg("mariabackup: Renaming %s to %s\n",
 		    fil_space->name, dest_space_name);
 
 		if (!fil_rename_tablespace(fil_space->id,
@@ -4214,7 +4355,7 @@ exit:
 					   tmpname,
 					   NULL))
 		{
-			msg("xtrabackup: Cannot rename %s to %s\n",
+			msg("mariabackup: Cannot rename %s to %s\n",
 				fil_space->name, dest_space_name);
 			goto exit;
 		}
@@ -4242,7 +4383,7 @@ exit:
 		*success = xb_space_create_file(real_name, info.space_id,
 						flags, &file);
 	} else {
-		msg("xtrabackup: Cannot create tablespace %s\n",
+		msg("mariabackup: Cannot create tablespace %s\n",
 		    dest_space_name);
 	}
 
@@ -4313,12 +4454,12 @@ xtrabackup_apply_delta(
 
 	page_size = info.page_size.physical();
 	page_size_shift = get_bit_shift(page_size);
-	msg("xtrabackup: page size for %s is %lu bytes\n",
+	msg("mariabackup: page size for %s is %zu bytes\n",
 	    src_path, page_size);
 	if (page_size_shift < 10 ||
 	    page_size_shift > UNIV_PAGE_SIZE_SHIFT_MAX) {
-		msg("xtrabackup: error: invalid value of page_size "
-		    "(%lu bytes) read from %s\n", page_size, meta_path);
+		msg("mariabackup: error: invalid value of page_size "
+		    "(%zu bytes) read from %s\n", page_size, meta_path);
 		goto error;
 	}
 
@@ -4327,7 +4468,7 @@ xtrabackup_apply_delta(
 		OS_FILE_OPEN, OS_FILE_READ_WRITE, false, &success);
 	if (!success) {
 		os_file_get_last_error(TRUE);
-		msg("xtrabackup: error: cannot open %s\n", src_path);
+		msg("mariabackup: error: cannot open %s\n", src_path);
 		goto error;
 	}
 
@@ -4339,7 +4480,7 @@ xtrabackup_apply_delta(
 			dbname, space_name, info,
 			dst_path, sizeof(dst_path), &success);
 	if (!success) {
-		msg("xtrabackup: error: cannot open %s\n", dst_path);
+		msg("mariabackup: error: cannot open %s\n", dst_path);
 		goto error;
 	}
 
@@ -4377,7 +4518,7 @@ xtrabackup_apply_delta(
 				last_buffer = TRUE;
 				break;
 			default:
-				msg("xtrabackup: error: %s seems not "
+				msg("mariabackup: error: %s seems not "
 				    ".delta file.\n", src_path);
 				goto error;
 		}
@@ -4414,13 +4555,39 @@ xtrabackup_apply_delta(
 			if (offset_on_page == 0xFFFFFFFFUL)
 				break;
 
+			uchar *buf = incremental_buffer + page_in_buffer * page_size;
+			const os_offset_t off = os_offset_t(offset_on_page)*page_size;
+
+			if (off == 0) {
+				/* Read tablespace size from page 0,
+				and extend the file to specified size.*/
+				os_offset_t n_pages = mach_read_from_4(
+					buf + FSP_HEADER_OFFSET + FSP_SIZE);
+				if (mach_read_from_4(buf
+						     + FIL_PAGE_SPACE_ID)) {
+					if (!os_file_set_size(
+						    dst_path, dst_file,
+						    n_pages * page_size))
+						goto error;
+				} else if (fil_space_t* space
+					   = fil_space_acquire(0)) {
+					/* The system tablespace can
+					consist of multiple files. The
+					first one has full tablespace
+					size in page 0, but only the last
+					file should be extended. */
+					fil_node_t* n = UT_LIST_GET_FIRST(
+						space->chain);
+					bool fail = !strcmp(n->name, dst_path)
+						&& !fil_space_extend(
+							space, (ulint)n_pages);
+					fil_space_release(space);
+					if (fail) goto error;
+				}
+			}
+
 			success = os_file_write(IORequestWrite,
-						dst_path, dst_file,
-						incremental_buffer +
-						page_in_buffer * page_size,
-						(offset_on_page <<
-						 page_size_shift),
-						page_size);
+						dst_path, dst_file, buf, off, page_size);
 			if (!success) {
 				goto error;
 			}
@@ -4430,8 +4597,10 @@ xtrabackup_apply_delta(
 	}
 
 	free(incremental_buffer_base);
-	if (src_file != OS_FILE_CLOSED)
+	if (src_file != OS_FILE_CLOSED) {
 		os_file_close(src_file);
+		os_file_delete(0,src_path);
+	}
 	if (dst_file != OS_FILE_CLOSED)
 		os_file_close(dst_file);
 	return TRUE;
@@ -4442,7 +4611,7 @@ error:
 		os_file_close(src_file);
 	if (dst_file != OS_FILE_CLOSED)
 		os_file_close(dst_file);
-	msg("xtrabackup: Error: xtrabackup_apply_delta(): "
+	msg("mariabackup: Error: xtrabackup_apply_delta(): "
 	    "failed to apply %s to %s.\n", src_path, dst_path);
 	return FALSE;
 }
@@ -4504,7 +4673,7 @@ xb_process_datadir(
 	handle_datadir_entry_func_t	func)	/*!<in: callback */
 {
 	ulint		ret;
-	char		dbpath[FN_REFLEN];
+	char		dbpath[OS_FILE_MAX_PATH];
 	os_file_dir_t	dir;
 	os_file_dir_t	dbdir;
 	os_file_stat_t	dbinfo;
@@ -4549,7 +4718,7 @@ next_file_item_1:
 
 		os_file_closedir(dbdir);
 	} else {
-		msg("xtrabackup: Cannot open dir %s\n",
+		msg("mariabackup: Cannot open dir %s\n",
 		    path);
 	}
 
@@ -4557,7 +4726,7 @@ next_file_item_1:
 	dir = os_file_opendir(path, FALSE);
 
 	if (dir == NULL) {
-		msg("xtrabackup: Cannot open dir %s\n",
+		msg("mariabackup: Cannot open dir %s\n",
 		    path);
 	}
 
@@ -4570,8 +4739,8 @@ next_file_item_1:
 		        goto next_datadir_item;
 		}
 
-		sprintf(dbpath, "%s/%s", path,
-								dbinfo.name);
+		snprintf(dbpath, sizeof(dbpath), "%s/%s", path, dbinfo.name);
+
 		os_normalize_path(dbpath);
 
 		dbdir = os_file_opendir(dbpath, FALSE);
@@ -4653,7 +4822,7 @@ store_binlog_info(const char* filename, const char* name, ulonglong pos)
 	FILE *fp = fopen(filename, "w");
 
 	if (!fp) {
-		msg("xtrabackup: failed to open '%s'\n", filename);
+		msg("mariabackup: failed to open '%s'\n", filename);
 		return(false);
 	}
 
@@ -4674,11 +4843,11 @@ xtrabackup_prepare_func(char** argv)
 
 	if (my_setwd(xtrabackup_real_target_dir,MYF(MY_WME)))
 	{
-		msg("xtrabackup: cannot my_setwd %s\n",
+		msg("mariabackup: cannot my_setwd %s\n",
 		    xtrabackup_real_target_dir);
 		return(false);
 	}
-	msg("xtrabackup: cd to %s\n", xtrabackup_real_target_dir);
+	msg("mariabackup: cd to %s\n", xtrabackup_real_target_dir);
 
 	int argc; for (argc = 0; argv[argc]; argc++) {}
 	encryption_plugin_prepare_init(argc, argv);
@@ -4696,31 +4865,31 @@ xtrabackup_prepare_func(char** argv)
 		XTRABACKUP_METADATA_FILENAME);
 
 	if (!xtrabackup_read_metadata(metadata_path)) {
-		msg("xtrabackup: Error: failed to read metadata from '%s'\n",
+		msg("mariabackup: Error: failed to read metadata from '%s'\n",
 		    metadata_path);
 		return(false);
 	}
 
 	if (!strcmp(metadata_type, "full-backuped")) {
 		if (xtrabackup_incremental) {
-			msg("xtrabackup: error: applying incremental backup "
+			msg("mariabackup: error: applying incremental backup "
 			    "needs a prepared target.\n");
 			return(false);
 		}
-		msg("xtrabackup: This target seems to be not prepared yet.\n");
+		msg("mariabackup: This target seems to be not prepared yet.\n");
 	} else if (!strcmp(metadata_type, "log-applied")) {
-		msg("xtrabackup: This target seems to be already prepared.\n");
+		msg("mariabackup: This target seems to be already prepared.\n");
 	} else {
-		msg("xtrabackup: This target does not have correct metadata.\n");
+		msg("mariabackup: This target does not have correct metadata.\n");
 		return(false);
 	}
 
 	bool ok = !xtrabackup_incremental
 		|| metadata_to_lsn == incremental_lsn;
 	if (!ok) {
-		msg("xtrabackup: error: This incremental backup seems "
+		msg("mariabackup: error: This incremental backup seems "
 		    "not to be proper for the target.\n"
-		    "xtrabackup:  Check 'to_lsn' of the target and "
+		    "mariabackup:  Check 'to_lsn' of the target and "
 		    "'from_lsn' of the incremental.\n");
 		return(false);
 	}
@@ -4755,7 +4924,7 @@ xtrabackup_prepare_func(char** argv)
 #endif
 		dberr_t err = xb_data_files_init();
 		if (err != DB_SUCCESS) {
-			msg("xtrabackup: error: xb_data_files_init() failed "
+			msg("mariabackup: error: xb_data_files_init() failed "
 			    "with error %s\n", ut_strerr(err));
 			goto error_cleanup;
 		}
@@ -4785,7 +4954,8 @@ xtrabackup_prepare_func(char** argv)
 		if (!ok) goto error_cleanup;
 	}
 
-	srv_operation = SRV_OPERATION_RESTORE;
+	srv_operation = xtrabackup_export
+		? SRV_OPERATION_RESTORE_EXPORT : SRV_OPERATION_RESTORE;
 
 	if (innodb_init_param()) {
 		goto error_cleanup;
@@ -4797,8 +4967,8 @@ xtrabackup_prepare_func(char** argv)
 		srv_n_write_io_threads = 4;
 	}
 
-	msg("xtrabackup: Starting InnoDB instance for recovery.\n"
-	    "xtrabackup: Using %lld bytes for buffer pool "
+	msg("mariabackup: Starting InnoDB instance for recovery.\n"
+	    "mariabackup: Using %lld bytes for buffer pool "
 	    "(set by --use-memory parameter)\n", xtrabackup_use_memory);
 
 	srv_max_buf_pool_modified_pct = (double)max_buf_pool_modified_pct;
@@ -4810,7 +4980,6 @@ xtrabackup_prepare_func(char** argv)
 	if (innodb_init()) {
 		goto error_cleanup;
 	}
-
 
 	if (ok) {
 		mtr_t			mtr;
@@ -4849,7 +5018,7 @@ xtrabackup_prepare_func(char** argv)
 	/* Check whether the log is applied enough or not. */
 	if ((srv_start_lsn || fil_space_get(SRV_LOG_SPACE_FIRST_ID))
 	    && srv_start_lsn < target_lsn) {
-		msg("xtrabackup: error: "
+		msg("mariabackup: error: "
 		    "The log was only applied up to LSN " LSN_PF
 		    ", instead of " LSN_PF "\n",
 		    srv_start_lsn, target_lsn);
@@ -4878,13 +5047,13 @@ xtrabackup_prepare_func(char** argv)
 		sprintf(filename, "%s/%s", xtrabackup_target_dir, XTRABACKUP_METADATA_FILENAME);
 		if (!xtrabackup_write_metadata(filename)) {
 
-			msg("xtrabackup: Error: failed to write metadata "
+			msg("mariabackup: Error: failed to write metadata "
 			    "to '%s'\n", filename);
 			ok = false;
 		} else if (xtrabackup_extra_lsndir) {
 			sprintf(filename, "%s/%s", xtrabackup_extra_lsndir, XTRABACKUP_METADATA_FILENAME);
 			if (!xtrabackup_write_metadata(filename)) {
-				msg("xtrabackup: Error: failed to write "
+				msg("mariabackup: Error: failed to write "
 				    "metadata to '%s'\n", filename);
 				ok = false;
 			}
@@ -4937,9 +5106,19 @@ xb_init()
 		return(false);
 	}
 
-	if (opt_rsync && xtrabackup_stream_fmt) {
-		msg("Error: --rsync doesn't work with --stream\n");
-		return(false);
+	if (xtrabackup_backup && opt_rsync)
+	{
+		if (xtrabackup_stream_fmt)
+		{
+			msg("Error: --rsync doesn't work with --stream\n");
+			return(false);
+		}
+		bool have_rsync = IF_WIN(false, (system("rsync --version > /dev/null 2>&1") == 0));
+		if (!have_rsync)
+		{
+			msg("Error: rsync executable not found, cannot run backup with --rsync\n");
+			return false;
+		}
 	}
 
 	n_mixed_options = 0;
@@ -5033,11 +5212,12 @@ handle_options(int argc, char **argv, char ***argv_client, char ***argv_server)
 	srv_operation = SRV_OPERATION_RESTORE;
 
 	files_charset_info = &my_charset_utf8_general_ci;
+	check_if_backup_includes = backup_includes;
 
 	setup_error_messages();
 	sys_var_init();
 	plugin_mutex_init();
-	mysql_rwlock_init(key_rwlock_LOCK_system_variables_hash, &LOCK_system_variables_hash);
+	mysql_prlock_init(key_rwlock_LOCK_system_variables_hash, &LOCK_system_variables_hash);
 	opt_stack_trace = 1;
 	test_flags |=  TEST_SIGINT;
 	init_signals();
@@ -5115,10 +5295,8 @@ handle_options(int argc, char **argv, char ***argv_client, char ***argv_server)
 
 	*argv_client = argv;
 	*argv_server = argv;
-	if (load_defaults(conf_file, xb_server_default_groups,
-			  &argc_server, argv_server)) {
-		exit(EXIT_FAILURE);
-	}
+	load_defaults_or_exit(conf_file, xb_server_default_groups,
+			      &argc_server, argv_server);
 
 	int n;
 	for (n = 0; (*argv_server)[n]; n++) {};
@@ -5147,7 +5325,7 @@ handle_options(int argc, char **argv, char ***argv_client, char ***argv_server)
 		if (optend - argv[i] == 15 &&
                     !strncmp(argv[i], "--defaults-file", optend - argv[i])) {
 
-			msg("xtrabackup: Error: --defaults-file "
+			msg("mariabackup: Error: --defaults-file "
 			    "must be specified first on the command "
 			    "line\n");
 			exit(EXIT_FAILURE);
@@ -5156,7 +5334,7 @@ handle_options(int argc, char **argv, char ***argv_client, char ***argv_server)
 		    !strncmp(argv[i], "--defaults-extra-file",
 			     optend - argv[i])) {
 
-			msg("xtrabackup: Error: --defaults-extra-file "
+			msg("mariabackup: Error: --defaults-extra-file "
 			    "must be specified first on the command "
 			    "line\n");
 			exit(EXIT_FAILURE);
@@ -5168,10 +5346,8 @@ handle_options(int argc, char **argv, char ***argv_client, char ***argv_server)
 					xb_server_options, xb_get_one_option)))
 		exit(ho_error);
 
-	if (load_defaults(conf_file, xb_client_default_groups,
-			  &argc_client, argv_client)) {
-		exit(EXIT_FAILURE);
-	}
+	load_defaults_or_exit(conf_file, xb_client_default_groups,
+			      &argc_client, argv_client);
 
 	for (n = 0; (*argv_client)[n]; n++) {};
  	argc_client = n;
@@ -5207,7 +5383,7 @@ handle_options(int argc, char **argv, char ***argv_client, char ***argv_server)
 			}
 
 			if (!server_option) {
-				msg("xtrabackup: Error:"
+				msg("mariabackup: Error:"
 				    " unknown argument: '%s'\n", opt);
 				exit(EXIT_FAILURE);
 			}
@@ -5326,7 +5502,7 @@ static int main_low(char** argv)
 	    && !strcmp(mysql_data_home, "./")) {
 		if (!xtrabackup_print_param)
 			usage();
-		msg("\nxtrabackup: Error: Please set parameter 'datadir'\n");
+		msg("\nmariabackup: Error: Please set parameter 'datadir'\n");
 		return(EXIT_FAILURE);
 	}
 
@@ -5396,7 +5572,7 @@ static int main_low(char** argv)
 			error = 1;
 
 		if (error) {
-			msg("xtrabackup: value '%s' may be wrong format for "
+			msg("mariabackup: value '%s' may be wrong format for "
 			    "incremental option.\n", xtrabackup_incremental);
 			return(EXIT_FAILURE);
 		}
@@ -5406,7 +5582,7 @@ static int main_low(char** argv)
 		sprintf(filename, "%s/%s", xtrabackup_incremental_basedir, XTRABACKUP_METADATA_FILENAME);
 
 		if (!xtrabackup_read_metadata(filename)) {
-			msg("xtrabackup: error: failed to read metadata from "
+			msg("mariabackup: error: failed to read metadata from "
 			    "%s\n", filename);
 			return(EXIT_FAILURE);
 		}
@@ -5419,7 +5595,7 @@ static int main_low(char** argv)
 		sprintf(filename, "%s/%s", xtrabackup_incremental_dir, XTRABACKUP_METADATA_FILENAME);
 
 		if (!xtrabackup_read_metadata(filename)) {
-			msg("xtrabackup: error: failed to read metadata from "
+			msg("mariabackup: error: failed to read metadata from "
 			    "%s\n", filename);
 			return(EXIT_FAILURE);
 		}
@@ -5454,7 +5630,7 @@ static int main_low(char** argv)
 	}
 
 	if (xtrabackup_export && innobase_file_per_table == FALSE) {
-		msg("xtrabackup: auto-enabling --innodb-file-per-table due to "
+		msg("mariabackup: auto-enabling --innodb-file-per-table due to "
 		    "the --export option\n");
 		innobase_file_per_table = TRUE;
 	}
@@ -5522,4 +5698,3 @@ static int get_exepath(char *buf, size_t size, const char *argv0)
 
   return my_realpath(buf, argv0, 0);
 }
-
