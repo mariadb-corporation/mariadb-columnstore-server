@@ -9673,8 +9673,9 @@ void Item_cache::store(Item *item)
 
 void Item_cache::print(String *str, enum_query_type query_type)
 {
-  if (example &&                                          // There is a cached item
-      (query_type & QT_NO_DATA_EXPANSION))                // Caller is show-create-table
+  if ((example &&                                         // There is a cached item
+      (query_type & QT_NO_DATA_EXPANSION)) ||             // Caller is show-create-table
+      (query_type & QT_INFINIDB))                         // Is a ColumnStore query
   {
     // Instead of "cache" or the cached value, print the cached item name
     example->print(str, query_type);
