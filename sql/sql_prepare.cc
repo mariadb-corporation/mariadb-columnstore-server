@@ -3844,7 +3844,7 @@ reexecute:
 
   if (WSREP_ON)
   {
-    mysql_mutex_lock(&thd->LOCK_wsrep_thd);
+    mysql_mutex_lock(&thd->LOCK_thd_data);
     switch (thd->wsrep_conflict_state)
     {
       case CERT_FAILURE:
@@ -3860,7 +3860,7 @@ reexecute:
       default:
         break;
     }
-    mysql_mutex_unlock(&thd->LOCK_wsrep_thd);
+    mysql_mutex_unlock(&thd->LOCK_thd_data);
   }
 #endif /* WITH_WSREP */
 
@@ -3881,7 +3881,6 @@ reexecute:
 
   return error;
 }
-
 
 bool
 Prepared_statement::execute_server_runnable(Server_runnable *server_runnable)
@@ -4092,6 +4091,7 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
   Statement stmt_backup;
   Query_arena *old_stmt_arena;
   bool error= TRUE;
+  bool qc_executed= FALSE;
 
   // InfiniDB
   TABLE_LIST* global_list = NULL;
@@ -4290,6 +4290,7 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
       thd->lex->sql_command= SQLCOM_SELECT;
       status_var_increment(thd->status_var.com_stat[SQLCOM_SELECT]);
       thd->update_stats();
+      qc_executed= TRUE;
     }
   }
 
@@ -4328,7 +4329,7 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
   thd->set_statement(&stmt_backup);
   thd->stmt_arena= old_stmt_arena;
 
-  if (state == Query_arena::STMT_PREPARED)
+  if (state == Query_arena::STMT_PREPARED && !qc_executed)
     state= Query_arena::STMT_EXECUTED;
 
   if (error == 0 && this->lex->sql_command == SQLCOM_CALL)

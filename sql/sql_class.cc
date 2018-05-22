@@ -1008,7 +1008,6 @@ THD::THD(bool is_wsrep_applier)
   *scramble= '\0';
 
 #ifdef WITH_WSREP
-  mysql_mutex_init(key_LOCK_wsrep_thd, &LOCK_wsrep_thd, MY_MUTEX_INIT_FAST);
   wsrep_ws_handle.trx_id = WSREP_UNDEFINED_TRX_ID;
   wsrep_ws_handle.opaque = NULL;
   wsrep_retry_counter     = 0;
@@ -1644,9 +1643,6 @@ THD::~THD()
   mysql_mutex_unlock(&LOCK_thd_data);
 
 #ifdef WITH_WSREP
-  mysql_mutex_lock(&LOCK_wsrep_thd);
-  mysql_mutex_unlock(&LOCK_wsrep_thd);
-  mysql_mutex_destroy(&LOCK_wsrep_thd);
   if (wsrep_rgi) delete wsrep_rgi;
 #endif
   /* Close connection */
@@ -2717,15 +2713,19 @@ void THD::check_and_register_item_tree_change(Item **place, Item **new_value,
 
 void THD::rollback_item_tree_changes()
 {
+  DBUG_ENTER("THD::rollback_item_tree_changes");
   I_List_iterator<Item_change_record> it(change_list);
   Item_change_record *change;
 
   while ((change= it++))
   {
+    DBUG_PRINT("info", ("Rollback: %p (%p) <- %p",
+                        *change->place, change->place, change->old_value));
     *change->place= change->old_value;
   }
   /* We can forget about changes memory: it's allocated in runtime memroot */
   change_list.empty();
+  DBUG_VOID_RETURN;
 }
 
 

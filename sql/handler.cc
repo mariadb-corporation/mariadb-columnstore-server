@@ -1,5 +1,5 @@
 /* Copyright (c) 2000, 2016, Oracle and/or its affiliates.
-   Copyright (c) 2009, 2016, MariaDB
+   Copyright (c) 2009, 2018, MariaDB Corporation.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -812,7 +812,9 @@ static my_bool closecon_handlerton(THD *thd, plugin_ref plugin,
 */
 void ha_close_connection(THD* thd)
 {
-  plugin_foreach(thd, closecon_handlerton, MYSQL_STORAGE_ENGINE_PLUGIN, 0);
+  plugin_foreach_with_mask(thd, closecon_handlerton,
+			   MYSQL_STORAGE_ENGINE_PLUGIN,
+			   PLUGIN_IS_DELETED|PLUGIN_IS_READY, 0);
 }
 
 static my_bool kill_handlerton(THD *thd, plugin_ref plugin,
@@ -4293,18 +4295,6 @@ handler::check_if_supported_inplace_alter(TABLE *altered_table,
   DBUG_RETURN(HA_ALTER_INPLACE_NOT_SUPPORTED);
 }
 
-
-/*
-   Default implementation to support in-place alter table
-   and old online add/drop index API
-*/
-
-void handler::notify_table_changed()
-{
-  ha_create_partitioning_metadata(table->s->path.str, NULL, CHF_INDEX_FLAG);
-}
-
-
 void Alter_inplace_info::report_unsupported_error(const char *not_supported,
                                                   const char *try_instead)
 {
@@ -4403,7 +4393,6 @@ handler::ha_create_partitioning_metadata(const char *name,
   */
   DBUG_ASSERT(m_lock_type == F_UNLCK ||
               (!old_name && strcmp(name, table_share->path.str)));
-  mark_trx_read_write();
 
   return create_partitioning_metadata(name, old_name, action_flag);
 }
@@ -5789,8 +5778,6 @@ static int write_locked_table_maps(THD *thd)
 
 typedef bool Log_func(THD*, TABLE*, bool, const uchar*, const uchar*);
 
-static int check_wsrep_max_ws_rows();
-
 static int binlog_log_row(TABLE* table,
                           const uchar *before_record,
                           const uchar *after_record,
@@ -5844,13 +5831,6 @@ static int binlog_log_row(TABLE* table,
       bool const has_trans= thd->lex->sql_command == SQLCOM_CREATE_TABLE ||
                             table->file->has_transactions();
       error= (*log_func)(thd, table, has_trans, before_record, after_record);
-
-      /*
-        Now that the record has been logged, increment wsrep_affected_rows and
-        also check whether its within the allowable limits (wsrep_max_ws_rows).
-      */
-      if (error == 0)
-        error= check_wsrep_max_ws_rows();
     }
   }
   return error ? HA_ERR_RBR_LOGGING_FAILED : 0;
@@ -5958,30 +5938,6 @@ int handler::ha_reset()
   cancel_pushed_idx_cond();
   /* Reset information about pushed index conditions */
   DBUG_RETURN(reset());
-}
-
-
-static int check_wsrep_max_ws_rows()
-{
-#ifdef WITH_WSREP
-  if (wsrep_max_ws_rows)
-  {
-    THD *thd= current_thd;
-
-    if (!WSREP(thd))
-      return 0;
-
-    thd->wsrep_affected_rows++;
-    if (thd->wsrep_exec_mode != REPL_RECV &&
-        thd->wsrep_affected_rows > wsrep_max_ws_rows)
-    {
-      trans_rollback_stmt(thd) || trans_rollback(thd);
-      my_message(ER_ERROR_DURING_COMMIT, "wsrep_max_ws_rows exceeded", MYF(0));
-      return ER_ERROR_DURING_COMMIT;
-    }
-  }
-#endif /* WITH_WSREP */
-  return 0;
 }
 
 

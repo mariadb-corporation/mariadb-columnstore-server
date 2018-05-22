@@ -1,6 +1,6 @@
 /*
    Copyright (c) 2000, 2016, Oracle and/or its affiliates.
-   Copyright (c) 2010, 2016, MariaDB
+   Copyright (c) 2010, 2018, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -4222,7 +4222,7 @@ mysql_prepare_create_table(THD *thd, HA_CREATE_INFO *create_info,
   /* Give warnings for not supported table options */
 #if defined(WITH_ARIA_STORAGE_ENGINE)
   extern handlerton *maria_hton;
-  if (file->ht != maria_hton)
+  if (file->partition_ht() != maria_hton)
 #endif
     if (create_info->transactional)
       push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
@@ -5095,7 +5095,7 @@ bool mysql_create_table(THD *thd, TABLE_LIST *create_table,
       This should always work as we have a meta lock on the table.
      */
     thd->locked_tables_list.add_back_last_deleted_lock(pos_in_locked_tables);
-    if (thd->locked_tables_list.reopen_tables(thd))
+    if (thd->locked_tables_list.reopen_tables(thd, false))
     {
       thd->locked_tables_list.unlink_all_closed_tables(thd, NULL, 0);
       result= 1;
@@ -5453,7 +5453,7 @@ bool mysql_create_like_table(THD* thd, TABLE_LIST* table,
       This should always work as we have a meta lock on the table.
      */
     thd->locked_tables_list.add_back_last_deleted_lock(pos_in_locked_tables);
-    if (thd->locked_tables_list.reopen_tables(thd))
+    if (thd->locked_tables_list.reopen_tables(thd, false))
     {
       thd->locked_tables_list.unlink_all_closed_tables(thd, NULL, 0);
       res= 1;                                   // We got an error
@@ -7318,7 +7318,7 @@ static bool mysql_inplace_alter_table(THD *thd,
                               HA_EXTRA_PREPARE_FOR_RENAME :
                               HA_EXTRA_NOT_USED,
                               NULL);
-    if (thd->locked_tables_list.reopen_tables(thd))
+    if (thd->locked_tables_list.reopen_tables(thd, false))
       thd->locked_tables_list.unlink_all_closed_tables(thd, NULL, 0);
     /* QQ; do something about metadata locks ? */
   }
@@ -9324,7 +9324,7 @@ bool mysql_alter_table(THD *thd,char *new_db, char *new_name,
 
 end_inplace:
 
-  if (thd->locked_tables_list.reopen_tables(thd))
+  if (thd->locked_tables_list.reopen_tables(thd, false))
     goto err_with_mdl_after_alter;
 
   THD_STAGE_INFO(thd, stage_end);

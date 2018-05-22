@@ -1,9 +1,12 @@
-SET(TOKUDB_VERSION 5.6.38-83.0)
+SET(TOKUDB_VERSION 5.6.39-83.1)
 # PerconaFT only supports x86-64 and cmake-2.8.9+
 IF(CMAKE_VERSION VERSION_LESS "2.8.9")
   MESSAGE(STATUS "CMake 2.8.9 or higher is required by TokuDB")
 ELSEIF(NOT HAVE_DLOPEN)
   MESSAGE(STATUS "dlopen is required by TokuDB")
+ELSEIF(PLUGIN_PERFSCHEMA MATCHES "^NO$")
+  MESSAGE(STATUS "Performance Schema is required by TokuDB")
+  RETURN()
 ELSEIF(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" OR
        CMAKE_SYSTEM_PROCESSOR STREQUAL "amd64")
 # tokudb requires F_NOCACHE or O_DIRECT, and designated initializers

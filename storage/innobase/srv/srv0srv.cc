@@ -77,6 +77,12 @@ Created 10/8/1995 Heikki Tuuri
 #include "fil0pagecompress.h"
 #include "btr0scrub.h"
 
+#include <my_service_manager.h>
+
+#ifdef WITH_WSREP
+extern int wsrep_debug;
+extern int wsrep_trx_is_aborting(void *thd_ptr);
+#endif
 /* The following is the maximum allowed duration of a lock wait. */
 UNIV_INTERN ulong	srv_fatal_semaphore_wait_threshold =  DEFAULT_SRV_FATAL_SEMAPHORE_TIMEOUT;
 
@@ -420,16 +426,6 @@ static ulint		srv_n_system_rows_read_old	= 0;
 
 UNIV_INTERN ulint	srv_truncated_status_writes	= 0;
 UNIV_INTERN ulint	srv_available_undo_logs         = 0;
-
-UNIV_INTERN ib_uint64_t srv_page_compression_saved      = 0;
-UNIV_INTERN ib_uint64_t srv_page_compression_trim_sect512       = 0;
-UNIV_INTERN ib_uint64_t srv_page_compression_trim_sect4096      = 0;
-UNIV_INTERN ib_uint64_t srv_index_pages_written         = 0;
-UNIV_INTERN ib_uint64_t srv_non_index_pages_written     = 0;
-UNIV_INTERN ib_uint64_t srv_pages_page_compressed       = 0;
-UNIV_INTERN ib_uint64_t srv_page_compressed_trim_op     = 0;
-UNIV_INTERN ib_uint64_t srv_page_compressed_trim_op_saved     = 0;
-UNIV_INTERN ib_uint64_t srv_index_page_decompressed     = 0;
 
 /* Defragmentation */
 UNIV_INTERN my_bool	srv_defragment = FALSE;
@@ -2546,6 +2542,9 @@ srv_purge_should_exit(ulint n_purged)
 	}
 	/* Slow shutdown was requested. */
 	if (n_purged) {
+		service_manager_extend_timeout(
+			INNODB_EXTEND_TIMEOUT_INTERVAL,
+			"InnoDB " ULINTPF " pages purged", n_purged);
 		/* The previous round still did some work. */
 		return(false);
 	}
@@ -2736,7 +2735,6 @@ srv_do_purge(
 			(++count % TRX_SYS_N_RSEGS) == 0);
 
 		*n_total_purged += n_pages_purged;
-
 	} while (!srv_purge_should_exit(n_pages_purged)
 		 && n_pages_purged > 0
 		 && purge_sys->state == PURGE_STATE_RUN);

@@ -1,5 +1,5 @@
 /* Copyright (c) 2002, 2015, Oracle and/or its affiliates.
-   Copyright (c) 2012, 2015, MariaDB
+   Copyright (c) 2012, 2018, MariaDB
 Copyright (c) 2016, MariaDB Corporation
 
    This program is free software; you can redistribute it and/or modify
@@ -1516,7 +1516,7 @@ static bool fix_max_connections(sys_var *self, THD *thd, enum_var_type type)
 static Sys_var_ulong Sys_max_connections(
        "max_connections", "The number of simultaneous clients allowed",
        PARSED_EARLY GLOBAL_VAR(max_connections), CMD_LINE(REQUIRED_ARG),
-       VALID_RANGE(1, 100000),
+       VALID_RANGE(10, 100000),
        DEFAULT(MAX_CONNECTIONS_DEFAULT), BLOCK_SIZE(1), NO_MUTEX_GUARD,
        NOT_IN_BINLOG, ON_CHECK(0), ON_UPDATE(fix_max_connections));
 
@@ -2240,11 +2240,11 @@ static Sys_var_ulong Sys_max_long_data_size(
        BLOCK_SIZE(1));
 
 static PolyLock_mutex PLock_prepared_stmt_count(&LOCK_prepared_stmt_count);
-static Sys_var_ulong Sys_max_prepared_stmt_count(
+static Sys_var_uint Sys_max_prepared_stmt_count(
        "max_prepared_stmt_count",
        "Maximum number of prepared statements in the server",
        GLOBAL_VAR(max_prepared_stmt_count), CMD_LINE(REQUIRED_ARG),
-       VALID_RANGE(0, 1024*1024), DEFAULT(16382), BLOCK_SIZE(1),
+       VALID_RANGE(0, UINT_MAX32), DEFAULT(16382), BLOCK_SIZE(1),
        &PLock_prepared_stmt_count);
 
 static Sys_var_ulong Sys_max_sort_length(
@@ -3321,7 +3321,7 @@ static bool fix_table_open_cache(sys_var *, THD *, enum_var_type)
 static Sys_var_ulong Sys_table_cache_size(
        "table_open_cache", "The number of cached open tables",
        GLOBAL_VAR(tc_size), CMD_LINE(REQUIRED_ARG),
-       VALID_RANGE(1, 1024*1024), DEFAULT(TABLE_OPEN_CACHE_DEFAULT),
+       VALID_RANGE(10, 1024*1024), DEFAULT(TABLE_OPEN_CACHE_DEFAULT),
        BLOCK_SIZE(1), NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(0),
        ON_UPDATE(fix_table_open_cache));
 
@@ -5095,6 +5095,14 @@ static Sys_var_mybool Sys_wsrep_desync (
        &PLock_wsrep_desync, NOT_IN_BINLOG,
        ON_CHECK(wsrep_desync_check),
        ON_UPDATE(wsrep_desync_update));
+
+static const char *wsrep_reject_queries_names[]= { "NONE", "ALL", "ALL_KILL", NullS };
+static Sys_var_enum Sys_wsrep_reject_queries(
+       "wsrep_reject_queries", "Variable to set to reject queries",
+       GLOBAL_VAR(wsrep_reject_queries), CMD_LINE(OPT_ARG),
+       wsrep_reject_queries_names, DEFAULT(WSREP_REJECT_NONE),
+       NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(0),
+       ON_UPDATE(wsrep_reject_queries_update));
 
 static const char *wsrep_binlog_format_names[]=
        {"MIXED", "STATEMENT", "ROW", "NONE", NullS};

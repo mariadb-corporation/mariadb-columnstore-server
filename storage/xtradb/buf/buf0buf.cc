@@ -2,7 +2,7 @@
 
 Copyright (c) 1995, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2008, Google Inc.
-Copyright (c) 2013, 2017, MariaDB Corporation.
+Copyright (c) 2013, 2018, MariaDB Corporation.
 
 Portions of this file contain modifications contributed and copyrighted by
 Google, Inc. Those modifications are gratefully acknowledged and are described
@@ -3088,6 +3088,11 @@ loop:
 					      ibuf_inside(mtr), trx);
 
 			retries = 0;
+		} else if (mode == BUF_GET_POSSIBLY_FREED) {
+			if (err) {
+				*err = local_err;
+			}
+			return NULL;
 		} else if (retries < BUF_PAGE_READ_MAX_RETRIES) {
 			++retries;
 
@@ -3369,6 +3374,8 @@ evict_from_pool:
 				mutex_enter(&buf_pool->LRU_list_mutex);
 				buf_block_unfix(fix_block);
 				mutex_exit(&buf_pool->LRU_list_mutex);
+
+				*err = DB_PAGE_CORRUPTED;
 				return NULL;
 			}
 		}
