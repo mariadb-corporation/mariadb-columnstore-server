@@ -4279,6 +4279,7 @@ int Query_log_event::do_apply_event(rpl_group_info *rgi,
   Relay_log_info const *rli= rgi->rli;
   Rpl_filter *rpl_filter= rli->mi->rpl_filter;
   bool current_stmt_is_commit;
+  bool idb_okay = true;
   DBUG_ENTER("Query_log_event::do_apply_event");
 
   /*
@@ -4335,7 +4336,6 @@ int Query_log_event::do_apply_event(rpl_group_info *rgi,
             we don't need to reset_one_shot_variables().
   */
   // Add check for InfiniDB OK to replicate.
-  bool idb_okay = true;
   idb_okay = idb_okay_to_repl(thd, query_arg, q_len_arg);
   if (idb_okay && (is_trans_keyword() || rpl_filter->db_ok(thd->db)) )
   {
