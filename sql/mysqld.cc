@@ -1,5 +1,5 @@
 /* Copyright (c) 2000, 2015, Oracle and/or its affiliates.
-   Copyright (c) 2008, 2016, MariaDB
+   Copyright (c) 2008, 2018, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -111,7 +111,7 @@
 #include <poll.h>
 #endif
 
-#include <my_systemd.h>
+#include <my_service_manager.h>
 
 #define mysqld_charset &my_charset_latin1
 
@@ -540,7 +540,7 @@ bool max_user_connections_checking=0;
   Limit of the total number of prepared statements in the server.
   Is necessary to protect the server against out-of-memory attacks.
 */
-ulong max_prepared_stmt_count;
+uint max_prepared_stmt_count;
 /**
   Current total number of prepared statements in the server. This number
   is exact, and therefore may not be equal to the difference between
@@ -551,7 +551,7 @@ ulong max_prepared_stmt_count;
   two different connections, this counts as two distinct prepared
   statements.
 */
-ulong prepared_stmt_count=0;
+uint prepared_stmt_count=0;
 ulong thread_id=1L,current_pid;
 ulong slow_launch_threads = 0;
 uint sync_binlog_period= 0, sync_relaylog_period= 0,
@@ -4288,11 +4288,20 @@ static int init_common_variables()
 
   /* connections and databases needs lots of files */
   {
-    uint files, wanted_files, max_open_files;
+    uint files, wanted_files, max_open_files, min_tc_size, extra_files,
+      min_connections;
+    ulong org_max_connections, org_tc_size;
 
+    /* Number of files reserved for temporary files */
+    extra_files= 30;
+    min_connections= 10;
     /* MyISAM requires two file handles per table. */
-    wanted_files= (10 + max_connections + extra_max_connections +
+    wanted_files= (extra_files + max_connections + extra_max_connections +
                    tc_size * 2);
+    min_tc_size= MY_MIN(tc_size, TABLE_OPEN_CACHE_MIN);
+    org_max_connections= max_connections;
+    org_tc_size= tc_size;
+
     /*
       We are trying to allocate no less than max_connections*5 file
       handles (i.e. we are trying to set the limit so that they will
@@ -4304,41 +4313,52 @@ static int init_common_variables()
       requested (value of wanted_files).
     */
     max_open_files= MY_MAX(MY_MAX(wanted_files,
-                            (max_connections + extra_max_connections)*5),
-                        open_files_limit);
+                                  (max_connections + extra_max_connections)*5),
+                           open_files_limit);
     files= my_set_max_open_files(max_open_files);
+    SYSVAR_AUTOSIZE_IF_CHANGED(open_files_limit, files, ulong);
 
-    if (files < wanted_files)
-    {
-      if (!open_files_limit)
-      {
-        /*
-          If we have requested too much file handles than we bring
-          max_connections in supported bounds.
-        */
-        SYSVAR_AUTOSIZE(max_connections,
-           (ulong) MY_MIN(files-10-TABLE_OPEN_CACHE_MIN*2, max_connections));
-        /*
-          Decrease tc_size according to max_connections, but
-          not below TABLE_OPEN_CACHE_MIN.  Outer MY_MIN() ensures that we
-          never increase tc_size automatically (that could
-          happen if max_connections is decreased above).
-        */
-        SYSVAR_AUTOSIZE(tc_size, 
-                        (ulong) MY_MIN(MY_MAX((files - 10 - max_connections) / 2,
-                                              TABLE_OPEN_CACHE_MIN), tc_size));
-	DBUG_PRINT("warning",
-		   ("Changed limits: max_open_files: %u  max_connections: %ld  table_cache: %ld",
-		    files, max_connections, tc_size));
-	if (global_system_variables.log_warnings > 1)
-	  sql_print_warning("Changed limits: max_open_files: %u  max_connections: %ld  table_cache: %ld",
-			files, max_connections, tc_size);
-      }
-      else if (global_system_variables.log_warnings)
-	sql_print_warning("Could not increase number of max_open_files to more than %u (request: %u)", files, wanted_files);
-    }
-    SYSVAR_AUTOSIZE(open_files_limit, files);
+    if (files < wanted_files && global_system_variables.log_warnings)
+      sql_print_warning("Could not increase number of max_open_files to more than %u (request: %u)", files, wanted_files);
+
+    /*
+      If we have requested too much file handles than we bring
+      max_connections in supported bounds. Still leave at least
+      'min_connections' connections
+    */
+    SYSVAR_AUTOSIZE_IF_CHANGED(max_connections,
+                               (ulong) MY_MAX(MY_MIN(files- extra_files-
+                                                     min_tc_size*2,
+                                                     max_connections),
+                                              min_connections),
+                               ulong);
+
+    /*
+      Decrease tc_size according to max_connections, but
+      not below min_tc_size.  Outer MY_MIN() ensures that we
+      never increase tc_size automatically (that could
+      happen if max_connections is decreased above).
+    */
+    SYSVAR_AUTOSIZE_IF_CHANGED(tc_size,
+                               (ulong) MY_MIN(MY_MAX((files - extra_files -
+                                                      max_connections) / 2,
+                                                     min_tc_size),
+                                              tc_size), ulong);
+    DBUG_PRINT("warning",
+               ("Current limits: max_open_files: %u  max_connections: %ld  table_cache: %ld",
+                files, max_connections, tc_size));
+    if (global_system_variables.log_warnings > 1 &&
+        (max_connections < org_max_connections ||
+         tc_size < org_tc_size))
+      sql_print_warning("Changed limits: max_open_files: %u  max_connections: %lu (was %lu)  table_cache: %lu (was %lu)",
+			files, max_connections, org_max_connections,
+                        tc_size, org_tc_size);
   }
+  /*
+    Max_connections and tc_cache are now set.
+    Now we can fix other variables depending on this variable.
+  */
+
   unireg_init(opt_specialflag); /* Set up extern variabels */
   if (!(my_default_lc_messages=
         my_locale_by_name(lc_messages)))
@@ -5514,8 +5534,7 @@ int mysqld_main(int argc, char **argv)
   orig_argc= argc;
   orig_argv= argv;
   my_getopt_use_args_separator= TRUE;
-  if (load_defaults(MYSQL_CONFIG_NAME, load_default_groups, &argc, &argv))
-    return 1;
+  load_defaults_or_exit(MYSQL_CONFIG_NAME, load_default_groups, &argc, &argv);
   my_getopt_use_args_separator= FALSE;
   defaults_argc= argc;
   defaults_argv= argv;
@@ -5874,12 +5893,14 @@ int mysqld_main(int argc, char **argv)
                          mysqld_port,
                          MYSQL_COMPILATION_COMMENT);
 
+#ifndef _WIN32
   // try to keep fd=0 busy
-  if (!freopen(IF_WIN("NUL","/dev/null"), "r", stdin))
+  if (!freopen("/dev/null", "r", stdin))
   {
     // fall back on failure
     fclose(stdin);
   }
+#endif
 
 #if defined(_WIN32) && !defined(EMBEDDED_LIBRARY)
   Service.SetRunning();
@@ -6464,7 +6485,7 @@ void handle_connections_sockets()
 #endif
 
   sd_notify(0, "READY=1\n"
-            "STATUS=Taking your SQL requests now...");
+            "STATUS=Taking your SQL requests now...\n");
 
   DBUG_PRINT("general",("Waiting for connections."));
   MAYBE_BROKEN_SYSCALL;
@@ -6682,7 +6703,7 @@ void handle_connections_sockets()
     set_current_thd(0);
   }
   sd_notify(0, "STOPPING=1\n"
-            "STATUS=Shutdown in progress");
+            "STATUS=Shutdown in progress\n");
   DBUG_VOID_RETURN;
 }
 

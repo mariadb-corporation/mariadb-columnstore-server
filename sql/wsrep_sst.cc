@@ -85,33 +85,10 @@ static void make_wsrep_defaults_file()
 }
 
 
-// TODO: Improve address verification.
-static bool sst_receive_address_check (const char* str)
-{
-    if (!strncasecmp(str, "127.0.0.1", strlen("127.0.0.1")) ||
-        !strncasecmp(str, "localhost", strlen("localhost")))
-    {
-        return 1;
-    }
-
-    return 0;
-}
-
 bool  wsrep_sst_receive_address_check (sys_var *self, THD* thd, set_var* var)
 {
-  char addr_buf[FN_REFLEN];
-
   if ((! var->save_result.string_value.str) ||
       (var->save_result.string_value.length > (FN_REFLEN - 1))) // safety
-  {
-    goto err;
-  }
-
-  memcpy(addr_buf, var->save_result.string_value.str,
-         var->save_result.string_value.length);
-  addr_buf[var->save_result.string_value.length]= 0;
-
-  if (sst_receive_address_check(addr_buf))
   {
     goto err;
   }
@@ -182,8 +159,8 @@ bool wsrep_sst_auth_update (sys_var *self, THD* thd, enum_var_type type)
 
 void wsrep_sst_auth_init (const char* value)
 {
-    if (wsrep_sst_auth == value) wsrep_sst_auth = NULL;
-    if (value) sst_auth_real_set (value);
+    DBUG_ASSERT(wsrep_sst_auth == value);
+    sst_auth_real_set (wsrep_sst_auth);
 }
 
 bool  wsrep_sst_donor_check (sys_var *self, THD* thd, set_var* var)

@@ -1160,6 +1160,7 @@ Item_sum_num::fix_fields(THD *thd, Item **ref)
       return TRUE;
     set_if_bigger(decimals, args[i]->decimals);
     with_subselect|= args[i]->with_subselect;
+    with_param|= args[i]->with_param; 
   }
   result_field=0;
   max_length=float_length(decimals);
@@ -1191,6 +1192,7 @@ Item_sum_hybrid::fix_fields(THD *thd, Item **ref)
     return TRUE;
   Type_std_attributes::set(args[0]);
   with_subselect= args[0]->with_subselect;
+  with_param= args[0]->with_param;
 
   Item *item2= item->real_item();
   if (item2->type() == Item::FIELD_ITEM)
@@ -3373,6 +3375,7 @@ Item_func_group_concat::fix_fields(THD *thd, Item **ref)
         args[i]->check_cols(1))
       return TRUE;
     with_subselect|= args[i]->with_subselect;
+    with_param|= args[i]->with_param;
   }
 
   /* skip charset aggregation for order columns */

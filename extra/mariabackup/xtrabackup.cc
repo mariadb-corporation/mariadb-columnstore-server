@@ -694,7 +694,7 @@ struct my_option xb_client_options[] =
   {"galera-info", OPT_GALERA_INFO, "This options creates the "
    "xtrabackup_galera_info file which contains the local node state at "
    "the time of the backup. Option should be used when performing the "
-   "backup of Percona-XtraDB-Cluster. Has no effect when backup locks "
+   "backup of MariaDB Galera Cluster. Has no effect when backup locks "
    "are used to create the backup.",
    (uchar *) &opt_galera_info, (uchar *) &opt_galera_info, 0,
    GET_BOOL, NO_ARG, 0, 0, 0, 0, 0, 0},
@@ -3079,6 +3079,85 @@ xb_fil_io_init(void)
 	fsp_init();
 }
 
+/** Assign srv_undo_space_id_start variable if there are undo tablespace present.
+Read the TRX_SYS page from ibdata1 file and get the minimum space id from
+the first slot rollback segments of TRX_SYS_PAGE_NO.
+@retval DB_ERROR if file open or page read failed.
+@retval DB_SUCCESS if srv_undo_space_id assigned successfully. */
+static dberr_t xb_assign_undo_space_start()
+{
+	ulint		dirnamelen;
+	char		name[1000];
+	pfs_os_file_t	file;
+	byte*		buf;
+	byte*		page;
+	ibool		ret;
+	dberr_t		error = DB_SUCCESS;
+	ulint		space, page_no;
+
+	if (srv_undo_tablespaces == 0) {
+		return error;
+	}
+
+	srv_normalize_path_for_win(srv_data_home);
+	dirnamelen = strlen(srv_data_home);
+	memcpy(name, srv_data_home, dirnamelen);
+
+	if (dirnamelen && name[dirnamelen - 1] != SRV_PATH_SEPARATOR) {
+		name[dirnamelen++] = SRV_PATH_SEPARATOR;
+	}
+
+	ut_snprintf(name + dirnamelen, (sizeof name) - dirnamelen,
+		    "%s", "ibdata1");
+
+	file = os_file_create(innodb_file_data_key, name, OS_FILE_OPEN,
+			      OS_FILE_NORMAL, OS_DATA_FILE, &ret, 0);
+
+	if (ret == FALSE) {
+		fprintf(stderr, "InnoDB: Error in opening %s\n", name);
+		return DB_ERROR;
+	}
+
+	buf = static_cast<byte*>(ut_malloc(2 * UNIV_PAGE_SIZE));
+	page = static_cast<byte*>(ut_align(buf, UNIV_PAGE_SIZE));
+
+retry:
+	ret = os_file_read(file, page, TRX_SYS_PAGE_NO * UNIV_PAGE_SIZE,
+			   UNIV_PAGE_SIZE);
+
+	if (!ret) {
+		fprintf(stderr, "InnoDB: Reading TRX_SYS page failed.");
+		error = DB_ERROR;
+		goto func_exit;
+	}
+
+	/* TRX_SYS page can't be compressed or encrypted. */
+	if (buf_page_is_corrupted(false, page, 0, NULL)) {
+		goto retry;
+	}
+
+	/* 0th slot always points to system tablespace.
+	1st slot should point to first undotablespace which is minimum. */
+
+	page_no = mach_read_ulint(TRX_SYS + TRX_SYS_RSEGS
+				  + TRX_SYS_RSEG_SLOT_SIZE
+				  + TRX_SYS_RSEG_PAGE_NO + page, MLOG_4BYTES);
+	ut_ad(page_no != FIL_NULL);
+
+	space = mach_read_ulint(TRX_SYS + TRX_SYS_RSEGS
+				+ TRX_SYS_RSEG_SLOT_SIZE
+				+ TRX_SYS_RSEG_SPACE + page, MLOG_4BYTES);
+
+	srv_undo_space_id_start = space;
+
+func_exit:
+	ut_free(buf);
+	ret = os_file_close(file);
+	ut_a(ret);
+
+	return error;
+}
+
 /****************************************************************************
 Populates the tablespace memory cache by scanning for and opening data files.
 @returns DB_SUCCESS or error code.*/
@@ -3131,6 +3210,12 @@ xb_load_tablespaces(void)
 	}
 
 	/* Add separate undo tablespaces to fil_system */
+
+	err = xb_assign_undo_space_start();
+
+	if (err != DB_SUCCESS) {
+		return err;
+	}
 
 	err = srv_undo_tablespaces_init(FALSE,
 					TRUE,
@@ -4881,8 +4966,6 @@ xtrabackup_apply_delta(
 
 	posix_fadvise(src_file, 0, 0, POSIX_FADV_SEQUENTIAL);
 
-	os_file_set_nocache(src_file, src_path, "OPEN");
-
 	dst_file = xb_delta_open_matching_space(
 			dbname, space_name, info.space_id, info.zip_size,
 			dst_path, sizeof(dst_path), &success);
@@ -4892,8 +4975,6 @@ xtrabackup_apply_delta(
 	}
 
 	posix_fadvise(dst_file, 0, 0, POSIX_FADV_DONTNEED);
-
-	os_file_set_nocache(dst_file, dst_path, "OPEN");
 
 	/* allocate buffer for incremental backup (4096 pages) */
 	incremental_buffer_base = static_cast<byte *>
@@ -4993,6 +5074,13 @@ xtrabackup_apply_delta(
 				goto error;
 			}
 		}
+
+		/* Free file system buffer cache after the batch was written. */
+#ifdef __linux__
+		os_file_flush_func(dst_file);
+#endif
+		posix_fadvise(dst_file, 0, 0, POSIX_FADV_DONTNEED);
+
 
 		incremental_buffers++;
 	}
@@ -6350,10 +6438,8 @@ handle_options(int argc, char **argv, char ***argv_client, char ***argv_server)
 
 	*argv_client = argv;
 	*argv_server = argv;
-	if (load_defaults(conf_file, xb_server_default_groups,
-			  &argc_server, argv_server)) {
-		exit(EXIT_FAILURE);
-	}
+	load_defaults_or_exit(conf_file, xb_server_default_groups,
+			      &argc_server, argv_server);
 
 	int n;
 	for (n = 0; (*argv_server)[n]; n++) {};
@@ -6403,10 +6489,8 @@ handle_options(int argc, char **argv, char ***argv_client, char ***argv_server)
 					xb_server_options, xb_get_one_option)))
 		exit(ho_error);
 
-	if (load_defaults(conf_file, xb_client_default_groups,
-			  &argc_client, argv_client)) {
-		exit(EXIT_FAILURE);
-	}
+	load_defaults_or_exit(conf_file, xb_client_default_groups,
+			      &argc_client, argv_client);
 
 	for (n = 0; (*argv_client)[n]; n++) {};
  	argc_client = n;
@@ -6616,6 +6700,10 @@ int main(int argc, char **argv)
 		xtrabackup_incremental = opt_incremental_history_uuid;
 	} else {
 		xtrabackup_incremental = NULL;
+	}
+
+	if (xtrabackup_stream && !xtrabackup_backup) {
+		msg("Warning: --stream parameter is ignored, it only works together with --backup.\n");
 	}
 
 	if (!xb_init()) {

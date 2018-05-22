@@ -330,6 +330,7 @@ public:
   bool is_null();
   longlong val_int();
   void cleanup();
+  enum Functype functype() const   { return IN_OPTIMIZER_FUNC; }
   const char *func_name() const { return "<in_optimizer>"; }
   Item_cache **get_cache() { return &cache; }
   void keep_top_level_cache();
@@ -347,6 +348,10 @@ public:
   void reset_cache() { cache= NULL; }
   virtual void print(String *str, enum_query_type query_type);
   void restore_first_argument();
+  Item* get_wrapped_in_subselect_item()
+  {
+    return args[1];
+  }
 };
 
 
@@ -1312,6 +1317,13 @@ public:
   {
     value_res= item->val_str(&value);
     m_null_value= item->null_value;
+    // Make sure to cache the result String inside "value"
+    if (value_res && value_res != &value)
+    {
+      if (value.copy(*value_res))
+        value.set("", 0, item->collation.collation);
+      value_res= &value;
+    }
   }
   int cmp(Item *arg)
   {
@@ -2261,6 +2273,11 @@ public:
   void sort(Item_field_cmpfunc compare, void *arg);
   void fix_length_and_dec();
   bool fix_fields(THD *thd, Item **ref);
+  void cleanup()
+  {
+    delete eval_item;
+    eval_item= NULL;
+  }
   void update_used_tables();
   COND *build_equal_items(THD *thd, COND_EQUAL *inherited,
                           bool link_item_fields,
