@@ -222,6 +222,11 @@ typedef struct st_order {
   char	 *buff;				/* If tmp-table group */
   table_map used; /* NOTE: the below is only set to 0 but is still used by eq_ref_table */
   table_map depend_map;
+  uint   nulls;                         /* @InfiniDB. For window function order by clause
+                                           2 -- not definied. default nulls last if ascending
+                                                default nulls first if descending
+                                           1 -- nulls first
+                                           0 -- nulls last */
 } ORDER;
 
 /**
