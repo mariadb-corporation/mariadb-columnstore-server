@@ -45,7 +45,7 @@ Created 1/20/1994 Heikki Tuuri
 
 #define INNODB_VERSION_MAJOR	5
 #define INNODB_VERSION_MINOR	6
-#define INNODB_VERSION_BUGFIX	37
+#define INNODB_VERSION_BUGFIX	40
 
 /* The following is the InnoDB version as shown in
 SELECT plugin_version FROM information_schema.plugins;
@@ -64,6 +64,10 @@ component, i.e. we show M.N.P as M.N */
 #define REFMAN "http://dev.mysql.com/doc/refman/"	\
 	IB_TO_STR(INNODB_VERSION_MAJOR) "."		\
 	IB_TO_STR(INNODB_VERSION_MINOR) "/en/"
+
+/** How far ahead should we tell the service manager the timeout
+(time in seconds) */
+#define INNODB_EXTEND_TIMEOUT_INTERVAL 30
 
 #ifdef MYSQL_DYNAMIC_PLUGIN
 /* In the dynamic plugin, redefine some externally visible symbols
