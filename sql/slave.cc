@@ -218,7 +218,7 @@ static void set_slave_max_allowed_packet(THD *thd, MYSQL *mysql)
 void init_thread_mask(int* mask,Master_info* mi,bool inverse)
 {
   bool set_io = mi->slave_running, set_sql = mi->rli.slave_running;
-  register int tmp_mask=0;
+  int tmp_mask=0;
   DBUG_ENTER("init_thread_mask");
 
   if (set_io)
@@ -4021,10 +4021,10 @@ static int exec_relay_log_event(THD* thd, Relay_log_info* rli,
       DBUG_RETURN(1);
 
 #ifdef WITH_WSREP
-    mysql_mutex_lock(&thd->LOCK_wsrep_thd);
+    mysql_mutex_lock(&thd->LOCK_thd_data);
     if (thd->wsrep_conflict_state == NO_CONFLICT)
     {
-      mysql_mutex_unlock(&thd->LOCK_wsrep_thd);
+      mysql_mutex_unlock(&thd->LOCK_thd_data);
 #endif /* WITH_WSREP */
     if (slave_trans_retries)
     {
@@ -4101,7 +4101,7 @@ static int exec_relay_log_event(THD* thd, Relay_log_info* rli,
 #ifdef WITH_WSREP
     }
     else
-      mysql_mutex_unlock(&thd->LOCK_wsrep_thd);
+      mysql_mutex_unlock(&thd->LOCK_thd_data);
 #endif /* WITH_WSREP */
 
     thread_safe_increment64(&rli->executed_entries);

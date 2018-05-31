@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 2012, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2012, 2018, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2015, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
@@ -1712,12 +1712,9 @@ PageConverter::update_records(
 
 	m_rec_iter.open(block);
 
-	if (!page_is_leaf(block->frame)) {
-		return DB_SUCCESS;
-	}
-
 	while (!m_rec_iter.end()) {
 		rec_t*	rec = m_rec_iter.current();
+
 		ibool	deleted = rec_get_deleted_flag(rec, comp);
 
 		/* For the clustered index we have to adjust the BLOB
@@ -1839,7 +1836,7 @@ PageConverter::update_index_page(
 		return(DB_SUCCESS);
 	}
 
-	return(update_records(block));
+	return page_is_leaf(block->frame) ? update_records(block) : DB_SUCCESS;
 }
 
 /** Validate the space flags and update tablespace header page.
@@ -3349,12 +3346,12 @@ fil_iterate(
 		bool		updated = false;
 		os_offset_t	page_off = offset;
 		ulint		n_pages_read = n_bytes / size;
-		bool		decrypted = false;
 		block->page.id.set_page_no(ulint(page_off / size));
 
 		for (ulint i = 0; i < n_pages_read;
 		     block->page.id.set_page_no(block->page.id.page_no() + 1),
 		     ++i, page_off += size, block->frame += size) {
+			bool decrypted = false;
 			err = DB_SUCCESS;
 			byte*	src = readptr + i * size;
 			byte*	dst = io_buffer + i * size;
@@ -3401,6 +3398,7 @@ fil_iterate(
 						block->frame = src;
 						frame_changed = true;
 					} else {
+						ut_ad(dst != src);
 						memcpy(dst, src, size);
 					}
 				}
@@ -3460,9 +3458,13 @@ page_corrupted:
 			ut_ad(encrypted ?
 			      src != dst && dst != writeptr + (i * size):1);
 
-			if (encrypted) {
-				memcpy(writeptr + (i * size),
-				       callback.get_frame(block), size);
+			/* When tablespace is encrypted or compressed its
+			first page (i.e. page 0) is not encrypted or
+			compressed and there is no need to copy frame. */
+			if (encrypted && block->page.id.page_no() != 0) {
+				byte *local_frame = callback.get_frame(block);
+				ut_ad((writeptr + (i * size)) != local_frame);
+				memcpy((writeptr + (i * size)), local_frame, size);
 			}
 
 			if (frame_changed) {
@@ -3500,6 +3502,7 @@ page_corrupted:
 
 				if (tmp == src) {
 					/* TODO: remove unnecessary memcpy's */
+					ut_ad(dest != src);
 					memcpy(dest, src, size);
 				}
 

@@ -1487,21 +1487,6 @@ dict_table_is_corrupted(
 }
 
 /********************************************************************//**
-Check whether the index is corrupted.
-@return nonzero for corrupted index, zero for valid indexes */
-UNIV_INLINE
-ulint
-dict_index_is_corrupted(
-/*====================*/
-	const dict_index_t*	index)	/*!< in: index */
-{
-	ut_ad(index->magic_n == DICT_INDEX_MAGIC_N);
-
-	return((index->type & DICT_CORRUPT)
-	        || (index->table && index->table->corrupted));
-}
-
-/********************************************************************//**
 Check if the tablespace for the table has been discarded.
 @return true if the tablespace has been discarded. */
 UNIV_INLINE
@@ -1534,16 +1519,7 @@ bool
 dict_table_is_file_per_table(
 	const dict_table_t*	table)	/*!< in: table to check */
 {
-	bool is_file_per_table =
-		!is_system_tablespace(table->space);
-
-	/* If the table is file-per-table and it is not redundant, then
-	it should have the flags2 bit for DICT_TF2_USE_FILE_PER_TABLE. */
-	ut_ad(!is_file_per_table
-	      || !DICT_TF_GET_COMPACT(table->flags)
-	      || DICT_TF2_FLAG_IS_SET(table, DICT_TF2_USE_FILE_PER_TABLE));
-
-	return(is_file_per_table);
+	return !is_system_tablespace(table->space);
 }
 
 /** Get reference count.

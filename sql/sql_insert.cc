@@ -89,7 +89,7 @@ static int write_delayed(THD *thd, TABLE *table, enum_duplicates duplic,
                          LEX_STRING query, bool ignore, bool log_on);
 static void end_delayed_insert(THD *thd);
 pthread_handler_t handle_delayed_insert(void *arg);
-static void unlink_blobs(register TABLE *table);
+static void unlink_blobs(TABLE *table);
 #endif
 static bool check_view_insertability(THD *thd, TABLE_LIST *view);
 
@@ -3103,7 +3103,7 @@ pthread_handler_t handle_delayed_insert(void *arg)
 
 /* Remove all pointers to data for blob fields so that original table doesn't try to free them */
 
-static void unlink_blobs(register TABLE *table)
+static void unlink_blobs(TABLE *table)
 {
   for (Field **ptr=table->field ; *ptr ; ptr++)
   {
@@ -3114,7 +3114,7 @@ static void unlink_blobs(register TABLE *table)
 
 /* Free blobs stored in current row */
 
-static void free_delayed_insert_blobs(register TABLE *table)
+static void free_delayed_insert_blobs(TABLE *table)
 {
   for (Field **ptr=table->field ; *ptr ; ptr++)
   {
@@ -3126,7 +3126,7 @@ static void free_delayed_insert_blobs(register TABLE *table)
 
 /* set value field for blobs to point to data in record */
 
-static void set_delayed_insert_blobs(register TABLE *table)
+static void set_delayed_insert_blobs(TABLE *table)
 {
   for (Field **ptr=table->field ; *ptr ; ptr++)
   {
@@ -4471,17 +4471,17 @@ bool select_create::send_eof()
 #ifdef WITH_WSREP
     if (WSREP_ON)
     {
-      mysql_mutex_lock(&thd->LOCK_wsrep_thd);
+      mysql_mutex_lock(&thd->LOCK_thd_data);
       if (thd->wsrep_conflict_state != NO_CONFLICT)
       {
         WSREP_DEBUG("select_create commit failed, thd: %lld  err: %d %s",
                     (longlong) thd->thread_id, thd->wsrep_conflict_state,
                     thd->query());
-        mysql_mutex_unlock(&thd->LOCK_wsrep_thd);
+        mysql_mutex_unlock(&thd->LOCK_thd_data);
         abort_result_set();
         DBUG_RETURN(true);
       }
-      mysql_mutex_unlock(&thd->LOCK_wsrep_thd);
+      mysql_mutex_unlock(&thd->LOCK_thd_data);
     }
 #endif /* WITH_WSREP */
   }

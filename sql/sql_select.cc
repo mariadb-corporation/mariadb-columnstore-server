@@ -345,7 +345,7 @@ bool handle_select(THD *thd, LEX *lex, select_result *result,
                    ulong setup_tables_done_option)
 {
   bool res;
-  register SELECT_LEX *select_lex = &lex->select_lex;
+  SELECT_LEX *select_lex = &lex->select_lex;
   DBUG_ENTER("handle_select");
   MYSQL_SELECT_START(thd->query());
 
@@ -799,7 +799,9 @@ JOIN::prepare(TABLE_LIST *tables_init,
       select_lex != select_lex->master_unit()->global_parameters())
     real_og_num+= select_lex->order_list.elements;
 
-  if (setup_wild(thd, tables_list, fields_list, &all_fields, wild_num))
+  DBUG_ASSERT(select_lex->hidden_bit_fields == 0);
+  if (setup_wild(thd, tables_list, fields_list, &all_fields, wild_num,
+                 &select_lex->hidden_bit_fields))
     DBUG_RETURN(-1);
   if (select_lex->setup_ref_array(thd, real_og_num))
     DBUG_RETURN(-1);
@@ -1252,9 +1254,6 @@ JOIN::optimize_inner()
   
   eval_select_list_used_tables();
 
-  if (optimize_constant_subqueries())
-    DBUG_RETURN(1);
-
   table_count= select_lex->leaf_tables.elements;
 
   if (setup_ftfuncs(select_lex)) /* should be after having->fix_fields */
@@ -1304,6 +1303,8 @@ JOIN::optimize_inner()
 
     /* Convert all outer joins to inner joins if possible */
     conds= simplify_joins(this, join_list, conds, TRUE, FALSE);
+    if (thd->is_error())
+      DBUG_RETURN(1);
     if (select_lex->save_leaf_tables(thd))
       DBUG_RETURN(1);
     build_bitmap_for_nested_joins(join_list, 0);
@@ -1316,6 +1317,9 @@ JOIN::optimize_inner()
       thd->restore_active_arena(arena, &backup);
   }
   
+  if (optimize_constant_subqueries())
+    DBUG_RETURN(1);
+
   if (setup_jtbm_semi_joins(this, join_list, &conds))
     DBUG_RETURN(1);
 
@@ -2887,7 +2891,7 @@ bool JOIN::make_aggr_tables_info()
     - duplicate value removal
     Both of these operations are done after window function computation step.
   */
-  curr_tab= join_tab + exec_join_tab_cnt() + aggr_tables - 1;
+  curr_tab= join_tab + total_join_tab_cnt();
   if (select_lex->window_funcs.elements)
   {
     curr_tab->window_funcs_step= new Window_funcs_computation;
