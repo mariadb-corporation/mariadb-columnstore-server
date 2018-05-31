@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1996, 2018, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2012, Facebook Inc.
 Copyright (c) 2013, 2018, MariaDB Corporation.
 
@@ -702,7 +702,7 @@ dict_table_get_next_index(
 
 /* Skip corrupted index */
 #define dict_table_skip_corrupt_index(index)			\
-	while (index && dict_index_is_corrupted(index)) {	\
+	while (index && index->is_corrupted()) {		\
 		index = dict_table_get_next_index(index);	\
 	}
 
@@ -1120,6 +1120,12 @@ dict_index_add_to_cache(
 	ulint		page_no,
 	ibool		strict)
 	MY_ATTRIBUTE((warn_unused_result));
+
+/** Clears the virtual column's index list before index is being freed.
+@param[in]  index   Index being freed */
+void
+dict_index_remove_from_v_col_list(
+	dict_index_t* index);
 
 /** Adds an index to the dictionary cache, with possible indexing newly
 added column.
@@ -1833,16 +1839,6 @@ ulint
 dict_table_is_corrupted(
 /*====================*/
 	const dict_table_t*	table)	/*!< in: table */
-	MY_ATTRIBUTE((nonnull, warn_unused_result));
-
-/**********************************************************************//**
-Check whether the index is corrupted.
-@return nonzero for corrupted index, zero for valid indexes */
-UNIV_INLINE
-ulint
-dict_index_is_corrupted(
-/*====================*/
-	const dict_index_t*	index)	/*!< in: index */
 	MY_ATTRIBUTE((nonnull, warn_unused_result));
 
 /**********************************************************************//**

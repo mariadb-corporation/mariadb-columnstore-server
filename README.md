@@ -251,7 +251,7 @@ yum install boost
 In addition these packages need to be install:
 
 ```bash
-yum install expect perl perl-DBI openssl zlib file sudo libaio rsync snappy net-tools
+yum install expect perl perl-DBI openssl zlib file sudo libaio rsync snappy net-tools numactl-libs
 ```
 
 ## For Ubuntu 16
@@ -259,7 +259,7 @@ yum install expect perl perl-DBI openssl zlib file sudo libaio rsync snappy net-
 These packages need to be installed:
 
 ```bash
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1v5 net-tools
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1v5 net-tools libnuma1
 ```
 
 ## For Debian 8
@@ -267,14 +267,14 @@ apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libre
 These packages need to be installed:
 
 ```bash
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1 net-tools
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1 net-tools libnuma1
 ```
 ## For Debian 9
 
 These packages need to be installed:
 
 ```bash
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync  net-tools libsnappy1v5 libreadline5
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync  net-tools libsnappy1v5 libreadline5 libnuma1
 ```
 ## For SUSE 12
 
@@ -284,7 +284,7 @@ SUSEConnect -p sle-sdk/12.2/x86_64
 zypper install boost-devel
 
 ```bash
-zypper install expect perl perl-DBI openssl file sudo libaio1 rsync net-tools libsnappy1
+zypper install expect perl perl-DBI openssl file sudo libaio1 rsync net-tools libsnappy1 libnuma1 
 ```
 
 ## MariaDB ColumnStore utilizes the System Logging for logging purposes

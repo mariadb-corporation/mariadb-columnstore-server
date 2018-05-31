@@ -821,7 +821,7 @@ Warnings:
 Warning	1292	Truncated incorrect max_prepared_stmt_count value: '10000000000000000'
 select @@max_prepared_stmt_count;
 @@max_prepared_stmt_count
-1048576
+4294967295
 set global max_prepared_stmt_count=default;
 select @@max_prepared_stmt_count;
 @@max_prepared_stmt_count
@@ -5163,3 +5163,14 @@ END;
 $$
 CALL p1('x');
 DROP PROCEDURE p1;
+create table t1 (b blob default '');
+prepare stmt from "alter table t1 force";
+execute stmt;
+execute stmt;
+execute stmt;
+set names latin1;
+prepare stmt from "alter table t1 modify b text character set utf8 default 'a'";
+execute stmt;
+execute stmt;
+execute stmt;
+drop table t1;

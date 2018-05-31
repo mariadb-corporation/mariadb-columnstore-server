@@ -109,11 +109,6 @@ Created 2/16/1996 Heikki Tuuri
 #include "btr0scrub.h"
 #include "ut0new.h"
 
-#ifdef HAVE_LZO1X
-#include <lzo/lzo1x.h>
-extern bool srv_lzo_disabled;
-#endif /* HAVE_LZO1X */
-
 /** Log sequence number immediately after startup */
 lsn_t	srv_start_lsn;
 /** Log sequence number at shutdown */
@@ -1504,7 +1499,8 @@ innobase_start_or_create_for_mysql()
 	}
 
 	high_level_read_only = srv_read_only_mode
-		|| srv_force_recovery > SRV_FORCE_NO_TRX_UNDO;
+		|| srv_force_recovery > SRV_FORCE_NO_TRX_UNDO
+		|| srv_sys_space.created_new_raw();
 
 	/* Reset the start state. */
 	srv_start_state = SRV_START_STATE_NONE;
@@ -1517,16 +1513,6 @@ innobase_start_or_create_for_mysql()
 		refused in read-only mode). */
 		srv_use_doublewrite_buf = FALSE;
 	}
-
-#ifdef HAVE_LZO1X
-	if (lzo_init() != LZO_E_OK) {
-		ib::warn() << "lzo_init() failed, support disabled";
-		srv_lzo_disabled = true;
-	} else {
-		ib::info() << "LZO1X support available";
-		srv_lzo_disabled = false;
-	}
-#endif /* HAVE_LZO1X */
 
 	compile_time_assert(sizeof(ulint) == sizeof(void*));
 
@@ -2656,7 +2642,8 @@ files_checked:
 	/* Create the master thread which does purge and other utility
 	operations */
 
-	if (!srv_read_only_mode) {
+	if (!srv_read_only_mode
+	    && srv_force_recovery < SRV_FORCE_NO_BACKGROUND) {
 		thread_handles[1 + SRV_MAX_N_IO_THREADS] = os_thread_create(
 			srv_master_thread,
 			NULL, thread_ids + (1 + SRV_MAX_N_IO_THREADS));
