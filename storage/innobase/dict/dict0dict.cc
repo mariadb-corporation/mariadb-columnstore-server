@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1996, 2018, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2012, Facebook Inc.
 Copyright (c) 2013, 2018, MariaDB Corporation.
 
@@ -439,7 +439,8 @@ dict_table_try_drop_aborted(
 		ut_ad(table->id == table_id);
 	}
 
-	if (table && table->get_ref_count() == ref_count && table->drop_aborted) {
+	if (table && table->get_ref_count() == ref_count && table->drop_aborted
+	    && !UT_LIST_GET_FIRST(table->locks)) {
 		/* Silence a debug assertion in row_merge_drop_indexes(). */
 		ut_d(table->acquire());
 		row_merge_drop_indexes(trx, table, TRUE);
@@ -1452,6 +1453,13 @@ dict_make_room_in_cache(
 
 		if (dict_table_can_be_evicted(table)) {
 
+			DBUG_EXECUTE_IF("crash_if_fts_table_is_evicted",
+			{
+				  if (table->fts &&
+				      dict_table_has_fts_index(table)) {
+					ut_ad(0);
+				  }
+			};);
 			dict_table_remove_from_cache_low(table, TRUE);
 
 			++n_evicted;
@@ -2418,6 +2426,44 @@ dict_index_add_to_cache(
 {
 	return(dict_index_add_to_cache_w_vcol(
 		table, index, NULL, page_no, strict));
+}
+
+/** Clears the virtual column's index list before index is
+being freed.
+@param[in]  index   Index being freed */
+void
+dict_index_remove_from_v_col_list(dict_index_t* index) {
+	/* Index is not completely formed */
+	if (!index->cached) {
+		return;
+	}
+        if (dict_index_has_virtual(index)) {
+                const dict_col_t*       col;
+                const dict_v_col_t*     vcol;
+
+                for (ulint i = 0; i < dict_index_get_n_fields(index); i++) {
+                        col =  dict_index_get_nth_col(index, i);
+                        if (dict_col_is_virtual(col)) {
+                                vcol = reinterpret_cast<const dict_v_col_t*>(
+                                        col);
+				/* This could be NULL, when we do add
+                                virtual column, add index together. We do not
+                                need to track this virtual column's index */
+				if (vcol->v_indexes == NULL) {
+                                        continue;
+                                }
+				dict_v_idx_list::iterator       it;
+				for (it = vcol->v_indexes->begin();
+                                     it != vcol->v_indexes->end(); ++it) {
+                                        dict_v_idx_t    v_index = *it;
+                                        if (v_index.index == index) {
+                                                vcol->v_indexes->erase(it);
+                                                break;
+                                        }
+				}
+			}
+		}
+	}
 }
 
 /** Adds an index to the dictionary cache, with possible indexing newly
@@ -4401,8 +4447,10 @@ dict_foreign_push_index_error(
 		const char*	col_name;
 		field = dict_index_get_nth_field(err_index, err_col);
 
-		col_name = dict_table_get_col_name(
-			table, dict_col_get_no(field->col));
+		col_name = dict_col_is_virtual(field->col)
+			? "(null)"
+			: dict_table_get_col_name(
+				table, dict_col_get_no(field->col));
 		fprintf(ef,
 			"%s table %s with foreign key constraint"
 			" failed. Field type or character set for column '%s' "
@@ -6982,10 +7030,6 @@ dict_foreign_qualify_index(
 			return(false);
 		}
 
-		col_name = col_names
-			? col_names[col_no]
-			: dict_table_get_col_name(table, col_no);
-
 		if (dict_col_is_virtual(field->col)) {
 			for (ulint j = 0; j < table->n_v_def; j++) {
 				col_name = dict_table_get_v_col_name(table, j);
@@ -6993,6 +7037,10 @@ dict_foreign_qualify_index(
 					break;
 				}
 			}
+		} else {
+			col_name = col_names
+				? col_names[col_no]
+				: dict_table_get_col_name(table, col_no);
 		}
 
 		if (0 != innobase_strcasecmp(columns[i], col_name)) {

@@ -743,6 +743,7 @@ public:
                                            of a query with ROLLUP */ 
   bool null_value;			/* if item is null */
   bool with_sum_func;                   /* True if item contains a sum func */
+  bool with_param;                      /* True if contains an SP parameter */
   bool with_window_func;             /* True if item contains a window func */
   /**
     True if any item except Item_sum contains a field. Set during parsing.
@@ -1680,7 +1681,7 @@ public:
     fields.
   */
   virtual bool check_partition_func_processor(void *arg) { return 1;}
-  virtual bool vcol_in_partition_func_processor(void *arg) { return 0; }
+  virtual bool post_fix_fields_part_expr_processor(void *arg) { return 0; }
   virtual bool rename_fields_processor(void *arg) { return 0; }
   /** Processor used to check acceptability of an item in the defining
       expression for a virtual column 
@@ -2653,7 +2654,7 @@ public:
   bool register_field_in_write_map(void *arg);
   bool register_field_in_bitmap(void *arg);
   bool check_partition_func_processor(void *int_arg) {return FALSE;}
-  bool vcol_in_partition_func_processor(void *bool_arg);
+  bool post_fix_fields_part_expr_processor(void *bool_arg);
   bool check_valid_arguments_processor(void *bool_arg);
   bool check_field_expression_processor(void *arg);
   bool enumerate_field_refs_processor(void *arg);

@@ -2,8 +2,10 @@ Windows bug: happens when a new line is exactly at the right offset.
 The following options may be given as the first argument:
 --print-defaults Print the program argument list and exit.
 --no-defaults Don't read default options from any option file.
+The following specify which files/extra groups are read (specified before remaining options):
 --defaults-file=# Only read default options from the given file #.
 --defaults-extra-file=# Read this file after the global files are read.
+--defaults-group-suffix=# Additionally read default groups with # appended as a suffix.
 
  --allow-suspicious-udfs 
  Allows use of UDFs consisting of only one symbol xxx()
@@ -1508,9 +1510,9 @@ sync-master-info 10000
 sync-relay-log 10000
 sync-relay-log-info 10000
 sysdate-is-now FALSE
-table-cache 431
+table-cache 421
 table-definition-cache 400
-table-open-cache 431
+table-open-cache 421
 table-open-cache-instances 8
 tc-heuristic-recover OFF
 thread-cache-size 151

@@ -1008,7 +1008,7 @@ Lex_input_stream::unescape(CHARSET_INFO *cs, char *to,
 bool Lex_input_stream::get_text(LEX_STRING *dst, uint sep,
                                 int pre_skip, int post_skip)
 {
-  reg1 uchar c;
+  uchar c;
   uint found_escape=0;
   CHARSET_INFO *cs= m_thd->charset();
 
@@ -1188,7 +1188,7 @@ static inline uint int_token(const char *str,uint length)
 */
 bool consume_comment(Lex_input_stream *lip, int remaining_recursions_permitted)
 {
-  reg1 uchar c;
+  uchar c;
   while (! lip->eof())
   {
     c= lip->yyGet();
@@ -1286,7 +1286,7 @@ int MYSQLlex(YYSTYPE *yylval, THD *thd)
 
 static int lex_one_token(YYSTYPE *yylval, THD *thd)
 {
-  reg1	uchar UNINIT_VAR(c);
+  uchar UNINIT_VAR(c);
   bool comment_closed;
   int	tokval, result_state;
   uint length;
@@ -2126,6 +2126,7 @@ void st_select_lex::init_query()
   select_n_having_items= 0;
   n_sum_items= 0;
   n_child_sum_items= 0;
+  hidden_bit_fields= 0;
   subquery_in_having= explicit_limit= 0;
   is_item_list_lookup= 0;
   first_execution= 1;
@@ -2673,6 +2674,10 @@ ulong st_select_lex::get_table_join_options()
 
 bool st_select_lex::setup_ref_array(THD *thd, uint order_group_num)
 {
+
+  if (!((options & SELECT_DISTINCT) && !group_list.elements))
+    hidden_bit_fields= 0;
+
   // find_order_in_list() may need some extra space, so multiply by two.
   order_group_num*= 2;
 
@@ -2687,7 +2692,8 @@ bool st_select_lex::setup_ref_array(THD *thd, uint order_group_num)
                        select_n_reserved +
                        select_n_having_items +
                        select_n_where_fields +
-                       order_group_num) * 5;
+                       order_group_num +
+                       hidden_bit_fields) * 5;
   if (!ref_pointer_array.is_null())
   {
     /*

@@ -522,7 +522,7 @@ struct st_match_err
 
 struct st_expected_errors
 {
-  struct st_match_err err[10];
+  struct st_match_err err[12];
   uint count;
 };
 static struct st_expected_errors saved_expected_errors;
@@ -1461,7 +1461,7 @@ void close_statements()
   for (con= connections; con < next_con; con++)
   {
     if (con->stmt)
-      mysql_stmt_close(con->stmt);
+      do_stmt_close(con);
     con->stmt= 0;
   }
   DBUG_VOID_RETURN;

@@ -1,5 +1,5 @@
 /* Copyright (c) 2010, 2015, Oracle and/or its affiliates.
-   Copyright (c) 2011, 2016, MariaDB
+   Copyright (c) 2011, 2018, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -238,7 +238,7 @@ static int prepare_for_repair(THD *thd, TABLE_LIST *table_list,
 
   if (thd->locked_tables_list.locked_tables())
   {
-    if (thd->locked_tables_list.reopen_tables(thd))
+    if (thd->locked_tables_list.reopen_tables(thd, false))
       goto end;
     /* Restore the table in the table list with the new opened table */
     table_list->table= pos_in_locked_tables->table;
@@ -1170,7 +1170,9 @@ send_result_message:
     }
     else
     {
-      if (trans_commit_stmt(thd) || trans_commit_implicit(thd))
+      if (trans_commit_stmt(thd) ||
+          (stmt_causes_implicit_commit(thd, CF_IMPLICIT_COMMIT_END) &&
+           trans_commit_implicit(thd)))
         goto err;
     }
     close_thread_tables(thd);
@@ -1204,7 +1206,8 @@ send_result_message:
 err:
   /* Make sure this table instance is not reused after the failure. */
   trans_rollback_stmt(thd);
-  trans_rollback(thd);
+  if (stmt_causes_implicit_commit(thd, CF_IMPLICIT_COMMIT_END))
+    trans_rollback(thd);
   if (table && table->table)
   {
     table->table->m_needs_reopen= true;

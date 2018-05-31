@@ -2,7 +2,7 @@
 # -*- cperl -*-
 
 # Copyright (c) 2004, 2014, Oracle and/or its affiliates.
-# Copyright (c) 2009, 2017, MariaDB Corporation
+# Copyright (c) 2009, 2018, MariaDB Corporation
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -4446,6 +4446,7 @@ sub extract_warning_lines ($$) {
      qr|SSL error: Failed to set ciphers to use|,
      qr/Plugin 'InnoDB' will be forced to shutdown/,
      qr|Could not increase number of max_open_files to more than|,
+     qr|Changed limits: max_open_files|,
      qr/InnoDB: Error table encrypted but encryption service not available.*/,
      qr/InnoDB: Could not find a valid tablespace file for*/,
      qr/InnoDB: Tablespace open failed for*/,

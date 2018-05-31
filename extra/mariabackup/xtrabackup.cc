@@ -195,6 +195,10 @@ static ulong max_buf_pool_modified_pct;
 /* Ignored option (--log) for MySQL option compatibility */
 static char*	log_ignored_opt;
 
+
+extern my_bool opt_use_ssl;
+my_bool opt_ssl_verify_server_cert;
+
 /* === metadata of backup === */
 #define XTRABACKUP_METADATA_FILENAME "xtrabackup_checkpoints"
 char metadata_type[30] = ""; /*[full-backuped|log-applied|incremental]*/
@@ -333,9 +337,6 @@ uint opt_safe_slave_backup_timeout = 0;
 
 const char *opt_history = NULL;
 
-#if defined(HAVE_OPENSSL)
-my_bool opt_ssl_verify_server_cert = FALSE;
-#endif
 
 char mariabackup_exe[FN_REFLEN];
 char orig_argv1[FN_REFLEN];
@@ -434,6 +435,91 @@ datafiles_iter_free(datafiles_iter_t *it)
 	free(it);
 }
 
+#ifndef DBUG_OFF
+struct dbug_thread_param_t
+{
+	MYSQL *con;
+	const char *query;
+	int expect_err;
+	int expect_errno;
+	os_event_t done_event;
+};
+
+
+/* Thread procedure used in dbug_start_query_thread. */
+extern "C"
+os_thread_ret_t
+DECLARE_THREAD(dbug_execute_in_new_connection)(void *arg)
+{
+	mysql_thread_init();
+	dbug_thread_param_t *par= (dbug_thread_param_t *)arg;
+	int err = mysql_query(par->con, par->query);
+	int err_no = mysql_errno(par->con);
+	DBUG_ASSERT(par->expect_err == err);
+	if (err && par->expect_errno)
+		DBUG_ASSERT(err_no == par->expect_errno);
+	mysql_close(par->con);
+	mysql_thread_end();
+	os_event_t done = par->done_event;
+	delete par;
+	os_event_set(done);
+	os_thread_exit();
+	return os_thread_ret_t(0);
+}
+
+/*
+Execute query from a new connection, in own thread.
+
+@param query - query to be executed
+@param wait_state - if not NULL, wait until query from new connection
+	reaches this state (value of column State in I_S.PROCESSLIST)
+@param expected_err - if 0, query is supposed to finish successfully,
+	otherwise query should return error.
+@param expected_errno - if not 0, and query finished with error,
+	expected mysql_errno()
+*/
+static os_event_t dbug_start_query_thread(
+	const char *query,
+	const char *wait_state,
+	int expected_err,
+	int expected_errno)
+
+{
+	dbug_thread_param_t *par = new dbug_thread_param_t;
+	par->query = query;
+	par->expect_err = expected_err;
+	par->expect_errno = expected_errno;
+	par->done_event = os_event_create(0);
+	par->con =  xb_mysql_connect();
+	os_thread_create(dbug_execute_in_new_connection, par, 0);
+
+	if (!wait_state)
+		return par->done_event;
+
+	char q[256];
+	snprintf(q, sizeof(q),
+		"SELECT 1 FROM INFORMATION_SCHEMA.PROCESSLIST where ID=%lu"
+		" AND Command='Query' AND State='%s'",
+		mysql_thread_id(par->con), wait_state);
+	for (;;) {
+		MYSQL_RES *result = xb_mysql_query(mysql_connection,q, true, true);
+		if (mysql_fetch_row(result)) {
+			goto end;
+		}
+		msg_ts("Waiting for query '%s' on connection %lu to "
+			" reach state '%s'", query, mysql_thread_id(par->con),
+			wait_state);
+		my_sleep(1000);
+	}
+end:
+	msg_ts("query '%s' on connection %lu reached state '%s'", query,
+	mysql_thread_id(par->con), wait_state);
+	return par->done_event;
+}
+
+os_event_t dbug_alter_thread_done;
+#endif
+
 void mdl_lock_all()
 {
 	mdl_lock_init();
@@ -449,6 +535,11 @@ void mdl_lock_all()
 		mdl_lock_table(node->space->id);
 	}
 	datafiles_iter_free(it);
+
+	DBUG_EXECUTE_IF("check_mdl_lock_works",
+		dbug_alter_thread_done =
+		  dbug_start_query_thread("ALTER TABLE test.t ADD COLUMN mdl_lock_column int",
+			 "Waiting for table metadata lock",1, ER_QUERY_INTERRUPTED););
 }
 
 /** Check if the space id belongs to the table which name should
@@ -500,6 +591,7 @@ typedef struct {
 } data_thread_ctxt_t;
 
 /* ======== for option and variables ======== */
+#include <../../client/client_priv.h>
 
 enum options_xtrabackup
 {
@@ -563,8 +655,6 @@ enum options_xtrabackup
   OPT_INNODB_LOG_CHECKSUMS,
   OPT_XTRA_INCREMENTAL_FORCE_SCAN,
   OPT_DEFAULTS_GROUP,
-  OPT_OPEN_FILES_LIMIT,
-  OPT_PLUGIN_DIR,
   OPT_PLUGIN_LOAD,
   OPT_INNODB_ENCRYPT_LOG,
   OPT_CLOSE_FILES,
@@ -723,7 +813,7 @@ struct my_option xb_client_options[] =
   {"galera-info", OPT_GALERA_INFO, "This options creates the "
    "xtrabackup_galera_info file which contains the local node state at "
    "the time of the backup. Option should be used when performing the "
-   "backup of Percona-XtraDB-Cluster. Has no effect when backup locks "
+   "backup of MariaDB Galera Cluster. Has no effect when backup locks "
    "are used to create the backup.",
    (uchar *) &opt_galera_info, (uchar *) &opt_galera_info, 0,
    GET_BOOL, NO_ARG, 0, 0, 0, 0, 0, 0},
@@ -944,9 +1034,9 @@ struct my_option xb_client_options[] =
   {"secure-auth", OPT_XB_SECURE_AUTH, "Refuse client connecting to server if it"
     " uses old (pre-4.1.1) protocol.", &opt_secure_auth,
     &opt_secure_auth, 0, GET_BOOL, NO_ARG, 1, 0, 0, 0, 0, 0},
-
+#define MYSQL_CLIENT
 #include "sslopt-longopts.h"
-
+#undef MYSQL_CLIENT
 
   { 0, 0, 0, 0, 0, 0, GET_NO_ARG, NO_ARG, 0, 0, 0, 0, 0, 0}
 };
@@ -1486,7 +1576,9 @@ xb_get_one_option(int optid,
       }
     }
     break;
+#define MYSQL_CLIENT
 #include "sslopt-case.h"
+#undef MYSQL_CLIENT
 
   case '?':
     usage();
@@ -2465,7 +2557,6 @@ xtrabackup_copy_logfile(copy_logfile copy)
 
 	recv_sys->parse_start_lsn = log_copy_scanned_lsn;
 	recv_sys->scanned_lsn = log_copy_scanned_lsn;
-	recv_sys->recovered_lsn = log_copy_scanned_lsn;
 
 	start_lsn = ut_uint64_align_down(log_copy_scanned_lsn,
 					 OS_FILE_LOG_BLOCK_SIZE);
@@ -2967,7 +3058,7 @@ static dberr_t xb_assign_undo_space_start()
 		name[dirnamelen++] = OS_PATH_SEPARATOR;
 	}
 
-	snprintf(name + dirnamelen, strlen(name) + strlen("ibdata1"),
+	snprintf(name + dirnamelen, (sizeof name) - dirnamelen,
 		 "%s", "ibdata1");
 
 	file = os_file_create(0, name, OS_FILE_OPEN,
@@ -3992,6 +4083,8 @@ reread_log_header:
 
 	/* copy log file by current position */
 	log_copy_scanned_lsn = checkpoint_lsn_start;
+	recv_sys->recovered_lsn = log_copy_scanned_lsn;
+
 	if (xtrabackup_copy_logfile(COPY_FIRST))
 		goto fail;
 
@@ -4078,6 +4171,11 @@ reread_log_header:
 
 		backup_release();
 
+		DBUG_EXECUTE_IF("check_mdl_lock_works",
+			os_event_wait(dbug_alter_thread_done);
+			os_event_destroy(dbug_alter_thread_done);
+		);
+
 		if (ok) {
 			backup_finish();
 		}
@@ -4085,10 +4183,6 @@ reread_log_header:
 
 	if (!ok) {
 		goto fail;
-	}
-
-	if (opt_lock_ddl_per_table) {
-		mdl_unlock_all();
 	}
 
 	xtrabackup_destroy_datasinks();
@@ -4474,8 +4568,6 @@ xtrabackup_apply_delta(
 
 	posix_fadvise(src_file, 0, 0, POSIX_FADV_SEQUENTIAL);
 
-	os_file_set_nocache(src_file, src_path, "OPEN");
-
 	dst_file = xb_delta_open_matching_space(
 			dbname, space_name, info,
 			dst_path, sizeof(dst_path), &success);
@@ -4485,8 +4577,6 @@ xtrabackup_apply_delta(
 	}
 
 	posix_fadvise(dst_file, 0, 0, POSIX_FADV_DONTNEED);
-
-	os_file_set_nocache(dst_file, dst_path, "OPEN");
 
 	/* allocate buffer for incremental backup (4096 pages) */
 	incremental_buffer_base = static_cast<byte *>
@@ -4592,6 +4682,13 @@ xtrabackup_apply_delta(
 				goto error;
 			}
 		}
+
+		/* Free file system buffer cache after the batch was written. */
+#ifdef __linux__
+		os_file_flush_func(dst_file);
+#endif
+		posix_fadvise(dst_file, 0, 0, POSIX_FADV_DONTNEED);
+
 
 		incremental_buffers++;
 	}
@@ -5611,6 +5708,10 @@ static int main_low(char** argv)
 		xtrabackup_incremental = opt_incremental_history_uuid;
 	} else {
 		xtrabackup_incremental = NULL;
+	}
+
+	if (xtrabackup_stream && !xtrabackup_backup) {
+		msg("Warning: --stream parameter is ignored, it only works together with --backup.\n");
 	}
 
 	if (!xb_init()) {

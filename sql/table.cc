@@ -1,5 +1,5 @@
-/* Copyright (c) 2000, 2015, Oracle and/or its affiliates.
-   Copyright (c) 2008, 2016, MariaDB
+/* Copyright (c) 2000, 2017, Oracle and/or its affiliates.
+   Copyright (c) 2008, 2018, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -3409,7 +3409,7 @@ partititon_err:
     table		TABLE object to free
 */
 
-int closefrm(register TABLE *table)
+int closefrm(TABLE *table)
 {
   int error=0;
   DBUG_ENTER("closefrm");
@@ -3446,7 +3446,7 @@ int closefrm(register TABLE *table)
 
 /* Deallocate temporary blob storage */
 
-void free_blobs(register TABLE *table)
+void free_blobs(TABLE *table)
 {
   uint *ptr, *end;
   for (ptr= table->s->blob_field, end=ptr + table->s->blob_fields ;
@@ -4088,7 +4088,7 @@ Table_check_intact::check(TABLE *table, const TABLE_FIELD_DEF *table_def)
 
   /* Whether the table definition has already been validated. */
   if (table->s->table_field_def_cache == table_def)
-    DBUG_RETURN(FALSE);
+    goto end;
 
   if (table->s->fields != table_def->count)
   {
@@ -4121,6 +4121,8 @@ Table_check_intact::check(TABLE *table, const TABLE_FIELD_DEF *table_def)
       is backward compatible.
     */
   }
+  else
+  {
   StringBuffer<1024> sql_type(system_charset_info);
   sql_type.extra_allocation(256); // Allocate min 256 characters at once
   for (i=0 ; i < table_def->count; i++, field_def++)
@@ -4206,6 +4208,7 @@ Table_check_intact::check(TABLE *table, const TABLE_FIELD_DEF *table_def)
       error= TRUE;
     }
   }
+  }
 
   if (table_def->primary_key_parts)
   {
@@ -4249,6 +4252,16 @@ Table_check_intact::check(TABLE *table, const TABLE_FIELD_DEF *table_def)
 
   if (! error)
     table->s->table_field_def_cache= table_def;
+
+end:
+
+  if (has_keys && !error && !table->key_info)
+  {
+    report_error(0, "Incorrect definition of table %s.%s: "
+                 "indexes are missing",
+                 table->s->db.str, table->alias.c_ptr());
+    error= TRUE;
+  }
 
   DBUG_RETURN(error);
 }
@@ -5103,14 +5116,25 @@ int TABLE_LIST::view_check_option(THD *thd, bool ignore_failure)
 
 int TABLE::verify_constraints(bool ignore_failure)
 {
+  /*
+    We have to check is_error() first as we are checking it for each
+    constraint to catch fatal warnings.
+  */
+  if (in_use->is_error())
+    return (VIEW_CHECK_ERROR);
+
   /* go trough check option clauses for fields and table */
   if (check_constraints &&
       !(in_use->variables.option_bits & OPTION_NO_CHECK_CONSTRAINT_CHECKS))
   {
     for (Virtual_column_info **chk= check_constraints ; *chk ; chk++)
     {
-      /* yes! NULL is ok, see 4.23.3.4 Table check constraints, part 2, SQL:2016 */
-      if ((*chk)->expr->val_int() == 0 && !(*chk)->expr->null_value)
+      /*
+        yes! NULL is ok.
+        see 4.23.3.4 Table check constraints, part 2, SQL:2016
+      */
+      if (((*chk)->expr->val_int() == 0 && !(*chk)->expr->null_value) ||
+          in_use->is_error())
       {
         my_error(ER_CONSTRAINT_FAILED,
                  MYF(ignore_failure ? ME_JUST_WARNING : 0), (*chk)->name.str,
@@ -5119,7 +5143,11 @@ int TABLE::verify_constraints(bool ignore_failure)
       }
     }
   }
-  return(VIEW_CHECK_OK);
+  /*
+    We have to check in_use() as checking constraints may have generated
+    warnings that should be treated as errors
+  */
+  return(!in_use->is_error() ? VIEW_CHECK_OK : VIEW_CHECK_ERROR);
 }
 
 
@@ -6616,7 +6644,7 @@ bool TABLE::mark_virtual_columns_for_write(bool insert_fl)
     if (bitmap_is_set(write_set, tmp_vfield->field_index))
       bitmap_updated= mark_virtual_col(tmp_vfield);
     else if (tmp_vfield->vcol_info->stored_in_db ||
-             (tmp_vfield->flags & PART_KEY_FLAG))
+             (tmp_vfield->flags & (PART_KEY_FLAG | FIELD_IN_PART_FUNC_FLAG)))
     {
       if (insert_fl)
       {
@@ -8207,6 +8235,7 @@ Item* TABLE_LIST::build_pushable_cond_for_table(THD *thd, Item *cond)
       return 0;		
     List_iterator<Item> li(*((Item_cond*) cond)->argument_list());
     Item *item;
+    bool is_fix_needed= false;
     while ((item=li++))
     {
       if (item->get_extraction_flag() == NO_EXTRACTION_FL)
@@ -8220,8 +8249,16 @@ Item* TABLE_LIST::build_pushable_cond_for_table(THD *thd, Item *cond)
 	return 0;
       if (!fix) 
 	continue;
+
+      if (fix->type() == Item::COND_ITEM &&
+          ((Item_cond*) fix)->functype() == Item_func::COND_AND_FUNC)
+	is_fix_needed= true;
+
       new_cond->argument_list()->push_back(fix, thd->mem_root);
     }
+    if (is_fix_needed && new_cond->fix_fields(thd, 0))
+      return 0;
+
     switch (new_cond->argument_list()->elements) 
     {
     case 0:

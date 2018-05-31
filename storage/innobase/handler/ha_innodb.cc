@@ -1,10 +1,10 @@
 /*****************************************************************************
 
-Copyright (c) 2000, 2017, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2013, 2018, MariaDB Corporation.
+Copyright (c) 2000, 2018, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2008, 2009 Google Inc.
 Copyright (c) 2009, Percona Inc.
 Copyright (c) 2012, Facebook Inc.
+Copyright (c) 2013, 2018, MariaDB Corporation.
 
 Portions of this file contain modifications contributed and copyrighted by
 Google, Inc. Those modifications are gratefully acknowledged and are described
@@ -58,7 +58,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 // MYSQL_PLUGIN_IMPORT extern my_bool lower_case_file_system;
 // MYSQL_PLUGIN_IMPORT extern char mysql_unpacked_real_data_home[];
 
-#include <my_systemd.h>
+#include <my_service_manager.h>
 #include <key.h>
 
 /* Include necessary InnoDB headers */
@@ -3705,7 +3705,6 @@ innobase_init(
 	char		*default_path;
 	uint		format_id;
 	ulong		num_pll_degree;
-	ulint		srv_buf_pool_size_org = 0;
 
 	DBUG_ENTER("innobase_init");
 	handlerton* innobase_hton= (handlerton*) p;
@@ -3933,6 +3932,8 @@ innobase_init(
 
 	/* Supports raw devices */
 	if (!srv_sys_space.parse_params(innobase_data_file_path, true)) {
+		ib::error() << "Unable to parse innodb_data_file_path="
+			    << innobase_data_file_path;
 		DBUG_RETURN(innobase_init_abort());
 	}
 
@@ -3951,6 +3952,8 @@ innobase_init(
 	srv_tmp_space.set_flags(FSP_FLAGS_PAGE_SSIZE());
 
 	if (!srv_tmp_space.parse_params(innobase_temp_data_file_path, false)) {
+		ib::error() << "Unable to parse innodb_temp_data_file_path="
+			    << innobase_temp_data_file_path;
 		DBUG_RETURN(innobase_init_abort());
 	}
 
@@ -4304,31 +4307,9 @@ innobase_change_buffering_inited_ok:
 	mysql_cond_register("innodb", all_innodb_conds, count);
 #endif /* HAVE_PSI_INTERFACE */
 
-	/* Set buffer pool size to default for fast startup when mysqld is
-	run with --help --verbose options. */
-	/* JAN: TODO: MySQL 5.7 has opt_verbose
-	if (opt_help && opt_verbose
-	    && srv_buf_pool_size > srv_buf_pool_def_size) {
-		ib::warn() << "Setting innodb_buf_pool_size to "
-			<< srv_buf_pool_def_size << " for fast startup, "
-			<< "when running with --help --verbose options.";
-		srv_buf_pool_size_org = srv_buf_pool_size;
-		srv_buf_pool_size = srv_buf_pool_def_size;
-	}
-	*/
-
 	err = innobase_start_or_create_for_mysql();
 
-	if (srv_buf_pool_size_org != 0) {
-		/* Set the original value back to show in help. */
-		srv_buf_pool_size_org =
-			buf_pool_size_align(srv_buf_pool_size_org);
-		innobase_buffer_pool_size =
-			static_cast<long long>(srv_buf_pool_size_org);
-	} else {
-		innobase_buffer_pool_size =
-			static_cast<long long>(srv_buf_pool_size);
-	}
+	innobase_buffer_pool_size = static_cast<long long>(srv_buf_pool_size);
 
 	if (err != DB_SUCCESS) {
 		innodb_shutdown();
@@ -5210,7 +5191,6 @@ static void innobase_kill_query(handlerton*, THD* thd, enum thd_kill_levels)
 {
 	DBUG_ENTER("innobase_kill_query");
 #ifdef WITH_WSREP
-	wsrep_thd_LOCK(thd);
 	if (wsrep_thd_get_conflict_state(thd) != NO_CONFLICT) {
 		/* if victim has been signaled by BF thread and/or aborting
 		   is already progressing, following query aborting is not necessary
@@ -5218,10 +5198,8 @@ static void innobase_kill_query(handlerton*, THD* thd, enum thd_kill_levels)
 		   Also, BF thread should own trx mutex for the victim, which would
 		   conflict with trx_mutex_enter() below
 		*/
-		wsrep_thd_UNLOCK(thd);
 		DBUG_VOID_RETURN;
 	}
-	wsrep_thd_UNLOCK(thd);
 #endif /* WITH_WSREP */
 
 	if (trx_t* trx = thd_to_trx(thd)) {
@@ -9055,6 +9033,14 @@ ha_innobase::update_row(
 		goto func_exit;
 	}
 
+	if (!uvect->n_fields) {
+		/* This is the same as success, but instructs
+		MySQL that the row is not really updated and it
+		should not increase the count of updated rows.
+		This is fix for http://bugs.mysql.com/29157 */
+		DBUG_RETURN(HA_ERR_RECORD_IS_THE_SAME);
+	}
+
 	/* This is not a delete */
 	m_prebuilt->upd_node->is_delete = FALSE;
 
@@ -9091,20 +9077,12 @@ ha_innobase::update_row(
 	innobase_srv_conc_exit_innodb(m_prebuilt);
 
 func_exit:
-
-	err = convert_error_code_to_mysql(
-		error, m_prebuilt->table->flags, m_user_thd);
-
-	/* If success and no columns were updated. */
-	if (err == 0 && uvect->n_fields == 0) {
-
-		/* This is the same as success, but instructs
-		MySQL that the row is not really updated and it
-		should not increase the count of updated rows.
-		This is fix for http://bugs.mysql.com/29157 */
-		err = HA_ERR_RECORD_IS_THE_SAME;
-	} else if (err == HA_FTS_INVALID_DOCID) {
+	if (error == DB_FTS_INVALID_DOCID) {
+		err = HA_FTS_INVALID_DOCID;
 		my_error(HA_FTS_INVALID_DOCID, MYF(0));
+	} else {
+		err = convert_error_code_to_mysql(
+			error, m_prebuilt->table->flags, m_user_thd);
 	}
 
 	/* Tell InnoDB server that there might be work for
@@ -9429,13 +9407,13 @@ ha_innobase::index_read(
 
 	dict_index_t*	index = m_prebuilt->index;
 
-	if (index == NULL || dict_index_is_corrupted(index)) {
+	if (index == NULL || index->is_corrupted()) {
 		m_prebuilt->index_usable = FALSE;
 		DBUG_RETURN(HA_ERR_CRASHED);
 	}
 
 	if (!m_prebuilt->index_usable) {
-		DBUG_RETURN(dict_index_is_corrupted(index)
+		DBUG_RETURN(index->is_corrupted()
 			    ? HA_ERR_INDEX_CORRUPT
 			    : HA_ERR_TABLE_DEF_CHANGED);
 	}
@@ -9694,14 +9672,14 @@ ha_innobase::change_active_index(
 		m_prebuilt->trx, m_prebuilt->index);
 
 	if (!m_prebuilt->index_usable) {
-		if (dict_index_is_corrupted(m_prebuilt->index)) {
+		if (m_prebuilt->index->is_corrupted()) {
 			char	table_name[MAX_FULL_NAME_LEN + 1];
 
 			innobase_format_name(
 				table_name, sizeof table_name,
 				m_prebuilt->index->table->name.m_name);
 
-			if (dict_index_is_clust(m_prebuilt->index)) {
+			if (m_prebuilt->index->is_primary()) {
 				ut_ad(m_prebuilt->index->table->corrupted);
 				push_warning_printf(
 					m_user_thd, Sql_condition::WARN_LEVEL_WARN,
@@ -12948,10 +12926,9 @@ create_table_info_t::create_table_update_dict()
 		dict_table_autoinc_unlock(innobase_table);
 	}
 
-	dict_table_close(innobase_table, FALSE, FALSE);
-
 	innobase_parse_hint_from_comment(m_thd, innobase_table, m_form->s);
 
+	dict_table_close(innobase_table, FALSE, FALSE);
 	DBUG_RETURN(0);
 }
 
@@ -13686,7 +13663,7 @@ ha_innobase::records_in_range(
 		n_rows = HA_POS_ERROR;
 		goto func_exit;
 	}
-	if (dict_index_is_corrupted(index)) {
+	if (index->is_corrupted()) {
 		n_rows = HA_ERR_INDEX_CORRUPT;
 		goto func_exit;
 	}
@@ -14546,7 +14523,7 @@ ha_innobase::defragment_table(
 	for (index = dict_table_get_first_index(table); index;
 	     index = dict_table_get_next_index(index)) {
 
-		if (dict_index_is_corrupted(index)) {
+		if (index->is_corrupted()) {
 			continue;
 		}
 
@@ -14745,7 +14722,7 @@ ha_innobase::check(
 		clustered index, we will do so here */
 		index = dict_table_get_first_index(m_prebuilt->table);
 
-		if (!dict_index_is_corrupted(index)) {
+		if (!index->is_corrupted()) {
 			dict_set_corrupted(
 				index, m_prebuilt->trx, "CHECK TABLE");
 		}
@@ -14783,7 +14760,7 @@ ha_innobase::check(
 		}
 
 		if (!(check_opt->flags & T_QUICK)
-		    && !dict_index_is_corrupted(index)) {
+		    && !index->is_corrupted()) {
 			/* Enlarge the fatal lock wait timeout during
 			CHECK TABLE. */
 			my_atomic_addlong(
@@ -14835,7 +14812,7 @@ ha_innobase::check(
 
 		DBUG_EXECUTE_IF(
 			"dict_set_index_corrupted",
-			if (!dict_index_is_clust(index)) {
+			if (!index->is_primary()) {
 				m_prebuilt->index_usable = FALSE;
 				// row_mysql_lock_data_dictionary(m_prebuilt->trx);
 				dict_set_corrupted(index, m_prebuilt->trx, "dict_set_index_corrupted");
@@ -14843,7 +14820,7 @@ ha_innobase::check(
 			});
 
 		if (UNIV_UNLIKELY(!m_prebuilt->index_usable)) {
-			if (dict_index_is_corrupted(m_prebuilt->index)) {
+			if (index->is_corrupted()) {
 				push_warning_printf(
 					m_user_thd,
 					Sql_condition::WARN_LEVEL_WARN,
@@ -14883,7 +14860,7 @@ ha_innobase::check(
 
 		DBUG_EXECUTE_IF(
 			"dict_set_index_corrupted",
-			if (!dict_index_is_clust(index)) {
+			if (!index->is_primary()) {
 				ret = DB_CORRUPTION;
 			});
 
@@ -15641,6 +15618,7 @@ ha_innobase::start_stmt(
 		case SQLCOM_INSERT:
 		case SQLCOM_UPDATE:
 		case SQLCOM_DELETE:
+		case SQLCOM_REPLACE:
 			init_table_handle_for_HANDLER();
 			m_prebuilt->select_lock_type = LOCK_X;
 			m_prebuilt->stored_select_lock_type = LOCK_X;
