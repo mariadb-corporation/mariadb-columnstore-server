@@ -481,7 +481,8 @@ err_with_reopen:
       old locks. This should always succeed (unless some external process
       has removed the tables)
     */
-    thd->locked_tables_list.reopen_tables(thd);
+    if (thd->locked_tables_list.reopen_tables(thd, false))
+      result= true;
     /*
       Since downgrade_lock() won't do anything with shared
       metadata lock it is much simpler to go through all open tables rather
@@ -2244,7 +2245,8 @@ void Locked_tables_list::unlink_from_list(THD *thd,
     If mode is not LTM_LOCK_TABLES, we needn't do anything. Moreover,
     outside this mode pos_in_locked_tables value is not trustworthy.
   */
-  if (thd->locked_tables_mode != LTM_LOCK_TABLES)
+  if (thd->locked_tables_mode != LTM_LOCK_TABLES &&
+      thd->locked_tables_mode != LTM_PRELOCKED_UNDER_LOCK_TABLES)
     return;
 
   /*
@@ -2348,7 +2350,7 @@ unlink_all_closed_tables(THD *thd, MYSQL_LOCK *lock, size_t reopen_count)
 */
 
 bool
-Locked_tables_list::reopen_tables(THD *thd)
+Locked_tables_list::reopen_tables(THD *thd, bool need_reopen)
 {
   Open_table_context ot_ctx(thd, MYSQL_OPEN_REOPEN);
   size_t reopen_count= 0;
@@ -2359,8 +2361,20 @@ Locked_tables_list::reopen_tables(THD *thd)
   for (TABLE_LIST *table_list= m_locked_tables;
        table_list; table_list= table_list->next_global)
   {
-    if (table_list->table)                      /* The table was not closed */
-      continue;
+    if (need_reopen)
+    {
+      if (!table_list->table || !table_list->table->needs_reopen())
+        continue;
+      /* no need to remove the table from the TDC here, thus (TABLE*)1 */
+      close_all_tables_for_name(thd, table_list->table->s,
+                                HA_EXTRA_NOT_USED, (TABLE*)1);
+      DBUG_ASSERT(table_list->table == NULL);
+    }
+    else
+    {
+      if (table_list->table)                      /* The table was not closed */
+          continue;
+    }
 
     /* Links into thd->open_tables upon success */
     if (open_table(thd, table_list, &ot_ctx))
@@ -6909,7 +6923,7 @@ static bool setup_natural_join_row_types(THD *thd,
 
 int setup_wild(THD *thd, TABLE_LIST *tables, List<Item> &fields,
 	       List<Item> *sum_func_list,
-	       uint wild_num)
+	       uint wild_num, uint *hidden_bit_fields)
 {
   if (!wild_num)
     return(0);
@@ -6950,7 +6964,7 @@ int setup_wild(THD *thd, TABLE_LIST *tables, List<Item> &fields,
       else if (insert_fields(thd, ((Item_field*) item)->context,
                              ((Item_field*) item)->db_name,
                              ((Item_field*) item)->table_name, &it,
-                             any_privileges))
+                             any_privileges, hidden_bit_fields))
       {
 	if (arena)
 	  thd->restore_active_arena(arena, &backup);
@@ -7001,7 +7015,7 @@ bool setup_fields(THD *thd, Ref_ptr_array ref_pointer_array,
                   List<Item> *sum_func_list, List<Item> *pre_fix,
                   bool allow_sum_func)
 {
-  reg2 Item *item;
+  Item *item;
   enum_mark_columns save_mark_used_columns= thd->mark_used_columns;
   nesting_map save_allow_sum_func= thd->lex->allow_sum_func;
   List_iterator<Item> it(fields);
@@ -7415,7 +7429,7 @@ bool get_key_map_from_key_list(key_map *map, TABLE *table,
 bool
 insert_fields(THD *thd, Name_resolution_context *context, const char *db_name,
 	      const char *table_name, List_iterator<Item> *it,
-              bool any_privileges)
+              bool any_privileges, uint *hidden_bit_fields)
 {
   Field_iterator_table_ref field_iterator;
   bool found;
@@ -7534,6 +7548,9 @@ insert_fields(THD *thd, Name_resolution_context *context, const char *db_name,
       }
       else
         it->after(item);   /* Add 'item' to the SELECT list. */
+
+      if (item->type() == Item::FIELD_ITEM && item->field_type() == MYSQL_TYPE_BIT)
+        (*hidden_bit_fields)++;
 
 #ifndef NO_EMBEDDED_ACCESS_CHECKS
       /*

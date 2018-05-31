@@ -477,7 +477,9 @@ Item::Item(THD *thd):
   maybe_null=null_value=with_sum_func=with_window_func=with_field=0;
   in_rollup= 0;
   with_subselect= 0;
-   /* Initially this item is not attached to any JOIN_TAB. */
+  with_param= 0;
+
+  /* Initially this item is not attached to any JOIN_TAB. */
   join_tab_idx= MAX_TABLES;
 
   /* Put item in free list so that we can free all items at end */
@@ -520,6 +522,7 @@ Item::Item(THD *thd, Item *item):
   in_rollup(item->in_rollup),
   null_value(item->null_value),
   with_sum_func(item->with_sum_func),
+  with_param(item->with_param),
   with_window_func(item->with_window_func),
   with_field(item->with_field),
   fixed(item->fixed),
@@ -1534,6 +1537,9 @@ bool Item_sp_variable::fix_fields(THD *thd, Item **)
   max_length= it->max_length;
   decimals= it->decimals;
   unsigned_flag= it->unsigned_flag;
+  with_param= 1;
+  if (thd->lex->current_select && thd->lex->current_select->master_unit()->item)
+    thd->lex->current_select->master_unit()->item->with_param= 1;
   fixed= 1;
   collation.set(it->collation.collation, it->collation.derivation);
 
@@ -5806,18 +5812,15 @@ error:
   return TRUE;
 }
 
-/*
-  @brief
-  Mark virtual columns as used in a partitioning expression 
-*/
-
-bool Item_field::vcol_in_partition_func_processor(void *int_arg)
+bool Item_field::post_fix_fields_part_expr_processor(void *int_arg)
 {
   DBUG_ASSERT(fixed);
   if (field->vcol_info)
-  {
     field->vcol_info->mark_as_in_partitioning_expr();
-  }
+  /*
+    Update table_name to be real table name, not the alias. Because alias is
+    reallocated for every statement, and this item has a long life time */
+  table_name= field->table->s->table_name.str;
   return FALSE;
 }
 
@@ -7852,6 +7855,7 @@ void Item_ref::set_properties()
     split_sum_func() doesn't try to change the reference.
   */
   with_sum_func= (*ref)->with_sum_func;
+  with_param= (*ref)->with_param;
   with_window_func= (*ref)->with_window_func;
   with_field= (*ref)->with_field;
   fixed= 1;
@@ -8278,6 +8282,7 @@ Item_cache_wrapper::Item_cache_wrapper(THD *thd, Item *item_arg):
   Type_std_attributes::set(orig_item);
   maybe_null= orig_item->maybe_null;
   with_sum_func= orig_item->with_sum_func;
+  with_param= orig_item->with_param;
   with_field= orig_item->with_field;
   name= item_arg->name;
   name_length= item_arg->name_length;
@@ -9773,6 +9778,8 @@ Item *Item_cache_int::convert_to_basic_const_item(THD *thd)
 {
   Item *new_item;
   DBUG_ASSERT(value_cached || example != 0);
+  if (!value_cached)
+    cache_value();
   new_item= null_value ?
             (Item*) new (thd->mem_root) Item_null(thd) :
 	    (Item*) new (thd->mem_root) Item_int(thd, val_int(), max_length);
@@ -9948,6 +9955,8 @@ Item *Item_cache_temporal::convert_to_basic_const_item(THD *thd)
 {
   Item *new_item;
   DBUG_ASSERT(value_cached || example != 0);
+  if (!value_cached)
+    cache_value();
   if (null_value)
     new_item= (Item*) new (thd->mem_root) Item_null(thd);
   else
@@ -10022,6 +10031,8 @@ Item *Item_cache_real::convert_to_basic_const_item(THD *thd)
 {
   Item *new_item;
   DBUG_ASSERT(value_cached || example != 0);
+  if (!value_cached)
+    cache_value();
   new_item= null_value ?
             (Item*) new (thd->mem_root) Item_null(thd) :
 	    (Item*) new (thd->mem_root) Item_float(thd, val_real(),
@@ -10085,6 +10096,8 @@ Item *Item_cache_decimal::convert_to_basic_const_item(THD *thd)
 {
   Item *new_item;
   DBUG_ASSERT(value_cached || example != 0);
+  if (!value_cached)
+    cache_value();
   if (null_value)
     new_item= (Item*) new (thd->mem_root) Item_null(thd);
   else
@@ -10180,6 +10193,8 @@ Item *Item_cache_str::convert_to_basic_const_item(THD *thd)
 {
   Item *new_item;
   DBUG_ASSERT(value_cached || example != 0);
+  if (!value_cached)
+    cache_value();
   if (null_value)
     new_item= (Item*) new (thd->mem_root) Item_null(thd);
   else

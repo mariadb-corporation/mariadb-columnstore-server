@@ -3745,7 +3745,8 @@ row_merge_drop_indexes(
 
 	A concurrent purge will be prevented by dict_operation_lock. */
 
-	if (!locked && table->get_ref_count() > 1) {
+	if (!locked && (table->get_ref_count() > 1
+			|| UT_LIST_GET_FIRST(table->locks))) {
 		/* We will have to drop the indexes later, when the
 		table is guaranteed to be no longer in use.  Mark the
 		indexes as incomplete and corrupted, so that other
@@ -4443,13 +4444,13 @@ row_merge_is_index_usable(
 	const trx_t*		trx,	/*!< in: transaction */
 	const dict_index_t*	index)	/*!< in: index to check */
 {
-	if (!dict_index_is_clust(index)
+	if (!index->is_primary()
 	    && dict_index_is_online_ddl(index)) {
 		/* Indexes that are being created are not useable. */
 		return(false);
 	}
 
-	return(!dict_index_is_corrupted(index)
+	return(!index->is_corrupted()
 	       && (dict_table_is_temporary(index->table)
 		   || index->trx_id == 0
 		   || !MVCC::is_view_active(trx->read_view)

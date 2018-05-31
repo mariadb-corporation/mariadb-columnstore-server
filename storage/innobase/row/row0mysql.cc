@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 2000, 2017, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2000, 2018, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2015, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
@@ -1470,8 +1470,7 @@ error_exit:
 			doc_ids difference should not exceed
 			FTS_DOC_ID_MAX_STEP value. */
 
-			if (next_doc_id > 1
-			    && doc_id - next_doc_id >= FTS_DOC_ID_MAX_STEP) {
+			if (doc_id - next_doc_id >= FTS_DOC_ID_MAX_STEP) {
 				 ib::error() << "Doc ID " << doc_id
 					<< " is too big. Its difference with"
 					" largest used Doc ID "
@@ -3638,48 +3637,46 @@ row_drop_table_for_mysql(
 
 		pars_info_add_str_literal(info, "table_name", name);
 
-		std::basic_string<char, std::char_traits<char>,
-				  ut_allocator<char> > sql;
-		sql.reserve(2000);
-
-		sql =	"PROCEDURE DROP_TABLE_PROC () IS\n"
+		err = que_eval_sql(
+			info,
+			"PROCEDURE DROP_TABLE_PROC () IS\n"
 			"sys_foreign_id CHAR;\n"
 			"table_id CHAR;\n"
 			"index_id CHAR;\n"
 			"foreign_id CHAR;\n"
 			"space_id INT;\n"
-			"found INT;\n";
+			"found INT;\n"
 
-		sql +=	"DECLARE CURSOR cur_fk IS\n"
+			"DECLARE CURSOR cur_fk IS\n"
 			"SELECT ID FROM SYS_FOREIGN\n"
 			"WHERE FOR_NAME = :table_name\n"
 			"AND TO_BINARY(FOR_NAME)\n"
 			"  = TO_BINARY(:table_name)\n"
-			"LOCK IN SHARE MODE;\n";
+			"LOCK IN SHARE MODE;\n"
 
-		sql +=	"DECLARE CURSOR cur_idx IS\n"
+			"DECLARE CURSOR cur_idx IS\n"
 			"SELECT ID FROM SYS_INDEXES\n"
 			"WHERE TABLE_ID = table_id\n"
-			"LOCK IN SHARE MODE;\n";
+			"LOCK IN SHARE MODE;\n"
 
-		sql +=	"BEGIN\n";
+			"BEGIN\n"
 
-		sql +=	"SELECT ID INTO table_id\n"
+			"SELECT ID INTO table_id\n"
 			"FROM SYS_TABLES\n"
 			"WHERE NAME = :table_name\n"
 			"LOCK IN SHARE MODE;\n"
 			"IF (SQL % NOTFOUND) THEN\n"
 			"       RETURN;\n"
-			"END IF;\n";
+			"END IF;\n"
 
-		sql +=	"SELECT SPACE INTO space_id\n"
+			"SELECT SPACE INTO space_id\n"
 			"FROM SYS_TABLES\n"
 			"WHERE NAME = :table_name;\n"
 			"IF (SQL % NOTFOUND) THEN\n"
 			"       RETURN;\n"
-			"END IF;\n";
+			"END IF;\n"
 
-		sql +=	"found := 1;\n"
+			"found := 1;\n"
 			"SELECT ID INTO sys_foreign_id\n"
 			"FROM SYS_TABLES\n"
 			"WHERE NAME = 'SYS_FOREIGN'\n"
@@ -3693,9 +3690,9 @@ row_drop_table_for_mysql(
 			"IF (:table_name = 'SYS_FOREIGN_COLS') \n"
 			"THEN\n"
 			"       found := 0;\n"
-			"END IF;\n";
+			"END IF;\n"
 
-		sql +=	"OPEN cur_fk;\n"
+			"OPEN cur_fk;\n"
 			"WHILE found = 1 LOOP\n"
 			"       FETCH cur_fk INTO foreign_id;\n"
 			"       IF (SQL % NOTFOUND) THEN\n"
@@ -3708,9 +3705,9 @@ row_drop_table_for_mysql(
 			"               WHERE ID = foreign_id;\n"
 			"       END IF;\n"
 			"END LOOP;\n"
-			"CLOSE cur_fk;\n";
+			"CLOSE cur_fk;\n"
 
-		sql +=	"found := 1;\n"
+			"found := 1;\n"
 			"OPEN cur_idx;\n"
 			"WHILE found = 1 LOOP\n"
 			"       FETCH cur_idx INTO index_id;\n"
@@ -3724,26 +3721,22 @@ row_drop_table_for_mysql(
 			"               AND TABLE_ID = table_id;\n"
 			"       END IF;\n"
 			"END LOOP;\n"
-			"CLOSE cur_idx;\n";
+			"CLOSE cur_idx;\n"
 
-		sql +=	"DELETE FROM SYS_COLUMNS\n"
+			"DELETE FROM SYS_COLUMNS\n"
 			"WHERE TABLE_ID = table_id;\n"
 			"DELETE FROM SYS_TABLES\n"
-			"WHERE NAME = :table_name;\n";
+			"WHERE NAME = :table_name;\n"
 
-		if (dict_table_is_file_per_table(table)) {
-			sql += "DELETE FROM SYS_TABLESPACES\n"
-				"WHERE SPACE = space_id;\n"
-				"DELETE FROM SYS_DATAFILES\n"
-				"WHERE SPACE = space_id;\n";
-		}
+			"DELETE FROM SYS_TABLESPACES\n"
+			"WHERE SPACE = space_id;\n"
+			"DELETE FROM SYS_DATAFILES\n"
+			"WHERE SPACE = space_id;\n"
 
-		sql +=	"DELETE FROM SYS_VIRTUAL\n"
-			"WHERE TABLE_ID = table_id;\n";
-
-		sql += "END;\n";
-
-		err = que_eval_sql(info, sql.c_str(), FALSE, trx);
+			"DELETE FROM SYS_VIRTUAL\n"
+			"WHERE TABLE_ID = table_id;\n"
+			"END;\n",
+			FALSE, trx);
 	} else {
 		page_no = page_nos;
 		for (dict_index_t* index = dict_table_get_first_index(table);
@@ -4513,7 +4506,8 @@ row_rename_table_for_mysql(
 		}
 	}
 
-	if (dict_table_has_fts_index(table)
+	if ((dict_table_has_fts_index(table)
+	    || DICT_TF2_FLAG_IS_SET(table, DICT_TF2_FTS_HAS_DOC_ID))
 	    && !dict_tables_have_same_db(old_name, new_name)) {
 		err = fts_rename_aux_tables(table, new_name, trx);
 		if (err != DB_TABLE_NOT_FOUND) {
