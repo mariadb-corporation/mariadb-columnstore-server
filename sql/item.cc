@@ -2742,7 +2742,12 @@ void Item_ident::print(String *str, enum_query_type query_type)
 	  		str->append('.');
 	  	}
 	  }
-  	str->append(field_name, (uint) strlen(field_name));
+    if (!field_name || !field_name[0])
+    {
+        str->append("tmp_field");
+        return;
+    } else
+        str->append(field_name, (uint) strlen(field_name));
   	if (query_type != QT_INFINIDB_NO_QUOTE && query_type != QT_INFINIDB_DERIVED)
   		str->append('`');
   	return;
