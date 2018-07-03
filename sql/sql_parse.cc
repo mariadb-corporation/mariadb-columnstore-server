@@ -2515,8 +2515,17 @@ void log_slow_statement(THD *thd)
       goto end;
 
     THD_STAGE_INFO(thd, stage_logging_slow_query);
-    slow_log_print(thd, thd->query(), thd->query_length(), 
-                   thd->utime_after_query);
+    if (thd->infinidb_vtable.vtable_state != THD::INFINIDB_DISABLE_VTABLE)
+    {
+        slow_log_print(thd, thd->infinidb_vtable.original_query.c_ptr(),
+            (unsigned)thd->infinidb_vtable.original_query.length(),
+            thd->utime_after_query);
+    }
+    else
+    {
+        slow_log_print(thd, thd->query(), thd->query_length(),
+            thd->utime_after_query);
+    }
   }
 
 end:
