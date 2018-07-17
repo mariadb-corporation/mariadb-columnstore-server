@@ -2441,6 +2441,8 @@ com_multi_end:
   MYSQL_END_STATEMENT(thd->m_statement_psi, thd->get_stmt_da());
   thd->set_examined_row_count(0);                   // For processlist
   thd->set_command(COM_SLEEP);
+  // MCOL-1527
+  thd->set_row_count_func(0);
 
   thd->m_statement_psi= NULL;
   thd->m_digest= NULL;
