@@ -1072,6 +1072,11 @@ update_begin:
                   {
                     thd->set_killed(KILL_QUERY);
                   };);
+  // @InfiniDB. Add isInfiniDBDML to make sure it's InfiniDB dml stmt.
+  if (thd->infinidb_vtable.isInfiniDBDML && thd->is_error())
+  {
+      error= 1;
+  }
   error= (killed_status == NOT_KILLED)?  error : 1;
   
   if (likely(error) &&
@@ -1178,7 +1183,11 @@ update_end:
                   ER_THD(thd, ER_UPDATE_INFO_WITH_SYSTEM_VERSIONING),
                   (ulong) found, (ulong) updated, (ulong) updated_sys_ver,
                   (ulong) thd->get_stmt_da()->current_statement_warn_count());
-    my_ok(thd, (thd->client_capabilities & CLIENT_FOUND_ROWS) ? found : updated,
+	//@Infinidb found and updated aren't correct for UPDATE. Use row_count_func instead.
+	if ((thd->infinidb_vtable.isInfiniDBDML))
+      my_ok(thd, thd->get_row_count_func(), id, buff);
+	else
+      my_ok(thd, (thd->client_capabilities & CLIENT_FOUND_ROWS) ? found : updated,
           id, buff);
     DBUG_PRINT("info",("%ld records updated", (long) updated));
   }
@@ -2885,8 +2894,14 @@ bool multi_update::send_eof()
     thd->first_successful_insert_id_in_prev_stmt : 0;
     my_snprintf(buff, sizeof(buff), ER_THD(thd, ER_UPDATE_INFO),
                 (ulong) found, (ulong) updated, (ulong) thd->cuted_fields);
-    ::my_ok(thd, (thd->client_capabilities & CLIENT_FOUND_ROWS) ? found : updated,
-            id, buff);
+	//@Infinidb don't set row count on thd to push row count to the front
+	longlong row_count_func = 0;
+	if (thd->infinidb_vtable.isInfiniDBDML)
+	  row_count_func = thd->get_row_count_func();
+    else
+	  row_count_func = (thd->client_capabilities & CLIENT_FOUND_ROWS) ? found : updated;
+
+	::my_ok(thd, row_count_func, id, buff);
   }
   DBUG_RETURN(FALSE);
 }
