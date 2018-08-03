@@ -165,11 +165,19 @@ void mysql_audit_general(THD *thd, uint event_subtype,
 
     if (thd)
     {
+	  if (thd->infinidb_vtable.vtable_state != THD::INFINIDB_DISABLE_VTABLE)
+	  {
+          event.general_query= thd->infinidb_vtable.original_query.c_ptr();
+          event.general_query_length= (unsigned)thd->infinidb_vtable.original_query.length();
+	  }
+	  else
+	  {
+          event.general_query= thd->query_string.str();
+          event.general_query_length= (unsigned)thd->query_string.length();
+	  }
       event.general_user= user_buff;
       event.general_user_length= make_user_name(thd, user_buff);
       event.general_thread_id= (unsigned long)thd->thread_id;
-      event.general_query= thd->query_string.str();
-      event.general_query_length= (unsigned) thd->query_string.length();
       event.general_charset= thd->query_string.charset();
       event.general_rows= thd->get_stmt_da()->current_row_for_warning();
       event.database= thd->db;

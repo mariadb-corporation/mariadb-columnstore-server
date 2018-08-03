@@ -387,6 +387,7 @@ protected:
 
 public:  
 
+  Item **get_orig_args() {return orig_args;}
   void mark_as_sum_func();
   Item_sum(THD *thd): Item_func_or_sum(thd), quick_group(1)
   {
@@ -1857,6 +1858,12 @@ public:
     { context= (Name_resolution_context *)cntx; return FALSE; }
   Item *get_copy(THD *thd)
   { return get_item_copy<Item_func_group_concat>(thd, this); }
+  // @InfiniDB added interface
+  bool isDistinct() { return distinct; }
+  uint count_field() { return arg_count_field; }
+  uint order_field() { return arg_count_order; }
+  String* str_separator() { return separator; }
+  ORDER** get_order() { return order; }
 };
 
 #endif /* ITEM_SUM_INCLUDED */
