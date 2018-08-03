@@ -1240,7 +1240,18 @@ public:
   {
     collation.set(default_charset(), DERIVATION_COERCIBLE, MY_REPERTOIRE_ASCII);
     decimals=0;
-    fix_char_length(args[0]->max_length * 2);
+    // InfiniDB fix max length to be 16 for numeric argument
+    // @InfiniDB TODO can we remove this when we get compatible DECIMAL type?
+    if (args[0]->result_type() == DECIMAL_RESULT ||
+    	   args[0]->result_type() == REAL_RESULT ||
+    	   args[0]->result_type() == INT_RESULT)
+	{
+       	max_length=16*collation.collation->mbmaxlen;
+    }
+    else
+	{
+		fix_char_length(args[0]->max_length * 2);
+	}
     m_arg0_type_handler= args[0]->type_handler();
     return FALSE;
   }

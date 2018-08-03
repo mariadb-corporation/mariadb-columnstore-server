@@ -17,7 +17,7 @@
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
 #include "sql_error.h"
-
+#include "sql_class.h"   // @InfiniDB move here for Prepared_statement
 
 #define LAST_STMT_ID 0xFFFFFFFF
 #define STMT_ID_MASK 0x7FFFFFFF
@@ -142,6 +142,107 @@ private:
   friend class Ed_connection;
 };
 
+// InfiniDB: Move class Select_fetch_protocol_binary and Prepared_statement's definition from sql_parse.cc here
+class Select_fetch_protocol_binary: public select_send
+{
+  Protocol_binary protocol;
+public:
+  Select_fetch_protocol_binary(THD *thd);
+  virtual bool send_result_set_metadata(List<Item> &list, uint flags);
+  virtual int send_data(List<Item> &items);
+  virtual bool send_eof();
+#ifdef EMBEDDED_LIBRARY
+  void begin_dataset()
+  {
+    protocol.begin_dataset();
+  }
+#endif
+};
+
+/****************************************************************************/
+
+/**
+  Prepared_statement: a statement that can contain placeholders.
+*/
+
+class Prepared_statement: public Statement
+{
+public:
+  enum flag_values
+  {
+    IS_IN_USE= 1,
+    IS_SQL_PREPARE= 2
+  };
+
+  THD *thd;
+  Select_fetch_protocol_binary result;
+  Item_param **param_array;
+  Server_side_cursor *cursor;
+  uchar *packet;
+  uchar *packet_end;
+  uint param_count;
+  uint last_errno;
+  uint flags;
+  char last_error[MYSQL_ERRMSG_SIZE];
+  my_bool iterations;
+  my_bool start_param;
+  my_bool read_types;
+#ifndef EMBEDDED_LIBRARY
+  bool (*set_params)(Prepared_statement *st, uchar *data, uchar *data_end,
+                     uchar *read_pos, String *expanded_query);
+  bool (*set_bulk_params)(Prepared_statement *st,
+                          uchar **read_pos, uchar *data_end, bool reset);
+#else
+  bool (*set_params_data)(Prepared_statement *st, String *expanded_query);
+  /*TODO: add bulk support for builtin server */
+#endif
+  bool (*set_params_from_actual_params)(Prepared_statement *stmt,
+                                        List<Item> &list,
+                                        String *expanded_query);
+public:
+  Prepared_statement(THD *thd_arg);
+  virtual ~Prepared_statement();
+  void setup_set_params();
+  virtual Query_arena::Type type() const;
+  virtual void cleanup_stmt();
+  bool set_name(LEX_CSTRING *name);
+  inline void close_cursor();
+  inline bool is_in_use() { return flags & (uint) IS_IN_USE; }
+  inline bool is_sql_prepare() const { return flags & (uint) IS_SQL_PREPARE; }
+  void set_sql_prepare() { flags|= (uint) IS_SQL_PREPARE; }
+  bool prepare(const char *packet, uint packet_length);
+  bool execute_loop(String *expanded_query,
+                    bool open_cursor,
+                    uchar *packet_arg, uchar *packet_end_arg);
+  bool execute_bulk_loop(String *expanded_query,
+                         bool open_cursor,
+                         uchar *packet_arg, uchar *packet_end_arg);
+  bool execute_server_runnable(Server_runnable *server_runnable);
+  my_bool set_bulk_parameters(bool reset);
+  bool bulk_iterations() { return iterations; };
+  /* Destroy this statement */
+  void deallocate();
+  bool execute_immediate(const char *query, uint query_length);
+private:
+  /**
+    The memory root to allocate parsed tree elements (instances of Item,
+    SELECT_LEX and other classes).
+  */
+  MEM_ROOT main_mem_root;
+  sql_mode_t m_sql_mode;
+private:
+  bool set_db(const LEX_CSTRING *db);
+/* ColumnStore needs this public for sql_parse */
+public:
+  bool set_parameters(String *expanded_query,
+                      uchar *packet, uchar *packet_end);
+private:
+  bool execute(String *expanded_query, bool open_cursor);
+  void deallocate_immediate();
+  bool reprepare();
+  bool validate_metadata(Prepared_statement  *copy);
+  void swap_prepared_statement(Prepared_statement *copy);
+};
 
 class Ed_connection
 {
