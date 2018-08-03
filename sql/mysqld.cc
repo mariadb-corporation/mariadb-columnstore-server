@@ -4784,7 +4784,7 @@ static int init_common_variables()
     return 1;
   }
 
-  global_system_variables.in_subquery_conversion_threshold= IN_SUBQUERY_CONVERSION_THRESHOLD;
+  global_system_variables.in_subquery_conversion_threshold= 1000000;
 
 #ifdef WITH_WSREP
   /*

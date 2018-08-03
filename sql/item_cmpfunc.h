@@ -2132,6 +2132,7 @@ public:
   enum precedence precedence() const { return BETWEEN_PRECEDENCE; }
   CHARSET_INFO *compare_collation() const { return cmp_collation.collation; }
   bool need_parentheses_in_default() { return true; }
+  virtual const char* case_type()= 0;
 };
 
 
@@ -2166,6 +2167,7 @@ public:
   Item *find_item();
   Item *get_copy(THD *thd)
   { return get_item_copy<Item_func_case_searched>(thd, this); }
+  const char* case_type() { return "searched"; };
 };
 
 
@@ -2223,6 +2225,7 @@ public:
   } 
   Item *get_copy(THD *thd)
   { return get_item_copy<Item_func_case_simple>(thd, this); }
+  const char* case_type() { return "simple"; };
 };
 
 
@@ -2608,8 +2611,10 @@ class Item_func_like :public Item_bool_func2
 
   bool escape_used_in_parsing;
   bool use_sampling;
+public:
   bool negated;
 
+private:
   DTCollation cmp_collation;
   String cmp_value1, cmp_value2;
   bool with_sargable_pattern() const;
