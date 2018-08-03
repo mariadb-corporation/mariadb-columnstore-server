@@ -1383,6 +1383,28 @@ public:
   void mark_columns_used_by_virtual_fields(void);
   void mark_check_constraint_columns_for_read(void);
   int verify_constraints(bool ignore_failure);
+  // @Infinidb if this is InfiniDB table.
+  inline bool isInfiniDB()
+  {
+    // @5978. Sometimes for internal temporary table, e.g.,
+    // derived table, the s structure is not fully initialized.
+    // However, it can never be infinidb table in such case,
+    // therefore false to be ruturned.
+    if (!s || s->table_category == TABLE_CATEGORY_TEMPORARY)
+      return false;
+	if (s && s->db_plugin)
+	{
+#if (defined(_MSC_VER) && defined(_DEBUG)) || defined(SAFE_MUTEX)
+		if ((strcmp((*s->db_plugin)->name.str, "Columnstore") == 0) ||
+			(strcmp((*s->db_plugin)->name.str, "InfiniDB") == 0))
+#else
+		if ((strcmp(s->db_plugin->name.str, "Columnstore") == 0) ||
+			(strcmp(s->db_plugin->name.str, "InfiniDB") == 0))
+#endif
+	  return true;
+	}
+    return false;
+  }
   inline void column_bitmaps_set(MY_BITMAP *read_set_arg)
   {
     read_set= read_set_arg;

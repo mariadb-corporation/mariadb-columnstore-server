@@ -14,7 +14,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
 
-CMAKE_MINIMUM_REQUIRED(VERSION 2.8.3)
+CMAKE_MINIMUM_REQUIRED(VERSION 2.8.12)
 
 # explicitly set the policy to OLD
 # (cannot use NEW, not everyone is on cmake-2.8.12 yet)
@@ -89,8 +89,8 @@ ELSE()
 ENDIF()
 PROJECT(${MYSQL_PROJECT_NAME})
 
-SET(CPACK_PACKAGE_NAME "MariaDB")
-SET(CPACK_PACKAGE_DESCRIPTION_SUMMARY "MariaDB: a very fast and robust SQL database server")
+SET(CPACK_PACKAGE_NAME "mariadb-columnstore")
+SET(CPACK_PACKAGE_DESCRIPTION_SUMMARY "MariaDB ColumnStore: a very fast and robust SQL database server")
 SET(CPACK_PACKAGE_URL "http://mariadb.org")
 
 IF(BUILD_CONFIG)

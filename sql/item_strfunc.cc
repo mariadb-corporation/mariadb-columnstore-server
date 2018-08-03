@@ -2615,6 +2615,10 @@ bool Item_func_format::fix_length_and_dec()
 {
   uint32 char_length= args[0]->max_char_length();
   uint32 max_sep_count= (char_length / 3) + (decimals ? 1 : 0) + /*sign*/1;
+  //@InfiniDB. @bug3488, update max_length for formatting double data.
+  if (args[0]->result_type() == REAL_RESULT && char_length < 310)
+    char_length = 310;
+
   collation.set(default_charset());
   fix_char_length(char_length + max_sep_count + decimals);
   if (arg_count == 3)
@@ -2970,6 +2974,16 @@ bool Item_func_repeat::fix_length_and_dec()
     /* must be longlong to avoid truncation */
     longlong count= args[1]->val_int();
 
+    // @InfiniDB TODO For negative count, MySQL returns empty string, IDB returns NULL.
+    // set length to 0 so order by can go through
+    if (count < 0 && thd() && (thd()->infinidb_vtable.vtable_state != THD::INFINIDB_DISABLE_VTABLE ||
+        thd()->variables.infinidb_vtable_mode == 0))
+    {
+      max_length = 0;
+      maybe_null = 1;
+      return FALSE;
+    }
+
     /* Assumes that the maximum length of a String is < INT_MAX32. */
     /* Set here so that rest of code sees out-of-bound value as such. */
     if (args[1]->null_value)
@@ -2982,7 +2996,12 @@ bool Item_func_repeat::fix_length_and_dec()
   }
   else
   {
-    max_length= MAX_BLOB_WIDTH;
+    // @InfiniDB. For dynamic (column) count, IDB sets length 256 for order by to go through
+    if (thd() && (thd()->infinidb_vtable.vtable_state != THD::INFINIDB_DISABLE_VTABLE ||
+        thd()->variables.infinidb_vtable_mode == 0) )
+      max_length = 256;
+    else 
+      max_length= MAX_BLOB_WIDTH;
     maybe_null= 1;
   }
   return FALSE;
@@ -3191,7 +3210,13 @@ bool Item_func_pad::fix_length_and_dec()
   }
   else
   {
-    max_length= MAX_BLOB_WIDTH;
+	// @bug6149, port fix for Item_func_repeat::fix_length_and_dec.
+    // @InfiniDB. For dynamic (column) count, IDB sets length 256 for order by to go through
+    if (thd() && (thd()->infinidb_vtable.vtable_state != THD::INFINIDB_DISABLE_VTABLE ||
+        thd()->variables.infinidb_vtable_mode == 0) )
+      max_length = 256;
+    else
+      max_length= MAX_BLOB_WIDTH;
     maybe_null= 1;
   }
   return FALSE;
