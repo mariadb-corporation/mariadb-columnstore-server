@@ -1154,6 +1154,8 @@ public:
   bool need_parentheses_in_default() { return true; }
   Item *get_copy(THD *thd)
   { return get_item_copy<Item_char_typecast>(thd, this); }
+  // @InfiniDB. add accessor
+  int castLength() { return (int) cast_length; }
 };
 
 
@@ -1251,6 +1253,8 @@ public:
   }
   Item *get_copy(THD *thd)
   { return get_item_copy<Item_func_add_time>(thd, this); }
+  // @InfiniDB add accessor
+  int get_sign() { return sign; }
 };
 
 class Item_func_timediff :public Item_timefunc
@@ -1324,8 +1328,8 @@ class Item_func_timestamp_diff :public Item_longlong_func
 {
   bool check_arguments() const
   { return check_argument_types_can_return_date(0, arg_count); }
-  const interval_type int_type;
 public:
+  const interval_type int_type;
   Item_func_timestamp_diff(THD *thd, Item *a, Item *b, interval_type type_arg):
     Item_longlong_func(thd, a, b), int_type(type_arg) {}
   const char *func_name() const { return "timestampdiff"; }

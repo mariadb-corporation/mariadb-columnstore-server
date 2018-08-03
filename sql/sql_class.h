@@ -612,6 +612,27 @@ typedef struct system_variables
   ulong read_rnd_buff_size;
   ulong mrr_buff_size;
   ulong div_precincrement;
+
+/* InfiniDB TODO Move these to API*/
+  ulong infinidb_vtable_mode;
+  ulong infinidb_decimal_scale;
+  my_bool infinidb_use_decimal_scale;
+  my_bool infinidb_ordered_only;
+  ulong infinidb_string_scan_threshold;
+  ulong infinidb_compression_type;
+  ulong infinidb_stringtable_threshold;
+  ulong infinidb_diskjoin_smallsidelimit;
+  ulong infinidb_diskjoin_largesidelimit;
+  ulong infinidb_diskjoin_bucketsize;
+  ulong infinidb_um_mem_limit;
+  my_bool infinidb_varbin_always_hex;
+  my_bool infinidb_double_for_decimal_math;
+  ulong infinidb_local_query;
+  my_bool infinidb_use_import_for_batchinsert;
+  ulong infinidb_import_for_batchinsert_delimiter;
+  ulong infinidb_import_for_batchinsert_enclosed_by;
+/* InfiniDB */
+
   /* Total size of all buffers used by the subselect_rowid_merge_engine. */
   ulong rowid_merge_buff_size;
   ulong max_sp_recursion_depth;
@@ -2179,6 +2200,8 @@ private:
   }
 
 public:
+  struct INFINIDB_VTABLE;
+
   MDL_context mdl_context;
 
   /* Used to execute base64 coded binlog events in MySQL server */
@@ -3048,6 +3071,85 @@ public:
       apc_target.process_apc_requests(); 
     return FALSE;
   }
+
+  // ------------------------------ InfiniDB ------------------------------
+  // This structure needs to be removed and replaced with standard plugin structures.
+  // There may be some pain, as this structure is used inside the server code
+  // and the plugin stuff wasn't designed for that.
+  public:
+
+  enum infinidb_state
+  {
+    INFINIDB_INIT_CONNECT = 0,		// intend to use to drop leftover vtable when logon. not being used now.
+    INFINIDB_INIT,
+    INFINIDB_CREATE_VTABLE,
+    INFINIDB_ALTER_VTABLE,
+    INFINIDB_SELECT_VTABLE,
+    INFINIDB_DROP_VTABLE,
+    INFINIDB_DISABLE_VTABLE,
+    INFINIDB_REDO_PHASE1,	    // post process requires to re-create vtable
+    INFINIDB_ORDER_BY,			// for InfiniDB handler to ignore the 2nd scan for order by
+    INFINIDB_REDO_QUERY,		// redo query with the normal mysql path
+    INFINIDB_ERROR_REDO_PHASE1,
+    INFINIDB_ERROR = 32,
+  };
+
+  struct INFINIDB_VTABLE
+  {
+  	String original_query;
+  	String create_vtable_query;
+  	String alter_vtable_query;
+  	String select_vtable_query;
+  	String drop_vtable_query;
+  	String insert_vtable_query;
+  	infinidb_state vtable_state;  // flag for InfiniDB MySQL virtual table structure
+  	bool autoswitch;
+  	bool has_order_by;
+  	bool duplicate_field_name; // @bug 1928. duplicate field name in create_phase will be ingored.
+  	bool call_sp;
+  	bool override_largeside_estimate;
+  	void* cal_conn_info;
+  	bool isUnion;
+  	bool impossibleWhereOnUnion;
+  	bool isInsertSelect;
+  	bool isUpdateWithDerive;
+	bool isInfiniDBDML; // default false
+  	bool hasInfiniDBTable; // default false
+	bool isNewQuery;
+	INFINIDB_VTABLE() : cal_conn_info(NULL) {init();}
+	void init()
+	{
+        vtable_state = INFINIDB_INIT_CONNECT;
+		autoswitch = false;
+		has_order_by = false;
+		duplicate_field_name = false;
+		call_sp = false;
+		override_largeside_estimate = false;
+		if (cal_conn_info)
+		{
+			// Kludge because cal_conn_info is created in the engine and just left
+			// laying about. It can't be reused unless an init function is made.
+			// This whole mechanism should change when INFINIFB_VTABLE is created
+			// via API
+			// If we can't get the structure to work via api, then we need to rethink
+			// how cal_conn_info is created and destroyed. Perhaps include the definition
+			// of cal_connection_info here and control its creation more systematically.
+			free(cal_conn_info);
+		}
+		cal_conn_info = NULL;
+		isUnion = false;
+		impossibleWhereOnUnion = false;
+		isUpdateWithDerive = false;
+		isInfiniDBDML = false;
+		hasInfiniDBTable = false;
+		isNewQuery = true;
+	}
+  };
+
+  INFINIDB_VTABLE infinidb_vtable;					// InfiniDB custom structure
+
+  // ------------------------------ end InfiniDB ------------------------------
+
 
   /* scramble - random string sent to client on handshake */
   char	     scramble[SCRAMBLE_LENGTH+1];
@@ -6022,6 +6124,9 @@ public:
   inline ha_rows num_deleted() const { return deleted; }
   virtual void abort_result_set();
   void prepare_to_read_rows();
+  // @InfiniDB add accessor
+  uint get_num_of_tables() const {return num_of_tables;}
+  TABLE_LIST* get_tables() {return delete_tables;} // InfiniDB to get the tables to be deleted from
 };
 
 

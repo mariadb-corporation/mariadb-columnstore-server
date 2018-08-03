@@ -87,7 +87,7 @@ When one supplies long data for a placeholder:
 #include "mariadb.h"                          /* NO_EMBEDDED_ACCESS_CHECKS */
 #include "sql_priv.h"
 #include "unireg.h"
-#include "sql_class.h"                          // set_var.h: THD
+//#include "sql_class.h"                          // set_var.h: THD
 #include "set_var.h"
 #include "sql_prepare.h"
 #include "sql_parse.h" // insert_precheck, update_precheck, delete_precheck
@@ -123,107 +123,17 @@ When one supplies long data for a placeholder:
 #include "transaction.h"                        // trans_rollback_implicit
 #include "wsrep_mysqld.h"
 
+#include <string>
+#include <sstream>
+
 /**
   A result class used to send cursor rows using the binary protocol.
 */
+// InfiniDB vtable processing
+extern int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stmt = NULL);
 
-class Select_fetch_protocol_binary: public select_send
-{
-  Protocol_binary protocol;
-public:
-  Select_fetch_protocol_binary(THD *thd);
-  virtual bool send_result_set_metadata(List<Item> &list, uint flags);
-  virtual int send_data(List<Item> &items);
-  virtual bool send_eof();
-#ifdef EMBEDDED_LIBRARY
-  void begin_dataset()
-  {
-    protocol.begin_dataset();
-  }
-#endif
-};
-
-/****************************************************************************/
-
-/**
-  Prepared_statement: a statement that can contain placeholders.
-*/
-
-class Prepared_statement: public Statement
-{
-public:
-  enum flag_values
-  {
-    IS_IN_USE= 1,
-    IS_SQL_PREPARE= 2
-  };
-
-  THD *thd;
-  Select_fetch_protocol_binary result;
-  Item_param **param_array;
-  Server_side_cursor *cursor;
-  uchar *packet;
-  uchar *packet_end;
-  uint param_count;
-  uint last_errno;
-  uint flags;
-  char last_error[MYSQL_ERRMSG_SIZE];
-  my_bool iterations;
-  my_bool start_param;
-  my_bool read_types;
-#ifndef EMBEDDED_LIBRARY
-  bool (*set_params)(Prepared_statement *st, uchar *data, uchar *data_end,
-                     uchar *read_pos, String *expanded_query);
-  bool (*set_bulk_params)(Prepared_statement *st,
-                          uchar **read_pos, uchar *data_end, bool reset);
-#else
-  bool (*set_params_data)(Prepared_statement *st, String *expanded_query);
-  /*TODO: add bulk support for builtin server */
-#endif
-  bool (*set_params_from_actual_params)(Prepared_statement *stmt,
-                                        List<Item> &list,
-                                        String *expanded_query);
-public:
-  Prepared_statement(THD *thd_arg);
-  virtual ~Prepared_statement();
-  void setup_set_params();
-  virtual Query_arena::Type type() const;
-  virtual void cleanup_stmt();
-  bool set_name(LEX_CSTRING *name);
-  inline void close_cursor() { delete cursor; cursor= 0; }
-  inline bool is_in_use() { return flags & (uint) IS_IN_USE; }
-  inline bool is_sql_prepare() const { return flags & (uint) IS_SQL_PREPARE; }
-  void set_sql_prepare() { flags|= (uint) IS_SQL_PREPARE; }
-  bool prepare(const char *packet, uint packet_length);
-  bool execute_loop(String *expanded_query,
-                    bool open_cursor,
-                    uchar *packet_arg, uchar *packet_end_arg);
-  bool execute_bulk_loop(String *expanded_query,
-                         bool open_cursor,
-                         uchar *packet_arg, uchar *packet_end_arg);
-  bool execute_server_runnable(Server_runnable *server_runnable);
-  my_bool set_bulk_parameters(bool reset);
-  bool bulk_iterations() { return iterations; };
-  /* Destroy this statement */
-  void deallocate();
-  bool execute_immediate(const char *query, uint query_length);
-private:
-  /**
-    The memory root to allocate parsed tree elements (instances of Item,
-    SELECT_LEX and other classes).
-  */
-  MEM_ROOT main_mem_root;
-  sql_mode_t m_sql_mode;
-private:
-  bool set_db(const LEX_CSTRING *db);
-  bool set_parameters(String *expanded_query,
-                      uchar *packet, uchar *packet_end);
-  bool execute(String *expanded_query, bool open_cursor);
-  void deallocate_immediate();
-  bool reprepare();
-  bool validate_metadata(Prepared_statement  *copy);
-  void swap_prepared_statement(Prepared_statement *copy);
-};
+// @InfiniDB move Select_fetch_protocol_binary and Prepared_statement
+// to sql_prepare.h so we can access external
 
 /**
   Execute one SQL statement in an isolated context.
@@ -4648,6 +4558,12 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
   bool error= TRUE;
   bool qc_executed= FALSE;
 
+  // @InfiniDB
+  TABLE_LIST* global_list = NULL;
+  TABLE_LIST* view_list = NULL;
+  bool bHasInfiniDB = false;
+  ulonglong old_optimizer_switch = thd->variables.optimizer_switch;
+
   char saved_cur_db_name_buf[SAFE_NAME_LEN+1];
   LEX_STRING saved_cur_db_name=
     { saved_cur_db_name_buf, sizeof(saved_cur_db_name_buf) };
@@ -4719,6 +4635,72 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
     my_error(ER_OUTOFMEMORY, MYF(ME_FATALERROR), expanded_query->length());
     goto error;
   }
+
+  // @infinidb. vtable process around stmt_execute.
+  // @bug3742. mysqli php support for prepare/execute stmt
+  // @bug4833. the state checking will be done inside idb_vtable_process() function
+  // check infinidb table
+  // @bug 2976. Check global tables for IDB table. If no IDB tables involved, redo this query with normal path.
+  for (global_list = thd->lex->query_tables; global_list; global_list = global_list->next_global)
+  {
+    // MCOL-618: derived and schema_table can have bad pointers to
+    // global_list->table and we don't want to worry about these types
+    // anyway.
+    if (global_list->derived || global_list->schema_table)
+      continue;
+    // MCOL-618: views also don't have a valid global_list->table pointer
+    // but the view's tables may be ColumnStore
+    if (global_list->view)
+    {
+      view_list = global_list->view->query_tables;
+      for (; view_list; view_list = view_list->next_global)
+      {
+        if (!(view_list->table && view_list->table->s && view_list->table->s->db_plugin))
+          continue;
+        if (view_list->table && view_list->table->isInfiniDB())
+        {
+          bHasInfiniDB = true;
+          break;
+        }
+      }
+      if (bHasInfiniDB)
+        break;
+    }
+    //if (!global_list->table || !global_list->table->s->db_plugin)
+    if (!(global_list->table && global_list->table->s && global_list->table->s->db_plugin))
+      continue;
+    // @InfiniDB watch out for FROM clause derived table. union memeory table has tablename="union"
+    if (global_list->table && global_list->table->isInfiniDB())
+    {
+      bHasInfiniDB = true;
+      break;
+    }
+  }
+
+  if ((bHasInfiniDB && thd->get_command() == COM_STMT_EXECUTE) || (thd->lex->sql_command == SQLCOM_CALL))
+  {
+    // @bug5298. disable re-prepare observer for infinidb query
+    thd->m_reprepare_observer = NULL;
+    if (thd->lex)
+      thd->lex->result = 0;
+    // @bug5962. reset the in_use flag so the prepared stmt
+    // can be executed again in IDB.
+    //flags|= IS_IN_USE;
+    flags&= ~ (uint) IS_IN_USE;
+    if (idb_vtable_process(thd, old_optimizer_switch, this)) // if failed, fall through to normal path
+    {
+      thd->infinidb_vtable.vtable_state = THD::INFINIDB_DISABLE_VTABLE;
+    }
+    else
+    {
+      delete_explain_query(thd->lex);
+      thd->set_statement(&stmt_backup);
+      return false;
+    }
+
+  }
+  // End InfiniDB
+
   /*
     Expanded query is needed for slow logging, so we want thd->query
     to point at it even after we restore from backup. This is ok, as
@@ -4831,6 +4813,9 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
       thd->protocol->send_out_parameters(&this->lex->param_list);
   }
 
+  // @InfiniDB
+  thd->variables.optimizer_switch = old_optimizer_switch;
+
   /*
     Log COM_EXECUTE to the general log. Note, that in case of SQL
     prepared statements this causes two records to be output:
@@ -4912,6 +4897,13 @@ void Prepared_statement::deallocate()
   thd->stmt_map.erase(this);
 }
 
+// @InfiniDB: This can't be declared inline in the header because curser
+// isn't fully defined there.
+void
+Prepared_statement::close_cursor()
+{
+	delete cursor; cursor= 0;
+}
 
 /***************************************************************************
 * Ed_result_set

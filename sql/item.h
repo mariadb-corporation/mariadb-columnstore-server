@@ -642,6 +642,8 @@ class Item: public Value_source,
   */
   uint join_tab_idx;
 
+  THD* m_thd; // @InfiniDB
+
   static void *operator new(size_t size);
 
 public:
@@ -710,6 +712,9 @@ protected:
 
   void push_note_converted_to_negative_complement(THD *thd);
   void push_note_converted_to_positive_complement(THD *thd);
+
+  // @InfiniDB needs access to thd.
+  THD* thd() {return m_thd;}
 
   /* Helper methods, to get an Item value from another Item */
   double val_real_from_item(Item *item)
@@ -3333,6 +3338,7 @@ class Item_param :public Item_basic_value,
       - Item_param::state changes to NO_VALUE
       - Item_param::fixed changes to false
   */
+public:
   enum enum_item_param_state
   {
     NO_VALUE, NULL_VALUE, SHORT_DATA_VALUE, LONG_DATA_VALUE,
@@ -3340,6 +3346,7 @@ class Item_param :public Item_basic_value,
   } state;
 
   enum Type item_type;
+private:
 
   void fix_type(Type type)
   {
@@ -5150,6 +5157,7 @@ public:
   Item *get_copy(THD *thd)
   { return get_item_copy<Item_cache_wrapper>(thd, this); }
   Item *build_clone(THD *thd) { return 0; }
+  Item* get_orig_item() { return orig_item; } // @InfiniDB
 };
 
 
