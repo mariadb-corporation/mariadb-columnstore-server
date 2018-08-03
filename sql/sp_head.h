@@ -839,6 +839,10 @@ public:
 
   sp_pcontext *get_parse_context() { return m_pcont; }
 
+  // InfiniDB adds accessor
+  sp_pcontext* context() { return m_pcont; }
+  uint sp_elements() {return m_instr.elements;}
+
   /*
     Check EXECUTE access:
     - in case of a standalone rotuine, for the routine itself

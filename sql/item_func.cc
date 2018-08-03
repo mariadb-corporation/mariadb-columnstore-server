@@ -377,9 +377,17 @@ Item_func::fix_fields(THD *thd, Item **ref)
   }
   if (check_arguments())
     return true;
-  if (fix_length_and_dec())
-    return TRUE;
+
+  // MariaDB bug 687. fix_length_and_dec() sometimes calls getSelectPlan() in the 
+  // Columnstore connector. This in turn may incorrectly call fix_fields() recursively.
+  // By setting the fixed flag before the call to fix_length_and_dec(), we prevent
+  // this behavior.
   fixed= 1;
+  if (fix_length_and_dec())
+  {
+    fixed= 0;
+    return TRUE;
+  }
   return FALSE;
 }
 
@@ -2415,6 +2423,8 @@ void Item_func_round::fix_length_and_dec_decimal(uint decimals_to_set)
   int length_increase= (decimals_delta <= 0 || truncate) ? 0 : 1;
   int precision= args[0]->decimal_precision() + length_increase -
                                                 decimals_delta;
+  if (current_thd->infinidb_vtable.vtable_state != THD::INFINIDB_DISABLE_VTABLE)
+    precision+=1;
   DBUG_ASSERT(decimals_to_set <= DECIMAL_MAX_SCALE);
   set_handler(&type_handler_newdecimal);
   unsigned_flag= args[0]->unsigned_flag;

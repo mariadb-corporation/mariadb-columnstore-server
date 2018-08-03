@@ -1261,6 +1261,10 @@ void THD::init(bool skip_lock)
 #endif //EMBEDDED_LIBRARY
 
   apc_target.init(&LOCK_thd_kill);
+
+  // @INFINIDB
+  infinidb_vtable.init();
+
   DBUG_VOID_RETURN;
 }
 
