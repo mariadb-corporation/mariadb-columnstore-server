@@ -2576,7 +2576,7 @@ bool MYSQL_LOG::open(
   File file= -1;
   my_off_t seek_offset;
   bool is_fifo = false;
-  int open_flags= O_CREAT | O_BINARY;
+  int open_flags= O_CREAT | O_BINARY | O_CLOEXEC;
   DBUG_ENTER("MYSQL_LOG::open");
   DBUG_PRINT("enter", ("log_type: %d", (int) log_type_arg));
 
@@ -2717,14 +2717,14 @@ void MYSQL_LOG::close(uint exiting)
     if (log_type == LOG_BIN && mysql_file_sync(log_file.file, MYF(MY_WME)) && ! write_error)
     {
       write_error= 1;
-      sql_print_error(ER_THD_OR_DEFAULT(current_thd, ER_ERROR_ON_WRITE), name, errno);
+      sql_print_error(ER_DEFAULT(ER_ERROR_ON_WRITE), name, errno);
     }
 
     if (!(exiting & LOG_CLOSE_DELAYED_CLOSE) &&
         mysql_file_close(log_file.file, MYF(MY_WME)) && ! write_error)
     {
       write_error= 1;
-      sql_print_error(ER_THD_OR_DEFAULT(current_thd, ER_ERROR_ON_WRITE), name, errno);
+      sql_print_error(ER_DEFAULT(ER_ERROR_ON_WRITE), name, errno);
     }
   }
 
@@ -2912,7 +2912,7 @@ err:
   if (!write_error)
   {
     write_error= 1;
-    sql_print_error(ER(ER_ERROR_ON_WRITE), name, errno);
+    sql_print_error(ER_DEFAULT(ER_ERROR_ON_WRITE), name, errno);
   }
   mysql_mutex_unlock(&LOCK_log);
   return TRUE;
@@ -3098,7 +3098,7 @@ bool MYSQL_QUERY_LOG::write(THD *thd, time_t current_time,
       if (! write_error)
       {
         write_error= 1;
-        sql_print_error(ER_THD(thd, ER_ERROR_ON_WRITE), name, tmp_errno);
+        sql_print_error(ER_DEFAULT(ER_ERROR_ON_WRITE), name, tmp_errno);
       }
     }
   }
@@ -3296,7 +3296,7 @@ bool MYSQL_BIN_LOG::open_index_file(const char *index_file_name_arg,
             ".index", opt);
   if ((index_file_nr= mysql_file_open(m_key_file_log_index,
                                       index_file_name,
-                                      O_RDWR | O_CREAT | O_BINARY,
+                                      O_RDWR | O_CREAT | O_BINARY | O_CLOEXEC,
                                       MYF(MY_WME))) < 0 ||
        mysql_file_sync(index_file_nr, MYF(MY_WME)) ||
        init_io_cache(&index_file, index_file_nr,
@@ -8459,8 +8459,7 @@ void MYSQL_BIN_LOG::close(uint exiting)
     if (mysql_file_close(index_file.file, MYF(0)) < 0 && ! write_error)
     {
       write_error= 1;
-      sql_print_error(ER_THD_OR_DEFAULT(current_thd, ER_ERROR_ON_WRITE),
-                      index_file_name, errno);
+      sql_print_error(ER_DEFAULT(ER_ERROR_ON_WRITE), index_file_name, errno);
     }
   }
   log_state= (exiting & LOG_CLOSE_TO_BE_OPENED) ? LOG_TO_BE_OPENED : LOG_CLOSED;
@@ -9000,14 +8999,14 @@ int TC_LOG_MMAP::open(const char *opt_name)
   tc_log_page_size= my_getpagesize();
 
   fn_format(logname,opt_name,mysql_data_home,"",MY_UNPACK_FILENAME);
-  if ((fd= mysql_file_open(key_file_tclog, logname, O_RDWR, MYF(0))) < 0)
+  if ((fd= mysql_file_open(key_file_tclog, logname, O_RDWR | O_CLOEXEC, MYF(0))) < 0)
   {
     if (my_errno != ENOENT)
       goto err;
     if (using_heuristic_recover())
       return 1;
     if ((fd= mysql_file_create(key_file_tclog, logname, CREATE_MODE,
-                               O_RDWR, MYF(MY_WME))) < 0)
+                               O_RDWR | O_CLOEXEC, MYF(MY_WME))) < 0)
       goto err;
     inited=1;
     file_length= opt_tc_log_size;

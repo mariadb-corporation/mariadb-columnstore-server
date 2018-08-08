@@ -903,6 +903,8 @@ pthread_handler_t connection_thread(void *arg)
 
 end_thread:
   cn->query_done= 1;
+  mysql_close(cn->mysql);
+  cn->mysql= 0;
   mysql_thread_end();
   pthread_exit(0);
   return 0;
@@ -8737,6 +8739,7 @@ void init_re(void)
     "[[:space:]]*SELECT[[:space:]]|"
     "[[:space:]]*CREATE[[:space:]]+TABLE[[:space:]]|"
     "[[:space:]]*DO[[:space:]]|"
+    "[[:space:]]*HANDLER[[:space:]]+.*[[:space:]]+READ[[:space:]]|"
     "[[:space:]]*SET[[:space:]]+OPTION[[:space:]]|"
     "[[:space:]]*DELETE[[:space:]]+MULTI[[:space:]]|"
     "[[:space:]]*UPDATE[[:space:]]+MULTI[[:space:]]|"

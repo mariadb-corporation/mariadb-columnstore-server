@@ -2414,7 +2414,11 @@ innobase_mysql_tmpfile(
 			}
 		}
 #else
+#ifdef F_DUPFD_CLOEXEC
+		fd2 = fcntl(fd, F_DUPFD_CLOEXEC, 0);
+#else
 		fd2 = dup(fd);
+#endif
 #endif
 		if (fd2 < 0) {
 			DBUG_PRINT("error",("Got error %d on dup",fd2));
@@ -2849,8 +2853,7 @@ ha_innobase::ha_innobase(
 		  (srv_force_primary_key ? HA_REQUIRE_PRIMARY_KEY : 0 ) |
 		  HA_CAN_FULLTEXT_EXT | HA_CAN_EXPORT),
 	start_of_scan(0),
-	num_write_row(0),
-	ha_partition_stats(NULL)
+	num_write_row(0)
 {}
 
 /*********************************************************************//**
@@ -8436,14 +8439,12 @@ report_error:
 						   user_thd);
 
 #ifdef WITH_WSREP
-	if (!error_result                                &&
-	    wsrep_thd_exec_mode(user_thd) == LOCAL_STATE &&
-	    wsrep_on(user_thd)                           &&
-	    !wsrep_consistency_check(user_thd)           &&
-	    !wsrep_thd_ignore_table(user_thd))
-	{
-		if (wsrep_append_keys(user_thd, false, record, NULL))
-		{
+	if (!error_result
+	    && wsrep_on(user_thd)
+	    && wsrep_thd_exec_mode(user_thd) == LOCAL_STATE
+	    && !wsrep_consistency_check(user_thd)
+	    && !wsrep_thd_ignore_table(user_thd)) {
+		if (wsrep_append_keys(user_thd, false, record, NULL)) {
 			DBUG_PRINT("wsrep", ("row key failed"));
 			error_result = HA_ERR_INTERNAL_ERROR;
 			goto wsrep_error;
@@ -12834,6 +12835,7 @@ static MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 innobase_rename_table(
 /*==================*/
+	THD*            thd,    /*!< Connection thread handle */
 	trx_t*		trx,	/*!< in: transaction */
 	const char*	from,	/*!< in: old name of the table */
 	const char*	to)	/*!< in: new name of the table */
@@ -12858,6 +12860,36 @@ innobase_rename_table(
 	no deadlocks can occur then in these operations. */
 
 	row_mysql_lock_data_dictionary(trx);
+
+	dict_table_t*   table = dict_table_open_on_name(norm_from, TRUE, FALSE,
+							DICT_ERR_IGNORE_NONE);
+
+	/* Since DICT_BG_YIELD has sleep for 250 milliseconds,
+	Convert lock_wait_timeout unit from second to 250 milliseconds */
+	long int lock_wait_timeout = thd_lock_wait_timeout(thd) * 4;
+	if (table != NULL) {
+		for (dict_index_t* index = dict_table_get_first_index(table);
+		     index != NULL;
+		     index = dict_table_get_next_index(index)) {
+
+			if (index->type & DICT_FTS) {
+				/* Found */
+				while (index->index_fts_syncing
+					&& !trx_is_interrupted(trx)
+					&& (lock_wait_timeout--) > 0) {
+					DICT_BG_YIELD(trx);
+				}
+			}
+		}
+		dict_table_close(table, TRUE, FALSE);
+	}
+
+	/* FTS sync is in progress. We shall timeout this operation */
+	if (lock_wait_timeout < 0) {
+		error = DB_LOCK_WAIT_TIMEOUT;
+		row_mysql_unlock_data_dictionary(trx);
+		DBUG_RETURN(error);
+	}
 
 	/* Transaction must be flagged as a locking transaction or it hasn't
 	been started yet. */
@@ -12968,7 +13000,7 @@ ha_innobase::rename_table(
 	++trx->will_lock;
 	trx_set_dict_operation(trx, TRX_DICT_OP_INDEX);
 
-	error = innobase_rename_table(trx, from, to);
+	error = innobase_rename_table(thd, trx, from, to);
 
 	DEBUG_SYNC(thd, "after_innobase_rename_table");
 
@@ -13012,6 +13044,10 @@ ha_innobase::rename_table(
 		my_error(ER_TABLE_EXISTS_ERROR, MYF(0), to);
 
 		error = DB_ERROR;
+	} else if (error == DB_LOCK_WAIT_TIMEOUT) {
+		my_error(ER_LOCK_WAIT_TIMEOUT, MYF(0), to);
+
+		error = DB_LOCK_WAIT;
 	}
 
 	DBUG_RETURN(convert_error_code_to_mysql(error, 0, NULL));
@@ -13905,6 +13941,7 @@ ha_innobase::optimize(
 
 	This works OK otherwise, but MySQL locks the entire table during
 	calls to OPTIMIZE, which is undesirable. */
+	bool try_alter = true;
 
 	if (srv_defragment) {
 		int err;
@@ -13912,7 +13949,7 @@ ha_innobase::optimize(
 		err = defragment_table(prebuilt->table->name, NULL, false);
 
 		if (err == 0) {
-			return (HA_ADMIN_OK);
+			try_alter = false;
 		} else {
 			push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
 				err,
@@ -13920,9 +13957,7 @@ ha_innobase::optimize(
 				prebuilt->table->name, err);
 
 			if(err == ER_SP_ALREADY_EXISTS) {
-				return (HA_ADMIN_OK);
-			} else {
-				return (HA_ADMIN_TRY_ALTER);
+				try_alter = false;
 			}
 		}
 	}
@@ -13933,11 +13968,10 @@ ha_innobase::optimize(
 			fts_sync_table(prebuilt->table, false, true, false);
 			fts_optimize_table(prebuilt->table);
 		}
-		return(HA_ADMIN_OK);
-	} else {
-
-		return(HA_ADMIN_TRY_ALTER);
+		try_alter = false;
 	}
+
+	return try_alter ? HA_ADMIN_TRY_ALTER : HA_ADMIN_OK;
 }
 
 /*******************************************************************//**
@@ -16749,13 +16783,6 @@ innodb_max_dirty_pages_pct_lwm_update(
 	srv_max_dirty_pages_pct_lwm = in_val;
 }
 
-UNIV_INTERN
-void
-ha_innobase::set_partition_owner_stats(ha_statistics *stats)
-{
-	ha_partition_stats= stats;
-}
-
 /************************************************************//**
 Validate the file format name and return its corresponding id.
 @return	valid file format id */
@@ -18615,8 +18642,10 @@ wsrep_innobase_kill_one_trx(
 		    thd_get_thread_id(thd),
 		    victim_trx->id);
 
-	WSREP_DEBUG("Aborting query: %s",
-		  (thd && wsrep_thd_query(thd)) ? wsrep_thd_query(thd) : "void");
+	WSREP_DEBUG("Aborting query: %s conf %d trx: %lu",
+		    (thd && wsrep_thd_query(thd)) ? wsrep_thd_query(thd) : "void",
+		    wsrep_thd_conflict_state(thd, FALSE),
+		    wsrep_thd_ws_handle(thd)->trx_id);
 
 	wsrep_thd_LOCK(thd);
         DBUG_EXECUTE_IF("sync.wsrep_after_BF_victim_lock",
@@ -18679,7 +18708,7 @@ wsrep_innobase_kill_one_trx(
 			wsrep_t *wsrep= get_wsrep();
 			rcode = wsrep->abort_pre_commit(
 				wsrep, bf_seqno,
-				(wsrep_trx_id_t)victim_trx->id
+				(wsrep_trx_id_t)wsrep_thd_ws_handle(thd)->trx_id
 			);
 
 			switch (rcode) {
@@ -18802,12 +18831,14 @@ wsrep_abort_transaction(
 	my_bool signal)
 {
 	DBUG_ENTER("wsrep_innobase_abort_thd");
-	trx_t* victim_trx = thd_to_trx(victim_thd);
-	trx_t* bf_trx     = (bf_thd) ? thd_to_trx(bf_thd) : NULL;
+	
+	trx_t* victim_trx	= thd_to_trx(victim_thd);
+	trx_t* bf_trx		= (bf_thd) ? thd_to_trx(bf_thd) : NULL;
 
-	WSREP_DEBUG("abort transaction: BF: %s victim: %s",
-		    wsrep_thd_query(bf_thd),
-		    wsrep_thd_query(victim_thd));
+	WSREP_DEBUG("abort transaction: BF: %s victim: %s victim conf: %d",
+			wsrep_thd_query(bf_thd),
+			wsrep_thd_query(victim_thd),
+			wsrep_thd_conflict_state(victim_thd, FALSE));
 
 	if (victim_trx) {
 		lock_mutex_enter();
@@ -18834,29 +18865,27 @@ wsrep_abort_transaction(
 static int innobase_wsrep_set_checkpoint(handlerton* hton, const XID* xid)
 {
 	DBUG_ASSERT(hton == innodb_hton_ptr);
-        if (wsrep_is_wsrep_xid(xid)) {
-                mtr_t mtr;
-                mtr_start(&mtr);
-                trx_sysf_t* sys_header = trx_sysf_get(&mtr);
-                trx_sys_update_wsrep_checkpoint(xid, sys_header, &mtr);
-                mtr_commit(&mtr);
-                innobase_flush_logs(hton);
-                return 0;
-        } else {
-                return 1;
-        }
+	if (wsrep_is_wsrep_xid(xid)) {
+		mtr_t mtr;
+		mtr_start(&mtr);
+		trx_sysf_t* sys_header = trx_sysf_get(&mtr);
+		trx_sys_update_wsrep_checkpoint(xid, sys_header, &mtr);
+		mtr_commit(&mtr);
+		innobase_flush_logs(hton);
+		return 0;
+	} else {
+		return 1;
+	}
 }
 
 static int innobase_wsrep_get_checkpoint(handlerton* hton, XID* xid)
 {
 	DBUG_ASSERT(hton == innodb_hton_ptr);
-        trx_sys_read_wsrep_checkpoint(xid);
-        return 0;
+	trx_sys_read_wsrep_checkpoint(xid);
+	return 0;
 }
 
-static void
-wsrep_fake_trx_id(
-/*==================*/
+static void wsrep_fake_trx_id(
 	handlerton	*hton,
 	THD		*thd)	/*!< in: user thread handle */
 {

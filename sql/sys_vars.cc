@@ -557,7 +557,7 @@ error_if_in_trans_or_substatement(THD *thd, int in_substatement_error,
   return false;
 }
 
-static bool check_has_super(sys_var *self, THD *thd, set_var *var)
+bool check_has_super(sys_var *self, THD *thd, set_var *var)
 {
   DBUG_ASSERT(self->scope() != sys_var::GLOBAL);// don't abuse check_has_super()
 #ifndef NO_EMBEDDED_ACCESS_CHECKS
@@ -569,6 +569,12 @@ static bool check_has_super(sys_var *self, THD *thd, set_var *var)
 #endif
   return false;
 }
+
+static Sys_var_bit Sys_core_file("core_file", "write a core-file on crashes",
+          READ_ONLY GLOBAL_VAR(test_flags), NO_CMD_LINE,
+          TEST_CORE_ON_SIGNAL, DEFAULT(FALSE), NO_MUTEX_GUARD, NOT_IN_BINLOG,
+          0,0,0);
+
 static bool binlog_format_check(sys_var *self, THD *thd, set_var *var)
 {
   if (check_has_super(self, thd, var))

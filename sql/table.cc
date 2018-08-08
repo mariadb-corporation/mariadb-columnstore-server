@@ -1533,7 +1533,8 @@ int TABLE_SHARE::init_from_binary_frm_image(THD *thd, bool write,
 
       if ((uchar)field_type == (uchar)MYSQL_TYPE_VIRTUAL)
       {
-        DBUG_ASSERT(interval_nr); // Expect non-null expression
+        if (!interval_nr) // Expect non-null expression
+          goto err;
         /* 
           The interval_id byte in the .frm file stores the length of the
           expression statement for a virtual column.
@@ -1722,7 +1723,7 @@ int TABLE_SHARE::init_from_binary_frm_image(THD *thd, bool write,
     keyinfo= share->key_info;
     uint primary_key= my_strcasecmp(system_charset_info, share->keynames.type_names[0],
                                     primary_key_name) ? MAX_KEY : 0;
-    KEY* key_first_info;
+    KEY* key_first_info= NULL;
 
     if (primary_key >= MAX_KEY && keyinfo->flags & HA_NOSAME)
     {
@@ -2233,6 +2234,9 @@ int TABLE_SHARE::init_from_sql_statement_string(THD *thd, bool write,
     goto ret;
 
   thd->lex->create_info.db_type= hton;
+#ifdef WITH_PARTITION_STORAGE_ENGINE
+  thd->work_part_info= 0;                       // For partitioning
+#endif
 
   if (tabledef_version.str)
     thd->lex->create_info.tabledef_version= tabledef_version;
@@ -5425,6 +5429,8 @@ Item *create_view_field(THD *thd, TABLE_LIST *view, Item **field_ref,
                Item_direct_view_ref(thd, &view->view->select_lex.context,
                                     field_ref, view->alias,
                                     name, view));
+  if (!item)
+    return NULL;
   /*
     Force creation of nullable item for the result tmp table for outer joined
     views/derived tables.
@@ -5659,7 +5665,7 @@ Field_iterator_table_ref::get_or_create_column_ref(THD *thd, TABLE_LIST *parent_
     nj_col= natural_join_it.column_ref();
     DBUG_ASSERT(nj_col);
   }
-  DBUG_ASSERT(!nj_col->table_field ||
+  DBUG_ASSERT(!nj_col->table_field || !nj_col->table_field->field ||
               nj_col->table_ref->table == nj_col->table_field->field->table);
 
   /*
@@ -5708,7 +5714,7 @@ Field_iterator_table_ref::get_or_create_column_ref(THD *thd, TABLE_LIST *parent_
 
   RETURN
     #     Pointer to a column of a natural join (or its operand)
-    NULL  No memory to allocate the column
+    NULL  We didn't originally have memory to allocate the column
 */
 
 Natural_join_column *
@@ -5724,7 +5730,7 @@ Field_iterator_table_ref::get_natural_column_ref()
   */
   nj_col= natural_join_it.column_ref();
   DBUG_ASSERT(nj_col &&
-              (!nj_col->table_field ||
+              (!nj_col->table_field || !nj_col->table_field->field ||
                nj_col->table_ref->table == nj_col->table_field->field->table));
   return nj_col;
 }
@@ -6404,6 +6410,14 @@ void TABLE::create_key_part_by_field(KEY_PART_INFO *key_part_info,
   The function checks whether a possible key satisfies the constraints
   imposed on the keys of any temporary table.
 
+  We need to filter out BLOB columns here, because ref access optimizer creates
+  KEYUSE objects for equalities for non-key columns for two puproses:
+  1. To discover possible keys for derived_with_keys optimization
+  2. To do hash joins
+  For the purpose of #1, KEYUSE objects are not created for "blob_column=..." .
+  However, they might be created for #2. In order to catch that case, we filter
+  them out here.
+
   @return TRUE if the key is valid
   @return FALSE otherwise
 */
@@ -6419,11 +6433,12 @@ bool TABLE::check_tmp_key(uint key, uint key_parts,
   {
     uint fld_idx= next_field_no(arg);
     reg_field= field + fld_idx;
+    if ((*reg_field)->type() == MYSQL_TYPE_BLOB)
+      return FALSE;
     uint fld_store_len= (uint16) (*reg_field)->key_length();
     if ((*reg_field)->real_maybe_null())
       fld_store_len+= HA_KEY_NULL_LENGTH;
-    if ((*reg_field)->type() == MYSQL_TYPE_BLOB ||
-        (*reg_field)->real_type() == MYSQL_TYPE_VARCHAR ||
+    if ((*reg_field)->real_type() == MYSQL_TYPE_VARCHAR ||
         (*reg_field)->type() == MYSQL_TYPE_GEOMETRY)
       fld_store_len+= HA_KEY_BLOB_LENGTH;
     key_len+= fld_store_len;
@@ -7355,7 +7370,15 @@ int TABLE_LIST::fetch_number_of_rows()
 {
   int error= 0;
   if (jtbm_subselect)
+  {
+    if (jtbm_subselect->is_jtbm_merged)
+    {
+      table->file->stats.records= jtbm_subselect->jtbm_record_count;
+      set_if_bigger(table->file->stats.records, 2);
+      table->used_stat_records= table->file->stats.records;
+    }
     return 0;
+  }
   if (is_materialized_derived() && !fill_me)
 
   {

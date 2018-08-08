@@ -895,7 +895,7 @@ void Explain_select::print_explain_json(Explain_query *query,
       {
         Sort_and_group_tracker::Iterator iter(&ops_tracker);
         enum_qep_action action;
-        Filesort_tracker *fs_tracker;
+        Filesort_tracker *fs_tracker= NULL;
 
         while ((action= iter.get_next(&fs_tracker)) != EXPL_ACTION_EOF)
         {
@@ -1642,7 +1642,7 @@ void Explain_table_access::print_explain_json(Explain_query *query,
     {
       /* Get r_filtered value from filesort */
       if (fs_tracker->get_r_loops())
-        writer->add_double(fs_tracker->get_r_filtered());
+        writer->add_double(fs_tracker->get_r_filtered()*100);
       else
         writer->add_null();
     }

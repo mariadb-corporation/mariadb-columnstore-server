@@ -667,6 +667,12 @@ protected:
   SEL_TREE *get_mm_tree_for_const(RANGE_OPT_PARAM *param);
 
   Field *create_tmp_field(bool group, TABLE *table, uint convert_int_length);
+  /*
+    This method is used if the item was not null but convertion to
+    TIME/DATE/DATETIME failed. We return a zero date if allowed,
+    otherwise - null.
+  */
+  bool make_zero_date(MYSQL_TIME *ltime, ulonglong fuzzydate);
 
 public:
   // InfiniDB needs access to thd.
@@ -1450,6 +1456,11 @@ public:
   virtual bool exists2in_processor(uchar *opt_arg) { return 0; }
   virtual bool find_selective_predicates_list_processor(uchar *opt_arg)
   { return 0; }
+  bool cleanup_is_expensive_cache_processor(uchar *arg)
+  {
+    is_expensive_cache= (int8)(-1);
+    return 0;
+  }
 
   /* To call bool function for all arguments */
   struct bool_func_call_args
@@ -2572,6 +2583,7 @@ public:
   longlong val_int();
   String *val_str(String *str);
   my_decimal *val_decimal(my_decimal *);
+  bool get_date(MYSQL_TIME *ltime, ulonglong fuzzydate);
   int save_in_field(Field *field, bool no_conversions);
   int save_safe_in_field(Field *field);
   bool send(Protocol *protocol, String *str);

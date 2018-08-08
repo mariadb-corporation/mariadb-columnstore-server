@@ -1518,7 +1518,8 @@ public:
 
   ~Stat_table_write_iter()
   {
-    cleanup();
+    /* Ensure that cleanup has been run */
+    DBUG_ASSERT(rowid_buf == 0);
   }
 };
 
@@ -3055,6 +3056,39 @@ int read_statistics_for_table(THD *thd, TABLE *table, TABLE_LIST *stat_tables)
 
 
 /**
+  @breif
+  Cleanup of min/max statistical values for table share
+*/
+
+void delete_stat_values_for_table_share(TABLE_SHARE *table_share)
+{
+  TABLE_STATISTICS_CB *stats_cb= &table_share->stats_cb;
+  Table_statistics *table_stats= stats_cb->table_stats;
+  if (!table_stats)
+    return;
+  Column_statistics *column_stats= table_stats->column_stats;
+  if (!column_stats)
+    return;
+
+  for (Field **field_ptr= table_share->field;
+       *field_ptr;
+       field_ptr++, column_stats++)
+  {
+    if (column_stats->min_value)
+    {
+      delete column_stats->min_value;
+      column_stats->min_value= NULL;
+    }
+    if (column_stats->max_value)
+    {
+      delete column_stats->max_value;
+      column_stats->max_value= NULL;
+    }
+  }
+}
+
+
+/**
   @brief
   Check whether any statistics is to be read for tables from a table list
 
@@ -3090,7 +3124,7 @@ bool statistics_for_tables_is_needed(THD *thd, TABLE_LIST *tables)
 
   for (TABLE_LIST *tl= tables; tl; tl= tl->next_global)
   {
-    if (!tl->is_view_or_derived() && tl->table)
+    if (!tl->is_view_or_derived() && !is_temporary_table(tl) && tl->table)
     {
       TABLE_SHARE *table_share= tl->table->s;
       if (table_share && 
@@ -3102,7 +3136,7 @@ bool statistics_for_tables_is_needed(THD *thd, TABLE_LIST *tables)
 
   for (TABLE_LIST *tl= tables; tl; tl= tl->next_global)
   {
-    if (!tl->is_view_or_derived() && tl->table)
+    if (!tl->is_view_or_derived() && !is_temporary_table(tl) && tl->table)
     {
       TABLE_SHARE *table_share= tl->table->s;
       if (table_share && 
@@ -3231,7 +3265,7 @@ int read_statistics_for_tables_if_needed(THD *thd, TABLE_LIST *tables)
 
   for (TABLE_LIST *tl= tables; tl; tl= tl->next_global)
   {
-    if (!tl->is_view_or_derived() && tl->table)
+    if (!tl->is_view_or_derived() && !is_temporary_table(tl) && tl->table)
     { 
       TABLE_SHARE *table_share= tl->table->s;
       if (table_share && 
