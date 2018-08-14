@@ -217,7 +217,7 @@ static bool some_non_temp_table_to_be_updated(THD *thd, TABLE_LIST *tables)
 
 
 /*
-  Implicitly commit a active transaction if statement requires so.
+  Check whether the statement implicitly commits an active transaction.
 
   @param thd    Thread handle.
   @param mask   Bitmask used for the SQL command match.
@@ -225,7 +225,7 @@ static bool some_non_temp_table_to_be_updated(THD *thd, TABLE_LIST *tables)
   @return 0     No implicit commit
   @return 1     Do a commit
 */
-static bool stmt_causes_implicit_commit(THD *thd, uint mask)
+bool stmt_causes_implicit_commit(THD *thd, uint mask)
 {
   LEX *lex= thd->lex;
   bool skip= FALSE;
@@ -501,6 +501,9 @@ void init_update_queries(void)
   sql_command_flags[SQLCOM_TRUNCATE]|= CF_FORCE_ORIGINAL_BINLOG_FORMAT;
   /* We don't want to replicate DROP for temp tables in row format */
   sql_command_flags[SQLCOM_DROP_TABLE]|= CF_FORCE_ORIGINAL_BINLOG_FORMAT;
+  /* We don't want to replicate CREATE/DROP INDEX for temp tables in row format */
+  sql_command_flags[SQLCOM_CREATE_INDEX]|= CF_FORCE_ORIGINAL_BINLOG_FORMAT;
+  sql_command_flags[SQLCOM_DROP_INDEX]|= CF_FORCE_ORIGINAL_BINLOG_FORMAT;
   /* One can change replication mode with SET */
   sql_command_flags[SQLCOM_SET_OPTION]|= CF_FORCE_ORIGINAL_BINLOG_FORMAT;
 
@@ -539,6 +542,8 @@ void init_update_queries(void)
     There are other statements that deal with temporary tables and open
     them, but which are not listed here. The thing is that the order of
     pre-opening temporary tables for those statements is somewhat custom.
+
+    Note that SQLCOM_RENAME_TABLE should not be in this list!
   */
   sql_command_flags[SQLCOM_CREATE_TABLE]|=    CF_PREOPEN_TMP_TABLES;
   sql_command_flags[SQLCOM_DROP_TABLE]|=      CF_PREOPEN_TMP_TABLES;
@@ -552,7 +557,6 @@ void init_update_queries(void)
   sql_command_flags[SQLCOM_INSERT_SELECT]|=   CF_PREOPEN_TMP_TABLES;
   sql_command_flags[SQLCOM_DELETE]|=          CF_PREOPEN_TMP_TABLES;
   sql_command_flags[SQLCOM_DELETE_MULTI]|=    CF_PREOPEN_TMP_TABLES;
-  sql_command_flags[SQLCOM_RENAME_TABLE]|=    CF_PREOPEN_TMP_TABLES;
   sql_command_flags[SQLCOM_REPLACE_SELECT]|=  CF_PREOPEN_TMP_TABLES;
   sql_command_flags[SQLCOM_SELECT]|=          CF_PREOPEN_TMP_TABLES;
   sql_command_flags[SQLCOM_SET_OPTION]|=      CF_PREOPEN_TMP_TABLES;
@@ -1289,9 +1293,9 @@ bool dispatch_command(enum enum_server_command command, THD *thd,
     if (thd->wsrep_conflict_state == ABORTED &&
         command != COM_STMT_CLOSE && command != COM_QUIT)
     {
+      mysql_mutex_unlock(&thd->LOCK_thd_data);
       my_error(ER_LOCK_DEADLOCK, MYF(0), "wsrep aborted transaction");
       WSREP_DEBUG("Deadlock error for: %s", thd->query());
-      mysql_mutex_unlock(&thd->LOCK_thd_data);
       thd->reset_killed();
       thd->mysys_var->abort     = 0;
       thd->wsrep_conflict_state = NO_CONFLICT;
@@ -2517,10 +2521,6 @@ mysql_execute_command(THD *thd)
 #endif
   DBUG_ENTER("mysql_execute_command");
 
-#ifdef WITH_PARTITION_STORAGE_ENGINE
-  thd->work_part_info= 0;
-#endif
-
   DBUG_ASSERT(thd->transaction.stmt.is_empty() || thd->in_sub_stmt);
   /*
     Each statement or replication event which might produce deadlock
@@ -2961,6 +2961,7 @@ mysql_execute_command(THD *thd)
   {
     WSREP_SYNC_WAIT(thd, WSREP_SYNC_WAIT_BEFORE_SHOW);
     execute_show_status(thd, all_tables);
+
     break;
   }
   case SQLCOM_SHOW_EXPLAIN:
@@ -3460,7 +3461,7 @@ mysql_execute_command(THD *thd)
         TABLE_LIST *duplicate;
         if ((duplicate= unique_table(thd, lex->query_tables,
                                      lex->query_tables->next_global,
-                                     0)))
+                                     CHECK_DUP_FOR_CREATE)))
         {
           update_non_unique_table_error(lex->query_tables, "CREATE",
                                         duplicate);
@@ -4006,7 +4007,7 @@ end_with_restore_list:
   case SQLCOM_INSERT_SELECT:
   {
     WSREP_SYNC_WAIT(thd, WSREP_SYNC_WAIT_BEFORE_INSERT_REPLACE);
-    select_result *sel_result;
+    select_insert *sel_result;
     bool explain= MY_TEST(lex->describe);
     DBUG_ASSERT(first_table == all_tables && first_table != 0);
     if (WSREP_CLIENT(thd) &&
@@ -6038,6 +6039,60 @@ static bool execute_show_status(THD *thd, TABLE_LIST *all_tables)
 }
 
 
+/*
+  Find out if a table is a temporary table
+
+  A table is a temporary table if it's a temporary table or
+  there has been before a temporary table that has been renamed
+  to the current name.
+
+  Some examples:
+  A->B          B is a temporary table if and only if A is a temp.
+  A->B, B->C    Second B is temp if A is temp
+  A->B, A->C    Second A can't be temp as if A was temp then B is temp
+                and Second A can only be a normal table. C is also not temp
+*/
+
+static TABLE *find_temporary_table_for_rename(THD *thd,
+                                              TABLE_LIST *first_table,
+                                              TABLE_LIST *cur_table)
+{
+  TABLE_LIST *table;
+  TABLE *res= 0;
+  bool found= 0;
+  DBUG_ENTER("find_temporary_table_for_rename");
+
+  /* Find last instance when cur_table is in TO part */
+  for (table= first_table;
+       table != cur_table;
+       table= table->next_local->next_local)
+  {
+    TABLE_LIST *next= table->next_local;
+
+    if (!strcmp(table->get_db_name(),   cur_table->get_db_name()) &&
+        !strcmp(table->get_table_name(), cur_table->get_table_name()))
+    {
+      /* Table was moved away, can't be same as 'table' */
+      found= 1;
+      res= 0;                      // Table can't be a temporary table
+    }
+    if (!strcmp(next->get_db_name(),    cur_table->get_db_name()) &&
+        !strcmp(next->get_table_name(), cur_table->get_table_name()))
+    {
+      /*
+        Table has matching name with new name of this table. cur_table should
+        have same temporary type as this table.
+      */
+      found= 1;
+      res= table->table;
+    }
+  }
+  if (!found)
+    res= find_temporary_table(thd, table);
+  DBUG_RETURN(res);
+}
+
+
 static bool check_rename_table(THD *thd, TABLE_LIST *first_table,
                                TABLE_LIST *all_tables)
 {
@@ -6054,13 +6109,19 @@ static bool check_rename_table(THD *thd, TABLE_LIST *first_table,
                      &table->next_local->grant.m_internal,
                      0, 0))
       return 1;
+
+    /* check if these are refering to temporary tables */
+    table->table= find_temporary_table_for_rename(thd, first_table, table);
+    table->next_local->table= table->table;
+
     TABLE_LIST old_list, new_list;
     /*
       we do not need initialize old_list and new_list because we will
-      come table[0] and table->next[0] there
+      copy table[0] and table->next[0] there
     */
     old_list= table[0];
     new_list= table->next_local[0];
+
     if (check_grant(thd, ALTER_ACL | DROP_ACL, &old_list, FALSE, 1, FALSE) ||
        (!test_all_bits(table->next_local->grant.privilege,
                        INSERT_ACL | CREATE_ACL) &&
@@ -6970,8 +7031,9 @@ void THD::reset_for_next_command(bool do_clear_error)
     We also assign thd->stmt_lex in lex_start(), but during bootstrap this
     code is executed first.
   */
-  thd->stmt_lex= &main_lex; thd->stmt_lex->current_select_number= 1;
-  DBUG_PRINT("info", ("Lex %p stmt_lex: %p", thd->lex, thd->stmt_lex));
+  DBUG_ASSERT(lex == &main_lex);
+  main_lex.stmt_lex= &main_lex; main_lex.current_select_number= 1;
+  DBUG_PRINT("info", ("Lex and stmt_lex: %p", &main_lex));
   /*
     Those two lines below are theoretically unneeded as
     THD::cleanup_after_query() should take care of this already.
@@ -7089,7 +7151,7 @@ mysql_new_select(LEX *lex, bool move_down)
 
   if (!(select_lex= new (thd->mem_root) SELECT_LEX()))
     DBUG_RETURN(1);
-  select_lex->select_number= ++thd->stmt_lex->current_select_number;
+  select_lex->select_number= ++thd->lex->stmt_lex->current_select_number;
   select_lex->parent_lex= lex; /* Used in init_query. */
   select_lex->init_query();
   select_lex->init_select();
@@ -7274,6 +7336,7 @@ static void wsrep_mysql_parse(THD *thd, char *rawbuf, uint length,
             thd->lex->sql_command != SQLCOM_SELECT  &&
             (thd->wsrep_retry_counter < thd->variables.wsrep_retry_autocommit))
         {
+          mysql_mutex_unlock(&thd->LOCK_thd_data);
           WSREP_DEBUG("wsrep retrying AC query: %s",
                       (thd->query()) ? thd->query() : "void");
 
@@ -7281,27 +7344,36 @@ static void wsrep_mysql_parse(THD *thd, char *rawbuf, uint length,
 	  MYSQL_END_STATEMENT(thd->m_statement_psi, thd->get_stmt_da());
 	  thd->m_statement_psi= NULL;
           thd->m_digest= NULL;
+	  // Released thd->LOCK_thd_data above as below could end up
+	  // close_thread_tables()/close_open_tables()/close_thread_table()/mysql_mutex_lock(&thd->LOCK_thd_data)
           close_thread_tables(thd);
 
+	  mysql_mutex_lock(&thd->LOCK_thd_data);
           thd->wsrep_conflict_state= RETRY_AUTOCOMMIT;
           thd->wsrep_retry_counter++;            // grow
           wsrep_copy_query(thd);
           thd->set_time();
           parser_state->reset(rawbuf, length);
+          mysql_mutex_unlock(&thd->LOCK_thd_data);
         }
         else
         {
+          mysql_mutex_unlock(&thd->LOCK_thd_data);
+	  // This does dirty read to wsrep variables but it is only a debug code
           WSREP_DEBUG("%s, thd: %lu is_AC: %d, retry: %lu - %lu SQL: %s",
                       (thd->wsrep_conflict_state == ABORTED) ?
                       "BF Aborted" : "cert failure",
                       thd->thread_id, is_autocommit, thd->wsrep_retry_counter,
                       thd->variables.wsrep_retry_autocommit, thd->query());
           my_error(ER_LOCK_DEADLOCK, MYF(0), "wsrep aborted transaction");
+
+	  mysql_mutex_lock(&thd->LOCK_thd_data);
           thd->wsrep_conflict_state= NO_CONFLICT;
           if (thd->wsrep_conflict_state != REPLAYING)
             thd->wsrep_retry_counter= 0;             //  reset
+	  mysql_mutex_unlock(&thd->LOCK_thd_data);
         }
-        mysql_mutex_unlock(&thd->LOCK_thd_data);
+
         thd->reset_killed();
       }
       else
@@ -7336,6 +7408,7 @@ static void wsrep_mysql_parse(THD *thd, char *rawbuf, uint length,
   }
 #endif /* WITH_WSREP */
 }
+
 
 /*
   When you modify mysql_parse(), you may need to modify

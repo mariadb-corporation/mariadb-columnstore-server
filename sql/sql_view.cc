@@ -428,8 +428,7 @@ bool mysql_create_view(THD *thd, TABLE_LIST *views,
 
   lex->link_first_table_back(view, link_to_local);
   view->open_type= OT_BASE_ONLY;
-
-  WSREP_TO_ISOLATION_BEGIN(WSREP_MYSQL_DB, NULL, NULL)
+  WSREP_TO_ISOLATION_BEGIN(WSREP_MYSQL_DB, NULL, NULL);
 
   /*
     ignore lock specs for CREATE statement
@@ -692,15 +691,15 @@ bool mysql_create_view(THD *thd, TABLE_LIST *views,
   lex->link_first_table_back(view, link_to_local);
   DBUG_RETURN(0);
 
+#ifdef WITH_WSREP
+ error:
+  res= TRUE;
+#endif /* WITH_WSREP */
 err:
   THD_STAGE_INFO(thd, stage_end);
   lex->link_first_table_back(view, link_to_local);
   unit->cleanup();
   DBUG_RETURN(res || thd->is_error());
-#ifdef WITH_WSREP
- error:
-  DBUG_RETURN(true);
-#endif /* WITH_WSREP */
 }
 
 
@@ -1315,6 +1314,7 @@ bool mysql_make_view(THD *thd, TABLE_SHARE *share, TABLE_LIST *table,
 
     now Lex placed in statement memory
   */
+
   table->view= lex= thd->lex= (LEX*) new(thd->mem_root) st_lex_local;
   if (!table->view)
   {
@@ -1340,8 +1340,9 @@ bool mysql_make_view(THD *thd, TABLE_SHARE *share, TABLE_LIST *table,
       goto end;
 
     lex_start(thd);
+    lex->stmt_lex= old_lex;
     view_select= &lex->select_lex;
-    view_select->select_number= ++thd->stmt_lex->current_select_number;
+    view_select->select_number= ++thd->lex->stmt_lex->current_select_number;
 
     ulonglong saved_mode= thd->variables.sql_mode;
     /* switch off modes which can prevent normal parsing of VIEW

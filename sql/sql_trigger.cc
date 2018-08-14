@@ -442,7 +442,6 @@ bool mysql_create_or_drop_trigger(THD *thd, TABLE_LIST *tables, bool create)
     my_error(ER_BINLOG_CREATE_ROUTINE_NEED_SUPER, MYF(0));
     DBUG_RETURN(TRUE);
   }
-  WSREP_TO_ISOLATION_BEGIN(WSREP_MYSQL_DB, NULL, NULL)
 
   if (!create)
   {
@@ -504,6 +503,7 @@ bool mysql_create_or_drop_trigger(THD *thd, TABLE_LIST *tables, bool create)
     if (err_status)
       goto end;
   }
+  WSREP_TO_ISOLATION_BEGIN(WSREP_MYSQL_DB, NULL, NULL);
 
   /* We should have only one table in table list. */
   DBUG_ASSERT(tables->next_global == 0);
@@ -613,6 +613,7 @@ end:
   DBUG_RETURN(true);
 #endif /* WITH_WSREP */
 }
+
 
 /**
   Build stmt_query to write it in the bin-log
@@ -1061,6 +1062,11 @@ Table_triggers_list::~Table_triggers_list()
     for (int j= 0; j < (int)TRG_ACTION_MAX; j++)
       delete bodies[i][j];
 
+  /* Free blobs used in insert */
+  if (record0_field)
+    for (Field **fld_ptr= record0_field; *fld_ptr; fld_ptr++)
+      (*fld_ptr)->free();
+
   if (record1_field)
     for (Field **fld_ptr= record1_field; *fld_ptr; fld_ptr++)
       delete *fld_ptr;
@@ -1374,13 +1380,13 @@ bool Table_triggers_list::check_n_load(THD *thd, const char *db,
       List_iterator_fast<LEX_STRING> it_client_cs_name(triggers->client_cs_names);
       List_iterator_fast<LEX_STRING> it_connection_cl_name(triggers->connection_cl_names);
       List_iterator_fast<LEX_STRING> it_db_cl_name(triggers->db_cl_names);
-      LEX *old_lex= thd->lex, *old_stmt_lex= thd->stmt_lex;
+      LEX *old_lex= thd->lex;
       LEX lex;
       sp_rcontext *save_spcont= thd->spcont;
       ulonglong save_sql_mode= thd->variables.sql_mode;
       LEX_STRING *on_table_name;
 
-      thd->lex= thd->stmt_lex= &lex;
+      thd->lex= &lex;
 
       save_db.str= thd->db;
       save_db.length= thd->db_length;
@@ -1579,7 +1585,6 @@ bool Table_triggers_list::check_n_load(THD *thd, const char *db,
       }
       thd->reset_db(save_db.str, save_db.length);
       thd->lex= old_lex;
-      thd->stmt_lex= old_stmt_lex;
       thd->spcont= save_spcont;
       thd->variables.sql_mode= save_sql_mode;
 
@@ -1592,7 +1597,6 @@ err_with_lex_cleanup:
       // QQ: anything else ?
       lex_end(&lex);
       thd->lex= old_lex;
-      thd->stmt_lex= old_stmt_lex;
       thd->spcont= save_spcont;
       thd->variables.sql_mode= save_sql_mode;
       thd->reset_db(save_db.str, save_db.length);

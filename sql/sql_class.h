@@ -1047,21 +1047,6 @@ public:
   LEX_STRING name; /* name for named prepared statements */
   LEX *lex;                                     // parse tree descriptor
   /*
-    LEX which represents current statement (conventional, SP or PS)
-
-    For example during view parsing THD::lex will point to the views LEX and
-    THD::stmt_lex will point to LEX of the statement where the view will be
-    included
-
-    Currently it is used to have always correct select numbering inside
-    statement (LEX::current_select_number) without storing and restoring a
-    global counter which was THD::select_number.
-
-    TODO: make some unified statement representation (now SP has different)
-    to store such data like LEX::current_select_number.
-  */
-  LEX *stmt_lex;
-  /*
     Points to the query associated with this statement. It's const, but
     we need to declare it char * because all table handlers are written
     in C and need to point to it.
@@ -3037,6 +3022,7 @@ public:
     query_id_t first_query_id;
   } binlog_evt_union;
 
+  mysql_cond_t              COND_wsrep_thd;
   /**
     Internal parser state.
     Note that since the parser is not re-entrant, we keep only one parser
@@ -3657,6 +3643,10 @@ public:
   {
     *format= (enum_binlog_format) variables.binlog_format;
     *current_format= current_stmt_binlog_format;
+  }
+  inline enum_binlog_format get_current_stmt_binlog_format()
+  {
+    return current_stmt_binlog_format;
   }
   inline void set_binlog_format(enum_binlog_format format,
                                 enum_binlog_format current_format)
@@ -5624,8 +5614,6 @@ inline int handler::ha_ft_read(uchar *buf)
 inline int handler::ha_rnd_pos_by_record(uchar *buf)
 {
   int error= rnd_pos_by_record(buf);
-  if (!error)
-    update_rows_read();
   table->status=error ? STATUS_NOT_FOUND: 0;
   return error;
 }

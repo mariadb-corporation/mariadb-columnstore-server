@@ -2,7 +2,7 @@
 
 Copyright (c) 1996, 2017, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2012, Facebook Inc.
-Copyright (c) 2013, 2017, MariaDB Corporation.
+Copyright (c) 2013, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -507,7 +507,8 @@ dict_table_try_drop_aborted(
 		ut_ad(table->id == table_id);
 	}
 
-	if (table && table->n_ref_count == ref_count && table->drop_aborted) {
+	if (table && table->n_ref_count == ref_count && table->drop_aborted
+	    && !UT_LIST_GET_FIRST(table->locks)) {
 		/* Silence a debug assertion in row_merge_drop_indexes(). */
 		ut_d(table->n_ref_count++);
 		row_merge_drop_indexes(trx, table, TRUE);
@@ -1679,7 +1680,7 @@ dict_table_rename_in_cache(
 			filepath = fil_make_ibd_name(table->name, false);
 		}
 
-		fil_delete_tablespace(table->space, true);
+		fil_delete_tablespace(table->space);
 
 		/* Delete any temp file hanging around. */
 		if (os_file_status(filepath, &exists, &ftype)
@@ -2728,36 +2729,12 @@ dict_index_remove_from_cache_low(
 	zero. See also: dict_table_can_be_evicted() */
 
 	do {
-		ulint ref_count = btr_search_info_get_ref_count(info,
-								index);
-
-		if (ref_count == 0) {
+		if (!btr_search_info_get_ref_count(info, index)
+		    || !buf_LRU_drop_page_hash_for_tablespace(table)) {
 			break;
 		}
 
-		/* Sleep for 10ms before trying again. */
-		os_thread_sleep(10000);
-		++retries;
-
-		if (retries % 500 == 0) {
-			/* No luck after 5 seconds of wait. */
-			fprintf(stderr, "InnoDB: Error: Waited for"
-				" %lu secs for hash index"
-				" ref_count (%lu) to drop"
-				" to 0.\n"
-				"index: \"%s\""
-				" table: \"%s\"\n",
-				retries/100,
-				ref_count,
-				index->name,
-				table->name);
-		}
-
-		/* To avoid a hang here we commit suicide if the
-		ref_count doesn't drop to zero in 600 seconds. */
-		if (retries >= 60000) {
-			ut_error;
-		}
+		ut_a(++retries < 10000);
 	} while (srv_shutdown_state == SRV_SHUTDOWN_NONE || !lru_evict);
 
 	rw_lock_free(&index->lock);
