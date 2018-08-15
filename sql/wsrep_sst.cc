@@ -30,6 +30,8 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include <my_service_manager.h>
+
 static char wsrep_defaults_file[FN_REFLEN * 2 + 10 + 30 +
                                 sizeof(WSREP_SST_OPT_CONF) +
                                 sizeof(WSREP_SST_OPT_CONF_SUFFIX) +
@@ -177,6 +179,9 @@ bool wsrep_before_SE()
 static bool            sst_complete = false;
 static bool            sst_needed   = false;
 
+#define WSREP_EXTEND_TIMEOUT_INTERVAL 30
+#define WSREP_TIMEDWAIT_SECONDS 10
+
 void wsrep_sst_grab ()
 {
   WSREP_INFO("wsrep_sst_grab()");
@@ -188,11 +193,28 @@ void wsrep_sst_grab ()
 // Wait for end of SST
 bool wsrep_sst_wait ()
 {
-  if (mysql_mutex_lock (&LOCK_wsrep_sst)) abort();
+  double total_wtime = 0;
+
+  if (mysql_mutex_lock (&LOCK_wsrep_sst))
+    abort();
+
+  WSREP_INFO("Waiting for SST to complete.");
+
   while (!sst_complete)
   {
-    WSREP_INFO("Waiting for SST to complete.");
-    mysql_cond_wait (&COND_wsrep_sst, &LOCK_wsrep_sst);
+    struct timespec wtime;
+    set_timespec(wtime, WSREP_TIMEDWAIT_SECONDS);
+    time_t start_time = time(NULL);
+    mysql_cond_timedwait (&COND_wsrep_sst, &LOCK_wsrep_sst, &wtime);
+    time_t end_time = time(NULL);
+
+    if (!sst_complete)
+    {
+      total_wtime += difftime(end_time, start_time);
+      WSREP_DEBUG("Waiting for SST to complete. current seqno: %ld waited %f secs.", local_seqno, total_wtime);
+      service_manager_extend_timeout(WSREP_EXTEND_TIMEOUT_INTERVAL,
+        "WSREP state transfer ongoing, current seqno: %ld waited %f secs", local_seqno, total_wtime);
+    }
   }
 
   if (local_seqno >= 0)
@@ -605,11 +627,11 @@ static ssize_t sst_prepare_other (const char*  method,
 
   ret= snprintf (cmd_str(), cmd_len,
                  "wsrep_sst_%s "
-                 WSREP_SST_OPT_ROLE" 'joiner' "
-                 WSREP_SST_OPT_ADDR" '%s' "
-                 WSREP_SST_OPT_DATA" '%s' "
+                 WSREP_SST_OPT_ROLE " 'joiner' "
+                 WSREP_SST_OPT_ADDR " '%s' "
+                 WSREP_SST_OPT_DATA " '%s' "
                  " %s "
-                 WSREP_SST_OPT_PARENT" '%d'"
+                 WSREP_SST_OPT_PARENT " '%d'"
                  " %s '%s' ",
                  method, addr_in, mysql_real_data_home,
                  wsrep_defaults_file,
@@ -891,13 +913,13 @@ static int sst_donate_mysqldump (const char*         addr,
 
   int ret= snprintf (cmd_str(), cmd_len,
                      "wsrep_sst_mysqldump "
-                     WSREP_SST_OPT_ADDR" '%s' "
-                     WSREP_SST_OPT_PORT" '%d' "
-                     WSREP_SST_OPT_LPORT" '%u' "
-                     WSREP_SST_OPT_SOCKET" '%s' "
-                     " '%s' "
-                     WSREP_SST_OPT_GTID" '%s:%lld' "
-                     WSREP_SST_OPT_GTID_DOMAIN_ID" '%d'"
+                     WSREP_SST_OPT_ADDR " '%s' "
+                     WSREP_SST_OPT_PORT " '%d' "
+                     WSREP_SST_OPT_LPORT " '%u' "
+                     WSREP_SST_OPT_SOCKET " '%s' "
+                     " %s "
+                     WSREP_SST_OPT_GTID " '%s:%lld' "
+                     WSREP_SST_OPT_GTID_DOMAIN_ID " '%d'"
                      "%s",
 	             addr, port, mysqld_port, mysqld_unix_port,
                      wsrep_defaults_file, uuid_str,
@@ -1254,14 +1276,14 @@ static int sst_donate_other (const char*   method,
 
   ret= snprintf (cmd_str(), cmd_len,
                  "wsrep_sst_%s "
-                 WSREP_SST_OPT_ROLE" 'donor' "
-                 WSREP_SST_OPT_ADDR" '%s' "
-                 WSREP_SST_OPT_SOCKET" '%s' "
-                 WSREP_SST_OPT_DATA" '%s' "
+                 WSREP_SST_OPT_ROLE " 'donor' "
+                 WSREP_SST_OPT_ADDR " '%s' "
+                 WSREP_SST_OPT_SOCKET " '%s' "
+                 WSREP_SST_OPT_DATA " '%s' "
                  " %s "
                  " %s '%s' "
-                 WSREP_SST_OPT_GTID" '%s:%lld' "
-                 WSREP_SST_OPT_GTID_DOMAIN_ID" '%d'"
+                 WSREP_SST_OPT_GTID " '%s:%lld' "
+                 WSREP_SST_OPT_GTID_DOMAIN_ID " '%d'"
                  "%s",
                  method, addr, mysqld_unix_port, mysql_real_data_home,
                  wsrep_defaults_file,
@@ -1347,10 +1369,25 @@ void wsrep_SE_init_grab()
 
 void wsrep_SE_init_wait()
 {
+  double total_wtime=0;
+
   while (SE_initialized == false)
   {
-    mysql_cond_wait (&COND_wsrep_sst_init, &LOCK_wsrep_sst_init);
+    struct timespec wtime;
+    set_timespec(wtime, WSREP_TIMEDWAIT_SECONDS);
+    time_t start_time = time(NULL);
+    mysql_cond_timedwait (&COND_wsrep_sst_init, &LOCK_wsrep_sst_init, &wtime);
+    time_t end_time = time(NULL);
+
+    if (!SE_initialized)
+    {
+      total_wtime += difftime(end_time, start_time);
+      WSREP_DEBUG("Waiting for SST to complete. current seqno: %ld waited %f secs.", local_seqno, total_wtime);
+      service_manager_extend_timeout(WSREP_EXTEND_TIMEOUT_INTERVAL,
+        "WSREP state transfer ongoing, current seqno: %ld waited %f secs", local_seqno, total_wtime);
+    }
   }
+
   mysql_mutex_unlock (&LOCK_wsrep_sst_init);
 }
 

@@ -654,10 +654,11 @@ void lex_start(THD *thd)
 {
   LEX *lex= thd->lex;
   DBUG_ENTER("lex_start");
-  DBUG_PRINT("info", ("Lex %p stmt_lex: %p", thd->lex, thd->stmt_lex));
+  DBUG_PRINT("info", ("Lex %p", thd->lex));
 
   lex->thd= lex->unit.thd= thd;
-  
+
+  lex->stmt_lex= lex; // default, should be rewritten for VIEWs And CTEs
   DBUG_ASSERT(!lex->explain);
 
   lex->context_stack.empty();
@@ -2106,6 +2107,7 @@ void st_select_lex::init_query()
   cond_pushed_into_where= cond_pushed_into_having= 0;
   olap= UNSPECIFIED_OLAP_TYPE;
   having_fix_field= 0;
+  having_fix_field_for_pushed_cond= 0;
   context.select_lex= this;
   context.init();
   /*
@@ -2171,6 +2173,7 @@ void st_select_lex::init_select()
   select_limit= 0;      /* denotes the default limit = HA_POS_ERROR */
   offset_limit= 0;      /* denotes the default offset = 0 */
   with_sum_func= 0;
+  with_all_modifier= 0;
   is_correlated= 0;
   cur_pos_in_select_list= UNDEF_POS;
   cond_value= having_value= Item::COND_UNDEF;

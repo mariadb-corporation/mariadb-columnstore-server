@@ -1493,7 +1493,7 @@ lock_rec_create_low(
 	lock_rec_bitmap_reset(lock);
 	lock_rec_set_nth_bit(lock, heap_no);
 	index->table->n_rec_locks++;
-	ut_ad(index->table->n_ref_count > 0 || !index->table->can_be_evicted);
+	ut_ad(index->table->get_ref_count() > 0 || !index->table->can_be_evicted);
 
 #ifdef WITH_WSREP
 	if (c_lock && wsrep_on_trx(trx)
@@ -1805,7 +1805,10 @@ lock_rec_enqueue_waiting(
 		lock_prdt_set_prdt(lock, prdt);
 	}
 
-	if (const trx_t* victim =
+	if (
+#ifdef UNIV_DEBUG
+	    const trx_t* victim =
+#endif
 	    DeadlockChecker::check_and_resolve(lock, trx)) {
 		ut_ad(victim == trx);
 		lock_reset_lock_and_trx_wait(lock);
@@ -3664,7 +3667,7 @@ lock_table_create(
 
 	lock->un_member.tab_lock.table = table;
 
-	ut_ad(table->n_ref_count > 0 || !table->can_be_evicted);
+	ut_ad(table->get_ref_count() > 0 || !table->can_be_evicted);
 
 	UT_LIST_ADD_LAST(trx->lock.trx_locks, lock);
 
@@ -4456,7 +4459,7 @@ lock_release(
 				block the use of the MySQL query cache for
 				all currently active transactions. */
 
-				table->query_cache_inv_id = max_trx_id;
+				table->query_cache_inv_trx_id = max_trx_id;
 			}
 
 			lock_table_dequeue(lock);

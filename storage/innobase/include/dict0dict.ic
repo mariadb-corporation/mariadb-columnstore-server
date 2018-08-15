@@ -72,16 +72,6 @@ dict_col_copy_type(
 	type->mbminlen = col->mbminlen;
 	type->mbmaxlen = col->mbmaxlen;
 }
-/** Check if a column is a virtual column
-@param[in]      col     column
-@return true if it is a virtual column, false otherwise */
-UNIV_INLINE
-bool
-dict_col_is_virtual(
-	const dict_col_t*	col)
-{
-	return(col->prtype & DATA_VIRTUAL);
-}
 
 #ifdef UNIV_DEBUG
 /*********************************************************************//**
@@ -323,20 +313,6 @@ dict_index_is_spatial(
 	ut_ad(index->magic_n == DICT_INDEX_MAGIC_N);
 
 	return(index->type & DICT_SPATIAL);
-}
-
-/** Check whether the index contains a virtual column
-@param[in]	index	index
-@return	nonzero for the index has virtual column, zero for other indexes */
-UNIV_INLINE
-ulint
-dict_index_has_virtual(
-	const dict_index_t*	index)
-{
-	ut_ad(index);
-	ut_ad(index->magic_n == DICT_INDEX_MAGIC_N);
-
-	return(index->type & DICT_VIRTUAL);
 }
 
 /********************************************************************//**
@@ -1522,23 +1498,13 @@ dict_table_is_file_per_table(
 	return !is_system_tablespace(table->space);
 }
 
-/** Get reference count.
-@return current value of n_ref_count */
-inline
-ulint
-dict_table_t::get_ref_count() const
-{
-	ut_ad(mutex_own(&dict_sys->mutex));
-	return(n_ref_count);
-}
-
 /** Acquire the table handle. */
 inline
 void
 dict_table_t::acquire()
 {
 	ut_ad(mutex_own(&dict_sys->mutex));
-	++n_ref_count;
+	my_atomic_add32_explicit(&n_ref_count, 1, MY_MEMORY_ORDER_RELAXED);
 }
 
 /** Release the table handle.
@@ -1547,9 +1513,10 @@ inline
 bool
 dict_table_t::release()
 {
-	ut_ad(mutex_own(&dict_sys->mutex));
-	ut_ad(n_ref_count > 0);
-	return !--n_ref_count;
+	int32 n = my_atomic_add32_explicit(
+			&n_ref_count, -1, MY_MEMORY_ORDER_RELAXED);
+	ut_ad(n > 0);
+	return n == 1;
 }
 
 /** Encode the number of columns and number of virtual columns in a

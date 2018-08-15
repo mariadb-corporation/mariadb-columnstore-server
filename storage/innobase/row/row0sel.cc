@@ -179,6 +179,8 @@ row_sel_sec_rec_is_for_clust_rec(
 	ulint*		clust_offs	= clust_offsets_;
 	ulint*		sec_offs	= sec_offsets_;
 	ibool		is_equal	= TRUE;
+	VCOL_STORAGE*	vcol_storage= 0;
+	byte*		record;
 
 	rec_offs_init(clust_offsets_);
 	rec_offs_init(sec_offsets_);
@@ -226,6 +228,17 @@ row_sel_sec_rec_is_for_clust_rec(
 			dfield_t*		vfield;
 			row_ext_t*		ext;
 
+			if (!vcol_storage)
+			{
+				TABLE *mysql_table= thr->prebuilt->m_mysql_table;
+				innobase_allocate_row_for_vcol(thr_get_trx(thr)->mysql_thd,
+							       clust_index,
+							       &heap,
+							       &mysql_table,
+							       &record,
+							       &vcol_storage);
+			}
+
 			v_col = reinterpret_cast<const dict_v_col_t*>(col);
 
 			row = row_build(ROW_COPY_POINTERS,
@@ -237,8 +250,8 @@ row_sel_sec_rec_is_for_clust_rec(
 					row, v_col, clust_index,
 					&heap, NULL, NULL,
 					thr_get_trx(thr)->mysql_thd,
-					thr->prebuilt->m_mysql_table, NULL,
-					NULL, NULL);
+					thr->prebuilt->m_mysql_table,
+					record, NULL, NULL, NULL);
 
 			clust_len = vfield->len;
 			clust_field = static_cast<byte*>(vfield->data);
@@ -326,6 +339,8 @@ inequal:
 
 func_exit:
 	if (UNIV_LIKELY_NULL(heap)) {
+		if (UNIV_LIKELY_NULL(vcol_storage))
+			innobase_free_row_for_vcol(vcol_storage);
 		mem_heap_free(heap);
 	}
 	return(is_equal);
@@ -1087,8 +1102,8 @@ sel_set_rtr_rec_lock(
 	rw_lock_x_lock(&(match->block.lock));
 retry:
 	cur_block = btr_pcur_get_block(pcur);
-        ut_ad(rw_lock_own(&(match->block.lock), RW_LOCK_X)
-              || rw_lock_own(&(match->block.lock), RW_LOCK_S));
+	ut_ad(rw_lock_own_flagged(&match->block.lock,
+				  RW_LOCK_FLAG_X | RW_LOCK_FLAG_S));
 	ut_ad(page_is_leaf(buf_block_get_frame(cur_block)));
 
 	err = lock_sec_rec_read_check_and_lock(
@@ -5008,6 +5023,13 @@ wrong_offs:
 			if (!rec_get_deleted_flag(rec, comp)) {
 				goto no_gap_lock;
 			}
+
+			/* At most one transaction can be active
+			for temporary table. */
+			if (dict_table_is_temporary(clust_index->table)) {
+				goto no_gap_lock;
+			}
+
 			if (index == clust_index) {
 				trx_id_t trx_id = row_get_rec_trx_id(
 					rec, index, offsets);
@@ -5903,60 +5925,6 @@ func_exit:
 		buf, PAGE_CUR_WITHIN, prebuilt, 0, ROW_SEL_NEXT);
 
 	goto loop;
-}
-
-/*******************************************************************//**
-Checks if MySQL at the moment is allowed for this table to retrieve a
-consistent read result, or store it to the query cache.
-@return whether storing or retrieving from the query cache is permitted */
-bool
-row_search_check_if_query_cache_permitted(
-/*======================================*/
-	trx_t*		trx,		/*!< in: transaction object */
-	const char*	norm_name)	/*!< in: concatenation of database name,
-					'/' char, table name */
-{
-	dict_table_t*	table = dict_table_open_on_name(
-		norm_name, FALSE, FALSE, DICT_ERR_IGNORE_NONE);
-
-	if (table == NULL) {
-
-		return(false);
-	}
-
-	/* Start the transaction if it is not started yet */
-
-	trx_start_if_not_started(trx, false);
-
-	/* If there are locks on the table or some trx has invalidated the
-	cache before this transaction started then this transaction cannot
-	read/write from/to the cache.
-
-	If a read view has not been created for the transaction then it doesn't
-	really matter what this transaction sees. If a read view was created
-	then the view low_limit_id is the max trx id that this transaction
-	saw at the time of the read view creation.  */
-
-	const bool ret = lock_table_get_n_locks(table) == 0
-		&& ((trx->id != 0 && trx->id >= table->query_cache_inv_id)
-		    || !MVCC::is_view_active(trx->read_view)
-		    || trx->read_view->low_limit_id()
-		    >= table->query_cache_inv_id);
-	if (ret) {
-		/* If the isolation level is high, assign a read view for the
-		transaction if it does not yet have one */
-
-		if (trx->isolation_level >= TRX_ISO_REPEATABLE_READ
-		    && !srv_read_only_mode
-		    && !MVCC::is_view_active(trx->read_view)) {
-
-			trx_sys->mvcc->view_open(trx->read_view, trx);
-		}
-	}
-
-	dict_table_close(table, FALSE, FALSE);
-
-	return(ret);
 }
 
 /*******************************************************************//**

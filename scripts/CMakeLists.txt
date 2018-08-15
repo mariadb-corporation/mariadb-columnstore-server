@@ -91,6 +91,7 @@ SET(ADD_GIS_SP_EOL ";")
 CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/maria_add_gis_sp.sql.in
   ${CMAKE_CURRENT_BINARY_DIR}/maria_add_gis_sp_bootstrap.sql ESCAPE_QUOTES @ONLY)
 
+IF (NOT WITHOUT_SERVER)
 INSTALL(FILES 
   ${CMAKE_CURRENT_SOURCE_DIR}/mysql_system_tables.sql 
   ${CMAKE_CURRENT_SOURCE_DIR}/mysql_system_tables_data.sql
@@ -103,6 +104,7 @@ INSTALL(FILES
   ${FIX_PRIVILEGES_SQL}
   DESTINATION ${INSTALL_MYSQLSHAREDIR} COMPONENT Server
 )
+ENDIF()
 
 # TCMalloc hacks
 IF(MALLOC_LIB)
@@ -174,6 +176,7 @@ IF(INSTALL_LAYOUT MATCHES "STANDALONE")
   SET(scriptdir ${prefix}/${INSTALL_BINDIR})
   SET(libexecdir ${prefix}/${INSTALL_SBINDIR})
   SET(pkgdatadir ${prefix}/${INSTALL_MYSQLSHAREDIR})
+  SET(pkgplugindir ${prefix}/${INSTALL_PLUGINDIR})
   SET(localstatedir ${prefix}/data)
 ELSE()
   SET(prefix "${CMAKE_INSTALL_PREFIX}")
@@ -182,6 +185,7 @@ ELSE()
   SET(scriptdir ${INSTALL_BINDIRABS})
   SET(libexecdir ${INSTALL_SBINDIRABS})
   SET(pkgdatadir ${INSTALL_MYSQLSHAREDIRABS})
+  SET(pkgplugindir ${INSTALL_PLUGINDIRABS})
   SET(localstatedir ${MYSQL_DATADIR})
 ENDIF()
 
@@ -329,20 +333,6 @@ ELSE()
       COMPONENT ${${file}_COMPONENT}
      )
   ENDFOREACH()
-
-  FOREACH(file ${WSREP_SOURCE})
-    CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/${file}.sh
-      ${CMAKE_CURRENT_BINARY_DIR}/${file} ESCAPE_QUOTES @ONLY)
-    IF(NOT ${file}_COMPONENT)
-      SET(${file}_COMPONENT Server)
-    ENDIF()
-    INSTALL(FILES
-      ${CMAKE_CURRENT_BINARY_DIR}/${file}
-      DESTINATION ${INSTALL_BINDIR}
-      COMPONENT ${${file}_COMPONENT}
-     )
-  ENDFOREACH()
-
 ENDIF()
 
 # Install libgcc as  mylibgcc.a

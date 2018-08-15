@@ -1,5 +1,5 @@
 /*
-   Copyright (c) 2000, 2016, Oracle and/or its affiliates.
+   Copyright (c) 2000, 2018, Oracle and/or its affiliates.
    Copyright (c) 2010, 2018, MariaDB Corporation
 
    This program is free software; you can redistribute it and/or modify
@@ -1361,7 +1361,7 @@ bool Item::get_date(MYSQL_TIME *ltime,ulonglong fuzzydate)
                                                 ltime, fuzzydate,
                                                 field_name_or_null()))
       goto err;
-    break;
+    return null_value= false;
   }
   case REAL_RESULT:
   {
@@ -1369,7 +1369,7 @@ bool Item::get_date(MYSQL_TIME *ltime,ulonglong fuzzydate)
     if (null_value || double_to_datetime_with_warn(value, ltime, fuzzydate,
                                                    field_name_or_null()))
       goto err;
-    break;
+    return null_value= false;
   }
   case DECIMAL_RESULT:
   {
@@ -1378,7 +1378,7 @@ bool Item::get_date(MYSQL_TIME *ltime,ulonglong fuzzydate)
         decimal_to_datetime_with_warn(res, ltime, fuzzydate,
                                       field_name_or_null()))
       goto err;
-    break;
+    return null_value= false;
   }
   case STRING_RESULT:
   {
@@ -1388,15 +1388,20 @@ bool Item::get_date(MYSQL_TIME *ltime,ulonglong fuzzydate)
         str_to_datetime_with_warn(res->charset(), res->ptr(), res->length(),
                                   ltime, fuzzydate))
       goto err;
-    break;
+    return null_value= false;
   }
   default:
+    null_value= true;
     DBUG_ASSERT(0);
   }
 
-  return null_value= 0;
-
 err:
+  return null_value|= make_zero_date(ltime, fuzzydate);
+}
+
+
+bool Item::make_zero_date(MYSQL_TIME *ltime, ulonglong fuzzydate)
+{
   /*
     if the item was not null and convertion failed, we return a zero date
     if allowed, otherwise - null.
@@ -1418,7 +1423,7 @@ err:
     */
     ltime->time_type= MYSQL_TIMESTAMP_TIME;
   }
-  return null_value|= !(fuzzydate & TIME_FUZZY_DATES);
+  return !(fuzzydate & TIME_FUZZY_DATES);
 }
 
 bool Item::get_seconds(ulonglong *sec, ulong *sec_part)
@@ -3414,6 +3419,15 @@ my_decimal *Item_null::val_decimal(my_decimal *decimal_value)
 }
 
 
+bool Item_null::get_date(MYSQL_TIME *ltime, ulonglong fuzzydate)
+{
+  // following assert is redundant, because fixed=1 assigned in constructor
+  DBUG_ASSERT(fixed == 1);
+  make_zero_date(ltime, fuzzydate);
+  return (null_value= true);
+}
+
+
 Item *Item_null::safe_charset_converter(THD *thd, CHARSET_INFO *tocs)
 {
   return this;
@@ -5032,9 +5046,11 @@ static Item** find_field_in_group_list(Item *find_item, ORDER *group_list)
     in the SELECT clause of Q.
     - Search for a column named col_ref_i [in table T_j]
     in the GROUP BY clause of Q.
-    - If found different columns with the same name in GROUP BY and SELECT
-    - issue a warning and return the GROUP BY column,
-    - otherwise
+    - If found different columns with the same name in GROUP BY and SELECT:
+    - if the condition that uses this column name is pushed down into
+    the HAVING clause return the SELECT column
+    - else issue a warning and return the GROUP BY column.
+    - Otherwise
     - if the MODE_ONLY_FULL_GROUP_BY mode is enabled return error
     - else return the found SELECT column.
 
@@ -5073,7 +5089,8 @@ resolve_ref_in_select_and_group(THD *thd, Item_ident *ref, SELECT_LEX *select)
     
     /* Check if the fields found in SELECT and GROUP BY are the same field. */
     if (group_by_ref && (select_ref != not_found_item) &&
-        !((*group_by_ref)->eq(*select_ref, 0)))
+        !((*group_by_ref)->eq(*select_ref, 0)) &&
+        (!select->having_fix_field_for_pushed_cond))
     {
       ambiguous_fields= TRUE;
       push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
@@ -9238,10 +9255,10 @@ bool Item_insert_value::fix_fields(THD *thd, Item **items)
   }
   else
   {
-    Field *tmp_field= field_arg->field;
-    /* charset doesn't matter here, it's to avoid sigsegv only */
-    tmp_field= new Field_null(0, 0, Field::NONE, field_arg->field->field_name,
-                          &my_charset_bin);
+    static uchar null_bit=1;
+    /* charset doesn't matter here */
+    Field *tmp_field= new Field_string(0, 0, &null_bit, 1, Field::NONE,
+                                field_arg->field->field_name, &my_charset_bin);
     if (tmp_field)
     {
       tmp_field->init(field_arg->field->table);
@@ -10477,6 +10494,7 @@ bool Item_type_holder::join_types(THD *thd, Item *item)
 
   if (Field::result_merge_type(real_field_type()) == DECIMAL_RESULT)
   {
+    collation.set_numeric();
     decimals= MY_MIN(MY_MAX(decimals, item->decimals), DECIMAL_MAX_SCALE);
     int item_int_part= item->decimal_int_part();
     int item_prec = MY_MAX(prev_decimal_int_part, item_int_part) + decimals;

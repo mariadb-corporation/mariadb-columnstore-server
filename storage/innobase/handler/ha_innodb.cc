@@ -129,7 +129,7 @@ void destroy_thd(MYSQL_THD thd);
 void reset_thd(MYSQL_THD thd);
 TABLE *open_purge_table(THD *thd, const char *db, size_t dblen,
 			const char *tb, size_t tblen);
-TABLE *get_purge_table(THD *thd);
+void close_thread_tables(THD* thd);
 
 /** Check if user has used xtradb extended system variable that
 is not currently supported by innodb or marked as deprecated. */
@@ -354,7 +354,7 @@ thd_destructor_proxy(void *)
 	need to be purged, so they have to be shut down before purge
 	threads if slow shutdown is requested.  */
 	srv_shutdown_bg_undo_sources();
-	srv_purge_wakeup();
+	srv_purge_shutdown();
 
 	destroy_thd(thd);
 	mysql_cond_destroy(&thd_destructor_cond);
@@ -2541,7 +2541,11 @@ innobase_mysql_tmpfile(
 			}
 		}
 #else
+#ifdef F_DUPFD_CLOEXEC
+		fd2 = fcntl(fd, F_DUPFD_CLOEXEC, 0);
+#else
 		fd2 = dup(fd);
+#endif
 #endif
 		if (fd2 < 0) {
 			char errbuf[MYSYS_STRERROR_SIZE];
@@ -3054,7 +3058,7 @@ ha_innobase::update_thd(
 		   m_user_thd, thd));
 
 	/* The table should have been opened in ha_innobase::open(). */
-	DBUG_ASSERT(m_prebuilt->table->n_ref_count > 0);
+	DBUG_ASSERT(m_prebuilt->table->get_ref_count() > 0);
 
 	trx_t*	trx = check_trx_exists(thd);
 
@@ -3167,6 +3171,83 @@ AUTOCOMMIT==0 or we are inside BEGIN ... COMMIT. Thus transactions no longer
 put restrictions on the use of the query cache.
 */
 
+/** Check if mysql can allow the transaction to read from/store to
+the query cache.
+@param[in]	table	table object
+@param[in]	trx	transaction object
+@return whether the storing or retrieving from the query cache is permitted */
+static bool innobase_query_caching_table_check_low(
+	const dict_table_t*	table,
+	trx_t*			trx)
+{
+	/* The following conditions will decide the query cache
+	retrieval or storing into:
+
+	(1) There should not be any locks on the table.
+	(2) Someother trx shouldn't invalidate the cache before this
+	transaction started.
+	(3) Read view shouldn't exist. If exists then the view
+	low_limit_id should be greater than or equal to the transaction that
+	invalidates the cache for the particular table.
+
+	For read-only transaction: should satisfy (1) and (3)
+	For read-write transaction: should satisfy (1), (2), (3) */
+
+	if (lock_table_get_n_locks(table)) {
+		return false;
+	}
+
+	if (trx->id && trx->id < table->query_cache_inv_trx_id) {
+		return false;
+	}
+
+	return !MVCC::is_view_active(trx->read_view)
+		|| trx->read_view->low_limit_id()
+		>= table->query_cache_inv_trx_id;
+}
+
+/** Checks if MySQL at the moment is allowed for this table to retrieve a
+consistent read result, or store it to the query cache.
+@param[in,out]	trx		transaction
+@param[in]	norm_name	concatenation of database name,
+				'/' char, table name
+@return whether storing or retrieving from the query cache is permitted */
+static bool innobase_query_caching_table_check(
+	trx_t*		trx,
+	const char*	norm_name)
+{
+	dict_table_t*   table = dict_table_open_on_name(
+		norm_name, FALSE, FALSE, DICT_ERR_IGNORE_NONE);
+
+	if (table == NULL) {
+		return false;
+	}
+
+	/* Start the transaction if it is not started yet */
+	trx_start_if_not_started(trx, false);
+
+	bool allow = innobase_query_caching_table_check_low(table, trx);
+
+	dict_table_close(table, FALSE, FALSE);
+
+	if (allow) {
+		/* If the isolation level is high, assign a read view for the
+		transaction if it does not yet have one */
+
+		if (trx->isolation_level >= TRX_ISO_REPEATABLE_READ
+		    && !srv_read_only_mode
+		    && !MVCC::is_view_active(trx->read_view)) {
+
+			/* Start the transaction if it is not started yet */
+			trx_start_if_not_started(trx, false);
+
+			trx_sys->mvcc->view_open(trx->read_view, trx);
+		}
+	}
+
+	return allow;
+}
+
 /******************************************************************//**
 The MySQL query cache uses this to check from InnoDB if the query cache at
 the moment is allowed to operate on an InnoDB table. The SQL query must
@@ -3242,7 +3323,7 @@ innobase_query_caching_of_table_permitted(
 
 	innobase_register_trx(innodb_hton_ptr, thd, trx);
 
-	return(row_search_check_if_query_cache_permitted(trx, norm_name));
+	return innobase_query_caching_table_check(trx, norm_name);
 }
 
 /*****************************************************************//**
@@ -5378,15 +5459,16 @@ ha_innobase::max_supported_key_length() const
 
 	switch (UNIV_PAGE_SIZE) {
 	case 4096:
-		return(768);
+		/* Hack: allow mysql.innodb_index_stats to be created. */
+		/* FIXME: rewrite this API, and in sql_table.cc consider
+		that in index-organized tables (such as InnoDB), secondary
+		index records will be padded with the PRIMARY KEY, instead
+		of some short ROWID or record heap address. */
+		return(1173);
 	case 8192:
 		return(1536);
 	default:
-#ifdef WITH_WSREP
 		return(3500);
-#else
-		return(3500);
-#endif
 	}
 }
 
@@ -8407,13 +8489,12 @@ report_error:
 		error, m_prebuilt->table->flags, m_user_thd);
 
 #ifdef WITH_WSREP
-	if (!error_result                                  &&
-	    wsrep_thd_exec_mode(m_user_thd) == LOCAL_STATE &&
-	    wsrep_on(m_user_thd)                           &&
-	    !wsrep_consistency_check(m_user_thd)           &&
-	    !wsrep_thd_ignore_table(m_user_thd)) {
-		if (wsrep_append_keys(m_user_thd, false, record, NULL))
-		{
+	if (!error_result
+	    && wsrep_on(m_user_thd)
+	    && wsrep_thd_exec_mode(m_user_thd) == LOCAL_STATE
+	    && !wsrep_consistency_check(m_user_thd)
+	    && !wsrep_thd_ignore_table(m_user_thd)) {
+		if (wsrep_append_keys(m_user_thd, false, record, NULL)) {
 			DBUG_PRINT("wsrep", ("row key failed"));
 			error_result = HA_ERR_INTERNAL_ERROR;
 			goto wsrep_error;
@@ -13479,6 +13560,36 @@ innobase_rename_table(
 
 	row_mysql_lock_data_dictionary(trx);
 
+	dict_table_t*   table = dict_table_open_on_name(norm_from, TRUE, FALSE,
+							DICT_ERR_IGNORE_NONE);
+
+	/* Since DICT_BG_YIELD has sleep for 250 milliseconds,
+	Convert lock_wait_timeout unit from second to 250 milliseconds */
+	long int lock_wait_timeout = thd_lock_wait_timeout(trx->mysql_thd) * 4;
+	if (table != NULL) {
+		for (dict_index_t* index = dict_table_get_first_index(table);
+		     index != NULL;
+		     index = dict_table_get_next_index(index)) {
+
+			if (index->type & DICT_FTS) {
+				/* Found */
+				while (index->index_fts_syncing
+					&& !trx_is_interrupted(trx)
+					&& (lock_wait_timeout--) > 0) {
+					DICT_BG_YIELD(trx);
+				}
+			}
+		}
+		dict_table_close(table, TRUE, FALSE);
+	}
+
+	/* FTS sync is in progress. We shall timeout this operation */
+	if (lock_wait_timeout < 0) {
+		error = DB_LOCK_WAIT_TIMEOUT;
+		row_mysql_unlock_data_dictionary(trx);
+		DBUG_RETURN(error);
+	}
+
 	/* Transaction must be flagged as a locking transaction or it hasn't
 	been started yet. */
 
@@ -13613,6 +13724,10 @@ ha_innobase::rename_table(
 		my_error(ER_TABLE_EXISTS_ERROR, MYF(0), to);
 
 		error = DB_ERROR;
+	} else if (error == DB_LOCK_WAIT_TIMEOUT) {
+		my_error(ER_LOCK_WAIT_TIMEOUT, MYF(0), to);
+
+		error = DB_LOCK_WAIT;
 	}
 
 	DBUG_RETURN(convert_error_code_to_mysql(error, 0, NULL));
@@ -14106,7 +14221,7 @@ ha_innobase::info_low(
 	m_prebuilt->trx->op_info = "returning various info to MariaDB";
 
 	ib_table = m_prebuilt->table;
-	DBUG_ASSERT(ib_table->n_ref_count > 0);
+	DBUG_ASSERT(ib_table->get_ref_count() > 0);
 
 	if (flag & HA_STATUS_TIME) {
 		if (is_analyze || innobase_stats_on_metadata) {
@@ -14626,6 +14741,7 @@ ha_innobase::optimize(
 
 	This works OK otherwise, but MySQL locks the entire table during
 	calls to OPTIMIZE, which is undesirable. */
+	bool try_alter = true;
 
 	/* TODO: Defragment is disabled for now */
 	if (srv_defragment) {
@@ -14634,17 +14750,15 @@ ha_innobase::optimize(
 		err = defragment_table(m_prebuilt->table->name.m_name, NULL, false);
 
 		if (err == 0) {
-			return (HA_ADMIN_OK);
+			try_alter = false;
 		} else {
 			push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
 				err,
 				"InnoDB: Cannot defragment table %s: returned error code %d\n",
 				m_prebuilt->table->name, err);
 
-			if (err == ER_SP_ALREADY_EXISTS) {
-				return (HA_ADMIN_OK);
-			} else {
-				return (HA_ADMIN_TRY_ALTER);
+			if(err == ER_SP_ALREADY_EXISTS) {
+				try_alter = false;
 			}
 		}
 	}
@@ -14655,11 +14769,10 @@ ha_innobase::optimize(
 			fts_sync_table(m_prebuilt->table, false, true, false);
 			fts_optimize_table(m_prebuilt->table);
 		}
-		return(HA_ADMIN_OK);
-	} else {
-
-		return(HA_ADMIN_TRY_ALTER);
+		try_alter = false;
 	}
+
+	return try_alter ? HA_ADMIN_TRY_ALTER : HA_ADMIN_OK;
 }
 
 /*******************************************************************//**
@@ -19596,8 +19709,10 @@ wsrep_innobase_kill_one_trx(
 		    thd_get_thread_id(thd),
 		    victim_trx->id);
 
-	WSREP_DEBUG("Aborting query: %s",
-		  (thd && wsrep_thd_query(thd)) ? wsrep_thd_query(thd) : "void");
+	WSREP_DEBUG("Aborting query: %s conf %d trx: %lu",
+		    (thd && wsrep_thd_query(thd)) ? wsrep_thd_query(thd) : "void",
+		    wsrep_thd_conflict_state(thd, FALSE),
+		    wsrep_thd_ws_handle(thd)->trx_id);
 
 	wsrep_thd_LOCK(thd);
         DBUG_EXECUTE_IF("sync.wsrep_after_BF_victim_lock",
@@ -19660,7 +19775,7 @@ wsrep_innobase_kill_one_trx(
 			wsrep_t *wsrep= get_wsrep();
 			rcode = wsrep->abort_pre_commit(
 				wsrep, bf_seqno,
-				(wsrep_trx_id_t)victim_trx->id
+				(wsrep_trx_id_t)wsrep_thd_ws_handle(thd)->trx_id
 			);
 
 			switch (rcode) {
@@ -19785,12 +19900,14 @@ wsrep_abort_transaction(
 	my_bool signal)
 {
 	DBUG_ENTER("wsrep_innobase_abort_thd");
-	trx_t* victim_trx = thd_to_trx(victim_thd);
-	trx_t* bf_trx     = (bf_thd) ? thd_to_trx(bf_thd) : NULL;
+	
+	trx_t* victim_trx	= thd_to_trx(victim_thd);
+	trx_t* bf_trx		= (bf_thd) ? thd_to_trx(bf_thd) : NULL;
 
-	WSREP_DEBUG("abort transaction: BF: %s victim: %s",
-		    wsrep_thd_query(bf_thd),
-		    wsrep_thd_query(victim_thd));
+	WSREP_DEBUG("abort transaction: BF: %s victim: %s victim conf: %d",
+			wsrep_thd_query(bf_thd),
+			wsrep_thd_query(victim_thd),
+			wsrep_thd_conflict_state(victim_thd, FALSE));
 
 	if (victim_trx) {
 		lock_mutex_enter();
@@ -19842,8 +19959,8 @@ innobase_wsrep_get_checkpoint(
 	XID* xid)
 {
 	DBUG_ASSERT(hton == innodb_hton_ptr);
-        trx_sys_read_wsrep_checkpoint(xid);
-        return 0;
+	trx_sys_read_wsrep_checkpoint(xid);
+	return 0;
 }
 
 static
@@ -20277,6 +20394,13 @@ static MYSQL_SYSVAR_BOOL(log_compressed_pages, page_zip_log_pages,
   " compression algorithm doesn't change.",
   NULL, NULL, TRUE);
 
+static MYSQL_SYSVAR_BOOL(log_optimize_ddl, innodb_log_optimize_ddl,
+  PLUGIN_VAR_OPCMDARG,
+  "Reduce redo logging when natively creating indexes or rebuilding tables."
+  " Setting this OFF avoids delay due to page flushing and"
+  " allows concurrent backup.",
+  NULL, NULL, TRUE);
+
 static MYSQL_SYSVAR_ULONG(autoextend_increment,
   sys_tablespace_auto_extend_increment,
   PLUGIN_VAR_RQCMDARG,
@@ -20342,7 +20466,7 @@ static MYSQL_SYSVAR_ENUM(lock_schedule_algorithm, innodb_lock_schedule_algorithm
   " VATS"
   " use the Variance-Aware-Transaction-Scheduling algorithm, which"
   " uses an Eldest-Transaction-First heuristic.",
-  NULL, NULL, INNODB_LOCK_SCHEDULE_ALGORITHM_VATS,
+  NULL, NULL, INNODB_LOCK_SCHEDULE_ALGORITHM_FCFS,
   &innodb_lock_schedule_algorithm_typelib);
 
 static MYSQL_SYSVAR_ULONG(buffer_pool_instances, srv_buf_pool_instances,
@@ -21196,6 +21320,7 @@ static struct st_mysql_sys_var* innobase_system_variables[]= {
   MYSQL_SYSVAR(log_write_ahead_size),
   MYSQL_SYSVAR(log_group_home_dir),
   MYSQL_SYSVAR(log_compressed_pages),
+  MYSQL_SYSVAR(log_optimize_ddl),
   MYSQL_SYSVAR(max_dirty_pages_pct),
   MYSQL_SYSVAR(max_dirty_pages_pct_lwm),
   MYSQL_SYSVAR(adaptive_flushing_lwm),
@@ -21521,63 +21646,151 @@ innobase_index_cond(
 	return handler_index_cond_check(file);
 }
 
-
-/** Find or open a mysql table for the virtual column template
-@param[in]	thd	mysql thread handle
-@param[in,out]	table	InnoDB table whose virtual column template is to be updated
-@return TABLE if successful or NULL */
-static TABLE *
-innobase_find_mysql_table_for_vc(
-/*=============================*/
-	THD*		thd,
-	dict_table_t*	table)
+/** Parse the table file name into table name and database name.
+@param[in]	tbl_name	InnoDB table name
+@param[out]	dbname		database name buffer (NAME_LEN + 1 bytes)
+@param[out]	tblname		table name buffer (NAME_LEN + 1 bytes)
+@param[out]	dbnamelen	database name length
+@param[out]	tblnamelen	table name length
+@return true if the table name is parsed properly. */
+static bool table_name_parse(
+	const table_name_t&	tbl_name,
+	char*			dbname,
+	char*			tblname,
+	ulint&			dbnamelen,
+	ulint&			tblnamelen)
 {
-	TABLE *mysql_table;
-	bool	bg_thread = THDVAR(thd, background_thread);
+	dbnamelen = dict_get_db_name_len(tbl_name.m_name);
+	char db_buf[MAX_DATABASE_NAME_LEN  + 1];
+	char tbl_buf[MAX_TABLE_NAME_LEN + 1];
 
-	if (bg_thread) {
-		if ((mysql_table = get_purge_table(thd))) {
-			return mysql_table;
+	ut_ad(dbnamelen > 0);
+	ut_ad(dbnamelen <= MAX_DATABASE_NAME_LEN);
+
+	memcpy(db_buf, tbl_name.m_name, dbnamelen);
+	db_buf[dbnamelen] = 0;
+
+	tblnamelen = strlen(tbl_name.m_name + dbnamelen + 1);
+	memcpy(tbl_buf, tbl_name.m_name + dbnamelen + 1, tblnamelen);
+	tbl_buf[tblnamelen] = 0;
+
+	filename_to_tablename(db_buf, dbname, MAX_DATABASE_NAME_LEN + 1, true);
+
+	if (tblnamelen > TEMP_FILE_PREFIX_LENGTH
+	    && !strncmp(tbl_buf, TEMP_FILE_PREFIX, TEMP_FILE_PREFIX_LENGTH)) {
+		return false;
+	}
+
+	if (char *is_part = strchr(tbl_buf, '#')) {
+		*is_part = '\0';
+	}
+
+	filename_to_tablename(tbl_buf, tblname, MAX_TABLE_NAME_LEN + 1, true);
+	return true;
+}
+
+
+/** Acquire metadata lock and MariaDB table handle for an InnoDB table.
+@param[in,out]	thd	thread handle
+@param[in,out]	table	InnoDB table
+@return MariaDB table handle
+@retval NULL if the table does not exist, is unaccessible or corrupted. */
+static TABLE* innodb_acquire_mdl(THD* thd, dict_table_t* table)
+{
+	char	db_buf[NAME_LEN + 1], db_buf1[NAME_LEN + 1];
+	char	tbl_buf[NAME_LEN + 1], tbl_buf1[NAME_LEN + 1];
+	ulint	db_buf_len, db_buf1_len;
+	ulint	tbl_buf_len, tbl_buf1_len;
+
+	if (!table_name_parse(table->name, db_buf, tbl_buf,
+			      db_buf_len, tbl_buf_len)) {
+		return NULL;
+	}
+
+	const table_id_t table_id = table->id;
+retry_mdl:
+	const bool unaccessible = !table->is_readable() || table->corrupted;
+	table->release();
+
+	if (unaccessible) {
+		return NULL;
+	}
+
+	TABLE*	mariadb_table = open_purge_table(thd, db_buf, db_buf_len,
+						 tbl_buf, tbl_buf_len);
+
+	table = dict_table_open_on_id(table_id, false, DICT_TABLE_OP_NORMAL);
+
+	if (table == NULL) {
+		/* Table is dropped. */
+		goto fail;
+	}
+
+	if (!fil_table_accessible(table)) {
+release_fail:
+		table->release();
+fail:
+		if (mariadb_table) {
+			close_thread_tables(thd);
 		}
+
+		return NULL;
+	}
+
+	if (!table_name_parse(table->name, db_buf1, tbl_buf1,
+			      db_buf1_len, tbl_buf1_len)) {
+		goto release_fail;
+	}
+
+	if (!mariadb_table) {
+	} else if (!strcmp(db_buf, db_buf1) && !strcmp(tbl_buf, tbl_buf1)) {
+		return mariadb_table;
 	} else {
-		if (table->vc_templ->mysql_table_query_id == thd_get_query_id(thd)) {
+		/* Table is renamed. So release MDL for old name and try
+		to acquire the MDL for new table name. */
+		close_thread_tables(thd);
+	}
+
+	strcpy(tbl_buf, tbl_buf1);
+	strcpy(db_buf, db_buf1);
+	tbl_buf_len = tbl_buf1_len;
+	db_buf_len = db_buf1_len;
+	goto retry_mdl;
+}
+
+/** Find or open a table handle for the virtual column template
+@param[in]	thd	thread handle
+@param[in,out]	table	InnoDB table whose virtual column template
+			is to be updated
+@return table handle
+@retval NULL if the table is dropped, unaccessible or corrupted
+for purge thread */
+static TABLE* innodb_find_table_for_vc(THD* thd, dict_table_t* table)
+{
+	if (THDVAR(thd, background_thread)) {
+		/* Purge thread acquires dict_operation_lock while
+		processing undo log record. Release the dict_operation_lock
+		before acquiring MDL on the table. */
+		rw_lock_s_unlock(dict_operation_lock);
+		return innodb_acquire_mdl(thd, table);
+	} else {
+		if (table->vc_templ->mysql_table_query_id
+		    == thd_get_query_id(thd)) {
 			return table->vc_templ->mysql_table;
 		}
 	}
 
-	char	dbname[MAX_DATABASE_NAME_LEN + 1];
-	char	tbname[MAX_TABLE_NAME_LEN + 1];
-	char*	name = table->name.m_name;
-	uint	dbnamelen = (uint) dict_get_db_name_len(name);
-	uint	tbnamelen = (uint) strlen(name) - dbnamelen - 1;
-	char	t_dbname[MAX_DATABASE_NAME_LEN + 1];
-	char	t_tbname[MAX_TABLE_NAME_LEN + 1];
+	char	db_buf[NAME_LEN + 1];
+	char	tbl_buf[NAME_LEN + 1];
+	ulint	db_buf_len, tbl_buf_len;
 
-	strncpy(dbname, name, dbnamelen);
-	dbname[dbnamelen] = 0;
-	strncpy(tbname, name + dbnamelen + 1, tbnamelen);
-	tbname[tbnamelen] =0;
-
-	/* For partition table, remove the partition name and use the
-	"main" table name to build the template */
-	 char*	is_part = is_partition(tbname);
-
-	if (is_part != NULL) {
-		*is_part = '\0';
+	if (!table_name_parse(table->name, db_buf, tbl_buf,
+			      db_buf_len, tbl_buf_len)) {
+		return NULL;
 	}
 
-	dbnamelen = filename_to_tablename(dbname, t_dbname,
-					  MAX_DATABASE_NAME_LEN + 1);
-	tbnamelen = filename_to_tablename(tbname, t_tbname,
-					  MAX_TABLE_NAME_LEN + 1);
-
-	if (bg_thread) {
-		return open_purge_table(thd, t_dbname, dbnamelen,
-					t_tbname, tbnamelen);
-	}
-
-	mysql_table = find_fk_open_table(thd, t_dbname, dbnamelen,
-					t_tbname, tbnamelen);
+	TABLE* mysql_table = find_fk_open_table(thd, db_buf, db_buf_len,
+						tbl_buf, tbl_buf_len);
 
 	table->vc_templ->mysql_table = mysql_table;
 	table->vc_templ->mysql_table_query_id = thd_get_query_id(thd);
@@ -21596,7 +21809,7 @@ innobase_init_vc_templ(
 
 	table->vc_templ = UT_NEW_NOKEY(dict_vcol_templ_t());
 
-	TABLE	*mysql_table= innobase_find_mysql_table_for_vc(current_thd, table);
+	TABLE	*mysql_table= innodb_find_table_for_vc(current_thd, table);
 
 	ut_ad(mysql_table);
 	if (!mysql_table) {
@@ -21685,6 +21898,83 @@ innobase_get_field_from_update_vector(
 	return (NULL);
 }
 
+
+/**
+   Allocate a heap and record for calculating virtual fields
+   Used mainly for virtual fields in indexes
+
+@param[in]	thd		MariaDB THD
+@param[in]	index		Index in use
+@param[out]	heap		Heap that holds temporary row
+@param[in,out]	table		MariaDB table
+@param[out]	record		Pointer to allocated MariaDB record
+@param[out]	storage		Internal storage for blobs etc
+
+@retval		false on success
+@retval		true on malloc failure or failed to open the maria table
+		for purge thread.
+*/
+
+bool innobase_allocate_row_for_vcol(
+				    THD *	  thd,
+				    dict_index_t* index,
+				    mem_heap_t**  heap,
+				    TABLE**	  table,
+				    byte**	  record,
+				    VCOL_STORAGE** storage)
+{
+	TABLE *maria_table;
+	String *blob_value_storage;
+	if (!*table)
+		*table= innodb_find_table_for_vc(thd, index->table);
+
+	/* For purge thread, there is a possiblity that table could have
+	dropped, corrupted or unaccessible. */
+	if (!*table)
+		return true;
+	maria_table= *table;
+	if (!*heap && !(*heap= mem_heap_create(srv_page_size)))
+	{
+		*storage= 0;
+		return TRUE;
+	}
+	*record= static_cast<byte*>(mem_heap_alloc(*heap,
+                                                   maria_table->s->reclength));
+	*storage= static_cast<VCOL_STORAGE*>
+          (mem_heap_alloc(*heap, sizeof(**storage)));
+	blob_value_storage= static_cast<String*>
+          (mem_heap_alloc(*heap,
+                          maria_table->s->virtual_not_stored_blob_fields *
+                          sizeof(String)));
+	if (!*record || !*storage || !blob_value_storage)
+	{
+		*storage= 0;
+		return TRUE;
+	}
+	(*storage)->maria_table= maria_table;
+	(*storage)->innobase_record= *record;
+	(*storage)->maria_record= maria_table->field[0]->record_ptr();
+	(*storage)->blob_value_storage= blob_value_storage;
+
+	maria_table->move_fields(maria_table->field, *record,
+				 (*storage)->maria_record);
+	maria_table->remember_blob_values(blob_value_storage);
+
+	return FALSE;
+}
+
+
+/** Free memory allocated by innobase_allocate_row_for_vcol() */
+
+void innobase_free_row_for_vcol(VCOL_STORAGE *storage)
+{
+	TABLE *maria_table= storage->maria_table;
+	maria_table->move_fields(maria_table->field, storage->maria_record,
+                                 storage->innobase_record);
+        maria_table->restore_blob_values(storage->blob_value_storage);
+}
+
+
 /** Get the computed value by supplying the base column values.
 @param[in,out]	row		the data row
 @param[in]	col		virtual column
@@ -21710,12 +22000,12 @@ innobase_get_computed_value(
 	const dict_field_t*	ifield,
 	THD*			thd,
 	TABLE*			mysql_table,
+	byte*			mysql_rec,
 	const dict_table_t*	old_table,
 	upd_t*			parent_update,
 	dict_foreign_t*		foreign)
 {
 	byte		rec_buf2[REC_VERSION_56_MAX_INDEX_COL_LEN];
-	byte*		mysql_rec;
 	byte*		buf;
 	dfield_t*	field;
 	ulint		len;
@@ -21728,6 +22018,7 @@ innobase_get_computed_value(
 
 	ut_ad(index->table->vc_templ);
 	ut_ad(thd != NULL);
+	ut_ad(mysql_table);
 
 	const mysql_row_templ_t*
 			vctempl =  index->table->vc_templ->vtempl[
@@ -21744,14 +22035,6 @@ innobase_get_computed_value(
 	} else {
 		buf = rec_buf2;
 	}
-
-	if (!mysql_table) {
-		mysql_table = innobase_find_mysql_table_for_vc(thd, index->table);
-	}
-
-	ut_ad(mysql_table);
-
-	mysql_rec = mysql_table->record[0];
 
 	for (ulint i = 0; i < col->num_base; i++) {
 		dict_col_t*			base_col = col->base_col[i];
