@@ -515,103 +515,6 @@ extern "C"
 }
 
 
-/**
-  Dumps a text description of a thread, its security context
-  (user, host) and the current query.
-
-  @param thd thread context
-  @param buffer pointer to preferred result buffer
-  @param length length of buffer
-  @param max_query_len how many chars of query to copy (0 for all)
-
-  @return Pointer to string
-*/
-
-extern "C"
-char *thd_get_error_context_description(THD *thd, char *buffer,
-                                        unsigned int length,
-                                        unsigned int max_query_len)
-{
-  String str(buffer, length, &my_charset_latin1);
-  const Security_context *sctx= &thd->main_security_ctx;
-  char header[256];
-  int len;
-
-  mysql_mutex_lock(&LOCK_thread_count);
-
-  /*
-    The pointers thd->query and thd->proc_info might change since they are
-    being modified concurrently. This is acceptable for proc_info since its
-    values doesn't have to very accurate and the memory it points to is static,
-    but we need to attempt a snapshot on the pointer values to avoid using NULL
-    values. The pointer to thd->query however, doesn't point to static memory
-    and has to be protected by thd->LOCK_thd_data or risk pointing to
-    uninitialized memory.
-  */
-  const char *proc_info= thd->proc_info;
-
-  len= my_snprintf(header, sizeof(header),
-                   "MySQL thread id %lu, OS thread handle %lu, query id %lu",
-                   thd->thread_id, (ulong) thd->real_id, (ulong) thd->query_id);
-  str.length(0);
-  str.append(header, len);
-
-  if (sctx->host)
-  {
-    str.append(' ');
-    str.append(sctx->host);
-  }
-
-  if (sctx->ip)
-  {
-    str.append(' ');
-    str.append(sctx->ip);
-  }
-
-  if (sctx->user)
-  {
-    str.append(' ');
-    str.append(sctx->user);
-  }
-
-  if (proc_info)
-  {
-    str.append(' ');
-    str.append(proc_info);
-  }
-
-  /* Don't wait if LOCK_thd_data is used as this could cause a deadlock */
-  if (!mysql_mutex_trylock(&thd->LOCK_thd_data))
-  {
-    if (thd->query())
-    {
-      if (max_query_len < 1)
-        len= thd->query_length();
-      else
-        len= MY_MIN(thd->query_length(), max_query_len);
-      str.append('\n');
-      str.append(thd->query(), len);
-    }
-    mysql_mutex_unlock(&thd->LOCK_thd_data);
-  }
-  mysql_mutex_unlock(&LOCK_thread_count);
-
-  if (str.c_ptr_safe() == buffer)
-    return buffer;
-
-  /*
-    We have to copy the new string to the destination buffer because the string
-    was reallocated to a larger buffer to be able to fit.
-  */
-  DBUG_ASSERT(buffer != NULL);
-  length= MY_MIN(str.length(), length-1);
-  memcpy(buffer, str.c_ptr_quick(), length);
-  /* Make sure that the new string is null terminated */
-  buffer[length]= '\0';
-  return buffer;
-}
-
-
 #if MARIA_PLUGIN_INTERFACE_VERSION < 0x0200
 /**
   TODO: This function is for API compatibility, remove it eventually.
@@ -1287,7 +1190,7 @@ void THD::init(void)
   bzero((char *) &org_status_var, sizeof(org_status_var));
   status_in_global= 0;
   start_bytes_received= 0;
-  last_commit_gtid.seq_no= 0;
+  m_last_commit_gtid.seq_no= 0;
   last_stmt= NULL;
   /* Reset status of last insert id */
   arg_of_last_insert_id_function= FALSE;
@@ -3607,7 +3510,7 @@ void Statement::set_statement(Statement *stmt)
 {
   id=             stmt->id;
   mark_used_columns=   stmt->mark_used_columns;
-  stmt_lex= lex=  stmt->lex;
+  lex=            stmt->lex;
   query_string=   stmt->query_string;
 }
 
@@ -4503,13 +4406,6 @@ TABLE *open_purge_table(THD *thd, const char *db, size_t dblen,
     close_thread_tables(thd);
 
   DBUG_RETURN(error ? NULL : tl->table);
-}
-
-TABLE *get_purge_table(THD *thd)
-{
-  /* see above, at most one table can be opened */
-  DBUG_ASSERT(thd->open_tables == NULL || thd->open_tables->next == NULL);
-  return thd->open_tables;
 }
 
 
@@ -6418,7 +6314,8 @@ int THD::binlog_write_row(TABLE* table, bool is_trans,
     Pack records into format for transfer. We are allocating more
     memory than needed, but that doesn't matter.
   */
-  Row_data_memory memory(table, max_row_length(table, record));
+  Row_data_memory memory(table, max_row_length(table, table->rpl_write_set,
+                                               record));
   if (!memory.has_memory())
     return HA_ERR_OUT_OF_MEM;
 
@@ -6455,8 +6352,10 @@ int THD::binlog_update_row(TABLE* table, bool is_trans,
   DBUG_ASSERT(is_current_stmt_binlog_format_row() &&
             ((WSREP(this) && wsrep_emulate_bin_log) || mysql_bin_log.is_open()));
 
-  size_t const before_maxlen = max_row_length(table, before_record);
-  size_t const after_maxlen  = max_row_length(table, after_record);
+  size_t const before_maxlen= max_row_length(table, table->read_set,
+                                             before_record);
+  size_t const after_maxlen=  max_row_length(table, table->rpl_write_set,
+                                             after_record);
 
   Row_data_memory row_data(table, before_maxlen, after_maxlen);
   if (!row_data.has_memory())
@@ -6532,7 +6431,8 @@ int THD::binlog_delete_row(TABLE* table, bool is_trans,
      Pack records into format for transfer. We are allocating more
      memory than needed, but that doesn't matter.
   */
-  Row_data_memory memory(table, max_row_length(table, record));
+  Row_data_memory memory(table, max_row_length(table, table->read_set,
+                                               record));
   if (unlikely(!memory.has_memory()))
     return HA_ERR_OUT_OF_MEM;
 
@@ -6571,15 +6471,17 @@ int THD::binlog_delete_row(TABLE* table, bool is_trans,
 }
 
 
+/**
+   Remove from read_set spurious columns. The write_set has been
+   handled before in table->mark_columns_needed_for_update.
+*/
+
 void THD::binlog_prepare_row_images(TABLE *table)
 {
   DBUG_ENTER("THD::binlog_prepare_row_images");
-  /**
-    Remove from read_set spurious columns. The write_set has been
-    handled before in table->mark_columns_needed_for_update.
-   */
 
-  DBUG_PRINT_BITSET("debug", "table->read_set (before preparing): %s", table->read_set);
+  DBUG_PRINT_BITSET("debug", "table->read_set (before preparing): %s",
+                    table->read_set);
   THD *thd= table->in_use;
 
   /**
@@ -6597,7 +6499,7 @@ void THD::binlog_prepare_row_images(TABLE *table)
     */
     DBUG_ASSERT(table->read_set != &table->tmp_set);
 
-    switch(thd->variables.binlog_row_image)
+    switch (thd->variables.binlog_row_image)
     {
       case BINLOG_ROW_IMAGE_MINIMAL:
         /* MINIMAL: Mark only PK */
@@ -6627,7 +6529,8 @@ void THD::binlog_prepare_row_images(TABLE *table)
                                         table->write_set);
   }
 
-  DBUG_PRINT_BITSET("debug", "table->read_set (after preparing): %s", table->read_set);
+  DBUG_PRINT_BITSET("debug", "table->read_set (after preparing): %s",
+                    table->read_set);
   DBUG_VOID_RETURN;
 }
 
@@ -7066,6 +6969,21 @@ THD::signal_wakeup_ready()
   mysql_cond_signal(&COND_wakeup_ready);
 }
 
+void THD::set_last_commit_gtid(rpl_gtid &gtid)
+{
+#ifndef EMBEDDED_LIBRARY
+  bool changed_gtid= (m_last_commit_gtid.seq_no != gtid.seq_no);
+#endif
+  m_last_commit_gtid= gtid;
+#ifndef EMBEDDED_LIBRARY
+  if (changed_gtid &&
+      session_tracker.get_tracker(SESSION_SYSVARS_TRACKER)->is_enabled())
+  {
+    session_tracker.get_tracker(SESSION_SYSVARS_TRACKER)->
+      mark_as_changed(this, (LEX_CSTRING*)Sys_last_gtid_ptr);
+ }
+#endif
+}
 
 void
 wait_for_commit::reinit()

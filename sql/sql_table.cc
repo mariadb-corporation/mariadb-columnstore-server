@@ -4820,6 +4820,10 @@ int create_table_impl(THD *thd,
     {
       if (options.or_replace())
       {
+        LEX_STRING db_name= {(char *) db, strlen(db)};
+        LEX_STRING tab_name= {(char *) table_name, strlen(table_name)};
+        (void) delete_statistics_for_table(thd, &db_name, &tab_name);
+
         TABLE_LIST table_list;
         table_list.init_one_table(db, strlen(db), table_name,
                                   strlen(table_name), table_name,
@@ -4921,7 +4925,12 @@ int create_table_impl(THD *thd,
     file= mysql_create_frm_image(thd, orig_db, orig_table_name, create_info,
                                  alter_info, create_table_mode, key_info,
                                  key_count, frm);
-    if (!file)
+    /*
+    TODO: remove this check of thd->is_error() (now it intercept
+    errors in some val_*() methoids and bring some single place to
+    such error interception).
+    */
+    if (!file || thd->is_error())
       goto err;
     if (rea_create_table(thd, frm, path, db, table_name, create_info,
                          file, frm_only))
@@ -5346,6 +5355,8 @@ mysql_rename_table(handlerton *base, const char *old_db,
   delete file;
   if (error == HA_ERR_WRONG_COMMAND)
     my_error(ER_NOT_SUPPORTED_YET, MYF(0), "ALTER TABLE");
+  else if (error ==  ENOTDIR)
+    my_error(ER_BAD_DB_ERROR, MYF(0), new_db);
   else if (error)
     my_error(ER_ERROR_ON_RENAME, MYF(0), from, to, error);
   else if (!(flags & FN_IS_TMP))
@@ -5913,10 +5924,28 @@ drop_create_field:
     List_iterator<Alter_drop> drop_it(alter_info->drop_list);
     Alter_drop *drop;
     bool remove_drop;
+    ulonglong left_flags= 0;
     while ((drop= drop_it++))
     {
+      ulonglong cur_flag= 0;
+      switch (drop->type) {
+      case Alter_drop::COLUMN:
+        cur_flag= Alter_info::ALTER_DROP_COLUMN;
+        break;
+      case Alter_drop::FOREIGN_KEY:
+        cur_flag= Alter_info::DROP_FOREIGN_KEY;
+        break;
+      case Alter_drop::KEY:
+        cur_flag= Alter_info::ALTER_DROP_INDEX;
+        break;
+      default:
+        break;
+      }
       if (!drop->drop_if_exists)
+      {
+        left_flags|= cur_flag;
         continue;
+      }
       remove_drop= TRUE;
       if (drop->type == Alter_drop::COLUMN)
       {
@@ -6005,12 +6034,15 @@ drop_create_field:
                             ER_THD(thd, ER_CANT_DROP_FIELD_OR_KEY),
                             drop->type_name(), drop->name);
         drop_it.remove();
-        if (alter_info->drop_list.is_empty())
-          alter_info->flags&= ~(Alter_info::ALTER_DROP_COLUMN |
-                                Alter_info::ALTER_DROP_INDEX  |
-                                Alter_info::DROP_FOREIGN_KEY);
       }
+      else
+        left_flags|= cur_flag;
     }
+    /* Reset state to what's left in drop list */
+    alter_info->flags&= ~(Alter_info::ALTER_DROP_COLUMN |
+                          Alter_info::ALTER_DROP_INDEX  |
+                          Alter_info::DROP_FOREIGN_KEY);
+    alter_info->flags|= left_flags;
   }
 
   /* ALTER TABLE ADD KEY IF NOT EXISTS */
@@ -6026,8 +6058,11 @@ drop_create_field:
         continue;
 
       /* Check if the table already has a PRIMARY KEY */
-      bool dup_primary_key= key->type == Key::PRIMARY &&
-                            table->s->primary_key != MAX_KEY;
+      bool dup_primary_key=
+            key->type == Key::PRIMARY &&
+            table->s->primary_key != MAX_KEY &&
+            (keyname= table->s->key_info[table->s->primary_key].name) &&
+            my_strcasecmp(system_charset_info, keyname, primary_key_name) == 0;
       if (dup_primary_key)
         goto remove_key;
 
@@ -7401,10 +7436,15 @@ static bool mysql_inplace_alter_table(THD *thd,
   /*
     Replace the old .FRM with the new .FRM, but keep the old name for now.
     Rename to the new name (if needed) will be handled separately below.
+
+    TODO: remove this check of thd->is_error() (now it intercept
+    errors in some val_*() methoids and bring some single place to
+    such error interception).
   */
   if (mysql_rename_table(db_type, alter_ctx->new_db, alter_ctx->tmp_name,
                          alter_ctx->db, alter_ctx->alias,
-                         FN_FROM_IS_TMP | NO_HA_TABLE))
+                         FN_FROM_IS_TMP | NO_HA_TABLE) ||
+                         thd->is_error())
   {
     // Since changes were done in-place, we can't revert them.
     (void) quick_rm_table(thd, db_type,
@@ -9786,9 +9826,7 @@ bool mysql_trans_prepare_alter_copy_data(THD *thd)
     
     This needs to be done before external_lock.
   */
-  if (ha_enable_transaction(thd, FALSE))
-    DBUG_RETURN(TRUE);
-  DBUG_RETURN(FALSE);
+  DBUG_RETURN(ha_enable_transaction(thd, FALSE) != 0);
 }
 
 
@@ -9841,6 +9879,7 @@ copy_data_between_tables(THD *thd, TABLE *from, TABLE *to,
   List<Item>   fields;
   List<Item>   all_fields;
   bool auto_increment_field_copied= 0;
+  bool cleanup_done= 0;
   bool init_read_record_done= 0;
   sql_mode_t save_sql_mode= thd->variables.sql_mode;
   ulonglong prev_insert_id, time_to_report_progress;
@@ -9850,17 +9889,30 @@ copy_data_between_tables(THD *thd, TABLE *from, TABLE *to,
   /* Two or 3 stages; Sorting, copying data and update indexes */
   thd_progress_init(thd, 2 + MY_TEST(order));
 
-  if (mysql_trans_prepare_alter_copy_data(thd))
-    DBUG_RETURN(-1);
-
   if (!(copy= new Copy_field[to->s->fields]))
     DBUG_RETURN(-1);				/* purecov: inspected */
 
+  if (mysql_trans_prepare_alter_copy_data(thd))
+  {
+    delete [] copy;
+    DBUG_RETURN(-1);
+  }
+
   /* We need external lock before we can disable/enable keys */
   if (to->file->ha_external_lock(thd, F_WRLCK))
+  {
+    /* Undo call to mysql_trans_prepare_alter_copy_data() */
+    ha_enable_transaction(thd, TRUE);
+    delete [] copy;
     DBUG_RETURN(-1);
+  }
 
   alter_table_manage_keys(to, from->file->indexes_are_disabled(), keys_onoff);
+
+  /* Set read map for all fields in from table */
+  from->default_column_bitmaps();
+  bitmap_set_all(from->read_set);
+  from->file->column_bitmaps_signal();
 
   /* We can abort alter table for any table type */
   thd->abort_on_warning= !ignore && thd->is_strict_mode();
@@ -9868,7 +9920,6 @@ copy_data_between_tables(THD *thd, TABLE *from, TABLE *to,
   from->file->info(HA_STATUS_VARIABLE);
   to->file->ha_start_bulk_insert(from->file->stats.records,
                                  ignore ? 0 : HA_CREATE_UNIQUE_INDEX_BY_SORT);
-
   List_iterator<Create_field> it(create);
   Create_field *def;
   copy_end=copy;
@@ -10097,6 +10148,8 @@ copy_data_between_tables(THD *thd, TABLE *from, TABLE *to,
   }
   if (!ignore)
     to->file->extra(HA_EXTRA_END_ALTER_COPY);
+
+  cleanup_done= 1;
   to->file->extra(HA_EXTRA_NO_IGNORE_DUP_KEY);
 
   if (mysql_trans_commit_alter_copy_data(thd))
@@ -10114,6 +10167,15 @@ copy_data_between_tables(THD *thd, TABLE *from, TABLE *to,
   *copied= found_count;
   *deleted=delete_count;
   to->file->ha_release_auto_increment();
+
+  if (!cleanup_done)
+  {
+    /* This happens if we get an error during initialzation of data */
+    DBUG_ASSERT(error);
+    to->file->ha_end_bulk_insert();
+    ha_enable_transaction(thd, TRUE);
+  }
+
   if (to->file->ha_external_lock(thd,F_UNLCK))
     error=1;
   if (error < 0 && !from->s->tmp_table &&

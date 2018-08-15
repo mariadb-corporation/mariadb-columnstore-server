@@ -170,8 +170,7 @@ extern fil_addr_t	fil_addr_null;
 #define FIL_PAGE_TYPE_BLOB	10	/*!< Uncompressed BLOB page */
 #define FIL_PAGE_TYPE_ZBLOB	11	/*!< First compressed BLOB page */
 #define FIL_PAGE_TYPE_ZBLOB2	12	/*!< Subsequent compressed BLOB page */
-#define FIL_PAGE_TYPE_COMPRESSED	13	/*!< Compressed page */
-#define FIL_PAGE_TYPE_LAST	FIL_PAGE_TYPE_COMPRESSED
+#define FIL_PAGE_TYPE_LAST	FIL_PAGE_TYPE_ZBLOB2
 					/*!< Last page type */
 /* @} */
 
@@ -275,10 +274,6 @@ struct fil_space_t {
 				an insert buffer merge request for a
 				page because it actually was for the
 				previous incarnation of the space */
-	ibool		stop_ios;/*!< TRUE if we want to rename the
-				.ibd file of tablespace and want to
-				stop temporarily posting of new i/o
-				requests on the file */
 	bool		stop_new_ops;
 				/*!< we set this true when we start
 				deleting a single-table tablespace.
@@ -345,9 +340,6 @@ struct fil_space_t {
 	corrupted page. */
 	bool		is_corrupt;
 				/*!< true if tablespace corrupted */
-	bool		printed_compression_failure;
-				/*!< true if we have already printed
-				compression failure */
 	fil_space_crypt_t* crypt_data;
 				/*!< tablespace crypt data or NULL */
 	ulint		file_block_size;

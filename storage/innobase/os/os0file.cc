@@ -753,6 +753,23 @@ os_file_handle_error_no_exit(
 			name, operation, false, on_error_silent));
 }
 
+/** Handle RENAME error.
+@param name	old name of the file
+@param new_name	new name of the file */
+static void os_file_handle_rename_error(const char* name, const char* new_name)
+{
+	if (os_file_get_last_error(true) != OS_FILE_DISK_FULL) {
+		ib::error() << "Cannot rename file '" << name << "' to '"
+			<< new_name << "'";
+	} else if (!os_has_said_disk_full) {
+		os_has_said_disk_full = true;
+		/* Disk full error is reported irrespective of the
+		on_error_silent setting. */
+		ib::error() << "Full disk prevents renaming file '"
+			<< name << "' to '" << new_name << "'";
+	}
+}
+
 /** Does simulated AIO. This function should be called by an i/o-handler
 thread.
 
@@ -777,9 +794,7 @@ os_aio_simulated_handler(
 
 #ifdef _WIN32
 static HANDLE win_get_syncio_event();
-#endif
 
-#ifdef _WIN32
 /**
  Wrapper around Windows DeviceIoControl() function.
 
@@ -2478,30 +2493,15 @@ os_file_fsync_posix(
 			os_thread_sleep(200000);
 			break;
 
-		case EIO:
-
-			++failures;
-			ut_a(failures < 1000);
-
-			if (!(failures % 100)) {
-
-				ib::warn()
-					<< "fsync(): "
-					<< "An error occurred during "
-					<< "synchronization,"
-					<< " retrying";
-			}
-
-			/* 0.2 sec */
-			os_thread_sleep(200000);
-			break;
-
 		case EINTR:
 
 			++failures;
 			ut_a(failures < 2000);
 			break;
 
+		case EIO:
+			ib::error() << "fsync() returned EIO, aborting";
+			/* fall through */
 		default:
 			ut_error;
 			break;
@@ -2685,7 +2685,7 @@ os_file_create_simple_func(
 	bool	retry;
 
 	do {
-		file = open(name, create_flag, os_innodb_umask);
+		file = open(name, create_flag | O_CLOEXEC, os_innodb_umask);
 
 		if (file == -1) {
 			*success = false;
@@ -2987,7 +2987,7 @@ os_file_create_func(
 	bool		retry;
 
 	do {
-		file = open(name, create_flag, os_innodb_umask);
+		file = open(name, create_flag | O_CLOEXEC, os_innodb_umask);
 
 		if (file == -1) {
 			const char*	operation;
@@ -3121,7 +3121,7 @@ os_file_create_simple_no_error_handling_func(
 		return(OS_FILE_CLOSED);
 	}
 
-	file = open(name, create_flag, os_innodb_umask);
+	file = open(name, create_flag | O_CLOEXEC, os_innodb_umask);
 
 	*success = (file != -1);
 
@@ -3224,7 +3224,7 @@ os_file_rename_func(
 	ret = rename(oldpath, newpath);
 
 	if (ret != 0) {
-		os_file_handle_error_no_exit(oldpath, "rename", FALSE);
+		os_file_handle_rename_error(oldpath, newpath);
 
 		return(false);
 	}
@@ -3307,7 +3307,8 @@ os_file_get_status_posix(
 {
 	int	ret = stat(path, statinfo);
 
-	if (ret && (errno == ENOENT || errno == ENOTDIR)) {
+	if (ret && (errno == ENOENT || errno == ENOTDIR
+		    || errno == ENAMETOOLONG)) {
 		/* file does not exist */
 
 		return(DB_NOT_FOUND);
@@ -3891,7 +3892,8 @@ os_file_create_simple_func(
 		/* Use default security attributes and no template file. */
 
 		file = CreateFile(
-			(LPCTSTR) name, access, FILE_SHARE_READ, NULL,
+			(LPCTSTR) name, access,
+			FILE_SHARE_READ | FILE_SHARE_DELETE, NULL,
 			create_flag, attributes, NULL);
 
 		if (file == INVALID_HANDLE_VALUE) {
@@ -4093,6 +4095,32 @@ next_file:
 	return(status);
 }
 
+/** Check that IO of specific size is possible for the file
+opened with FILE_FLAG_NO_BUFFERING.
+
+The requirement is that IO is multiple of the disk sector size.
+
+@param[in]	file      file handle
+@param[in]	io_size   expected io size
+@return true - unbuffered io of requested size is possible, false otherwise.
+
+@note: this function only works correctly with Windows 8 or later,
+(GetFileInformationByHandleEx with FileStorageInfo is only supported there).
+It will return true on earlier Windows version.
+ */
+static bool unbuffered_io_possible(HANDLE file, size_t io_size)
+{
+	FILE_STORAGE_INFO info;
+	if (GetFileInformationByHandleEx(
+		file, FileStorageInfo, &info, sizeof(info))) {
+			ULONG sector_size = info.LogicalBytesPerSector;
+			if (sector_size)
+				return io_size % sector_size == 0;
+	}
+	return true;
+}
+
+
 /** NOTE! Use the corresponding macro os_file_create(), not directly
 this function!
 Opens an existing file or creates a new.
@@ -4135,7 +4163,7 @@ os_file_create_func(
 	DWORD		create_flag;
 	DWORD		share_mode = srv_operation != SRV_OPERATION_NORMAL
 		? FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
-		: FILE_SHARE_READ;
+		: FILE_SHARE_READ | FILE_SHARE_DELETE;
 
 	if (create_mode != OS_FILE_OPEN && create_mode != OS_FILE_OPEN_RAW) {
 		WAIT_ALLOW_WRITES();
@@ -4268,46 +4296,58 @@ os_file_create_func(
 		access |= GENERIC_WRITE;
 	}
 
-	do {
+	for (;;) {
+		const  char *operation;
+
 		/* Use default security attributes and no template file. */
 		file = CreateFile(
-			(LPCTSTR) name, access, share_mode, NULL,
+			name, access, share_mode, NULL,
 			create_flag, attributes, NULL);
 
-		if (file == INVALID_HANDLE_VALUE) {
-			const char*	operation;
-
-			operation = (create_mode == OS_FILE_CREATE
-				     && !read_only)
-				? "create" : "open";
-
-			*success = false;
-
-			if (on_error_no_exit) {
-				retry = os_file_handle_error_no_exit(
-					name, operation, on_error_silent);
-			} else {
-				retry = os_file_handle_error(name, operation);
-			}
-		} else {
-
-			retry = false;
-
-			*success = true;
-
-			if (srv_use_native_aio && ((attributes & FILE_FLAG_OVERLAPPED) != 0)) {
-				/* Bind the file handle to completion port. Completion port
-				might not be created yet, in some stages of backup, but
-				must always be there for the server.*/
-				HANDLE port =(type == OS_LOG_FILE)?
-					log_completion_port : data_completion_port;
-				ut_a(port || srv_operation != SRV_OPERATION_NORMAL);
-				if (port) {
-					ut_a(CreateIoCompletionPort(file, port, 0, 0));
-				}
-			}
+		/* If FILE_FLAG_NO_BUFFERING was set, check if this can work at all,
+		for expected IO sizes. Reopen without the unbuffered flag, if it is won't work*/
+		if ((file != INVALID_HANDLE_VALUE)
+			&& (attributes & FILE_FLAG_NO_BUFFERING)
+			&& (type == OS_LOG_FILE)
+			&& !unbuffered_io_possible(file, OS_FILE_LOG_BLOCK_SIZE)) {
+				ut_a(CloseHandle(file));
+				attributes &= ~FILE_FLAG_NO_BUFFERING;
+				create_flag = OPEN_ALWAYS;
+				continue;
 		}
-	} while (retry);
+
+		*success = (file != INVALID_HANDLE_VALUE);
+		if (*success) {
+			break;
+		}
+
+		operation = (create_mode == OS_FILE_CREATE && !read_only) ?
+			"create" : "open";
+
+		if (on_error_no_exit) {
+			retry = os_file_handle_error_no_exit(
+				name, operation, on_error_silent);
+		}
+		else {
+			retry = os_file_handle_error(name, operation);
+		}
+
+		if (!retry) {
+			break;
+		}
+	}
+
+	if (*success && srv_use_native_aio &&  (attributes & FILE_FLAG_OVERLAPPED)) {
+		/* Bind the file handle to completion port. Completion port
+		might not be created yet, in some stages of backup, but
+		must always be there for the server.*/
+		HANDLE port = (type == OS_LOG_FILE) ?
+			log_completion_port : data_completion_port;
+		ut_a(port || srv_operation != SRV_OPERATION_NORMAL);
+		if (port) {
+			ut_a(CreateIoCompletionPort(file, port, 0, 0));
+		}
+	}
 
 	return(file);
 }
@@ -4341,7 +4381,7 @@ os_file_create_simple_no_error_handling_func(
 	DWORD		attributes	= 0;
 	DWORD		share_mode = srv_operation != SRV_OPERATION_NORMAL
 		? FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
-		: FILE_SHARE_READ;
+		: FILE_SHARE_READ | FILE_SHARE_DELETE;
 
 	ut_a(name);
 
@@ -4554,8 +4594,7 @@ os_file_rename_func(
 		return(true);
 	}
 
-	os_file_handle_error_no_exit(oldpath, "rename", false);
-
+	os_file_handle_rename_error(oldpath, newpath);
 	return(false);
 }
 
@@ -4659,7 +4698,8 @@ os_file_get_status_win32(
 {
 	int	ret = _stat64(path, statinfo);
 
-	if (ret && (errno == ENOENT || errno == ENOTDIR)) {
+	if (ret && (errno == ENOENT || errno == ENOTDIR
+		    || errno == ENAMETOOLONG)) {
 		/* file does not exist */
 
 		return(DB_NOT_FOUND);
@@ -5022,12 +5062,12 @@ os_file_write_func(
 			<< offset << ", " << n
 			<< " bytes should have been written,"
 			" only " << n_bytes << " were written."
-			" Operating system error number " << errno << "."
+			" Operating system error number " << IF_WIN(GetLastError(),errno) << "."
 			" Check that your OS and file system"
 			" support files of this size."
 			" Check also that the disk is not full"
 			" or a disk quota exceeded.";
-
+#ifndef _WIN32
 		if (strerror(errno) != NULL) {
 
 			ib::error()
@@ -5036,7 +5076,7 @@ os_file_write_func(
 		}
 
 		ib::info() << OPERATING_SYSTEM_ERROR_MSG;
-
+#endif
 		os_has_said_disk_full = true;
 	}
 

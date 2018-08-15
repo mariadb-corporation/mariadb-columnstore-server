@@ -12,7 +12,12 @@ MariaDB ColumnStore also requires the matching engine version. This can be found
 Always match the server engine / git branch with the engine git branch.
 
 Currently building has only been certified on CentOS 6 and 7, Ubuntu 16.04, Debain 8, and SUSE 12.. 
+
 Building on other platforms will be certified in a later release.
+
+
+
+
 
 ## Issue tracking
 

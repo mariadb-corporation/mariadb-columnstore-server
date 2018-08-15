@@ -86,7 +86,7 @@ then
 fi
 if [[ $GCCVERSION -lt 40800 ]]
 then
-  sed '/Package: mariadb-plugin-aws-key-management-10.2/,+13d' -i debian/control
+  sed '/Package: mariadb-plugin-aws-key-management-10.2/,+12d' -i debian/control
 fi
 
 
@@ -107,12 +107,20 @@ dch -b -D ${CODENAME} -v "${EPOCH}${UPSTREAM}${PATCHLEVEL}~${CODENAME}" "Automat
 
 echo "Creating package version ${EPOCH}${UPSTREAM}${PATCHLEVEL}~${CODENAME} ... "
 
+# On Travis CI, use -b to build binary only packages as there is no need to
+# waste time on generating the source package.
+if [[ $TRAVIS ]]
+then
+  BUILDPACKAGE_FLAGS="-b"
+fi
+
 # Build the package
 # Pass -I so that .git and other unnecessary temporary and source control files
 # will be ignored by dpkg-source when creating the tar.gz source package.
-# Use -b to build binary only packages as there is no need to waste time on
-# generating the source package.
-fakeroot dpkg-buildpackage -us -uc -I -b
+fakeroot dpkg-buildpackage -us -uc -I $BUILDPACKAGE_FLAGS
+
+# If the step above fails due to missing dependencies, you can manually run
+#   sudo mk-build-deps debian/control -r -i
 
 # Don't log package contents on Travis-CI to save time and log size
 if [[ ! $TRAVIS ]]

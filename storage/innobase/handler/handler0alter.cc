@@ -54,10 +54,6 @@ Smart ALTER TABLE
 #include "ha_innodb.h"
 #include "ut0new.h"
 #include "ut0stage.h"
-#ifdef WITH_WSREP
-//#include "wsrep_api.h"
-#include <sql_acl.h>	// PROCESS_ACL
-#endif
 
 static const char *MSG_UNSUPPORTED_ALTER_ONLINE_ON_VIRTUAL_COLUMN=
 			"INPLACE ADD or DROP of virtual columns cannot be "
@@ -248,6 +244,16 @@ struct ha_innobase_inplace_ctx : public inplace_alter_handler_ctx
 	/** Determine if the table will be rebuilt.
 	@return whether the table will be rebuilt */
 	bool need_rebuild () const { return(old_table != new_table); }
+
+	/** Clear uncommmitted added indexes after a failed operation. */
+	void clear_added_indexes()
+	{
+		for (ulint i = 0; i < num_to_add_index; i++) {
+			if (!add_index[i]->is_committed()) {
+				add_index[i]->detach_columns();
+			}
+		}
+	}
 
 private:
 	// Disable copying
@@ -5721,6 +5727,13 @@ check_if_ok_to_rename:
 		goto err_exit_no_heap;
 	}
 
+	if (info.flags2() & DICT_TF2_USE_FILE_PER_TABLE) {
+		/* Preserve the DATA DIRECTORY attribute, because it
+		currently cannot be changed during ALTER TABLE. */
+		info.flags_set(m_prebuilt->table->flags
+			       & 1U << DICT_TF_POS_DATA_DIR);
+	}
+
 	max_col_len = DICT_MAX_FIELD_LEN_BY_FORMAT_FLAG(info.flags());
 
 	/* Check each index's column length to make sure they do not
@@ -6000,7 +6013,8 @@ check_if_can_drop_indexes:
 		for (dict_index_t* index = dict_table_get_first_index(indexed_table);
 		     index != NULL; index = dict_table_get_next_index(index)) {
 
-			if (!index->to_be_dropped && index->is_corrupted()) {
+			if (!index->to_be_dropped && index->is_committed()
+			    && index->is_corrupted()) {
 				my_error(ER_INDEX_CORRUPT, MYF(0), index->name());
 				goto err_exit;
 			}
@@ -6571,6 +6585,7 @@ oom:
 	that we hold at most a shared lock on the table. */
 	m_prebuilt->trx->error_info = NULL;
 	ctx->trx->error_state = DB_SUCCESS;
+	ctx->clear_added_indexes();
 
 	DBUG_RETURN(true);
 }
@@ -8169,7 +8184,7 @@ commit_cache_norebuild(
 		(after renaming the indexes), so that in the
 		event of a crash, crash recovery will drop the
 		indexes, because it drops all indexes whose
-		names start with TEMP_INDEX_PREFIX. Once we
+		names start with TEMP_INDEX_PREFIX_STR. Once we
 		have started dropping an index tree, there is
 		no way to roll it back. */
 
@@ -8517,24 +8532,24 @@ ha_innobase::commit_inplace_alter_table(
 	trx_t*		trx		= ctx0->trx;
 	bool		fail		= false;
 
-	if (new_clustered) {
-		for (inplace_alter_handler_ctx** pctx = ctx_array;
-		     *pctx; pctx++) {
-			ha_innobase_inplace_ctx*	ctx
-				= static_cast<ha_innobase_inplace_ctx*>(*pctx);
-			DBUG_ASSERT(ctx->need_rebuild());
+	/* Stop background FTS operations. */
+	for (inplace_alter_handler_ctx** pctx = ctx_array;
+			 *pctx; pctx++) {
+		ha_innobase_inplace_ctx*	ctx
+			= static_cast<ha_innobase_inplace_ctx*>(*pctx);
 
+		DBUG_ASSERT(new_clustered == ctx->need_rebuild());
+
+		if (new_clustered) {
 			if (ctx->old_table->fts) {
 				ut_ad(!ctx->old_table->fts->add_wq);
-				fts_optimize_remove_table(
-					ctx->old_table);
+				fts_optimize_remove_table(ctx->old_table);
 			}
+		}
 
-			if (ctx->new_table->fts) {
-				ut_ad(!ctx->new_table->fts->add_wq);
-				fts_optimize_remove_table(
-					ctx->new_table);
-			}
+		if (ctx->new_table->fts) {
+			ut_ad(!ctx->new_table->fts->add_wq);
+			fts_optimize_remove_table(ctx->new_table);
 		}
 	}
 
@@ -8581,39 +8596,37 @@ ha_innobase::commit_inplace_alter_table(
 
 	/* Make a concurrent Drop fts Index to wait until sync of that
 	fts index is happening in the background */
-	for (;;) {
+	for (int retry_count = 0;;) {
 		bool    retry = false;
 
 		for (inplace_alter_handler_ctx** pctx = ctx_array;
 		    *pctx; pctx++) {
-			int count =0;
 			ha_innobase_inplace_ctx*        ctx
 				= static_cast<ha_innobase_inplace_ctx*>(*pctx);
 			DBUG_ASSERT(new_clustered == ctx->need_rebuild());
 
 			if (dict_fts_index_syncing(ctx->old_table)) {
-				count++;
-				if (count == 100) {
-					fprintf(stderr,
-					"Drop index waiting for background sync"
-					"to finish\n");
-				}
 				retry = true;
+				break;
 			}
 
 			if (new_clustered && dict_fts_index_syncing(ctx->new_table)) {
-				count++;
-				if (count == 100) {
-					fprintf(stderr,
-                                        "Drop index waiting for background sync"
-                                        "to finish\n");
-				}
 				retry = true;
+				break;
 			}
 		}
 
-		 if (!retry) {
+		if (!retry) {
 			 break;
+		}
+
+		/* Print a message if waiting for a long time. */
+		if (retry_count < 100) {
+			retry_count++;
+		} else {
+			ib::info() << "Drop index waiting for background sync"
+				" to finish";
+			retry_count = 0;
 		}
 
 		DICT_BG_YIELD(trx);
@@ -8895,6 +8908,11 @@ foreign_fail:
 			ut_a(fts_check_cached_index(ctx->old_table));
 			DBUG_INJECT_CRASH("ib_commit_inplace_crash_fail",
 					  crash_fail_inject_count++);
+
+			/* Restart the FTS background operations. */
+			if (ctx->old_table->fts) {
+				fts_optimize_add_table(ctx->old_table);
+			}
 		}
 
 		row_mysql_unlock_data_dictionary(trx);
@@ -8979,8 +8997,6 @@ foreign_fail:
 			(*pctx);
 		DBUG_ASSERT(ctx->need_rebuild() == new_clustered);
 
-		bool	add_fts	= false;
-
 		/* Publish the created fulltext index, if any.
 		Note that a fulltext index can be created without
 		creating the clustered index, if there already exists
@@ -8995,14 +9011,14 @@ foreign_fail:
 				is left unset when a drop proceeds the add. */
 				DICT_TF2_FLAG_SET(ctx->new_table, DICT_TF2_FTS);
 				fts_add_index(index, ctx->new_table);
-				add_fts = true;
 			}
 		}
 
 		ut_d(dict_table_check_for_dup_indexes(
 			     ctx->new_table, CHECK_ALL_COMPLETE));
 
-		if (add_fts) {
+		/* Start/Restart the FTS background operations. */
+		if (ctx->new_table->fts) {
 			fts_optimize_add_table(ctx->new_table);
 		}
 
@@ -9071,12 +9087,11 @@ foreign_fail:
 			error = row_merge_drop_table(trx, ctx->old_table);
 
 			if (error != DB_SUCCESS) {
-				ib::error() << "Inplace alter table " << ctx->old_table->name.m_name
+				ib::error() << "Inplace alter table " << ctx->old_table->name
 					    << " dropping copy of the old table failed error "
 					    << error
 					    << ". tmp_name " << (ctx->tmp_name ? ctx->tmp_name : "N/A")
-					    << " new_table " << (ctx->new_table ? ctx->new_table->name.m_name
-						    : "N/A");
+					    << " new_table " << ctx->new_table->name;
 			}
 
 			trx_commit_for_mysql(trx);

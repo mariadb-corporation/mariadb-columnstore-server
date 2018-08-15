@@ -185,7 +185,7 @@ select_union::create_result_table(THD *thd_arg, List<Item> *column_types,
 
   table->keys_in_use_for_query.clear_all();
   for (uint i=0; i < table->s->fields; i++)
-    table->field[i]->flags &= ~PART_KEY_FLAG;
+    table->field[i]->flags &= ~(PART_KEY_FLAG | PART_INDIRECT_KEY_FLAG);
 
   if (create_table)
   {
@@ -219,7 +219,7 @@ select_union_recursive::create_result_table(THD *thd_arg,
 
   incr_table->keys_in_use_for_query.clear_all();
   for (uint i=0; i < table->s->fields; i++)
-    incr_table->field[i]->flags &= ~PART_KEY_FLAG;
+    incr_table->field[i]->flags &= ~(PART_KEY_FLAG | PART_INDIRECT_KEY_FLAG);
 
   TABLE *rec_table= 0;
   if (! (rec_table= create_tmp_table(thd_arg, &tmp_table_param, *column_types,
@@ -230,7 +230,7 @@ select_union_recursive::create_result_table(THD *thd_arg,
 
   rec_table->keys_in_use_for_query.clear_all();
   for (uint i=0; i < table->s->fields; i++)
-    rec_table->field[i]->flags &= ~PART_KEY_FLAG;
+    rec_table->field[i]->flags &= ~(PART_KEY_FLAG | PART_INDIRECT_KEY_FLAG);
 
   if (rec_tables.push_back(rec_table))
     return true;
@@ -453,6 +453,23 @@ bool st_select_lex_unit::prepare(THD *thd_arg, select_result *sel_result,
   DBUG_ASSERT(thd == thd_arg);
   DBUG_ASSERT(thd == current_thd);
 
+  if (is_recursive && (sl= first_sl->next_select()))
+  {
+    SELECT_LEX *next_sl;
+    for ( ; ; sl= next_sl)
+    {
+      next_sl= sl->next_select();
+      if (!next_sl)
+        break;
+      if (next_sl->with_all_modifier != sl->with_all_modifier)
+      {
+        my_error(ER_NOT_SUPPORTED_YET, MYF(0),
+         "mix of ALL and DISTINCT UNION operations in recursive CTE spec");
+        DBUG_RETURN(TRUE);
+      }
+    }
+  }
+
   describe= additional_options & SELECT_DESCRIBE;
 
   /*
@@ -521,7 +538,18 @@ bool st_select_lex_unit::prepare(THD *thd_arg, select_result *sel_result,
         with_element->rec_result=
           new (thd_arg->mem_root) select_union_recursive(thd_arg);
         union_result=  with_element->rec_result;
-        fake_select_lex= NULL;
+        if (fake_select_lex)
+	{
+          if (fake_select_lex->order_list.first ||
+              fake_select_lex->explicit_limit)
+          {
+	    my_error(ER_NOT_SUPPORTED_YET, MYF(0),
+                     "global ORDER_BY/LIMIT in recursive CTE spec");
+	    goto err;
+          }
+          fake_select_lex->cleanup();
+          fake_select_lex= NULL;
+        }
       }
       if (!(tmp_result= union_result))
         goto err; /* purecov: inspected */
@@ -597,7 +625,7 @@ bool st_select_lex_unit::prepare(THD *thd_arg, select_result *sel_result,
     {
       if (with_element)
       {
-        if (derived->with->rename_columns_of_derived_unit(thd, this))
+        if (with_element->rename_columns_of_derived_unit(thd, this))
 	  goto err; 
         if (check_duplicate_names(thd, sl->item_list, 0))
           goto err;

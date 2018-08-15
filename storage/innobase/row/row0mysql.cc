@@ -63,12 +63,20 @@ Created 9/17/2000 Heikki Tuuri
 #include "trx0rec.h"
 #include "trx0roll.h"
 #include "trx0undo.h"
+#include "srv0start.h"
 #include "row0ext.h"
 #include "ut0new.h"
 
 #include <algorithm>
 #include <deque>
 #include <vector>
+
+#ifdef WITH_WSREP
+#include "mysql/service_wsrep.h"
+#include "wsrep.h"
+#include "log.h"
+#include "wsrep_mysqld.h"
+#endif
 
 /** Provide optional 4.x backwards compatibility for 5.0 and above */
 ibool	row_rollback_on_timeout	= FALSE;
@@ -1519,7 +1527,7 @@ error_exit:
 		memcpy(prebuilt->row_id, node->sys_buf, DATA_ROW_ID_LEN);
 	}
 
-	dict_stats_update_if_needed(table);
+	dict_stats_update_if_needed(table, trx->mysql_thd);
 	trx->op_info = "";
 
 	if (blob_heap != NULL) {
@@ -1891,7 +1899,7 @@ row_update_for_mysql(row_prebuilt_t* prebuilt)
 	}
 
 	if (update_statistics) {
-		dict_stats_update_if_needed(prebuilt->table);
+		dict_stats_update_if_needed(prebuilt->table, trx->mysql_thd);
 	} else {
 		/* Always update the table modification counter. */
 		prebuilt->table->stat_modified_counter++;
@@ -2144,7 +2152,8 @@ row_update_cascade_for_mysql(
 			}
 
 			if (stats) {
-				dict_stats_update_if_needed(node->table);
+				dict_stats_update_if_needed(node->table,
+							    trx->mysql_thd);
 			} else {
 				/* Always update the table
 				modification counter. */
@@ -3422,12 +3431,35 @@ row_drop_table_for_mysql(
 	/* make sure background stats thread is not running on the table */
 	ut_ad(!(table->stats_bg_flag & BG_STAT_IN_PROGRESS));
 
-	/* Delete the link file if used. */
-	if (DICT_TF_HAS_DATA_DIR(table->flags)) {
-		RemoteDatafile::delete_link_file(name);
-	}
-
 	if (!dict_table_is_temporary(table)) {
+		if (table->space != TRX_SYS_SPACE) {
+			/* On DISCARD TABLESPACE, we would not drop the
+			adaptive hash index entries. If the tablespace is
+			missing here, delete-marking the record in SYS_INDEXES
+			would not free any pages in the buffer pool. Thus,
+			dict_index_remove_from_cache() would hang due to
+			adaptive hash index entries existing in the buffer
+			pool.  To prevent this hang, and also to guarantee
+			that btr_search_drop_page_hash_when_freed() will avoid
+			calling btr_search_drop_page_hash_index() while we
+			hold the InnoDB dictionary lock, we will drop any
+			adaptive hash index entries upfront. */
+			while (buf_LRU_drop_page_hash_for_tablespace(table)) {
+				if (trx_is_interrupted(trx)
+				    || srv_shutdown_state
+				    != SRV_SHUTDOWN_NONE) {
+					err = DB_INTERRUPTED;
+					table->to_be_dropped = false;
+					dict_table_close(table, true, false);
+					goto funct_exit;
+				}
+			}
+
+			/* Delete the link file if used. */
+			if (DICT_TF_HAS_DATA_DIR(table->flags)) {
+				RemoteDatafile::delete_link_file(name);
+			}
+		}
 
 		dict_stats_recalc_pool_del(table);
 		dict_stats_defrag_pool_del(table, NULL);
@@ -3626,7 +3658,6 @@ row_drop_table_for_mysql(
 	/* As we don't insert entries to SYSTEM TABLES for temp-tables
 	we need to avoid running removal of these entries. */
 	if (!dict_table_is_temporary(table)) {
-
 		/* We use the private SQL parser of Innobase to generate the
 		query graphs needed in deleting the dictionary data from system
 		tables in Innobase. Deleting a row from SYS_INDEXES table also
