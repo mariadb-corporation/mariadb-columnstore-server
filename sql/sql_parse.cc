@@ -7566,7 +7566,8 @@ void THD::reset_for_next_command(bool do_clear_error)
     We also assign thd->stmt_lex in lex_start(), but during bootstrap this
     code is executed first.
   */
-  DBUG_ASSERT(lex == &main_lex);
+  /* lex != main_lex in ColumnStore */
+  //DBUG_ASSERT(lex == &main_lex);
   main_lex.stmt_lex= &main_lex; main_lex.current_select_number= 1;
   DBUG_PRINT("info", ("Lex and stmt_lex: %p", &main_lex));
   /*
