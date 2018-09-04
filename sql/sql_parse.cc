@@ -10354,6 +10354,7 @@ int idb_parse_vtable(THD* thd, String& vquery, THD::infinidb_state vtable_state)
 	LEX *old_lex;
 	Query_arena *arena, backup;
 	LEX tmp_lex;
+    PSI_statement_locker *parent_locker;
 
 	tmp_disable_binlog(thd);
 	old_lex= thd->lex;
@@ -10375,7 +10376,10 @@ int idb_parse_vtable(THD* thd, String& vquery, THD::infinidb_state vtable_state)
     // MCOL-1082: the drop table clears row_count and this may be a SELECT to
     // get the row_count.
     longlong row_count= thd->get_row_count_func();
+    parent_locker= thd->m_statement_psi;
+    thd->m_statement_psi= NULL;
 	mysql_parse(thd, thd->query(), thd->query_length(), &parser_state, false, false);
+    thd->m_statement_psi= parent_locker;
     thd->set_row_count_func(row_count);
 	delete_explain_query(thd->lex);
 	close_thread_tables(thd);
@@ -10435,11 +10439,15 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 		thd->reset_for_next_command();
 		if (query_cache_send_result_to_client(thd, thd->query(), thd->query_length()) <= 0)
 		{
+            PSI_statement_locker *parent_locker;
 			sp_cache_enforce_limit(thd->sp_proc_cache, stored_program_cache_size);
 			sp_cache_enforce_limit(thd->sp_func_cache, stored_program_cache_size);
 			Parser_state parser_state;
 			parser_state.init(thd, thd->query(), thd->query_length());
+            parent_locker= thd->m_statement_psi;
+            thd->m_statement_psi= NULL;
 			parse_sql(thd, &parser_state, NULL, true);
+            thd->m_statement_psi= parent_locker;
 			delete_explain_query(thd->lex);
 			if (thd->lex->result)
 			{
@@ -10661,6 +10669,7 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
                         }
                         else
                         {
+                            PSI_statement_locker *parent_locker;
     						alloc_query(thd, tmp_query.c_ptr(), tmp_query.length());
 
                             // pre parse statement to tell DML statement from select
@@ -10669,7 +10678,10 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 
                             Parser_state parser_state;
                             parser_state.init(thd, thd->query(), thd->query_length());
+                            parent_locker= thd->m_statement_psi;
+                            thd->m_statement_psi= NULL;
                             parse_sql(thd, &parser_state, NULL, true);
+                            thd->m_statement_psi= parent_locker;
 
                             if ((thd->lex->sql_command != SQLCOM_SELECT) && (thd->lex->sql_command != SQLCOM_INSERT_SELECT))
                             {
@@ -11056,6 +11068,7 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 						}
 						else
 						{
+                            PSI_statement_locker *parent_locker;
 							alloc_query(thd, thd->infinidb_vtable.select_vtable_query.c_ptr(), thd->infinidb_vtable.select_vtable_query.length());
 							thd->infinidb_vtable.vtable_state = THD::INFINIDB_SELECT_VTABLE;
 	#ifdef INFINIDB_DEBUG
@@ -11064,7 +11077,10 @@ int idb_vtable_process(THD* thd, ulonglong old_optimizer_switch, Statement* stat
 							Parser_state parser_state;
 							parser_state.init(thd, thd->query(), thd->query_length());
 							delete_explain_query(thd->lex);
+                            parent_locker= thd->m_statement_psi;
+                            thd->m_statement_psi= NULL;
 							mysql_parse(thd, thd->query(), thd->query_length(), &parser_state, false, false);
+                            thd->m_statement_psi= parent_locker;
 						}
 					}
 				}
