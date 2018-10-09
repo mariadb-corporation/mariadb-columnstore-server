@@ -4572,7 +4572,11 @@ void st_select_lex::set_explain_type(bool on_the_fly)
       /* If we're a direct child of a UNION, we're the first sibling there */
       if (linkage == DERIVED_TABLE_TYPE)
       {
-        if (is_uncacheable & UNCACHEABLE_DEPENDENT)
+        bool is_pushed_master_unit= master_unit()->derived &&
+	                            master_unit()->derived->pushdown_derived;
+        if (is_pushed_master_unit)
+          type= pushed_derived_text;
+        else if (is_uncacheable & UNCACHEABLE_DEPENDENT)
           type= "LATERAL DERIVED";
         else
           type= "DERIVED";

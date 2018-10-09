@@ -1,3 +1,5 @@
+#ifndef HA_FEDERATEDX_INCLUDED
+#define HA_FEDERATEDX_INCLUDED
 /*
 Copyright (c) 2008, Patrick Galbraith
 All rights reserved.
@@ -40,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <my_global.h>
 #include <thr_lock.h>
 #include "handler.h"
+#include "derived_handler.h"
 
 class federatedx_io;
 
@@ -445,6 +448,8 @@ public:
   int external_lock(THD *thd, int lock_type);
   int reset(void);
   int free_result(void);
+
+  friend class ha_federatedx_derived_handler;
 };
 
 extern const char ident_quote_char;              // Character for quoting
@@ -460,3 +465,22 @@ extern federatedx_io *instantiate_io_mysql(MEM_ROOT *server_root,
                                            FEDERATEDX_SERVER *server);
 extern federatedx_io *instantiate_io_null(MEM_ROOT *server_root,
                                           FEDERATEDX_SERVER *server);
+
+class ha_federatedx_derived_handler: public derived_handler
+{
+private:
+  FEDERATEDX_SHARE *share;
+  federatedx_txn *txn;
+  federatedx_io *io;
+  FEDERATEDX_IO_RESULT *stored_result;
+
+public:
+  ha_federatedx_derived_handler(THD* thd_arg, TABLE_LIST *tbl);
+  ~ha_federatedx_derived_handler();
+  int init_scan();
+  int next_row();
+  int end_scan();
+  void print_error(int, unsigned long);
+};
+
+#endif /* HA_FEDERATEDX_INCLUDED */

@@ -55,6 +55,8 @@ class Virtual_column_info;
 class Table_triggers_list;
 class TMP_TABLE_PARAM;
 class SEQUENCE;
+class derived_handler;
+class Pushdown_derived;
 
 /*
   Used to identify NESTED_JOIN structures within a join (applicable only to
@@ -2158,6 +2160,8 @@ struct TABLE_LIST
   TABLE_LIST * next_with_rec_ref;
   bool is_derived_with_recursive_reference;
   bool block_handle_derived;
+  derived_handler *dt_handler;
+  Pushdown_derived *pushdown_derived;
   ST_SCHEMA_TABLE *schema_table;        /* Information_schema table */
   st_select_lex	*schema_select_lex;
   /*
@@ -2625,6 +2629,9 @@ struct TABLE_LIST
   void set_lock_type(THD* thd, enum thr_lock_type lock);
   void check_pushable_cond_for_table(Item *cond);
   Item *build_pushable_cond_for_table(THD *thd, Item *cond); 
+
+  derived_handler *find_derived_handler(THD *thd);
+  TABLE_LIST *get_first_table();
 
 private:
   bool prep_check_option(THD *thd, uint8 check_opt_type);

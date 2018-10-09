@@ -328,6 +328,7 @@ public:
 /////////////////////////////////////////////////////////////////////////////
 
 extern const char *unit_operation_text[4];
+extern const char *pushed_derived_text;
 
 /*
   Explain structure for a UNION.

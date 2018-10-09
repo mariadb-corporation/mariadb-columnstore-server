@@ -2447,7 +2447,23 @@ public:
   ~Pushdown_query() { delete handler; }
 
   /* Function that calls the above scan functions */
-  int execute(JOIN *join);
+  int execute(JOIN *);
+};
+
+class derived_handler;
+
+class Pushdown_derived: public Sql_alloc
+{
+public:
+  TABLE_LIST *derived;
+  derived_handler *handler;
+
+  Pushdown_derived(TABLE_LIST *tbl, derived_handler *h)
+    : derived(tbl), handler(h) {}
+
+  ~Pushdown_derived();
+
+  int execute(); 
 };
 
 bool test_if_order_compatible(SQL_I_List<ORDER> &a, SQL_I_List<ORDER> &b);

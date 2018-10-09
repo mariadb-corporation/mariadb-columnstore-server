@@ -1,3 +1,4 @@
+RETURN()
 # TODO: Copyrights
 
 MACRO(SKIP_ROCKSDB_PLUGIN msg)

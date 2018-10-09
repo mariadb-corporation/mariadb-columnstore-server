@@ -319,6 +319,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "sql_analyse.h"                        // append_escaped()
 #include "sql_show.h"                           // append_identifier()
 #include "tztime.h"                             // my_tz_find()
+#include "sql_select.h"
 
 #ifdef I_AM_PARANOID
 #define MIN_PORT 1023
@@ -401,6 +402,10 @@ static void init_federated_psi_keys(void)
 #define init_federated_psi_keys() /* no-op */
 #endif /* HAVE_PSI_INTERFACE */
 
+handlerton* federatedx_hton;
+
+static derived_handler*
+create_federatedx_derived_handler(THD* thd, TABLE_LIST *derived);
 
 /*
   Initialize the federatedx handler.
@@ -418,7 +423,7 @@ int federatedx_db_init(void *p)
 {
   DBUG_ENTER("federatedx_db_init");
   init_federated_psi_keys();
-  handlerton *federatedx_hton= (handlerton *)p;
+  federatedx_hton= (handlerton *)p;
   federatedx_hton->state= SHOW_OPTION_YES;
   /* Needed to work with old .frm files */
   federatedx_hton->db_type= DB_TYPE_FEDERATED_DB;
@@ -432,6 +437,7 @@ int federatedx_db_init(void *p)
   federatedx_hton->discover_table_structure= ha_federatedx::discover_assisted;
   federatedx_hton->create= federatedx_create_handler;
   federatedx_hton->flags= HTON_ALTER_NOT_SUPPORTED;
+  federatedx_hton->create_derived= create_federatedx_derived_handler;
 
   if (mysql_mutex_init(fe_key_mutex_federatedx,
                        &federatedx_mutex, MY_MUTEX_INIT_FAST))
@@ -3668,6 +3674,126 @@ err1:
   return error;
 }
 
+static derived_handler*
+create_federatedx_derived_handler(THD* thd, TABLE_LIST *derived)
+{
+  ha_federatedx_derived_handler* handler = NULL;
+  handlerton *ht= 0;
+
+  SELECT_LEX_UNIT *unit= derived->derived;
+
+  for (SELECT_LEX *sl= unit->first_select(); sl; sl= sl->next_select())
+  {
+    if (!(sl->join))
+      return 0;
+    for (TABLE_LIST *tbl= sl->join->tables_list; tbl; tbl= tbl->next_local)
+    {
+      if (!tbl->table)
+	return 0;
+      if (!ht)
+        ht= tbl->table->file->partition_ht();
+      else if (ht != tbl->table->file->partition_ht())
+        return 0;
+    }
+  }
+  
+  handler= new ha_federatedx_derived_handler(thd, derived);
+
+  return handler;
+}
+
+
+ha_federatedx_derived_handler::ha_federatedx_derived_handler(THD *thd,
+                                                             TABLE_LIST *dt)
+  : derived_handler(thd, federatedx_hton)
+{
+  derived= dt;
+}
+
+ha_federatedx_derived_handler::~ha_federatedx_derived_handler() {}
+
+int ha_federatedx_derived_handler::init_scan()
+{
+  char query_buff[4096];
+  THD *thd;
+  int rc= 0;
+
+  DBUG_ENTER("ha_federatedx_derived_handler::init_scan");
+
+  TABLE *table= derived->get_first_table()->table;
+  ha_federatedx *h= (ha_federatedx *) table->file;
+  io= h->io;
+  share= get_share(table->s->table_name.str, table);
+  thd= table->in_use;
+  txn= h->get_txn(thd);
+  if ((rc= txn->acquire(share, thd, TRUE, &io)))
+    DBUG_RETURN(rc);
+  
+  String derived_query(query_buff, sizeof(query_buff), thd->charset());
+  derived_query.length(0);
+  derived->derived->print(&derived_query, QT_ORDINARY);
+  
+  //  if (stored_result)
+  //    (void) free_result();
+
+  if (io->query(derived_query.ptr(), derived_query.length()))
+    goto err;
+
+  stored_result= io->store_result();
+  if (!stored_result)
+      goto err;
+
+  DBUG_RETURN(0);
+
+err:
+  DBUG_RETURN(HA_FEDERATEDX_ERROR_WITH_REMOTE_SYSTEM);
+}
+      
+int ha_federatedx_derived_handler::next_row()
+{
+  int rc;
+  FEDERATEDX_IO_ROW *row;
+  ulong *lengths;
+  Field **field;
+  int column= 0;
+  Time_zone *saved_time_zone= table->in_use->variables.time_zone;
+  DBUG_ENTER("ha_federatedx_derived_handler::next_row");
+
+  if ((rc= txn->acquire(share, table->in_use, TRUE, &io)))
+    DBUG_RETURN(rc);
+
+  if (!(row= io->fetch_row(stored_result)))
+    DBUG_RETURN(HA_ERR_END_OF_FILE);
+
+  /* Convert row to internal format */
+  table->in_use->variables.time_zone= UTC;
+  lengths= io->fetch_lengths(stored_result);
+
+  for (field= table->field; *field; field++, column++)
+  {
+    if (io->is_column_null(row, column))
+       (*field)->set_null();
+    else
+    {
+      (*field)->set_notnull();
+      (*field)->store(io->get_column_data(row, column),
+                      lengths[column], &my_charset_bin);
+    }
+  }
+  table->in_use->variables.time_zone= saved_time_zone;
+
+  DBUG_RETURN(rc);
+}
+
+int ha_federatedx_derived_handler::end_scan()
+{
+  DBUG_ENTER("ha_federatedx_derived_handler::end_scan");
+  DBUG_RETURN(0);
+}
+
+void ha_federatedx_derived_handler::print_error(int, unsigned long)
+{
+}
 
 struct st_mysql_storage_engine federatedx_storage_engine=
 { MYSQL_HANDLERTON_INTERFACE_VERSION };
@@ -3689,3 +3815,4 @@ maria_declare_plugin(federatedx)
   MariaDB_PLUGIN_MATURITY_STABLE /* maturity */
 }
 maria_declare_plugin_end;
+

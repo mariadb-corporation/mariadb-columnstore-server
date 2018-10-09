@@ -1,3 +1,4 @@
+RETURN()
 SET(TOKUDB_VERSION 5.6.39-83.1)
 # PerconaFT only supports x86-64 and cmake-2.8.9+
 IF(CMAKE_VERSION VERSION_LESS "2.8.9")
