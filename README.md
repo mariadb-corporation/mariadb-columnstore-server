@@ -1,7 +1,7 @@
 # MariaDB ColumnStore Server (version 1.2)
 
 This is the server part of MariaDB ColumnStore 1.2.
-MariaDB ColumnStore 1.2 is an Alpha of MariaDB ColumnStore.
+MariaDB ColumnStore 1.2 is an Beta of MariaDB ColumnStore.
 It is built by porting InfiniDB 4.6.7 on MariaDB 10.3 and adding entirely
 new features not found anywhere else.
 
