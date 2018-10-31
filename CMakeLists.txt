@@ -78,7 +78,7 @@ ENDIF()
 PROJECT(${MYSQL_PROJECT_NAME})
 
 SET(CPACK_PACKAGE_NAME "mariadb-columnstore")
-SET(CPACK_PACKAGE_DESCRIPTION_SUMMARY "MariaDB ColumnStore: a very fast and robust SQL database server")
+SET(CPACK_PACKAGE_DESCRIPTION_SUMMARY "MariaDB ColumnStore: A Scale out Columnar storage engine for MariaDB")
 SET(CPACK_PACKAGE_URL "http://mariadb.org")
 
 IF(BUILD_CONFIG)
