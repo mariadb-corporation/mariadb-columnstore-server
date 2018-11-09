@@ -2473,6 +2473,9 @@ com_multi_end:
   thd->set_examined_row_count(0);                   // For processlist
   thd->set_command(COM_SLEEP);
 
+  // MCOL-1527
+  thd->set_row_count_func(0);
+
   thd->m_statement_psi= NULL;
   thd->m_digest= NULL;
 
