@@ -2132,7 +2132,6 @@ public:
   enum precedence precedence() const { return BETWEEN_PRECEDENCE; }
   CHARSET_INFO *compare_collation() const { return cmp_collation.collation; }
   bool need_parentheses_in_default() { return true; }
-  virtual const char* case_type()= 0;
 };
 
 
@@ -2167,7 +2166,6 @@ public:
   Item *find_item();
   Item *get_copy(THD *thd)
   { return get_item_copy<Item_func_case_searched>(thd, this); }
-  const char* case_type() { return "searched"; };
 };
 
 
@@ -2225,7 +2223,6 @@ public:
   } 
   Item *get_copy(THD *thd)
   { return get_item_copy<Item_func_case_simple>(thd, this); }
-  const char* case_type() { return "simple"; };
 };
 
 
