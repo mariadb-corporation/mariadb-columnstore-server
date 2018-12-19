@@ -164,6 +164,8 @@ INCLUDE(mysql_add_executable)
 INCLUDE(compile_flags)
 INCLUDE(crc32-vpmsum)
 
+INCLUDE(gitversion)
+
 # Handle options
 OPTION(DISABLE_SHARED 
  "Don't build shared libraries, compile code as position-dependent" OFF)
