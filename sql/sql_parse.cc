@@ -615,7 +615,8 @@ void init_update_queries(void)
   sql_command_flags[SQLCOM_DELETE]=         CF_CHANGES_DATA | CF_REEXECUTION_FRAGILE |
                                             CF_CAN_GENERATE_ROW_EVENTS |
                                             CF_OPTIMIZER_TRACE |
-                                            CF_CAN_BE_EXPLAINED;
+                                            CF_CAN_BE_EXPLAINED |
+                                            CF_SP_BULK_SAFE;
   sql_command_flags[SQLCOM_DELETE_MULTI]=   CF_CHANGES_DATA | CF_REEXECUTION_FRAGILE |
                                             CF_CAN_GENERATE_ROW_EVENTS |
                                             CF_OPTIMIZER_TRACE |
@@ -1471,6 +1472,7 @@ static bool deny_updates_if_read_only_option(THD *thd, TABLE_LIST *all_tables)
     DBUG_RETURN(FALSE);
 
   if (lex->sql_command == SQLCOM_CREATE_DB ||
+      lex->sql_command == SQLCOM_ALTER_DB ||
       lex->sql_command == SQLCOM_DROP_DB)
     DBUG_RETURN(TRUE);
 
@@ -2390,7 +2392,8 @@ com_multi_end:
     /* wsrep BF abort in query exec phase */
     mysql_mutex_lock(&thd->LOCK_thd_data);
     do_end_of_statement= thd->wsrep_conflict_state != REPLAYING &&
-                         thd->wsrep_conflict_state != RETRY_AUTOCOMMIT;
+                         thd->wsrep_conflict_state != RETRY_AUTOCOMMIT &&
+                         !thd->killed;
     mysql_mutex_unlock(&thd->LOCK_thd_data);
   }
   else
@@ -6290,6 +6293,7 @@ end_with_restore_list:
   goto finish;
 
 error:
+WSREP_ERROR_LABEL:
   res= TRUE;
 
 finish:
@@ -7850,7 +7854,9 @@ static void wsrep_mysql_parse(THD *thd, char *rawbuf, uint length,
                           "WAIT_FOR wsrep_retry_autocommit_continue";
                         DBUG_ASSERT(!debug_sync_set_action(thd, STRING_WITH_LEN(act)));
                       });
+      WSREP_DEBUG("Retry autocommit query: %s", thd->query());
     }
+
     mysql_parse(thd, rawbuf, length, parser_state, is_com_multi,
                 is_next_command);
 

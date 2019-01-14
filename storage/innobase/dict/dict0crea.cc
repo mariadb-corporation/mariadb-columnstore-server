@@ -24,8 +24,6 @@ Database object creation
 Created 1/8/1996 Heikki Tuuri
 *******************************************************/
 
-#include "ha_prototypes.h"
-
 #include "dict0crea.h"
 #include "btr0pcur.h"
 #include "btr0btr.h"
@@ -38,11 +36,10 @@ Created 1/8/1996 Heikki Tuuri
 #include "row0mysql.h"
 #include "pars0pars.h"
 #include "trx0roll.h"
+#include "trx0undo.h"
 #include "ut0vec.h"
 #include "dict0priv.h"
 #include "fts0priv.h"
-#include "fsp0space.h"
-#include "fsp0sysspace.h"
 #include "srv0start.h"
 
 /*****************************************************************//**
@@ -352,46 +349,14 @@ dict_build_table_def_step(
 	tab_node_t*	node)	/*!< in: table create node */
 {
 	dict_table_t*	table;
-	dtuple_t*	row;
-	dberr_t		err = DB_SUCCESS;
 
 	table = node->table;
+	ut_ad(!dict_table_is_temporary(table));
 
 	trx_t*	trx = thr_get_trx(thr);
 	dict_table_assign_new_id(table, trx);
 
-	err = dict_build_tablespace_for_table(table, node);
-
-	if (err != DB_SUCCESS) {
-		return(err);
-	}
-
-	row = dict_create_sys_tables_tuple(table, node->heap);
-
-	ins_node_set_new_row(node->tab_def, row);
-
-	return(err);
-}
-
-/** Builds a tablespace to contain a table, using file-per-table=1.
-@param[in,out]	table	Table to build in its own tablespace.
-@param[in]	node	Table create node
-@return DB_SUCCESS or error code */
-dberr_t
-dict_build_tablespace_for_table(
-	dict_table_t*	table,
-	tab_node_t*	node)
-{
-	dberr_t		err	= DB_SUCCESS;
-	mtr_t		mtr;
-	ulint		space = 0;
-	bool		needs_file_per_table;
-	char*		filepath;
-
 	ut_ad(mutex_own(&dict_sys->mutex));
-
-	needs_file_per_table
-		= DICT_TF2_FLAG_IS_SET(table, DICT_TF2_USE_FILE_PER_TABLE);
 
 	/* Always set this bit for all new created tables */
 	DICT_TF2_FLAG_SET(table, DICT_TF2_FTS_AUX_HEX_NAME);
@@ -399,14 +364,28 @@ dict_build_tablespace_for_table(
 			DICT_TF2_FLAG_UNSET(table,
 					    DICT_TF2_FTS_AUX_HEX_NAME););
 
-	if (needs_file_per_table) {
-		ut_ad(!dict_table_is_temporary(table));
+	if (DICT_TF2_FLAG_IS_SET(table, DICT_TF2_USE_FILE_PER_TABLE)) {
 		/* This table will need a new tablespace. */
 
 		ut_ad(dict_table_get_format(table) <= UNIV_FORMAT_MAX);
 		ut_ad(DICT_TF_GET_ZIP_SSIZE(table->flags) == 0
 		      || dict_table_get_format(table) >= UNIV_FORMAT_B);
-
+		ut_ad(trx->table_id);
+		mtr_t mtr;
+		trx_undo_t* undo = trx->rsegs.m_redo.insert_undo;
+		if (undo && !undo->table_id
+		    && trx_get_dict_operation(trx) == TRX_DICT_OP_TABLE) {
+			/* This must be a TRUNCATE operation where
+			the empty table is created after the old table
+			was renamed. Be sure to mark the transaction
+			associated with the new empty table, so that
+			we can remove it on recovery. */
+			mtr.start();
+			trx_undo_mark_as_dict(trx, undo, &mtr);
+			mtr.commit();
+			log_write_up_to(mtr.commit_lsn(), true);
+		}
+		ulint	space;
 		/* Get a new tablespace ID */
 		dict_hdr_get_new_id(NULL, NULL, &space, table, false);
 
@@ -416,13 +395,14 @@ dict_build_tablespace_for_table(
 		);
 
 		if (space == ULINT_UNDEFINED) {
-			return(DB_ERROR);
+			return DB_ERROR;
 		}
-		table->space = static_cast<unsigned int>(space);
+		table->space = unsigned(space);
 
 		/* Determine the tablespace flags. */
 		bool	has_data_dir = DICT_TF_HAS_DATA_DIR(table->flags);
 		ulint	fsp_flags = dict_tf_to_fsp_flags(table->flags);
+		char*	filepath;
 
 		if (has_data_dir) {
 			ut_ad(table->data_dir_path);
@@ -445,39 +425,32 @@ dict_build_tablespace_for_table(
 		- page 3 will contain the root of the clustered index of
 		the table we create here. */
 
-		err = fil_ibd_create(
+		dberr_t err = fil_ibd_create(
 			space, table->name.m_name, filepath, fsp_flags,
-			FIL_IBD_FILE_INITIAL_SIZE,
-			node ? node->mode : FIL_ENCRYPTION_DEFAULT,
-			node ? node->key_id : FIL_DEFAULT_ENCRYPTION_KEY);
+			FIL_IBD_FILE_INITIAL_SIZE, node->mode, node->key_id);
 
 		ut_free(filepath);
 
 		if (err != DB_SUCCESS) {
-
-			return(err);
+			return err;
 		}
 
-		mtr_start(&mtr);
+		mtr.start();
 		mtr.set_named_space(table->space);
 
 		fsp_header_init(table->space, FIL_IBD_FILE_INITIAL_SIZE, &mtr);
 
-		mtr_commit(&mtr);
+		mtr.commit();
 	} else {
 		ut_ad(dict_tf_get_rec_format(table->flags)
 		      != REC_FORMAT_COMPRESSED);
-		if (dict_table_is_temporary(table)) {
-			table->space = SRV_TMP_SPACE_ID;
-		} else {
-			ut_ad(table->space == srv_sys_space.space_id());
-		}
-
-		DBUG_EXECUTE_IF("ib_ddl_crash_during_tablespace_alloc",
-				DBUG_SUICIDE(););
+		ut_ad(table->space == srv_sys_space.space_id());
 	}
 
-	return(DB_SUCCESS);
+	ins_node_set_new_row(node->tab_def,
+			     dict_create_sys_tables_tuple(table, node->heap));
+
+	return DB_SUCCESS;
 }
 
 /***************************************************************//**
@@ -1674,19 +1647,29 @@ dict_create_or_check_foreign_constraint_tables(void)
 
 	row_mysql_lock_data_dictionary(trx);
 
+	DBUG_EXECUTE_IF(
+		"create_and_drop_garbage",
+		err = que_eval_sql(
+			NULL,
+			"PROCEDURE CREATE_GARBAGE_TABLE_PROC () IS\n"
+			"BEGIN\n"
+			"CREATE TABLE\n"
+			"\"test/#sql-ib-garbage\"(ID CHAR);\n"
+			"CREATE UNIQUE CLUSTERED INDEX PRIMARY"
+			" ON \"test/#sql-ib-garbage\"(ID);\n"
+			"END;\n", FALSE, trx);
+		ut_ad(err == DB_SUCCESS);
+		row_drop_table_for_mysql("test/#sql-ib-garbage", trx,
+					 SQLCOM_DROP_DB, true););
+
 	/* Check which incomplete table definition to drop. */
 
 	if (sys_foreign_err == DB_CORRUPTION) {
-		ib::warn() << "Dropping incompletely created"
-			" SYS_FOREIGN table.";
-		row_drop_table_for_mysql("SYS_FOREIGN", trx, TRUE, TRUE);
+		row_drop_table_after_create_fail("SYS_FOREIGN", trx);
 	}
 
 	if (sys_foreign_cols_err == DB_CORRUPTION) {
-		ib::warn() << "Dropping incompletely created"
-			" SYS_FOREIGN_COLS table.";
-
-		row_drop_table_for_mysql("SYS_FOREIGN_COLS", trx, TRUE, TRUE);
+		row_drop_table_after_create_fail("SYS_FOREIGN_COLS", trx);
 	}
 
 	ib::info() << "Creating foreign key constraint system tables.";
@@ -1738,8 +1721,8 @@ dict_create_or_check_foreign_constraint_tables(void)
 		ut_ad(err == DB_OUT_OF_FILE_SPACE
 		      || err == DB_TOO_MANY_CONCURRENT_TRXS);
 
-		row_drop_table_for_mysql("SYS_FOREIGN", trx, TRUE, TRUE);
-		row_drop_table_for_mysql("SYS_FOREIGN_COLS", trx, TRUE, TRUE);
+		row_drop_table_after_create_fail("SYS_FOREIGN", trx);
+		row_drop_table_after_create_fail("SYS_FOREIGN_COLS", trx);
 
 		if (err == DB_OUT_OF_FILE_SPACE) {
 			err = DB_MUST_GET_MORE_FILE_SPACE;
@@ -1807,9 +1790,7 @@ dict_create_or_check_sys_virtual()
 	/* Check which incomplete table definition to drop. */
 
 	if (err == DB_CORRUPTION) {
-		ib::warn() << "Dropping incompletely created"
-			" SYS_VIRTUAL table.";
-		row_drop_table_for_mysql("SYS_VIRTUAL", trx, false, TRUE);
+		row_drop_table_after_create_fail("SYS_VIRTUAL", trx);
 	}
 
 	ib::info() << "Creating sys_virtual system tables.";
@@ -1843,7 +1824,7 @@ dict_create_or_check_sys_virtual()
 		ut_ad(err == DB_OUT_OF_FILE_SPACE
 		      || err == DB_TOO_MANY_CONCURRENT_TRXS);
 
-		row_drop_table_for_mysql("SYS_VIRTUAL", trx, false, TRUE);
+		row_drop_table_after_create_fail("SYS_VIRTUAL", trx);
 
 		if (err == DB_OUT_OF_FILE_SPACE) {
 			err = DB_MUST_GET_MORE_FILE_SPACE;
@@ -2167,86 +2148,6 @@ dict_create_add_foreign_to_dictionary(
 	DBUG_RETURN(error);
 }
 
-/** Check whether a column is in an index by the column name
-@param[in]	col_name	column name for the column to be checked
-@param[in]	index		the index to be searched
-@return	true if this column is in the index, otherwise, false */
-static
-bool
-dict_index_has_col_by_name(
-/*=======================*/
-	const char*		col_name,
-	const dict_index_t*	index)
-{
-	for (ulint i = 0; i < index->n_fields; i++) {
-		dict_field_t*   field = dict_index_get_nth_field(index, i);
-
-		if (strcmp(field->name, col_name) == 0) {
-			return(true);
-		}
-	}
-	return(false);
-}
-
-/** Check whether the foreign constraint could be on a column that is
-part of a virtual index (index contains virtual column) in the table
-@param[in]	fk_col_name	FK column name to be checked
-@param[in]	table		the table
-@return	true if this column is indexed with other virtual columns */
-bool
-dict_foreign_has_col_in_v_index(
-	const char*		fk_col_name,
-	const dict_table_t*	table)
-{
-	/* virtual column can't be Primary Key, so start with secondary index */
-	for (dict_index_t* index = dict_table_get_next_index(
-		     dict_table_get_first_index(table));
-	     index;
-	     index = dict_table_get_next_index(index)) {
-
-		if (dict_index_has_virtual(index)) {
-			if (dict_index_has_col_by_name(fk_col_name, index)) {
-				return(true);
-			}
-		}
-	}
-
-	return(false);
-}
-
-
-/** Check whether the foreign constraint could be on a column that is
-a base column of some indexed virtual columns.
-@param[in]	col_name	column name for the column to be checked
-@param[in]	table		the table
-@return	true if this column is a base column, otherwise, false */
-bool
-dict_foreign_has_col_as_base_col(
-	const char*		col_name,
-	const dict_table_t*	table)
-{
-	/* Loop through each virtual column and check if its base column has
-	the same name as the column name being checked */
-	for (ulint i = 0; i < table->n_v_cols; i++) {
-		dict_v_col_t*	v_col = dict_table_get_nth_v_col(table, i);
-
-		/* Only check if the virtual column is indexed */
-		if (!v_col->m_col.ord_part) {
-			continue;
-		}
-
-		for (ulint j = 0; j < v_col->num_base; j++) {
-			if (strcmp(col_name, dict_table_get_col_name(
-					   table,
-					   v_col->base_col[j]->ind)) == 0) {
-				return(true);
-			}
-		}
-	}
-
-	return(false);
-}
-
 /** Check if a foreign constraint is on the given column name.
 @param[in]	col_name	column name to be searched for fk constraint
 @param[in]	table		table to which foreign key constraint belongs
@@ -2321,43 +2222,6 @@ dict_foreigns_has_s_base_col(
 	return(false);
 }
 
-/** Check if a column is in foreign constraint with CASCADE properties or
-SET NULL
-@param[in]	table		table
-@param[in]	fk_col_name	name for the column to be checked
-@return true if the column is in foreign constraint, otherwise, false */
-bool
-dict_foreigns_has_this_col(
-	const dict_table_t*	table,
-	const char*		col_name)
-{
-	dict_foreign_t*		foreign;
-	const dict_foreign_set*	local_fk_set = &table->foreign_set;
-
-	for (dict_foreign_set::const_iterator it = local_fk_set->begin();
-	     it != local_fk_set->end();
-	     ++it) {
-		foreign = *it;
-		ut_ad(foreign->id != NULL);
-		ulint	type = foreign->type;
-
-		type &= ~(DICT_FOREIGN_ON_DELETE_NO_ACTION
-			  | DICT_FOREIGN_ON_UPDATE_NO_ACTION);
-
-		if (type == 0) {
-			continue;
-		}
-
-		for (ulint i = 0; i < foreign->n_fields; i++) {
-			if (strcmp(foreign->foreign_col_names[i],
-				   col_name) == 0) {
-				return(true);
-			}
-		}
-	}
-	return(false);
-}
-
 /** Adds the given set of foreign key objects to the dictionary tables
 in the database. This function does not modify the dictionary cache. The
 caller must ensure that all foreign key objects contain a valid constraint
@@ -2403,15 +2267,6 @@ dict_create_add_foreigns_to_dictionary(
 			return(error);
 		}
 	}
-
-	trx->op_info = "committing foreign key definitions";
-
-	if (trx_is_started(trx)) {
-
-		trx_commit(trx);
-	}
-
-	trx->op_info = "";
 
 	return(DB_SUCCESS);
 }
@@ -2462,16 +2317,11 @@ dict_create_or_check_sys_tablespace(void)
 	/* Check which incomplete table definition to drop. */
 
 	if (sys_tablespaces_err == DB_CORRUPTION) {
-		ib::warn() << "Dropping incompletely created"
-			" SYS_TABLESPACES table.";
-		row_drop_table_for_mysql("SYS_TABLESPACES", trx, TRUE, TRUE);
+		row_drop_table_after_create_fail("SYS_TABLESPACES", trx);
 	}
 
 	if (sys_datafiles_err == DB_CORRUPTION) {
-		ib::warn() << "Dropping incompletely created"
-			" SYS_DATAFILES table.";
-
-		row_drop_table_for_mysql("SYS_DATAFILES", trx, TRUE, TRUE);
+		row_drop_table_after_create_fail("SYS_DATAFILES", trx);
 	}
 
 	ib::info() << "Creating tablespace and datafile system tables.";
@@ -2506,8 +2356,8 @@ dict_create_or_check_sys_tablespace(void)
 		     || err == DB_DUPLICATE_KEY
 		     || err == DB_TOO_MANY_CONCURRENT_TRXS);
 
-		row_drop_table_for_mysql("SYS_TABLESPACES", trx, TRUE, TRUE);
-		row_drop_table_for_mysql("SYS_DATAFILES", trx, TRUE, TRUE);
+		row_drop_table_after_create_fail("SYS_TABLESPACES", trx);
+		row_drop_table_after_create_fail("SYS_DATAFILES", trx);
 
 		if (err == DB_OUT_OF_FILE_SPACE) {
 			err = DB_MUST_GET_MORE_FILE_SPACE;

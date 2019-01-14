@@ -35,8 +35,8 @@ ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
 FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License along with
-this program; if not, write to the Free Software Foundation, Inc., 59 Temple
-Place, Suite 330, Boston, MA 02111-1307 USA
+this program; if not, write to the Free Software Foundation, Inc.,
+51 Franklin St, Fifth Floor, Boston, MA 02111-1301 USA
 
 *******************************************************/
 
@@ -124,7 +124,7 @@ struct datadir_thread_ctxt_t {
 	datadir_iter_t		*it;
 	uint			n_thread;
 	uint			*count;
-	pthread_mutex_t		count_mutex;
+	pthread_mutex_t*	count_mutex;
 	os_thread_id_t		id;
 	bool			ret;
 };
@@ -965,7 +965,7 @@ run_data_threads(datadir_iter_t *it, os_thread_func_t func, uint n)
 		data_threads[i].it = it;
 		data_threads[i].n_thread = i + 1;
 		data_threads[i].count = &count;
-		data_threads[i].count_mutex = count_mutex;
+		data_threads[i].count_mutex = &count_mutex;
 		os_thread_create(func, data_threads + i, &data_threads[i].id);
 	}
 
@@ -1351,7 +1351,8 @@ backup_files(const char *from, bool prep_mode)
 			if (rsync_tmpfile == NULL) {
 				msg("Error: can't open file %s\n",
 					rsync_tmpfile_name);
-				return(false);
+				ret = false;
+				goto out;
 			}
 
 			while (fgets(path, sizeof(path), rsync_tmpfile)) {
@@ -1388,6 +1389,30 @@ out:
 	return(ret);
 }
 
+void backup_fix_ddl(void);
+
+static lsn_t get_current_lsn(MYSQL *connection)
+{
+	static const char lsn_prefix[] = "\nLog sequence number ";
+	lsn_t lsn = 0;
+	if (MYSQL_RES *res = xb_mysql_query(connection,
+					    "SHOW ENGINE INNODB STATUS",
+					    true, false)) {
+		if (MYSQL_ROW row = mysql_fetch_row(res)) {
+			const char *p= strstr(row[2], lsn_prefix);
+			DBUG_ASSERT(p);
+			if (p) {
+				p += sizeof lsn_prefix - 1;
+				lsn = lsn_t(strtoll(p, NULL, 10));
+			}
+		}
+		mysql_free_result(res);
+	}
+	return lsn;
+}
+
+lsn_t server_lsn_after_lock;
+extern void backup_wait_for_lsn(lsn_t lsn);
 /** Start --backup */
 bool backup_start()
 {
@@ -1407,6 +1432,7 @@ bool backup_start()
 		if (!lock_tables(mysql_connection)) {
 			return(false);
 		}
+		server_lsn_after_lock = get_current_lsn(mysql_connection);
 	}
 
 	if (!backup_files(fil_path_to_mysql_datadir, false)) {
@@ -1420,6 +1446,10 @@ bool backup_start()
 	if (has_rocksdb_plugin()) {
 		rocksdb_create_checkpoint();
 	}
+
+	msg_ts("Waiting for log copy thread to read lsn %llu\n", (ulonglong)server_lsn_after_lock);
+	backup_wait_for_lsn(server_lsn_after_lock);
+	backup_fix_ddl();
 
 	// There is no need to stop slave thread before coping non-Innodb data when
 	// --no-lock option is used because --no-lock option requires that no DDL or
@@ -1459,7 +1489,7 @@ bool backup_start()
 		write_binlog_info(mysql_connection);
 	}
 
-	if (have_flush_engine_logs) {
+	if (have_flush_engine_logs && !opt_no_lock) {
 		msg_ts("Executing FLUSH NO_WRITE_TO_BINLOG ENGINE LOGS...\n");
 		xb_mysql_query(mysql_connection,
 			"FLUSH NO_WRITE_TO_BINLOG ENGINE LOGS", false);
@@ -2013,9 +2043,9 @@ cleanup:
 
 	datadir_node_free(&node);
 
-	pthread_mutex_lock(&ctxt->count_mutex);
+	pthread_mutex_lock(ctxt->count_mutex);
 	--(*ctxt->count);
-	pthread_mutex_unlock(&ctxt->count_mutex);
+	pthread_mutex_unlock(ctxt->count_mutex);
 
 	ctxt->ret = ret;
 
@@ -2230,6 +2260,7 @@ static void rocksdb_lock_checkpoint()
 		msg_ts("Could not obtain rocksdb checkpont lock\n");
 		exit(EXIT_FAILURE);
 	}
+	mysql_free_result(res);
 }
 
 static void rocksdb_unlock_checkpoint()

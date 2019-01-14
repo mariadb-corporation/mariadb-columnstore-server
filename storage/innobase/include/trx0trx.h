@@ -27,20 +27,16 @@ Created 3/26/1996 Heikki Tuuri
 #ifndef trx0trx_h
 #define trx0trx_h
 
-#include <set>
-
-#include "ha_prototypes.h"
-
-#include "dict0types.h"
 #include "trx0types.h"
-
 #include "lock0types.h"
-#include "log0log.h"
 #include "que0types.h"
 #include "mem0mem.h"
 #include "trx0xa.h"
 #include "ut0vec.h"
 #include "fts0fts.h"
+
+#include <vector>
+#include <set>
 
 // Forward declaration
 struct mtr_t;
@@ -519,19 +515,6 @@ trx_set_rw_mode(
 	trx_t*		trx);
 
 /**
-Increase the reference count. If the transaction is in state
-TRX_STATE_COMMITTED_IN_MEMORY then the transaction is considered
-committed and the reference count is not incremented.
-@param trx Transaction that is being referenced
-@param do_ref_count Increment the reference iff this is true
-@return transaction instance if it is not committed */
-UNIV_INLINE
-trx_t*
-trx_reference(
-	trx_t*		trx,
-	bool		do_ref_count);
-
-/**
 Release the transaction. Decrease the reference count.
 @param trx Transaction that is being released */
 UNIV_INLINE
@@ -600,7 +583,9 @@ Check transaction state */
 @param t transaction handle */
 #define	assert_trx_is_free(t)	do {					\
 	ut_ad(trx_state_eq((t), TRX_STATE_NOT_STARTED));		\
-	ut_ad(!trx->has_logged());					\
+	ut_ad(!(t)->id);						\
+	ut_ad(!(t)->has_logged());					\
+	ut_ad(!(t)->n_ref);						\
 	ut_ad(!MVCC::is_view_active((t)->read_view));			\
 	ut_ad((t)->lock.wait_thr == NULL);				\
 	ut_ad(UT_LIST_GET_LEN((t)->lock.trx_locks) == 0);		\
@@ -642,7 +627,7 @@ The tranasction must be in the mysql_trx_list. */
 # define assert_trx_nonlocking_or_in_list(trx) ((void)0)
 #endif /* UNIV_DEBUG */
 
-typedef std::vector<ib_lock_t*, ut_allocator<ib_lock_t*> >	lock_pool_t;
+typedef std::vector<ib_lock_t*, ut_allocator<ib_lock_t*> >	lock_list;
 
 /*******************************************************************//**
 Latching protocol for trx_lock_t::que_state.  trx_lock_t::que_state
@@ -704,13 +689,19 @@ struct trx_lock_t {
 					only be modified by the thread that is
 					serving the running transaction. */
 
-	lock_pool_t	rec_pool;	/*!< Pre-allocated record locks */
+	/** Pre-allocated record locks */
+	struct {
+		ib_lock_t lock; byte pad[256];
+	} rec_pool[8];
 
-	lock_pool_t	table_pool;	/*!< Pre-allocated table locks */
+	/** Pre-allocated table locks */
+	ib_lock_t	table_pool[8];
 
-	ulint		rec_cached;	/*!< Next free rec lock in pool */
+	/** Next available rec_pool[] entry */
+	unsigned	rec_cached;
 
-	ulint		table_cached;	/*!< Next free table lock in pool */
+	/** Next available table_pool[] entry */
+	unsigned	table_cached;
 
 	mem_heap_t*	lock_heap;	/*!< memory heap for trx_locks;
 					protected by lock_sys->mutex */
@@ -720,7 +711,7 @@ struct trx_lock_t {
 					and lock_sys->mutex; removals are
 					protected by lock_sys->mutex */
 
-	lock_pool_t	table_locks;	/*!< All table locks requested by this
+	lock_list	table_locks;	/*!< All table locks requested by this
 					transaction, including AUTOINC locks */
 
 	bool		cancel;		/*!< true if the transaction is being
@@ -1270,6 +1261,32 @@ struct commit_node_t{
 #define trx_mutex_exit(t) do {			\
 	mutex_exit(&t->mutex);			\
 } while (0)
+
+/**
+Increase the reference count. If the transaction is in state
+TRX_STATE_COMMITTED_IN_MEMORY then the transaction is considered
+committed and the reference count is not incremented.
+@param id the transaction ID; 0 if not to increment the reference count
+@param trx Transaction that is being referenced
+@return trx
+@retval	NULL	if the transaction is no longer active */
+inline trx_t* trx_reference(trx_id_t id, trx_t* trx)
+{
+	trx_mutex_enter(trx);
+
+	if (trx_state_eq(trx, TRX_STATE_COMMITTED_IN_MEMORY)) {
+		trx = NULL;
+	} else if (!id) {
+	} else if (trx->id != id) {
+		trx = NULL;
+	} else {
+		ut_ad(trx->n_ref >= 0);
+		++trx->n_ref;
+	}
+
+	trx_mutex_exit(trx);
+	return(trx);
+}
 
 #include "trx0trx.ic"
 

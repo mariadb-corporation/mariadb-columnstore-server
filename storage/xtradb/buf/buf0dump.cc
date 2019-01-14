@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2011, 2017, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2017, MariaDB Corporation. All Rights Reserved.
+Copyright (c) 2017, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -200,8 +200,9 @@ buf_dump(
 {
 #define SHOULD_QUIT()	(SHUTTING_DOWN() && obey_shutdown)
 
+	static const char format_name[]= "%s.incomplete";
 	char	full_filename[OS_FILE_MAX_PATH];
-	char	tmp_filename[OS_FILE_MAX_PATH + sizeof "incomplete"];
+	char	tmp_filename[OS_FILE_MAX_PATH + sizeof(format_name)];
 	char	now[32];
 	FILE*	f;
 	ulint	i;
@@ -212,7 +213,7 @@ buf_dump(
 		    srv_buf_dump_filename);
 
 	ut_snprintf(tmp_filename, sizeof(tmp_filename),
-		    "%s.incomplete", full_filename);
+		    format_name, full_filename);
 
 	buf_dump_status(STATUS_NOTICE, "Dumping buffer pool(s) to %s",
 			full_filename);
@@ -334,7 +335,7 @@ buf_dump(
 					i + 1, srv_buf_pool_instances,
 					j + 1, n_pages);
 			}
-			if ( (j % 1024) == 0) {
+			if (SHUTTING_DOWN() && !(j % 1024)) {
 				service_manager_extend_timeout(INNODB_EXTEND_TIMEOUT_INTERVAL,
 					"Dumping buffer pool "
 					ULINTPF "/" ULINTPF ", "

@@ -231,7 +231,7 @@ btr_rec_free_externally_stored_fields(
 btr_latch_leaves_t
 btr_cur_latch_leaves(
 	buf_block_t*		block,
-	const page_id_t&	page_id,
+	const page_id_t		page_id,
 	const page_size_t&	page_size,
 	ulint			latch_mode,
 	btr_cur_t*		cursor,
@@ -753,6 +753,37 @@ static ulint btr_node_ptr_max_size(const dict_index_t* index)
 
 		field_max_size = dict_col_get_max_size(col);
 		if (UNIV_UNLIKELY(!field_max_size)) {
+			switch (col->mtype) {
+			case DATA_VARCHAR:
+				if (!comp
+				    && (!strcmp(index->table->name.m_name,
+						"SYS_FOREIGN")
+					|| !strcmp(index->table->name.m_name,
+						   "SYS_FOREIGN_COLS"))) {
+					break;
+				}
+				/* fall through */
+			case DATA_VARMYSQL:
+			case DATA_CHAR:
+			case DATA_MYSQL:
+				/* CHAR(0) and VARCHAR(0) are possible
+				data type definitions in MariaDB.
+				The InnoDB internal SQL parser maps
+				CHAR to DATA_VARCHAR, so DATA_CHAR (or
+				DATA_MYSQL) is only coming from the
+				MariaDB SQL layer. */
+				if (comp) {
+					/* Add a length byte, because
+					fixed-length empty field are
+					encoded as variable-length.
+					For ROW_FORMAT=REDUNDANT,
+					these bytes were added to
+					rec_max_size before this loop. */
+					rec_max_size++;
+				}
+				continue;
+			}
+
 			/* SYS_FOREIGN.ID is defined as CHAR in the
 			InnoDB internal SQL parser, which translates
 			into the incorrect VARCHAR(0).  InnoDB does
@@ -769,6 +800,7 @@ static ulint btr_node_ptr_max_size(const dict_index_t* index)
 			      || !strcmp(index->table->name.m_name,
 					 "SYS_FOREIGN_COLS"));
 			ut_ad(!comp);
+			ut_ad(col->mtype == DATA_VARCHAR);
 
 			rec_max_size += (srv_page_size == UNIV_PAGE_SIZE_MAX)
 				? REDUNDANT_REC_MAX_DATA_SIZE
@@ -1684,7 +1716,7 @@ need_opposite_intention:
 
 			lock_intention = BTR_INTENTION_BOTH;
 
-			page_id.reset(space, dict_index_get_page(index));
+			page_id = page_id_t(space, dict_index_get_page(index));
 			up_match = 0;
 			low_match = 0;
 			height = ULINT_UNDEFINED;
@@ -1900,7 +1932,7 @@ need_opposite_intention:
 				ulint	idx = n_blocks
 					- (leftmost_from_level - 1);
 
-				page_id.reset(
+				page_id = page_id_t(
 					space,
 					tree_blocks[idx]->page.id.page_no());
 
@@ -1935,7 +1967,7 @@ need_opposite_intention:
 		}
 
 		/* Go to the child node */
-		page_id.reset(
+		page_id = page_id_t(
 			space,
 			btr_node_ptr_get_child_page_no(node_ptr, offsets));
 

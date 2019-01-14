@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1996, 2018, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
@@ -23,8 +23,6 @@ General row routines
 
 Created 4/20/1996 Heikki Tuuri
 *******************************************************/
-
-#include "ha_prototypes.h"
 
 #include "row0row.h"
 #include "data0type.h"
@@ -295,7 +293,7 @@ row_build_index_entry_low(
 		stored off-page. */
 		ut_ad(col->ord_part);
 
-		if (ext) {
+		if (ext && !col->is_virtual()) {
 			/* See if the column is stored externally. */
 			const byte*	buf = row_ext_lookup(ext, col_no,
 							     &len);

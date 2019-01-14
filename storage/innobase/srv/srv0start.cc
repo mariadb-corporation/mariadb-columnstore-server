@@ -41,8 +41,6 @@ Created 2/16/1996 Heikki Tuuri
 
 #include "my_global.h"
 
-#include "ha_prototypes.h"
-
 #include "mysqld.h"
 #include "mysql/psi/mysql_stage.h"
 #include "mysql/psi/psi.h"
@@ -76,7 +74,6 @@ Created 2/16/1996 Heikki Tuuri
 #include "srv0start.h"
 #include "srv0srv.h"
 #include "btr0defragment.h"
-#include "fsp0sysspace.h"
 #include "row0trunc.h"
 #include "mysql/service_wsrep.h" /* wsrep_recovery */
 #include "trx0rseg.h"
@@ -107,7 +104,6 @@ Created 2/16/1996 Heikki Tuuri
 #include "zlib.h"
 #include "ut0crc32.h"
 #include "btr0scrub.h"
-#include "ut0new.h"
 
 /** Log sequence number immediately after startup */
 lsn_t	srv_start_lsn;
@@ -474,23 +470,16 @@ create_log_files(
 
 	const ulint size = ulint(srv_log_file_size >> srv_page_size_shift);
 
-	logfile0 = fil_node_create(
-		logfilename, size, log_space, false, false);
+	logfile0 = log_space->add(logfilename, OS_FILE_CLOSED, size,
+				  false, false)->name;
 	ut_a(logfile0);
 
 	for (unsigned i = 1; i < srv_n_log_files; i++) {
 
 		sprintf(logfilename + dirnamelen, "ib_logfile%u", i);
 
-		if (!fil_node_create(logfilename, size,
-				     log_space, false, false)) {
-
-			ib::error()
-				<< "Cannot create file node for log file "
-				<< logfilename;
-
-			return(DB_ERROR);
-		}
+		log_space->add(logfilename, OS_FILE_CLOSED, size,
+			       false, false);
 	}
 
 	log_init(srv_n_log_files);
@@ -571,34 +560,6 @@ create_log_files_rename(
 }
 
 /*********************************************************************//**
-Opens a log file.
-@return DB_SUCCESS or error code */
-static MY_ATTRIBUTE((nonnull, warn_unused_result))
-dberr_t
-open_log_file(
-/*==========*/
-	pfs_os_file_t*	file,	/*!< out: file handle */
-	const char*	name,	/*!< in: log file name */
-	os_offset_t*	size)	/*!< out: file size */
-{
-	bool	ret;
-
-	*file = os_file_create(innodb_log_file_key, name,
-			       OS_FILE_OPEN, OS_FILE_AIO,
-			       OS_LOG_FILE, srv_read_only_mode, &ret);
-	if (!ret) {
-		ib::error() << "Unable to open '" << name << "'";
-		return(DB_ERROR);
-	}
-
-	*size = os_file_get_size(*file);
-
-	ret = os_file_close(*file);
-	ut_a(ret);
-	return(DB_SUCCESS);
-}
-
-/*********************************************************************//**
 Create undo tablespace.
 @return DB_SUCCESS or error code */
 static
@@ -666,83 +627,68 @@ srv_undo_tablespace_create(
 
 	return(err);
 }
-/*********************************************************************//**
-Open an undo tablespace.
-@return DB_SUCCESS or error code */
-static
-dberr_t
-srv_undo_tablespace_open(
-/*=====================*/
-	const char*	name,		/*!< in: tablespace file name */
-	ulint		space_id)	/*!< in: tablespace id */
+
+/** Open an undo tablespace.
+@param[in]	name		tablespace file name
+@param[in]	space_id	tablespace ID
+@param[in]	create_new_db	whether undo tablespaces are being created
+@return whether the tablespace was opened */
+static bool srv_undo_tablespace_open(const char* name, ulint space_id,
+				     bool create_new_db)
 {
 	pfs_os_file_t	fh;
-	bool		ret;
-	dberr_t		err	= DB_ERROR;
+	bool		success;
 	char		undo_name[sizeof "innodb_undo000"];
 
 	snprintf(undo_name, sizeof(undo_name),
 		 "innodb_undo%03u", static_cast<unsigned>(space_id));
 
-	if (!srv_file_check_mode(name)) {
-		ib::error() << "UNDO tablespaces must be " <<
-			(srv_read_only_mode ? "writable" : "readable") << "!";
-
-		return(DB_ERROR);
+	fh = os_file_create(
+		innodb_data_file_key, name, OS_FILE_OPEN
+		| OS_FILE_ON_ERROR_NO_EXIT | OS_FILE_ON_ERROR_SILENT,
+		OS_FILE_AIO, OS_DATA_FILE, srv_read_only_mode, &success);
+	if (!success) {
+		return false;
 	}
 
-	fh = os_file_create(
-		innodb_data_file_key, name,
-		OS_FILE_OPEN_RETRY
-		| OS_FILE_ON_ERROR_NO_EXIT
-		| OS_FILE_ON_ERROR_SILENT,
-		OS_FILE_NORMAL,
-		OS_DATA_FILE,
-		srv_read_only_mode,
-		&ret);
+	os_offset_t size = os_file_get_size(fh);
+	ut_a(size != os_offset_t(-1));
 
-	/* If the file open was successful then load the tablespace. */
+	/* Load the tablespace into InnoDB's internal data structures. */
 
-	if (ret) {
-		os_offset_t	size;
-		fil_space_t*	space;
+	/* We set the biggest space id to the undo tablespace
+	because InnoDB hasn't opened any other tablespace apart
+	from the system tablespace. */
 
-		size = os_file_get_size(fh);
-		ut_a(size != (os_offset_t) -1);
+	fil_set_max_space_id_if_bigger(space_id);
 
-		ret = os_file_close(fh);
-		ut_a(ret);
+	fil_space_t* space = fil_space_create(
+		undo_name, space_id, FSP_FLAGS_PAGE_SSIZE(),
+		FIL_TYPE_TABLESPACE, NULL);
 
-		/* Load the tablespace into InnoDB's internal
-		data structures. */
+	ut_a(fil_validate());
+	ut_a(space);
 
-		/* We set the biggest space id to the undo tablespace
-		because InnoDB hasn't opened any other tablespace apart
-		from the system tablespace. */
+	fil_node_t* file = space->add(name, fh, 0, false, true);
 
-		fil_set_max_space_id_if_bigger(space_id);
+	mutex_enter(&fil_system->mutex);
 
-		space = fil_space_create(
-			undo_name, space_id, FSP_FLAGS_PAGE_SSIZE(),
-			FIL_TYPE_TABLESPACE, NULL);
-
-		ut_a(fil_validate());
-		ut_a(space);
-
-		os_offset_t	n_pages = size / UNIV_PAGE_SIZE;
-
-		/* On 32-bit platforms, ulint is 32 bits and os_offset_t
-		is 64 bits. It is OK to cast the n_pages to ulint because
-		the unit has been scaled to pages and page number is always
-		32 bits. */
-		if (fil_node_create(
-			name, (ulint) n_pages, space, false, TRUE)) {
-
-			err = DB_SUCCESS;
+	if (create_new_db) {
+		space->size = file->size = ulint(size >> srv_page_size_shift);
+		space->size_in_header = SRV_UNDO_TABLESPACE_SIZE_IN_PAGES;
+	} else {
+		success = file->read_page0(true);
+		if (!success) {
+			os_file_close(file->handle);
+			file->handle = OS_FILE_CLOSED;
+			ut_a(fil_system->n_open > 0);
+			fil_system->n_open--;
 		}
 	}
 
-	return(err);
+	mutex_exit(&fil_system->mutex);
+
+	return success;
 }
 
 /** Check if undo tablespaces and redo log files exist before creating a
@@ -968,12 +914,11 @@ srv_undo_tablespaces_init(bool create_new_db)
 		ut_a(undo_tablespace_ids[i] != 0);
 		ut_a(undo_tablespace_ids[i] != ULINT_UNDEFINED);
 
-		err = srv_undo_tablespace_open(name, undo_tablespace_ids[i]);
-
-		if (err != DB_SUCCESS) {
+		if (!srv_undo_tablespace_open(name, undo_tablespace_ids[i],
+					      create_new_db)) {
 			ib::error() << "Unable to open undo tablespace '"
 				<< name << "'.";
-			return(err);
+			return DB_ERROR;
 		}
 
 		prev_space_id = undo_tablespace_ids[i];
@@ -998,9 +943,8 @@ srv_undo_tablespaces_init(bool create_new_db)
 			name, sizeof(name),
 			"%s%cundo%03zu", srv_undo_dir, OS_PATH_SEPARATOR, i);
 
-		err = srv_undo_tablespace_open(name, i);
-
-		if (err != DB_SUCCESS) {
+		if (!srv_undo_tablespace_open(name, i, create_new_db)) {
+			err = DB_ERROR;
 			break;
 		}
 
@@ -1107,8 +1051,7 @@ srv_undo_tablespaces_init(bool create_new_db)
 			buf_LRU_flush_or_remove_pages(*it, &dummy2);
 
 			/* Remove the truncate redo log file. */
-			undo::Truncate	undo_trunc;
-			undo_trunc.done_logging(*it);
+			undo::done(*it);
 		}
 	}
 
@@ -1394,6 +1337,19 @@ srv_prepare_to_delete_redo_log_files(
 	ulint	pending_io = 0;
 	ulint	count = 0;
 
+	if (srv_safe_truncate) {
+		if ((log_sys->log.format & ~LOG_HEADER_FORMAT_ENCRYPTED)
+		    != LOG_HEADER_FORMAT_10_3
+		    || log_sys->log.subformat != 1) {
+			srv_log_file_size = 0;
+		}
+	} else {
+		if ((log_sys->log.format & ~LOG_HEADER_FORMAT_ENCRYPTED)
+		    != LOG_HEADER_FORMAT_10_2) {
+			srv_log_file_size = 0;
+		}
+	}
+
 	do {
 		/* Clean the buffer pool. */
 		buf_flush_sync_all_buf_pools();
@@ -1412,7 +1368,7 @@ srv_prepare_to_delete_redo_log_files(
 			if (srv_log_file_size == 0) {
 				info << ((log_sys->log.format
 					  & ~LOG_HEADER_FORMAT_ENCRYPTED)
-					 != LOG_HEADER_FORMAT_10_3
+					 < LOG_HEADER_FORMAT_10_3
 					 ? "Upgrading redo log: "
 					 : "Downgrading redo log: ");
 			} else if (n_files != srv_n_log_files
@@ -1963,8 +1919,9 @@ innobase_start_or_create_for_mysql()
 			return(srv_init_abort(err));
 		}
 	} else {
+		srv_log_file_size = 0;
+
 		for (i = 0; i < SRV_N_LOG_FILES_MAX; i++) {
-			os_offset_t	size;
 			os_file_stat_t	stat_info;
 
 			sprintf(logfilename + dirnamelen,
@@ -1982,40 +1939,6 @@ innobase_start_or_create_for_mysql()
 					    == SRV_OPERATION_RESTORE_EXPORT) {
 						return(DB_SUCCESS);
 					}
-					if (flushed_lsn
-					    < static_cast<lsn_t>(1000)) {
-						ib::error()
-							<< "Cannot create"
-							" log files because"
-							" data files are"
-							" corrupt or the"
-							" database was not"
-							" shut down cleanly"
-							" after creating"
-							" the data files.";
-						return(srv_init_abort(
-							DB_ERROR));
-					}
-
-					err = create_log_files(
-						logfilename, dirnamelen,
-						flushed_lsn, logfile0);
-
-					if (err == DB_SUCCESS) {
-						err = create_log_files_rename(
-							logfilename,
-							dirnamelen,
-							flushed_lsn, logfile0);
-					}
-
-					if (err != DB_SUCCESS) {
-						return(srv_init_abort(err));
-					}
-
-					/* Suppress the message about
-					crash recovery. */
-					flushed_lsn = log_get_lsn();
-					goto files_checked;
 				}
 
 				/* opened all files */
@@ -2026,12 +1949,7 @@ innobase_start_or_create_for_mysql()
 				return(srv_init_abort(DB_ERROR));
 			}
 
-			err = open_log_file(&files[i], logfilename, &size);
-
-			if (err != DB_SUCCESS) {
-				return(srv_init_abort(err));
-			}
-
+			const os_offset_t size = stat_info.size;
 			ut_a(size != (os_offset_t) -1);
 
 			if (size & (OS_FILE_LOG_BLOCK_SIZE - 1)) {
@@ -2056,8 +1974,13 @@ innobase_start_or_create_for_mysql()
 				/* The first log file must consist of
 				at least the following 512-byte pages:
 				header, checkpoint page 1, empty,
-				checkpoint page 2, redo log page(s) */
-				if (size <= OS_FILE_LOG_BLOCK_SIZE * 4) {
+				checkpoint page 2, redo log page(s).
+
+				Mariabackup --prepare would create an
+				empty ib_logfile0. Tolerate it if there
+				are no other ib_logfile* files. */
+				if ((size != 0 || i != 0)
+				    && size <= OS_FILE_LOG_BLOCK_SIZE * 4) {
 					ib::error() << "Log file "
 						<< logfilename << " size "
 						<< size << " is too small";
@@ -2072,6 +1995,39 @@ innobase_start_or_create_for_mysql()
 					<< srv_log_file_size << " bytes!";
 				return(srv_init_abort(DB_ERROR));
 			}
+		}
+
+		if (srv_log_file_size == 0) {
+			if (flushed_lsn < lsn_t(1000)) {
+				ib::error()
+					<< "Cannot create log files because"
+					" data files are corrupt or the"
+					" database was not shut down cleanly"
+					" after creating the data files.";
+				return srv_init_abort(DB_ERROR);
+			}
+
+			strcpy(logfilename + dirnamelen, "ib_logfile0");
+			srv_log_file_size = srv_log_file_size_requested;
+
+			err = create_log_files(
+				logfilename, dirnamelen,
+				flushed_lsn, logfile0);
+
+			if (err == DB_SUCCESS) {
+				err = create_log_files_rename(
+					logfilename, dirnamelen,
+					flushed_lsn, logfile0);
+			}
+
+			if (err != DB_SUCCESS) {
+				return(srv_init_abort(err));
+			}
+
+			/* Suppress the message about
+			crash recovery. */
+			flushed_lsn = log_get_lsn();
+			goto files_checked;
 		}
 
 		srv_n_log_files_found = i;
@@ -2098,10 +2054,8 @@ innobase_start_or_create_for_mysql()
 		for (unsigned j = 0; j < srv_n_log_files_found; j++) {
 			sprintf(logfilename + dirnamelen, "ib_logfile%u", j);
 
-			if (!fil_node_create(logfilename, size,
-					     log_space, false, false)) {
-				return(srv_init_abort(DB_ERROR));
-			}
+			log_space->add(logfilename, OS_FILE_CLOSED, size,
+				       false, false);
 		}
 
 		log_init(srv_n_log_files_found);
@@ -2386,8 +2340,19 @@ files_checked:
 			/* Leave the redo log alone. */
 		} else if (srv_log_file_size_requested == srv_log_file_size
 			   && srv_n_log_files_found == srv_n_log_files
-			   && log_sys->is_encrypted() == srv_encrypt_log) {
-			/* No need to upgrade or resize the redo log. */
+			   && log_sys->log.format
+			   == (srv_safe_truncate
+			       ? (srv_encrypt_log
+				  ? LOG_HEADER_FORMAT_10_3
+				  | LOG_HEADER_FORMAT_ENCRYPTED
+				  : LOG_HEADER_FORMAT_10_3)
+			       : (srv_encrypt_log
+				  ? LOG_HEADER_FORMAT_10_2
+				  | LOG_HEADER_FORMAT_ENCRYPTED
+				  : LOG_HEADER_FORMAT_10_2))
+			   && log_sys->log.subformat == !!srv_safe_truncate) {
+			/* No need to add or remove encryption,
+			upgrade, downgrade, or resize. */
 		} else {
 			/* Prepare to delete the old redo log files */
 			flushed_lsn = srv_prepare_to_delete_redo_log_files(i);
@@ -2458,24 +2423,24 @@ files_checked:
 				page_id_t(IBUF_SPACE_ID,
 					  FSP_IBUF_HEADER_PAGE_NO),
 				univ_page_size, RW_X_LATCH, &mtr);
-			fil_block_check_type(block, FIL_PAGE_TYPE_SYS, &mtr);
+			fil_block_check_type(*block, FIL_PAGE_TYPE_SYS, &mtr);
 			/* Already MySQL 3.23.53 initialized
 			FSP_IBUF_TREE_ROOT_PAGE_NO to
 			FIL_PAGE_INDEX. No need to reset that one. */
 			block = buf_page_get(
 				page_id_t(TRX_SYS_SPACE, TRX_SYS_PAGE_NO),
 				univ_page_size, RW_X_LATCH, &mtr);
-			fil_block_check_type(block, FIL_PAGE_TYPE_TRX_SYS,
+			fil_block_check_type(*block, FIL_PAGE_TYPE_TRX_SYS,
 					     &mtr);
 			block = buf_page_get(
 				page_id_t(TRX_SYS_SPACE,
 					  FSP_FIRST_RSEG_PAGE_NO),
 				univ_page_size, RW_X_LATCH, &mtr);
-			fil_block_check_type(block, FIL_PAGE_TYPE_SYS, &mtr);
+			fil_block_check_type(*block, FIL_PAGE_TYPE_SYS, &mtr);
 			block = buf_page_get(
 				page_id_t(TRX_SYS_SPACE, FSP_DICT_HDR_PAGE_NO),
 				univ_page_size, RW_X_LATCH, &mtr);
-			fil_block_check_type(block, FIL_PAGE_TYPE_SYS, &mtr);
+			fil_block_check_type(*block, FIL_PAGE_TYPE_SYS, &mtr);
 			mtr.commit();
 		}
 

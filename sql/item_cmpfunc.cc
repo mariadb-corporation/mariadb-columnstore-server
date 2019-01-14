@@ -136,7 +136,10 @@ static int cmp_row_type(Item* item1, Item* item2)
     0  otherwise
 */
 
-static int agg_cmp_type(Item_result *type, Item **items, uint nitems)
+static int agg_cmp_type(Item_result *type,
+                        Item **items,
+                        uint nitems,
+                        bool int_uint_as_dec)
 {
   uint unsigned_count= items[0]->unsigned_flag;
   type[0]= items[0]->cmp_type();
@@ -158,7 +161,9 @@ static int agg_cmp_type(Item_result *type, Item **items, uint nitems)
     If all arguments are of INT type but have different unsigned_flag values,
     switch to DECIMAL_RESULT.
   */
-  if (type[0] == INT_RESULT && unsigned_count != nitems && unsigned_count != 0)
+  if (int_uint_as_dec &&
+      type[0] == INT_RESULT &&
+      unsigned_count != nitems && unsigned_count != 0)
     type[0]= DECIMAL_RESULT;
   return 0;
 }
@@ -2120,7 +2125,7 @@ bool Item_func_between::fix_length_and_dec()
   */
   if (!args[0] || !args[1] || !args[2])
     return TRUE;
-  if (agg_cmp_type(&m_compare_type, args, 3))
+  if (agg_cmp_type(&m_compare_type, args, 3, false))
     return TRUE;
 
   if (m_compare_type == STRING_RESULT &&
@@ -2154,6 +2159,97 @@ bool Item_func_between::fix_length_and_dec()
 }
 
 
+longlong Item_func_between::val_int_cmp_string()
+{
+  String *value,*a,*b;
+  value=args[0]->val_str(&value0);
+  if ((null_value=args[0]->null_value))
+    return 0;
+  a= args[1]->val_str(&value1);
+  b= args[2]->val_str(&value2);
+  if (!args[1]->null_value && !args[2]->null_value)
+    return (longlong) ((sortcmp(value,a,cmp_collation.collation) >= 0 &&
+                        sortcmp(value,b,cmp_collation.collation) <= 0) !=
+                       negated);
+  if (args[1]->null_value && args[2]->null_value)
+    null_value= true;
+  else if (args[1]->null_value)
+  {
+    // Set to not null if false range.
+    null_value= sortcmp(value,b,cmp_collation.collation) <= 0;
+  }
+  else
+  {
+    // Set to not null if false range.
+    null_value= sortcmp(value,a,cmp_collation.collation) >= 0;
+  }
+  return (longlong) (!null_value && negated);
+}
+
+
+longlong Item_func_between::val_int_cmp_int()
+{
+  Longlong_hybrid value= args[0]->to_longlong_hybrid();
+  if ((null_value= args[0]->null_value))
+    return 0;					/* purecov: inspected */
+  Longlong_hybrid a= args[1]->to_longlong_hybrid();
+  Longlong_hybrid b= args[2]->to_longlong_hybrid();
+  if (!args[1]->null_value && !args[2]->null_value)
+    return (longlong) ((value.cmp(a) >= 0 && value.cmp(b) <= 0) != negated);
+  if (args[1]->null_value && args[2]->null_value)
+    null_value= true;
+  else if (args[1]->null_value)
+    null_value= value.cmp(b) <= 0;              // not null if false range.
+  else
+    null_value= value.cmp(a) >= 0;
+  return (longlong) (!null_value && negated);
+}
+
+
+longlong Item_func_between::val_int_cmp_decimal()
+{
+  my_decimal dec_buf, *dec= args[0]->val_decimal(&dec_buf),
+             a_buf, *a_dec, b_buf, *b_dec;
+  if ((null_value=args[0]->null_value))
+    return 0;					/* purecov: inspected */
+  a_dec= args[1]->val_decimal(&a_buf);
+  b_dec= args[2]->val_decimal(&b_buf);
+  if (!args[1]->null_value && !args[2]->null_value)
+    return (longlong) ((my_decimal_cmp(dec, a_dec) >= 0 &&
+                        my_decimal_cmp(dec, b_dec) <= 0) != negated);
+  if (args[1]->null_value && args[2]->null_value)
+    null_value= true;
+  else if (args[1]->null_value)
+    null_value= (my_decimal_cmp(dec, b_dec) <= 0);
+  else
+    null_value= (my_decimal_cmp(dec, a_dec) >= 0);
+  return (longlong) (!null_value && negated);
+}
+
+
+longlong Item_func_between::val_int_cmp_real()
+{
+  double value= args[0]->val_real(),a,b;
+  if ((null_value=args[0]->null_value))
+    return 0;					/* purecov: inspected */
+  a= args[1]->val_real();
+  b= args[2]->val_real();
+  if (!args[1]->null_value && !args[2]->null_value)
+    return (longlong) ((value >= a && value <= b) != negated);
+  if (args[1]->null_value && args[2]->null_value)
+    null_value= true;
+  else if (args[1]->null_value)
+  {
+    null_value= value <= b;			// not null if false range.
+  }
+  else
+  {
+    null_value= value >= a;
+  }
+  return (longlong) (!null_value && negated);
+}
+
+
 longlong Item_func_between::val_int()
 {
   DBUG_ASSERT(fixed == 1);
@@ -2182,94 +2278,14 @@ longlong Item_func_between::val_int()
       null_value= value >= a;
     break;
   }
-
   case STRING_RESULT:
-  {
-    String *value,*a,*b;
-    value=args[0]->val_str(&value0);
-    if ((null_value=args[0]->null_value))
-      return 0;
-    a=args[1]->val_str(&value1);
-    b=args[2]->val_str(&value2);
-    if (!args[1]->null_value && !args[2]->null_value)
-      return (longlong) ((sortcmp(value,a,cmp_collation.collation) >= 0 &&
-                          sortcmp(value,b,cmp_collation.collation) <= 0) !=
-                         negated);
-    if (args[1]->null_value && args[2]->null_value)
-      null_value=1;
-    else if (args[1]->null_value)
-    {
-      // Set to not null if false range.
-      null_value= sortcmp(value,b,cmp_collation.collation) <= 0;
-    }
-    else
-    {
-      // Set to not null if false range.
-      null_value= sortcmp(value,a,cmp_collation.collation) >= 0;
-    }
-    break;
-  }
+    return val_int_cmp_string();
   case INT_RESULT:
-  {
-    longlong value=args[0]->val_int(), a, b;
-    if ((null_value=args[0]->null_value))
-      return 0;					/* purecov: inspected */
-    a=args[1]->val_int();
-    b=args[2]->val_int();
-    if (!args[1]->null_value && !args[2]->null_value)
-      return (longlong) ((value >= a && value <= b) != negated);
-    if (args[1]->null_value && args[2]->null_value)
-      null_value=1;
-    else if (args[1]->null_value)
-    {
-      null_value= value <= b;			// not null if false range.
-    }
-    else
-    {
-      null_value= value >= a;
-    }
-    break;
-  }
+    return val_int_cmp_int();
   case DECIMAL_RESULT:
-  {
-    my_decimal dec_buf, *dec= args[0]->val_decimal(&dec_buf),
-               a_buf, *a_dec, b_buf, *b_dec;
-    if ((null_value=args[0]->null_value))
-      return 0;					/* purecov: inspected */
-    a_dec= args[1]->val_decimal(&a_buf);
-    b_dec= args[2]->val_decimal(&b_buf);
-    if (!args[1]->null_value && !args[2]->null_value)
-      return (longlong) ((my_decimal_cmp(dec, a_dec) >= 0 &&
-                          my_decimal_cmp(dec, b_dec) <= 0) != negated);
-    if (args[1]->null_value && args[2]->null_value)
-      null_value=1;
-    else if (args[1]->null_value)
-      null_value= (my_decimal_cmp(dec, b_dec) <= 0);
-    else
-      null_value= (my_decimal_cmp(dec, a_dec) >= 0);
-    break;
-  }
+    return val_int_cmp_decimal();
   case REAL_RESULT:
-  {
-    double value= args[0]->val_real(),a,b;
-    if ((null_value=args[0]->null_value))
-      return 0;					/* purecov: inspected */
-    a= args[1]->val_real();
-    b= args[2]->val_real();
-    if (!args[1]->null_value && !args[2]->null_value)
-      return (longlong) ((value >= a && value <= b) != negated);
-    if (args[1]->null_value && args[2]->null_value)
-      null_value=1;
-    else if (args[1]->null_value)
-    {
-      null_value= value <= b;			// not null if false range.
-    }
-    else
-    {
-      null_value= value >= a;
-    }
-    break;
-  }
+    return val_int_cmp_real();
   case ROW_RESULT:
     DBUG_ASSERT(0);
     null_value= 1;
@@ -4310,11 +4326,20 @@ bool Item_func_in::fix_length_and_dec()
       if (field_item->field_type() ==  MYSQL_TYPE_LONGLONG ||
           field_item->field_type() ==  MYSQL_TYPE_YEAR)
       {
-        bool all_converted= TRUE;
+        bool all_converted= true;
         for (arg=args+1, arg_end=args+arg_count; arg != arg_end ; arg++)
         {
-           if (!convert_const_to_int(thd, field_item, &arg[0]))
-            all_converted= FALSE;
+          /*
+            Explicit NULLs should not affect data cmp_type resolution:
+            - we ignore NULLs when calling collect_cmp_type()
+            - we ignore NULLs here
+            So this expression:
+              year_column IN (DATE'2001-01-01', NULL)
+            switches from TIME_RESULT to INT_RESULT.
+          */
+          if (arg[0]->type() != Item::NULL_ITEM &&
+              !convert_const_to_int(thd, field_item, &arg[0]))
+           all_converted= false;
         }
         if (all_converted)
           m_compare_type= INT_RESULT;
@@ -4436,9 +4461,8 @@ Item *Item_func_in::build_clone(THD *thd, MEM_ROOT *mem_root)
   Item_func_in *clone= (Item_func_in *) Item_func::build_clone(thd, mem_root);
   if (clone)
   {
-    if (array && clone->create_array(thd))
-        return NULL;
     bzero(&clone->cmp_items, sizeof(cmp_items));
+    clone->fix_length_and_dec();
   }
   return clone;
 }
@@ -4970,6 +4994,19 @@ Item *Item_cond::build_clone(THD *thd, MEM_ROOT *mem_root)
 }
 
 
+bool Item_cond::excl_dep_on_grouping_fields(st_select_lex *sel)
+{
+  List_iterator_fast<Item> li(list);
+  Item *item;
+  while ((item= li++))
+  {
+    if (!item->excl_dep_on_grouping_fields(sel))
+      return false;
+  }
+  return true;
+}
+
+
 void Item_cond_and::mark_as_condition_AND_part(TABLE_LIST *embedding)
 {
   List_iterator<Item> li(list);
@@ -5106,7 +5143,11 @@ longlong Item_func_isnull::val_int()
 
 void Item_func_isnull::print(String *str, enum_query_type query_type)
 {
-  args[0]->print_parenthesised(str, query_type, precedence());
+  if (const_item() && !args[0]->maybe_null &&
+      !(query_type & (QT_NO_DATA_EXPANSION | QT_VIEW_INTERNAL)))
+    str->append("/*always not null*/ 1");
+  else
+    args[0]->print_parenthesised(str, query_type, precedence());
   str->append(STRING_WITH_LEN(" is null"));
 }
 

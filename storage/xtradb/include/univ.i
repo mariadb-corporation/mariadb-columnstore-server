@@ -45,10 +45,10 @@ Created 1/20/1994 Heikki Tuuri
 
 #define INNODB_VERSION_MAJOR	5
 #define INNODB_VERSION_MINOR	6
-#define INNODB_VERSION_BUGFIX	39
+#define INNODB_VERSION_BUGFIX	41
 
 #ifndef PERCONA_INNODB_VERSION
-#define PERCONA_INNODB_VERSION 83.1
+#define PERCONA_INNODB_VERSION 84.1
 #endif
 
 /* Enable UNIV_LOG_ARCHIVE in XtraDB */
@@ -140,7 +140,6 @@ Sun Studio */
 #endif /* #if (defined(WIN32) || ... */
 
 #ifndef __WIN__
-#define __STDC_FORMAT_MACROS    /* Enable C99 printf format macros */
 #include <inttypes.h>
 #endif /* !__WIN__ */
 
@@ -472,6 +471,7 @@ macro ULINTPF. */
 # define INT64PF	"%lld"
 # define UINT64PF	"%llu"
 # define UINT64PFx	"%016llx"
+# define TIMETPF	"%ld"
 typedef __int64 ib_int64_t;
 typedef unsigned __int64 ib_uint64_t;
 typedef unsigned __int32 ib_uint32_t;
@@ -481,6 +481,7 @@ typedef unsigned __int32 ib_uint32_t;
 # define INT64PF	"%" PRId64
 # define UINT64PF	"%" PRIu64
 # define UINT64PFx	"%016" PRIx64
+# define TIMETPF	"%" PRIdFAST32
 typedef int64_t ib_int64_t;
 typedef uint64_t ib_uint64_t;
 typedef uint32_t ib_uint32_t;

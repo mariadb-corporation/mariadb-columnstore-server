@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2011, 2017, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2017, MariaDB Corporation.
+Copyright (c) 2017, 2018, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -29,8 +29,6 @@ Created April 08, 2011 Vasil Dimov
 
 #include "mysql/psi/mysql_stage.h"
 #include "mysql/psi/psi.h"
-
-#include "univ.i"
 
 #include "buf0buf.h"
 #include "buf0dump.h"
@@ -391,7 +389,7 @@ buf_dump(
 				/* leave tmp_filename to exist */
 				return;
 			}
-			if ( (j % 1024) == 0) {
+			if (SHUTTING_DOWN() && !(j % 1024)) {
 				service_manager_extend_timeout(INNODB_EXTEND_TIMEOUT_INTERVAL,
 					"Dumping buffer pool "
 					ULINTPF "/" ULINTPF ", "

@@ -26,9 +26,7 @@ Created 6/2/1994 Heikki Tuuri
 *******************************************************/
 
 #include "btr0btr.h"
-#include "ha_prototypes.h"
 
-#include "fsp0sysspace.h"
 #include "page0page.h"
 #include "page0zip.h"
 #include "gis0rtree.h"
@@ -43,7 +41,6 @@ Created 6/2/1994 Heikki Tuuri
 #include "trx0trx.h"
 #include "srv0mon.h"
 #include "gis0geo.h"
-#include "ut0new.h"
 #include "dict0boot.h"
 #include "row0sel.h" /* row_search_max_autoinc() */
 
@@ -1149,7 +1146,7 @@ btr_free_root_invalidate(
 static MY_ATTRIBUTE((warn_unused_result))
 buf_block_t*
 btr_free_root_check(
-	const page_id_t&	page_id,
+	const page_id_t		page_id,
 	const page_size_t&	page_size,
 	index_id_t		index_id,
 	mtr_t*			mtr)
@@ -1421,7 +1418,7 @@ top_loop:
 @param[in,out]	mtr		mini-transaction */
 void
 btr_free_if_exists(
-	const page_id_t&	page_id,
+	const page_id_t		page_id,
 	const page_size_t&	page_size,
 	index_id_t		index_id,
 	mtr_t*			mtr)
@@ -1445,7 +1442,7 @@ btr_free_if_exists(
 @param[in]	page_size	page size */
 void
 btr_free(
-	const page_id_t&	page_id,
+	const page_id_t		page_id,
 	const page_size_t&	page_size)
 {
 	mtr_t		mtr;

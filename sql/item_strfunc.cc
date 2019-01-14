@@ -603,7 +603,7 @@ String *Item_func_concat::val_str(String *str)
     goto null;
 
   if (res != str)
-    str->copy(res->ptr(), res->length(), res->charset());
+    str->copy_or_move(res->ptr(), res->length(), res->charset());
 
   for (uint i= 1 ; i < arg_count ; i++)
   {
@@ -5128,7 +5128,7 @@ bool Item_dyncol_get::get_date(MYSQL_TIME *ltime, ulonglong fuzzy_date)
       bool neg = llval < 0;
       if (int_to_datetime_with_warn(neg, (ulonglong)(neg ? -llval :
                                                 llval),
-                                    ltime, fuzzy_date, 0 /* TODO */))
+                                    ltime, fuzzy_date, 0, 0 /* TODO */))
         goto null;
       return 0;
     }
@@ -5137,12 +5137,12 @@ bool Item_dyncol_get::get_date(MYSQL_TIME *ltime, ulonglong fuzzy_date)
     /* fall through */
   case DYN_COL_DOUBLE:
     if (double_to_datetime_with_warn(val.x.double_value, ltime, fuzzy_date,
-                                     0 /* TODO */))
+                                     0, 0 /* TODO */))
       goto null;
     return 0;
   case DYN_COL_DECIMAL:
     if (decimal_to_datetime_with_warn((my_decimal*)&val.x.decimal.value, ltime,
-                                      fuzzy_date, 0 /* TODO */))
+                                      fuzzy_date, 0, 0 /* TODO */))
       goto null;
     return 0;
   case DYN_COL_STRING:
