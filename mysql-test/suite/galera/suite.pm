@@ -79,6 +79,8 @@ push @::global_suppressions,
      qr|WSREP: .*core_handle_uuid_msg.*|,
      qr(WSREP: --wsrep-causal-reads=ON takes precedence over --wsrep-sync-wait=0. WSREP_SYNC_WAIT_BEFORE_READ is on),
      qr|WSREP: JOIN message from member .* in non-primary configuration. Ignored.|,
+     qr(WSREP: Failed to remove page file .*),
+     qr(WSREP: wsrep_sst_method is set to 'mysqldump' yet mysqld bind_address is set to .*),
    );
 
 $ENV{PATH}="$epath:$ENV{PATH}";
@@ -94,6 +96,8 @@ if (which(socat)) {
 
 sub skip_combinations {
   my %skip = ();
+  $skip{'include/have_filekeymanagement.inc'} = 'needs file_key_management plugin'
+             unless $ENV{FILE_KEY_MANAGEMENT_SO};
   $skip{'include/have_xtrabackup.inc'} = 'Need innobackupex'
              unless which(innobackupex);
   $skip{'include/have_xtrabackup.inc'} = 'Need socat or nc'

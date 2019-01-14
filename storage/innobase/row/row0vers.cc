@@ -24,8 +24,6 @@ Row versions
 Created 2/6/1997 Heikki Tuuri
 *******************************************************/
 
-#include "ha_prototypes.h"
-
 #include "row0vers.h"
 #include "dict0dict.h"
 #include "dict0boot.h"
@@ -456,6 +454,7 @@ row_vers_build_clust_v_col(
 	byte*		record= 0;
 
 	ut_ad(dict_index_has_virtual(index));
+	ut_ad(index->table == clust_index->table);
 
 	if (vcol_info != NULL) {
 		vcol_info->set_used();

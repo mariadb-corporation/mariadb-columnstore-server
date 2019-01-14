@@ -46,14 +46,11 @@ Created 10/8/1995 Heikki Tuuri
 // #include "mysql/psi/mysql_stage.h"
 // #include "mysql/psi/psi.h"
 
-#include "ha_prototypes.h"
-
 #include "btr0sea.h"
 #include "buf0flu.h"
 #include "buf0lru.h"
 #include "dict0boot.h"
 #include "dict0load.h"
-#include "fsp0sysspace.h"
 #include "ibuf0ibuf.h"
 #include "lock0lock.h"
 #include "log0recv.h"
@@ -152,6 +149,9 @@ my_bool	srv_read_only_mode;
 /** store to its own file each table created by an user; data
 dictionary tables are in the system tablespace 0 */
 my_bool	srv_file_per_table;
+/** whether to use backup-safe TRUNCATE and crash-safe RENAME
+instead of the MySQL 5.7 WL#6501 TRUNCATE TABLE implementation */
+my_bool	srv_safe_truncate;
 /** The file format to use on new *.ibd files. */
 ulint	srv_file_format;
 /** Whether to check file format during startup.  A value of
@@ -1626,7 +1626,7 @@ srv_export_innodb_status(void)
 	export_vars.innodb_system_rows_deleted =
 		srv_stats.n_system_rows_deleted;
 
-	export_vars.innodb_num_open_files = fil_n_file_opened;
+	export_vars.innodb_num_open_files = fil_system->n_open;
 
 	export_vars.innodb_truncated_status_writes =
 		srv_truncated_status_writes;
@@ -1654,32 +1654,6 @@ srv_export_innodb_status(void)
 	export_vars.innodb_onlineddl_rowlog_rows = onlineddl_rowlog_rows;
 	export_vars.innodb_onlineddl_rowlog_pct_used = onlineddl_rowlog_pct_used;
 	export_vars.innodb_onlineddl_pct_progress = onlineddl_pct_progress;
-
-#ifdef UNIV_DEBUG
-	rw_lock_s_lock(&purge_sys->latch);
-	trx_id_t	up_limit_id	= purge_sys->view.up_limit_id();;
-	trx_id_t	done_trx_no	= purge_sys->done.trx_no;
-	rw_lock_s_unlock(&purge_sys->latch);
-
-	mutex_enter(&trx_sys->mutex);
-	trx_id_t	max_trx_id	= trx_sys->rw_max_trx_id;
-	mutex_exit(&trx_sys->mutex);
-
-	if (!done_trx_no || max_trx_id < done_trx_no - 1) {
-		export_vars.innodb_purge_trx_id_age = 0;
-	} else {
-		export_vars.innodb_purge_trx_id_age =
-			(ulint) (max_trx_id - done_trx_no + 1);
-	}
-
-	if (!up_limit_id
-	    || max_trx_id < up_limit_id) {
-		export_vars.innodb_purge_view_trx_id_age = 0;
-	} else {
-		export_vars.innodb_purge_view_trx_id_age =
-			(ulint) (max_trx_id - up_limit_id);
-	}
-#endif /* UNIV_DEBUG */
 
 	export_vars.innodb_sec_rec_cluster_reads =
 		srv_stats.n_sec_rec_cluster_reads;
@@ -2512,9 +2486,17 @@ srv_purge_should_exit(ulint n_purged)
 	}
 	/* Slow shutdown was requested. */
 	if (n_purged) {
-		service_manager_extend_timeout(
-			INNODB_EXTEND_TIMEOUT_INTERVAL,
-			"InnoDB " ULINTPF " pages purged", n_purged);
+#if defined HAVE_SYSTEMD && !defined EMBEDDED_LIBRARY
+		static ib_time_t progress_time;
+		ib_time_t time = ut_time();
+		if (time - progress_time >= 15) {
+			progress_time = time;
+			service_manager_extend_timeout(
+				INNODB_EXTEND_TIMEOUT_INTERVAL,
+				"InnoDB: to purge " ULINTPF " transactions",
+				trx_sys->rseg_history_len);
+		}
+#endif
 		/* The previous round still did some work. */
 		return(false);
 	}

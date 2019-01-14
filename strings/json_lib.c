@@ -774,7 +774,7 @@ static json_state_handler json_actions[NR_JSON_STATES][NR_C_CLASSES]=
     syntax_error,   syntax_error, syntax_error, syntax_error, syntax_error,
     syntax_error,   syntax_error, syntax_error, not_json_chr, bad_chr},
   {/*OBJ_CONT*/
-    unexpected_eos, syntax_error, end_object,    syntax_error,   end_array,
+    unexpected_eos, syntax_error, end_object,    syntax_error,   syntax_error,
     syntax_error,   next_key,     syntax_error,  syntax_error,   syntax_error,
     syntax_error,    syntax_error,    syntax_error,    not_json_chr, bad_chr},
   {/*ARRAY_CONT*/
@@ -1192,6 +1192,27 @@ int json_skip_to_level(json_engine_t *j, int level)
     if (j->stack_p < level)
       return 0;
   } while (json_scan_next(j) == 0);
+
+  return 1;
+}
+
+
+/*
+  works as json_skip_level() but also counts items on the current
+  level skipped.
+*/
+int json_skip_level_and_count(json_engine_t *j, int *n_items_skipped)
+{
+  int level= j->stack_p;
+
+  *n_items_skipped= 0;
+  while (json_scan_next(j) == 0)
+  {
+    if (j->stack_p < level)
+      return 0;
+    if (j->stack_p == level && j->state == JST_VALUE)
+      (*n_items_skipped)++;
+  }
 
   return 1;
 }

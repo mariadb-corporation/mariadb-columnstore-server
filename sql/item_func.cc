@@ -954,7 +954,7 @@ longlong Item_func_hybrid_field_type::val_int()
   case INT_RESULT:
     return int_op();
   case REAL_RESULT:
-    return (longlong) rint(real_op());
+    return Converter_double_to_longlong(real_op(), unsigned_flag).result();
   case TIME_RESULT:
   {
     MYSQL_TIME ltime;
@@ -1032,6 +1032,7 @@ bool Item_func_hybrid_field_type::get_date(MYSQL_TIME *ltime,
     my_decimal value, *res;
     if (!(res= decimal_op_with_null_check(&value)) ||
         decimal_to_datetime_with_warn(res, ltime, fuzzydate,
+                                      field_table_or_null(),
                                       field_name_or_null()))
       goto err;
     break;
@@ -1042,6 +1043,7 @@ bool Item_func_hybrid_field_type::get_date(MYSQL_TIME *ltime,
     bool neg= !unsigned_flag && value < 0;
     if (null_value || int_to_datetime_with_warn(neg, neg ? -value : value,
                                                 ltime, fuzzydate,
+                                                field_table_or_null(),
                                                 field_name_or_null()))
       goto err;
     break;
@@ -1050,6 +1052,7 @@ bool Item_func_hybrid_field_type::get_date(MYSQL_TIME *ltime,
   {
     double value= real_op();
     if (null_value || double_to_datetime_with_warn(value, ltime, fuzzydate,
+                                                   field_table_or_null(),
                                                    field_name_or_null()))
       goto err;
     break;
@@ -3493,6 +3496,8 @@ udf_handler::fix_fields(THD *thd, Item_func_or_sum *func,
       if (item->maybe_null)
 	func->maybe_null=1;
       func->with_sum_func= func->with_sum_func || item->with_sum_func;
+      func->with_window_func= func->with_window_func ||
+                              item->with_window_func;
       func->with_field= func->with_field || item->with_field;
       func->with_param= func->with_param || item->with_param;
       func->with_subselect|= item->with_subselect;

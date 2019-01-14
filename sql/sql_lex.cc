@@ -671,6 +671,7 @@ void lex_start(THD *thd)
   lex->curr_with_clause= 0;
   lex->with_clauses_list= 0;
   lex->with_clauses_list_last_next= &lex->with_clauses_list;
+  lex->clone_spec_offset= 0;
   lex->value_list.empty();
   lex->update_list.empty();
   lex->set_var_list.empty();
@@ -2943,7 +2944,7 @@ LEX::LEX()
                       INITIAL_LEX_PLUGIN_LIST_SIZE, 0);
   reset_query_tables_list(TRUE);
   mi.init();
-  init_dynamic_array2(&delete_gtid_domain, sizeof(ulong*),
+  init_dynamic_array2(&delete_gtid_domain, sizeof(uint32),
                       gtid_domain_static_buffer,
                       initial_gtid_domain_buffer_size,
                       initial_gtid_domain_buffer_size, 0);

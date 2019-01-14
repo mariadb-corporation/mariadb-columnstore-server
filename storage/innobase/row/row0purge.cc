@@ -375,6 +375,13 @@ retry_purge_sec:
 
 	ut_ad(mtr.has_committed());
 
+	/* If the virtual column info is not used then reset the virtual column
+	info. */
+	if (node->vcol_info.is_requested()
+	    && !node->vcol_info.is_used()) {
+		node->vcol_info.reset();
+	}
+
 	if (store_cur && !row_purge_restore_vsec_cur(
 		    node, index, sec_pcur, sec_mtr, is_tree)) {
 		return false;
@@ -1000,9 +1007,7 @@ try_again:
 	ut_ad(!dict_table_is_temporary(node->table));
 
 	if (!fil_table_accessible(node->table)) {
-		dict_table_close(node->table, FALSE, FALSE);
-		node->table = NULL;
-		goto err_exit;
+		goto close_exit;
 	}
 
 	if (node->table->n_v_cols && !node->table->vc_templ
@@ -1019,8 +1024,10 @@ try_again:
 			goto try_again;
 		}
 
-		/* Initialize the template for the table */
-		innobase_init_vc_templ(node->table);
+		node->vcol_info.set_requested();
+		node->vcol_info.set_used();
+		node->vcol_info.set_table(innobase_init_vc_templ(node->table));
+		node->vcol_info.set_used();
 	}
 
 	clust_index = dict_table_get_first_index(node->table);
@@ -1031,6 +1038,7 @@ try_again:
 		we do not have an index to call it with. */
 close_exit:
 		dict_table_close(node->table, FALSE, FALSE);
+		node->table = NULL;
 err_exit:
 		rw_lock_s_unlock(dict_operation_lock);
 		return(false);

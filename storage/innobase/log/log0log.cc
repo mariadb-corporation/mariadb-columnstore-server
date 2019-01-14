@@ -31,7 +31,7 @@ Database log
 Created 12/9/1995 Heikki Tuuri
 *******************************************************/
 
-#include "ha_prototypes.h"
+#include "univ.i"
 #include <debug_sync.h>
 #include <my_service_manager.h>
 
@@ -790,9 +790,16 @@ log_init(ulint n_files)
 	log_group_t*	group = &log_sys->log;
 
 	group->n_files = n_files;
-	group->format = srv_encrypt_log
-		? LOG_HEADER_FORMAT_CURRENT | LOG_HEADER_FORMAT_ENCRYPTED
-		: LOG_HEADER_FORMAT_CURRENT;
+	group->subformat = srv_safe_truncate;
+	if (srv_safe_truncate) {
+		group->format = srv_encrypt_log
+			? LOG_HEADER_FORMAT_10_3 | LOG_HEADER_FORMAT_ENCRYPTED
+			: LOG_HEADER_FORMAT_10_3;
+	} else {
+		group->format = srv_encrypt_log
+			? LOG_HEADER_FORMAT_10_2 | LOG_HEADER_FORMAT_ENCRYPTED
+			: LOG_HEADER_FORMAT_10_2;
+	}
 	group->file_size = srv_log_file_size;
 	group->state = LOG_GROUP_OK;
 	group->lsn = LOG_START_LSN;
@@ -874,12 +881,15 @@ log_group_file_header_flush(
 	ut_ad(!recv_no_log_write);
 	ut_a(nth_file < group->n_files);
 	ut_ad((group->format & ~LOG_HEADER_FORMAT_ENCRYPTED)
-	      == LOG_HEADER_FORMAT_CURRENT);
+	      == (srv_safe_truncate
+		  ? LOG_HEADER_FORMAT_10_3
+		  : LOG_HEADER_FORMAT_10_2));
 
 	buf = *(group->file_header_bufs + nth_file);
 
 	memset(buf, 0, OS_FILE_LOG_BLOCK_SIZE);
 	mach_write_to_4(buf + LOG_HEADER_FORMAT, group->format);
+	mach_write_to_4(buf + LOG_HEADER_SUBFORMAT, srv_safe_truncate);
 	mach_write_to_8(buf + LOG_HEADER_START_LSN, start_lsn);
 	strcpy(reinterpret_cast<char*>(buf) + LOG_HEADER_CREATOR,
 	       LOG_HEADER_CREATOR_CURRENT);
@@ -1137,12 +1147,6 @@ log_write_up_to(
 		return;
 	}
 
-	if (srv_shutdown_state != SRV_SHUTDOWN_NONE) {
-		service_manager_extend_timeout(INNODB_EXTEND_TIMEOUT_INTERVAL,
-					       "log write up to: " LSN_PF,
-					       lsn);
-	}
-
 loop:
 	ut_ad(++loop_count < 128);
 
@@ -1271,6 +1275,13 @@ loop:
 				log_sys->buf_size - area_end);
 			::memset(write_buf + area_end, 0, pad_size);
 		}
+	}
+
+	if (UNIV_UNLIKELY(srv_shutdown_state != SRV_SHUTDOWN_NONE)) {
+		service_manager_extend_timeout(INNODB_EXTEND_TIMEOUT_INTERVAL,
+					       "InnoDB log write: "
+					       LSN_PF "," LSN_PF,
+					       log_sys->write_lsn, lsn);
 	}
 
 	if (log_sys->is_encrypted()) {

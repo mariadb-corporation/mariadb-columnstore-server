@@ -23,37 +23,11 @@ this program; if not, write to the Free Software Foundation, Inc.,
 system clustered index when there is no primary key. */
 extern const char innobase_index_reserve_name[];
 
-/* Structure defines translation table between mysql index and InnoDB
-index structures */
-struct innodb_idx_translate_t {
-
-	ulint		index_count;	/*!< number of valid index entries
-					in the index_mapping array */
-
-	ulint		array_size;	/*!< array size of index_mapping */
-
-	dict_index_t**	index_mapping;	/*!< index pointer array directly
-					maps to index in InnoDB from MySQL
-					array index */
-};
-
-/** InnoDB table share */
-typedef struct st_innobase_share {
-	THR_LOCK	lock;
-	const char*	table_name;	/*!< InnoDB table name */
-	uint		use_count;	/*!< reference count,
-					incremented in get_share()
-					and decremented in
-					free_share() */
-	void*		table_name_hash;
-					/*!< hash table chain node */
-	innodb_idx_translate_t
-			idx_trans_tbl;	/*!< index translation table between
-					MySQL and InnoDB */
-} INNOBASE_SHARE;
-
 /** Prebuilt structures in an InnoDB table handle used within MySQL */
 struct row_prebuilt_t;
+
+/** InnoDB transaction */
+struct trx_t;
 
 /** Engine specific table options are defined using this struct */
 struct ha_table_option_struct
@@ -183,17 +157,8 @@ public:
 	int rnd_pos(uchar * buf, uchar *pos);
 
 	int ft_init();
-
-	void ft_end();
-
-	FT_INFO* ft_init_ext(uint flags, uint inx, String* key);
-
-	FT_INFO* ft_init_ext_with_hints(
-		uint			inx,
-		String*			key,
-		void*			hints);
-		//Ft_hints*		hints);
-
+	void ft_end() { rnd_end(); }
+	FT_INFO *ft_init_ext(uint flags, uint inx, String* key);
 	int ft_read(uchar* buf);
 
 	void position(const uchar *record);
@@ -225,6 +190,13 @@ public:
 
 	void update_create_info(HA_CREATE_INFO* create_info);
 
+	inline int create(
+		const char*		name,
+		TABLE*			form,
+		HA_CREATE_INFO*		create_info,
+		bool			file_per_table,
+		trx_t*			trx = NULL);
+
 	int create(
 		const char*		name,
 		TABLE*			form,
@@ -232,6 +204,8 @@ public:
 
 	const char* check_table_options(THD *thd, TABLE* table,
 		HA_CREATE_INFO*	create_info, const bool use_tablespace, const ulint file_format);
+
+	inline int delete_table(const char* name, enum_sql_command sqlcom);
 
 	int truncate();
 
@@ -433,9 +407,6 @@ public:
 	Item* idx_cond_push(uint keyno, Item* idx_cond);
 	/* @} */
 
-	/* An helper function for index_cond_func_innodb: */
-	bool is_thd_killed();
-
 protected:
 
 	/**
@@ -489,11 +460,6 @@ protected:
 	/** Thread handle of the user currently using the handler;
 	this is set in external_lock function */
 	THD*			m_user_thd;
-
-	THR_LOCK_DATA	lock;
-
-	/** information for MySQL table locking */
-	INNOBASE_SHARE*		m_share;
 
 	/** buffer used in updates */
 	uchar*			m_upd_buf;
@@ -631,17 +597,6 @@ trx_t*
 innobase_trx_allocate(
 	MYSQL_THD	thd);	/*!< in: user thread handle */
 
-/** Match index columns between MySQL and InnoDB.
-This function checks whether the index column information
-is consistent between KEY info from mysql and that from innodb index.
-@param[in]	key_info	Index info from mysql
-@param[in]	index_info	Index info from InnoDB
-@return true if all column types match. */
-bool
-innobase_match_index_columns(
-	const KEY*		key_info,
-	const dict_index_t*	index_info);
-
 /*********************************************************************//**
 This function checks each index name for a table against reserved
 system default primary index name 'GEN_CLUST_INDEX'. If a name
@@ -684,14 +639,9 @@ public:
 		TABLE*		form,
 		HA_CREATE_INFO*	create_info,
 		char*		table_name,
-		char*		remote_path)
-	:m_thd(thd),
-	m_form(form),
-	m_create_info(create_info),
-	m_table_name(table_name),
-	m_remote_path(remote_path),
-	m_innodb_file_per_table(srv_file_per_table)
-	{}
+		char*		remote_path,
+		bool		file_per_table,
+		trx_t*		trx = NULL);
 
 	/** Initialize the object. */
 	int initialize();
@@ -699,8 +649,9 @@ public:
 	/** Set m_tablespace_type. */
 	void set_tablespace_type(bool table_being_altered_is_file_per_table);
 
-	/** Create the internal innodb table. */
-	int create_table();
+	/** Create the internal innodb table.
+	@param create_fk	whether to add FOREIGN KEY constraints */
+	int create_table(bool create_fk = true);
 
 	/** Update the internal data dictionary. */
 	int create_table_update_dict();
@@ -729,7 +680,7 @@ public:
 	bool create_option_tablespace_is_valid();
 
 	/** Prepare to create a table. */
-	int prepare_create_table(const char*		name);
+	int prepare_create_table(const char* name, bool strict = true);
 
 	void allocate_trx();
 
@@ -759,6 +710,9 @@ public:
 	/** Return table name. */
 	const char* table_name() const
 	{ return(m_table_name); }
+
+	/** @return whether the table needs to be dropped on rollback */
+	bool drop_before_rollback() const { return m_drop_before_rollback; }
 
 	THD* thd() const
 	{ return(m_thd); }
@@ -796,11 +750,16 @@ private:
 	/** Information on table columns and indexes. */
 	const TABLE*	m_form;
 
+	/** Value of innodb_default_row_format */
+	const ulong	m_default_row_format;
+
 	/** Create options. */
 	HA_CREATE_INFO*	m_create_info;
 
 	/** Table name */
 	char*		m_table_name;
+	/** Whether the table needs to be dropped before rollback */
+	bool		m_drop_before_rollback;
 
 	/** Remote path (DATA DIRECTORY) or zero length-string */
 	char*		m_remote_path;

@@ -27,8 +27,6 @@ Created 3/26/1996 Heikki Tuuri
 #ifndef trx0sys_h
 #define trx0sys_h
 
-#include "univ.i"
-
 #include "buf0buf.h"
 #include "fil0fil.h"
 #include "trx0types.h"
@@ -57,10 +55,7 @@ extern trx_sys_t*	trx_sys;
 /** Checks if a page address is the trx sys header page.
 @param[in]	page_id	page id
 @return true if trx sys header page */
-UNIV_INLINE
-bool
-trx_sys_hdr_page(
-	const page_id_t&	page_id);
+inline bool trx_sys_hdr_page(const page_id_t page_id);
 
 /** Initialize the transaction system main-memory data structures. */
 void trx_sys_init_at_db_start();

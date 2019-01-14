@@ -625,6 +625,16 @@ struct TABLE_SHARE
   LEX_STRING normalized_path;		/* unpack_filename(path) */
   LEX_STRING connect_string;
 
+  const char* orig_table_name;          /* Original table name for this tmp table */
+  const char* error_table_name() const  /* Get table name for error messages */
+  {
+    return tmp_table ? (
+      orig_table_name ?
+        orig_table_name :
+        "(temporary)") :
+      table_name.str;
+  }
+
   /* 
      Set of keys in use, implemented as a Bitmap.
      Excludes keys disabled by ALTER TABLE ... DISABLE KEYS.
@@ -695,6 +705,9 @@ struct TABLE_SHARE
   uint column_bitmap_size;
   uchar frm_version;
 
+  enum enum_v_keys { NOT_INITIALIZED=0, NO_V_KEYS, V_KEYS };
+  enum_v_keys check_set_initialized;
+
   bool use_ext_keys;                    /* Extended keys can be used */
   bool null_field_first;
   bool system;                          /* Set if system table (one record) */
@@ -705,7 +718,6 @@ struct TABLE_SHARE
   bool table_creation_was_logged;
   bool non_determinstic_insert;
   bool vcols_need_refixing;
-  bool check_set_initialized;
   bool has_update_default_function;
   ulong table_map_id;                   /* for row-based replication */
 
@@ -1529,6 +1541,7 @@ typedef struct st_foreign_key_info
 } FOREIGN_KEY_INFO;
 
 LEX_CSTRING *fk_option_name(enum_fk_option opt);
+bool fk_modifies_child(enum_fk_option opt);
 
 #define MY_I_S_MAYBE_NULL 1U
 #define MY_I_S_UNSIGNED   2U
@@ -1777,17 +1790,24 @@ struct TABLE_LIST
                              const char *alias_arg,
                              enum thr_lock_type lock_type_arg)
   {
+    enum enum_mdl_type mdl_type;
+    if (lock_type_arg >= TL_WRITE_ALLOW_WRITE)
+      mdl_type= MDL_SHARED_WRITE;
+    else if (lock_type_arg == TL_READ_NO_INSERT)
+      mdl_type= MDL_SHARED_NO_WRITE;
+    else
+      mdl_type= MDL_SHARED_READ;
+
     bzero((char*) this, sizeof(*this));
+    DBUG_ASSERT(!db_name_arg || strlen(db_name_arg) == db_length_arg);
+    DBUG_ASSERT(!table_name_arg || strlen(table_name_arg) == table_name_length_arg);
     db= (char*) db_name_arg;
     db_length= db_length_arg;
     table_name= (char*) table_name_arg;
     table_name_length= table_name_length_arg;
     alias= (char*) (alias_arg ? alias_arg : table_name_arg);
     lock_type= lock_type_arg;
-    mdl_request.init(MDL_key::TABLE, db, table_name,
-                     (lock_type >= TL_WRITE_ALLOW_WRITE) ?
-                     MDL_SHARED_WRITE : MDL_SHARED_READ,
-                     MDL_TRANSACTION);
+    mdl_request.init(MDL_key::TABLE, db, table_name, mdl_type, MDL_TRANSACTION);
   }
 
   inline void init_one_table_for_prelocking(const char *db_name_arg,
@@ -1813,6 +1833,7 @@ struct TABLE_LIST
     prev_global= *last_ptr;
     *last_ptr= &next_global;
   }
+
 
   /*
     List of tables local to a subquery (used by SQL_I_List). Considers
@@ -2423,6 +2444,16 @@ struct TABLE_LIST
   void set_lock_type(THD* thd, enum thr_lock_type lock);
   void check_pushable_cond_for_table(Item *cond);
   Item *build_pushable_cond_for_table(THD *thd, Item *cond); 
+
+  void remove_join_columns()
+  {
+    if (join_columns)
+    {
+      join_columns->empty();
+      join_columns= NULL;
+      is_join_columns_complete= FALSE;
+    }
+  }
 
 private:
   bool prep_check_option(THD *thd, uint8 check_opt_type);

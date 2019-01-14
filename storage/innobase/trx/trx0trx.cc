@@ -24,8 +24,6 @@ The transaction
 Created 3/26/1996 Heikki Tuuri
 *******************************************************/
 
-#include "ha_prototypes.h"
-
 #include "trx0trx.h"
 
 #ifdef WITH_WSREP
@@ -42,7 +40,6 @@ Created 3/26/1996 Heikki Tuuri
 #include "read0read.h"
 #include "srv0mon.h"
 #include "srv0srv.h"
-#include "fsp0sysspace.h"
 #include "srv0start.h"
 #include "trx0purge.h"
 #include "trx0rec.h"
@@ -50,7 +47,6 @@ Created 3/26/1996 Heikki Tuuri
 #include "trx0rseg.h"
 #include "trx0undo.h"
 #include "trx0xa.h"
-#include "ut0new.h"
 #include "ut0pool.h"
 #include "ut0vec.h"
 
@@ -111,8 +107,6 @@ trx_init(
 /*=====*/
 	trx_t*	trx)
 {
-	trx->id = 0;
-
 	trx->no = TRX_ID_MAX;
 
 	trx->state = TRX_STATE_NOT_STARTED;
@@ -190,11 +184,7 @@ struct TrxFactory {
 		the constructors of the trx_t members. */
 		new(&trx->mod_tables) trx_mod_tables_t();
 
-		new(&trx->lock.rec_pool) lock_pool_t();
-
-		new(&trx->lock.table_pool) lock_pool_t();
-
-		new(&trx->lock.table_locks) lock_pool_t();
+		new(&trx->lock.table_locks) lock_list();
 
 		trx_init(trx);
 
@@ -216,8 +206,6 @@ struct TrxFactory {
 
 		mutex_create(LATCH_ID_TRX, &trx->mutex);
 		mutex_create(LATCH_ID_TRX_UNDO, &trx->undo_mutex);
-
-		lock_trx_alloc_locks(trx);
 	}
 
 	/** Release resources held by the transaction object.
@@ -249,27 +237,7 @@ struct TrxFactory {
 
 		ut_ad(trx->read_view == NULL);
 
-		if (!trx->lock.rec_pool.empty()) {
-
-			/* See lock_trx_alloc_locks() why we only free
-			the first element. */
-
-			ut_free(trx->lock.rec_pool[0]);
-		}
-
-		if (!trx->lock.table_pool.empty()) {
-
-			/* See lock_trx_alloc_locks() why we only free
-			the first element. */
-
-			ut_free(trx->lock.table_pool[0]);
-		}
-
-		trx->lock.rec_pool.~lock_pool_t();
-
-		trx->lock.table_pool.~lock_pool_t();
-
-		trx->lock.table_locks.~lock_pool_t();
+		trx->lock.table_locks.~lock_list();
 	}
 
 	/** Enforce any invariants here, this is called before the transaction
@@ -407,7 +375,12 @@ trx_create_low()
 
 	/* Should have been either just initialized or .clear()ed by
 	trx_free(). */
-	ut_a(trx->mod_tables.size() == 0);
+	ut_ad(trx->mod_tables.empty());
+	ut_ad(trx->lock.table_locks.empty());
+	ut_ad(UT_LIST_GET_LEN(trx->lock.trx_locks) == 0);
+	ut_ad(trx->lock.n_rec_locks == 0);
+	ut_ad(trx->lock.table_cached == 0);
+	ut_ad(trx->lock.rec_cached == 0);
 
 #ifdef WITH_WSREP
 	trx->wsrep_event = NULL;
@@ -911,7 +884,9 @@ trx_resurrect_update(
 
 	if (undo->dict_operation) {
 		trx_set_dict_operation(trx, TRX_DICT_OP_TABLE);
-		trx->table_id = undo->table_id;
+		if (!trx->table_id) {
+			trx->table_id = undo->table_id;
+		}
 	}
 
 	if (!undo->empty && undo->top_undo_no >= trx->undo_no) {
@@ -1027,9 +1002,7 @@ trx_lists_init_at_db_start()
 evenly distributed between 0 and innodb_undo_logs-1
 @return	persistent rollback segment
 @retval	NULL	if innodb_read_only */
-static
-trx_rseg_t*
-trx_assign_rseg_low()
+static trx_rseg_t* trx_assign_rseg_low()
 {
 	if (srv_read_only_mode) {
 		ut_ad(srv_undo_logs == ULONG_UNDEFINED);
@@ -1080,8 +1053,8 @@ trx_assign_rseg_low()
 			ut_ad(rseg->is_persistent());
 
 			if (rseg->space != TRX_SYS_SPACE) {
-				ut_ad(srv_undo_tablespaces > 1);
-				if (rseg->skip_allocation) {
+				if (rseg->skip_allocation
+				    || !srv_undo_tablespaces) {
 					continue;
 				}
 			} else if (trx_rseg_t* next
@@ -1244,10 +1217,7 @@ trx_start_low(
 		ut_ad(trx_sys_validate_trx_list());
 
 		trx_sys_mutex_exit();
-
 	} else {
-		trx->id = 0;
-
 		if (!trx_is_autocommit_non_locking(trx)) {
 
 			/* If this is a read-only transaction that is writing
@@ -1689,7 +1659,10 @@ trx_commit_in_memory(
 			trx_erase_lists(trx, serialised);
 		}
 
+		/* trx->id will be cleared in lock_trx_release_locks(trx). */
+		ut_ad(trx->read_only || !trx->rsegs.m_redo.rseg || trx->id);
 		lock_trx_release_locks(trx);
+		ut_ad(trx->id == 0);
 
 		/* Remove the transaction from the list of active
 		transactions now that it no longer holds any user locks. */
@@ -1706,7 +1679,6 @@ trx_commit_in_memory(
 			}
 
 		} else {
-			ut_ad(trx->id > 0);
 			MONITOR_INC(MONITOR_TRX_RW_COMMIT);
 		}
 	}
@@ -1860,9 +1832,6 @@ trx_commit_low(
 	bool	serialised;
 
 	if (mtr != NULL) {
-
-		mtr->set_sync();
-
 		serialised = trx_write_serialisation_history(trx, mtr);
 
 		/* The following call commits the mini-transaction, making the
@@ -1927,7 +1896,7 @@ trx_commit(
 
 	if (trx->has_logged()) {
 		mtr = &local_mtr;
-		mtr_start_sync(mtr);
+		mtr->start();
 	} else {
 
 		mtr = NULL;
@@ -1977,6 +1946,7 @@ trx_cleanup_at_db_startup(
 	ut_ad(!trx->in_rw_trx_list);
 	ut_ad(!trx->in_mysql_trx_list);
 	DBUG_LOG("trx", "Cleanup at startup: " << trx);
+	trx->id = 0;
 	trx->state = TRX_STATE_NOT_STARTED;
 }
 
@@ -2587,7 +2557,7 @@ trx_prepare_low(trx_t* trx)
 
 	trx_rseg_t*	rseg = trx->rsegs.m_redo.rseg;
 
-	mtr.start(true);
+	mtr.start();
 
 	/* Change the undo log segment states from TRX_UNDO_ACTIVE to
 	TRX_UNDO_PREPARED: these modifications to the file data

@@ -1304,13 +1304,11 @@ cleanup:
 /** Drop possible adaptive hash index entries when a page is evicted
 from the buffer pool or freed in a file, or the index is being dropped.
 @param[in]	page_id		page id */
-void btr_search_drop_page_hash_when_freed(const page_id_t& page_id)
+void btr_search_drop_page_hash_when_freed(const page_id_t page_id)
 {
 	buf_block_t*	block;
 	mtr_t		mtr;
 	dberr_t		err = DB_SUCCESS;
-
-	ut_d(export_vars.innodb_ahi_drop_lookups++);
 
 	mtr_start(&mtr);
 

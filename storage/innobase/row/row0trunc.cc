@@ -26,13 +26,14 @@ Created 2013-04-12 Sunny Bains
 
 #include "row0mysql.h"
 #include "pars0pars.h"
+#include "btr0pcur.h"
 #include "dict0crea.h"
 #include "dict0boot.h"
+#include "dict0load.h"
 #include "dict0stats.h"
 #include "dict0stats_bg.h"
 #include "lock0lock.h"
 #include "fts0fts.h"
-#include "fsp0sysspace.h"
 #include "srv0start.h"
 #include "row0trunc.h"
 #include "os0file.h"
@@ -49,6 +50,8 @@ low-level operations ha_innobase::delete_table(), ha_innobase::create(). */
 bool	truncate_t::s_fix_up_active = false;
 truncate_t::tables_t		truncate_t::s_tables;
 truncate_t::truncated_tables_t	truncate_t::s_truncated_tables;
+
+static const byte magic[] = { 0x01, 0xf3, 0xa1, 0x20 };
 
 /**
 Iterator over the the raw records in an index, doesn't support MVCC. */
@@ -274,9 +277,8 @@ public:
 	{
 		/* Construct log file name. */
 		ulint	log_file_name_buf_sz =
-			strlen(srv_log_group_home_dir) + 22 + 22 + 1 /* NUL */
-			+ strlen(TruncateLogger::s_log_prefix)
-			+ strlen(TruncateLogger::s_log_ext);
+			strlen(srv_log_group_home_dir)
+			+ (22 + 22 + sizeof "ib_trunc.log");
 
 		m_log_file_name = UT_NEW_ARRAY_NOKEY(char, log_file_name_buf_sz);
 		if (m_log_file_name == NULL) {
@@ -296,11 +298,8 @@ public:
 
 		snprintf(m_log_file_name + log_file_name_len,
 			 log_file_name_buf_sz - log_file_name_len,
-			 "%s%lu_%lu_%s",
-			 TruncateLogger::s_log_prefix,
-			 (ulong) m_table->space,
-			 (ulong) m_table->id,
-			 TruncateLogger::s_log_ext);
+			 "ib_%u_" IB_ID_FMT "_trunc.log",
+			 m_table->space, m_table->id);
 
 		return(DB_SUCCESS);
 
@@ -488,19 +487,9 @@ public:
 			return;
 		}
 
-		byte	buffer[sizeof(TruncateLogger::s_magic)];
-		mach_write_to_4(buffer, TruncateLogger::s_magic);
-
-		dberr_t	err;
-
-		IORequest	request(IORequest::WRITE);
-
-		err = os_file_write(
-			request,
-			m_log_file_name, handle, buffer, 0, sizeof(buffer));
-
-		if (err != DB_SUCCESS) {
-
+		if (os_file_write(IORequest(IORequest::WRITE),
+				  m_log_file_name, handle, magic, 0,
+				  sizeof magic) != DB_SUCCESS) {
 			ib::error()
 				<< "IO: Failed to write the magic number to '"
 				<< m_log_file_name << "'";
@@ -516,11 +505,6 @@ public:
 				DBUG_SUICIDE(););
 		os_file_delete(innodb_log_file_key, m_log_file_name);
 	}
-
-private:
-	// Disably copying
-	TruncateLogger(const TruncateLogger&);
-	TruncateLogger& operator=(const TruncateLogger&);
 
 private:
 	/** Lookup the index using the index id.
@@ -552,22 +536,7 @@ private:
 
 	/** Truncate log file name. */
 	char*			m_log_file_name;
-
-
-public:
-	/** Magic Number to indicate truncate action is complete. */
-	const static ib_uint32_t	s_magic;
-
-	/** Truncate Log file Prefix. */
-	const static char*		s_log_prefix;
-
-	/** Truncate Log file Extension. */
-	const static char*		s_log_ext;
 };
-
-const ib_uint32_t	TruncateLogger::s_magic = 32743712;
-const char*		TruncateLogger::s_log_prefix = "ib_";
-const char*		TruncateLogger::s_log_ext = "trunc.log";
 
 /**
 Scan to find out truncate log file from the given directory path.
@@ -583,9 +552,7 @@ TruncateLogParser::scan(
 	os_file_dir_t	dir;
 	os_file_stat_t	fileinfo;
 	dberr_t		err = DB_SUCCESS;
-	ulint		ext_len = strlen(TruncateLogger::s_log_ext);
-	ulint		prefix_len = strlen(TruncateLogger::s_log_prefix);
-	ulint		dir_len = strlen(dir_path);
+	const ulint	dir_len = strlen(dir_path);
 
 	/* Scan and look out for the truncate log files. */
 	dir = os_file_opendir(dir_path, true);
@@ -599,12 +566,11 @@ TruncateLogParser::scan(
 		ulint nm_len = strlen(fileinfo.name);
 
 		if (fileinfo.type == OS_FILE_TYPE_FILE
-		    && nm_len > ext_len + prefix_len
-		    && (0 == strncmp(fileinfo.name + nm_len - ext_len,
-				     TruncateLogger::s_log_ext, ext_len))
-		    && (0 == strncmp(fileinfo.name,
-				     TruncateLogger::s_log_prefix,
-				     prefix_len))) {
+		    && nm_len > sizeof "ib_trunc.log"
+		    && (0 == strncmp(fileinfo.name + nm_len
+				     - ((sizeof "trunc.log") - 1),
+				     "trunc.log", (sizeof "trunc.log") - 1))
+		    && (0 == strncmp(fileinfo.name, "ib_", 3))) {
 
 			if (fileinfo.size == 0) {
 				/* Truncate log not written. Remove the file. */
@@ -614,7 +580,7 @@ TruncateLogParser::scan(
 			}
 
 			/* Construct file name by appending directory path */
-			ulint	sz = dir_len + 22 + 22 + 1 + ext_len + prefix_len;
+			ulint	sz = dir_len + 22 + 22 + sizeof "ib_trunc.log";
 			char*	log_file_name = UT_NEW_ARRAY_NOKEY(char, sz);
 			if (log_file_name == NULL) {
 				err = DB_OUT_OF_MEMORY;
@@ -687,8 +653,7 @@ TruncateLogParser::parse(
 			break;
 		}
 
-		ulint	magic_n = mach_read_from_4(log_buf);
-		if (magic_n == TruncateLogger::s_magic) {
+		if (!memcmp(log_buf, magic, sizeof magic)) {
 
 			/* Truncate action completed. Avoid parsing the file. */
 			os_file_close(handle);
@@ -1710,10 +1675,7 @@ Truncates a table for MySQL.
 @param table		table being truncated
 @param trx		transaction covering the truncate
 @return	error code or DB_SUCCESS */
-dberr_t
-row_truncate_table_for_mysql(
-	dict_table_t* table,
-	trx_t* trx)
+dberr_t row_truncate_table_for_mysql(dict_table_t* table, trx_t* trx)
 {
 	bool	is_file_per_table = dict_table_is_file_per_table(table);
 	dberr_t		err;
@@ -3056,4 +3018,3 @@ truncate_t::write(
 
 	return(DB_SUCCESS);
 }
-

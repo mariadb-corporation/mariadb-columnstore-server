@@ -255,7 +255,9 @@
   AIX includes inttypes.h from sys/types.h
   Explicitly request format macros before the first inclusion of inttypes.h
 */
-#define __STDC_FORMAT_MACROS  
+#if !defined(__STDC_FORMAT_MACROS)
+#define __STDC_FORMAT_MACROS
+#endif  // !defined(__STDC_FORMAT_MACROS)
 #endif
 
 
@@ -1082,7 +1084,7 @@ typedef ulong		myf;	/* Type of MyFlags in my_funcs */
 static inline char *dlerror(void)
 {
   static char win_errormsg[2048];
-  FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM,
+  FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM,
     0, GetLastError(), 0, win_errormsg, 2048, NULL);
   return win_errormsg;
 }

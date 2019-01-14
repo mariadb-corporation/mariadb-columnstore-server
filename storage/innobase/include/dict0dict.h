@@ -28,24 +28,10 @@ Created 1/8/1996 Heikki Tuuri
 #ifndef dict0dict_h
 #define dict0dict_h
 
-#include "univ.i"
 #include "data0data.h"
-#include "data0type.h"
 #include "dict0mem.h"
-#include "dict0types.h"
 #include "fsp0fsp.h"
-#include "fsp0sysspace.h"
-#include "hash0hash.h"
-#include "mem0mem.h"
-#include "rem0types.h"
-#include "row0types.h"
-#include "trx0types.h"
-#include "ut0byte.h"
-#include "ut0mem.h"
-#include "ut0new.h"
-#include "ut0rnd.h"
 #include <deque>
-#include "fsp0fsp.h"
 #include "dict0pagecompress.h"
 
 extern bool innodb_table_stats_not_found;
@@ -407,11 +393,15 @@ dict_table_rename_in_cache(
 /*=======================*/
 	dict_table_t*	table,		/*!< in/out: table */
 	const char*	new_name,	/*!< in: new name */
-	ibool		rename_also_foreigns)
+	bool		rename_also_foreigns,
 					/*!< in: in ALTER TABLE we want
 					to preserve the original table name
 					in constraints which reference it */
-	MY_ATTRIBUTE((nonnull, warn_unused_result));
+	bool		replace_new_file = false)
+					/*!< in: whether to replace the
+					file with the new name
+					(as part of rolling back TRUNCATE) */
+	MY_ATTRIBUTE((nonnull));
 
 /** Removes an index from the dictionary cache.
 @param[in,out]	table	table whose index to remove

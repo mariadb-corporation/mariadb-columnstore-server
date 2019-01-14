@@ -24,8 +24,6 @@ File space management
 Created 11/29/1995 Heikki Tuuri
 ***********************************************************************/
 
-#include "ha_prototypes.h"
-
 #include "fsp0fsp.h"
 #include "buf0buf.h"
 #include "fil0fil.h"
@@ -41,7 +39,6 @@ Created 11/29/1995 Heikki Tuuri
 #include "btr0sea.h"
 #include "dict0boot.h"
 #include "log0log.h"
-#include "fsp0sysspace.h"
 #include "dict0mem.h"
 #include "fsp0types.h"
 
@@ -1062,6 +1059,22 @@ fsp_get_pages_to_extend_ibd(
 	return(size_increase);
 }
 
+/** Reset the page type.
+Data files created before MySQL 5.1.48 may contain garbage in FIL_PAGE_TYPE.
+In MySQL 3.23.53, only undo log pages and index pages were tagged.
+Any other pages were written with uninitialized bytes in FIL_PAGE_TYPE.
+@param[in]	block	block with invalid FIL_PAGE_TYPE
+@param[in]	type	expected page type
+@param[in,out]	mtr	mini-transaction */
+ATTRIBUTE_COLD
+void fil_block_reset_type(const buf_block_t& block, ulint type, mtr_t* mtr)
+{
+	ib::info()
+		<< "Resetting invalid page " << block.page.id << " type "
+		<< fil_page_get_type(block.frame) << " to " << type << ".";
+	mlog_write_ulint(block.frame + FIL_PAGE_TYPE, type, MLOG_2BYTES, mtr);
+}
+
 /** Put new extents to the free list if there are free extents above the free
 limit. If an extent happens to contain an extent descriptor page, the extent
 is put to the FSP_FREE_FRAG list with the page marked as used.
@@ -1197,7 +1210,7 @@ fsp_fill_free_list(
 			header, space, i, mtr, init_space, &desc_block);
 		if (desc_block != NULL) {
 			fil_block_check_type(
-				desc_block, FIL_PAGE_TYPE_XDES, mtr);
+				*desc_block, FIL_PAGE_TYPE_XDES, mtr);
 		}
 		xdes_init(descr, mtr);
 
@@ -1256,7 +1269,7 @@ fsp_alloc_free_extent(
 		header, space, hint, mtr, false, &desc_block);
 
 	if (desc_block != NULL) {
-		fil_block_check_type(desc_block, FIL_PAGE_TYPE_XDES, mtr);
+		fil_block_check_type(*desc_block, FIL_PAGE_TYPE_XDES, mtr);
 	}
 
 	if (descr && (xdes_get_state(descr, mtr) == XDES_FREE)) {
@@ -1798,7 +1811,7 @@ fsp_alloc_seg_inode(
 
 	block = buf_page_get(page_id, page_size, RW_SX_LATCH, mtr);
 	buf_block_dbg_add_level(block, SYNC_FSP_PAGE);
-	fil_block_check_type(block, FIL_PAGE_INODE, mtr);
+	fil_block_check_type(*block, FIL_PAGE_INODE, mtr);
 
 	page = buf_block_get_frame(block);
 
@@ -2105,7 +2118,7 @@ fseg_create_general(
 			? FIL_PAGE_TYPE_TRX_SYS
 			: FIL_PAGE_TYPE_SYS;
 
-		fil_block_check_type(block, type, mtr);
+		fil_block_check_type(*block, type, mtr);
 	}
 
 	if (!has_done_reservation
@@ -2690,7 +2703,7 @@ fseg_alloc_free_page_general(
 	const page_size_t	page_size(space->flags);
 
 	inode = fseg_inode_get(seg_header, space_id, page_size, mtr, &iblock);
-	fil_block_check_type(iblock, FIL_PAGE_INODE, mtr);
+	fil_block_check_type(*iblock, FIL_PAGE_INODE, mtr);
 
 	if (!has_done_reservation
 	    && !fsp_reserve_free_extents(&n_reserved, space_id, 2,
@@ -3173,7 +3186,7 @@ fseg_free_page_func(
 
 	seg_inode = fseg_inode_get(seg_header, space_id, page_size, mtr,
 				   &iblock);
-	fil_block_check_type(iblock, FIL_PAGE_INODE, mtr);
+	fil_block_check_type(*iblock, FIL_PAGE_INODE, mtr);
 
 	fseg_free_page_low(seg_inode, space, page, page_size, ahi, mtr);
 
@@ -3353,7 +3366,7 @@ fseg_free_step_func(
 		DBUG_RETURN(TRUE);
 	}
 
-	fil_block_check_type(iblock, FIL_PAGE_INODE, mtr);
+	fil_block_check_type(*iblock, FIL_PAGE_INODE, mtr);
 	descr = fseg_get_first_extent(inode, space, page_size, mtr);
 
 	if (descr != NULL) {
@@ -3421,7 +3434,7 @@ fseg_free_step_not_header_func(
 	buf_block_t*		iblock;
 
 	inode = fseg_inode_get(header, space_id, page_size, mtr, &iblock);
-	fil_block_check_type(iblock, FIL_PAGE_INODE, mtr);
+	fil_block_check_type(*iblock, FIL_PAGE_INODE, mtr);
 
 	descr = fseg_get_first_extent(inode, space, page_size, mtr);
 

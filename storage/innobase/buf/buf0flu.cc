@@ -25,9 +25,8 @@ The database buffer buf_pool flush algorithm
 Created 11/11/1995 Heikki Tuuri
 *******************************************************/
 
-#include "ha_prototypes.h"
+#include "univ.i"
 #include <mysql/service_thd_wait.h>
-#include <my_dbug.h>
 #include <sql_class.h>
 
 #include "buf0flu.h"
@@ -47,7 +46,6 @@ Created 11/11/1995 Heikki Tuuri
 #include "os0file.h"
 #include "trx0sys.h"
 #include "srv0mon.h"
-#include "fsp0sysspace.h"
 #include "ut0stage.h"
 #include "fil0pagecompress.h"
 #ifdef UNIV_LINUX
@@ -1296,7 +1294,7 @@ buf_flush_page_try(
 static
 bool
 buf_flush_check_neighbor(
-	const page_id_t&	page_id,
+	const page_id_t		page_id,
 	buf_flush_t		flush_type)
 {
 	buf_page_t*	bpage;
@@ -1346,7 +1344,7 @@ buf_flush_check_neighbor(
 static
 ulint
 buf_flush_try_neighbors(
-	const page_id_t&	page_id,
+	const page_id_t		page_id,
 	buf_flush_t		flush_type,
 	ulint			n_flushed,
 	ulint			n_to_flush)

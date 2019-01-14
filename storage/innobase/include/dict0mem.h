@@ -28,8 +28,6 @@ Created 1/8/1996 Heikki Tuuri
 #ifndef dict0mem_h
 #define dict0mem_h
 
-#include "univ.i"
-#include "dict0types.h"
 #include "data0type.h"
 #include "mem0mem.h"
 #include "row0types.h"
@@ -47,7 +45,6 @@ Created 1/8/1996 Heikki Tuuri
 #include "buf0buf.h"
 #include "gis0type.h"
 #include "os0once.h"
-#include "ut0new.h"
 #include "fil0fil.h"
 #include <my_crypt.h>
 #include "fil0crypt.h"
@@ -568,6 +565,29 @@ struct table_name_t
 {
 	/** The name in internal representation */
 	char*	m_name;
+
+	/** @return the end of the schema name */
+	const char* dbend() const
+	{
+		const char* sep = strchr(m_name, '/');
+		ut_ad(sep);
+		return sep;
+	}
+
+	/** @return the length of the schema name, in bytes */
+	size_t dblen() const { return dbend() - m_name; }
+
+	/** Determine the filename-safe encoded table name.
+	@return	the filename-safe encoded table name */
+	const char* basename() const { return dbend() + 1; }
+
+	/** The start of the table basename suffix for partitioned tables */
+	static const char part_suffix[4];
+
+	/** Determine the partition or subpartition name suffix.
+	@return the partition name
+	@retval	NULL	if the table is not partitioned */
+	const char* part() const { return strstr(basename(), part_suffix); }
 };
 
 /** Data structure for a column in a table */

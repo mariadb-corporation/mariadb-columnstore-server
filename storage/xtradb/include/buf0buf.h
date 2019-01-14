@@ -217,6 +217,7 @@ dberr_t
 buf_pool_init(
 /*=========*/
 	ulint	size,		/*!< in: Size of the total pool in bytes */
+	bool	populate,	/*!< in: Force virtual page preallocation */
 	ulint	n_instances);	/*!< in: Number of instances */
 /********************************************************************//**
 Frees the buffer pool at shutdown.  This must not be invoked before
@@ -691,13 +692,6 @@ buf_page_is_corrupted(
 	ulint			zip_size,
 	const fil_space_t* 	space)
 	MY_ATTRIBUTE((warn_unused_result));
-/** Check if a page is all zeroes.
-@param[in]	read_buf	database page
-@param[in]	zip_size	ROW_FORMAT=COMPRESSED page size, or 0
-@return	whether the page is all zeroes */
-UNIV_INTERN
-bool
-buf_page_is_zeroes(const byte* read_buf, ulint zip_size);
 #ifndef UNIV_HOTBACKUP
 /**********************************************************************//**
 Gets the space id, page offset, and byte offset within page of a
