@@ -3537,8 +3537,7 @@ not_encrypted:
 				}
 			} else {
 				if (!fil_space_verify_crypt_checksum(
-					    src, callback.get_zip_size(),
-					    NULL, block->page.offset)) {
+					    src, callback.get_zip_size())) {
 					goto page_corrupted;
 				}
 
@@ -4235,4 +4234,3 @@ row_import_for_mysql(
 
 	return(row_import_cleanup(prebuilt, trx, err));
 }
-

@@ -1620,7 +1620,7 @@ static my_bool CheckMemory(PGLOBAL g, UDF_INIT *initid, UDF_ARGS *args, uint n,
 				if (AllocSarea(g, ml)) {
 					char errmsg[MAX_STR];
 
-					snprintf(errmsg, sizeof(errmsg)-1, MSG(WORK_AREA), g->Message);
+					snprintf(errmsg, sizeof(errmsg) - 1, MSG(WORK_AREA), g->Message);
 					strcpy(g->Message, errmsg);
 					return true;
 					} // endif SareaAlloc
@@ -1673,7 +1673,7 @@ static PCSZ MakeKey(PGLOBAL g, UDF_ARGS *args, int i)
 				n = strlen(s);
 
 			if (IsJson(args, i))
-				j = strchr(s, '_') - s + 1;
+				j = (int)(strchr(s, '_') - s + 1);
 
 			if (j && n > j) {
 				s += j;
@@ -3055,7 +3055,7 @@ my_bool json_array_grp_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
 
   PGLOBAL g = (PGLOBAL)initid->ptr;
 
-  PlugSubSet(g, g->Sarea, g->Sarea_Size);
+  PlugSubSet(g->Sarea, g->Sarea_Size);
 	g->Activityp = (PACTIVITY)JsonNew(g, TYPE_JAR);
   g->N = (int)n;
   return false;
@@ -3098,7 +3098,7 @@ void json_array_grp_clear(UDF_INIT *initid, char*, char*)
 {
   PGLOBAL g = (PGLOBAL)initid->ptr;
 
-  PlugSubSet(g, g->Sarea, g->Sarea_Size);
+  PlugSubSet(g->Sarea, g->Sarea_Size);
 	g->Activityp = (PACTIVITY)JsonNew(g, TYPE_JAR);
 	g->N = GetJsonGroupSize();
 } // end of json_array_grp_clear
@@ -3132,7 +3132,7 @@ my_bool json_object_grp_init(UDF_INIT *initid, UDF_ARGS *args, char *message)
 
   PGLOBAL g = (PGLOBAL)initid->ptr;
 
-  PlugSubSet(g, g->Sarea, g->Sarea_Size);
+  PlugSubSet(g->Sarea, g->Sarea_Size);
   g->Activityp = (PACTIVITY)JsonNew(g, TYPE_JOB);
   g->N = (int)n;
   return false;
@@ -3169,7 +3169,7 @@ void json_object_grp_clear(UDF_INIT *initid, char*, char*)
 {
   PGLOBAL g = (PGLOBAL)initid->ptr;
 
-  PlugSubSet(g, g->Sarea, g->Sarea_Size);
+  PlugSubSet(g->Sarea, g->Sarea_Size);
 	g->Activityp = (PACTIVITY)JsonNew(g, TYPE_JOB);
 	g->N = GetJsonGroupSize();
 } // end of json_object_grp_clear
@@ -4418,7 +4418,7 @@ char *json_file(UDF_INIT *initid, UDF_ARGS *args, char *result,
 	} else if (initid->const_item)
 		g->N = 1;
 
-	PlugSubSet(g, g->Sarea, g->Sarea_Size);
+	PlugSubSet(g->Sarea, g->Sarea_Size);
 	fn = MakePSZ(g, args, 0);
 
 	if (args->arg_count > 1) {
@@ -4631,7 +4631,7 @@ char *jbin_array(UDF_INIT *initid, UDF_ARGS *args, char *result,
 			bsp = NULL;
 
 		if (!bsp && (bsp = JbinAlloc(g, args, initid->max_length, NULL)))
-			strncpy(bsp->Msg, g->Message, 139);
+			strncpy(bsp->Msg, g->Message, BMX);
 
 		// Keep result of constant function
 		g->Xchk = (initid->const_item) ? bsp : NULL;
@@ -5662,7 +5662,7 @@ char *jbin_file(UDF_INIT *initid, UDF_ARGS *args, char *result,
 	if (bsp && !bsp->Changed)
 		goto fin;
 
-	PlugSubSet(g, g->Sarea, g->Sarea_Size);
+	PlugSubSet(g->Sarea, g->Sarea_Size);
 	g->Xchk = NULL;
 	fn = MakePSZ(g, args, 0);
 	pretty = (args->arg_count > 2 && args->args[2]) ? (int)*(longlong*)args->args[2] : 3;

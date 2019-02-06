@@ -703,14 +703,6 @@ buf_page_is_corrupted(
 #endif
 	MY_ATTRIBUTE((warn_unused_result));
 
-/** Check if a page is all zeroes.
-@param[in]	read_buf	database page
-@param[in]	zip_size	ROW_FORMAT=COMPRESSED page size, or 0
-@return	whether the page is all zeroes */
-UNIV_INTERN
-bool
-buf_page_is_zeroes(const byte* read_buf, ulint zip_size);
-
 #ifndef UNIV_INNOCHECKSUM
 
 #ifndef UNIV_HOTBACKUP
@@ -1563,6 +1555,9 @@ struct buf_page_t{
 					by buf_pool->mutex. */
 	ib_uint32_t	offset;		/*!< page number; also protected
 					by buf_pool->mutex. */
+	buf_page_t*	hash;		/*!< node used in chaining to
+					buf_pool->page_hash or
+					buf_pool->zip_hash */
 	/** count of how manyfold this block is currently bufferfixed */
 #ifdef PAGE_ATOMIC_REF_COUNT
 	ib_uint32_t	buf_fix_count;
@@ -1625,10 +1620,7 @@ struct buf_page_t{
 	buf_tmp_buffer_t* slot;		/*!< Slot for temporary memory
 					used for encryption/compression
 					or NULL */
- #ifndef UNIV_HOTBACKUP
-	buf_page_t*	hash;		/*!< node used in chaining to
-					buf_pool->page_hash or
-					buf_pool->zip_hash */
+#ifndef UNIV_HOTBACKUP
 #ifdef UNIV_DEBUG
 	ibool		in_page_hash;	/*!< TRUE if in buf_pool->page_hash */
 	ibool		in_zip_hash;	/*!< TRUE if in buf_pool->zip_hash */

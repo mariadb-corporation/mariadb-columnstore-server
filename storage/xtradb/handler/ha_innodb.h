@@ -26,6 +26,10 @@ this program; if not, write to the Free Software Foundation, Inc.,
 
 #include "dict0stats.h"
 
+#ifdef WITH_WSREP
+#include "../../../wsrep/wsrep_api.h"
+#endif /* WITH_WSREP */
+
 /* Structure defines translation table between mysql index and innodb
 index structures */
 struct innodb_idx_translate_t {
@@ -115,7 +119,7 @@ class ha_innobase: public handler
 	dict_index_t* innobase_get_index(uint keynr);
 
 #ifdef WITH_WSREP
-	int wsrep_append_keys(THD *thd, bool shared,
+	int wsrep_append_keys(THD *thd, wsrep_key_type key_type,
 			      const uchar* record0, const uchar* record1);
 #endif
 	/* Init values for the class: */
@@ -177,7 +181,7 @@ class ha_innobase: public handler
 	int rnd_pos(uchar * buf, uchar *pos);
 
 	int ft_init();
-	void ft_end();
+	void ft_end() { rnd_end(); }
 	FT_INFO *ft_init_ext(uint flags, uint inx, String* key);
 	int ft_read(uchar* buf);
 
@@ -206,7 +210,7 @@ class ha_innobase: public handler
 			     char* remote_path);
 	const char* check_table_options(THD *thd, TABLE* table,
 		HA_CREATE_INFO*	create_info, const bool use_tablespace, const ulint file_format);
-	int create(const char *name, register TABLE *form,
+	int create(const char *name, TABLE *form,
 					HA_CREATE_INFO *create_info);
 	int truncate();
 	int delete_table(const char *name);
@@ -389,10 +393,6 @@ public:
 	* @return idx_cond if pushed; NULL if not pushed
 	*/
 	class Item* idx_cond_push(uint keyno, class Item* idx_cond);
-
-        /* An helper function for index_cond_func_innodb: */
-        bool is_thd_killed();
-
 private:
 	/** The multi range read session object */
 	DsMrr_impl ds_mrr;

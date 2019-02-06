@@ -949,7 +949,10 @@ longlong Item_func_hybrid_field_type::val_int()
   case INT_RESULT:
     return int_op();
   case REAL_RESULT:
-    return (longlong) rint(real_op());
+  {
+    bool error;
+    return double_to_longlong(real_op(), unsigned_flag, &error);
+  }
   case TIME_RESULT:
   {
     MYSQL_TIME ltime;
@@ -4837,7 +4840,7 @@ bool Item_func_set_user_var::register_field_in_bitmap(uchar *arg)
     true    failure
 */
 
-static bool
+bool
 update_hash(user_var_entry *entry, bool set_null, void *ptr, uint length,
             Item_result type, CHARSET_INFO *cs,
             bool unsigned_arg)

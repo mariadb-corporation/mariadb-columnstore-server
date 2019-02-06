@@ -128,6 +128,8 @@ extern my_bool		opt_noversioncheck;
 extern my_bool		opt_no_backup_locks;
 extern my_bool		opt_decompress;
 extern my_bool		opt_remove_original;
+extern my_bool		opt_extended_validation;
+extern my_bool		opt_backup_encrypted;
 
 extern char		*opt_incremental_history_name;
 extern char		*opt_incremental_history_uuid;
@@ -184,7 +186,7 @@ void xb_data_files_close(void);
 /***********************************************************************
 Reads the space flags from a given data file and returns the compressed
 page size, or 0 if the space is not compressed. */
-ulint xb_get_zip_size(pfs_os_file_t file);
+ulint xb_get_zip_size(fil_node_t* file);
 
 /************************************************************************
 Checks if a table specified as a name in the form "database/name" (InnoDB 5.6)

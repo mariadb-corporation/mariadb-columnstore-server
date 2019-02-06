@@ -3,7 +3,7 @@
 Copyright (c) 1995, 2017, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2008, 2009 Google Inc.
 Copyright (c) 2009, Percona Inc.
-Copyright (c) 2013, 2017, MariaDB Corporation.
+Copyright (c) 2013, 2019, MariaDB Corporation.
 
 Portions of this file contain modifications contributed and copyrighted by
 Google, Inc. Those modifications are gratefully acknowledged and are described
@@ -1341,8 +1341,6 @@ srv_printf_innodb_monitor(
 		"; in additional pool allocated " ULINTPF "\n",
 		ut_total_allocated_memory,
 		mem_pool_get_reserved(mem_comm_pool));
-	fprintf(file, "Dictionary memory allocated " ULINTPF "\n",
-		dict_sys_get_size());
 
 	buf_print_io(file);
 
@@ -2542,9 +2540,17 @@ srv_purge_should_exit(ulint n_purged)
 	}
 	/* Slow shutdown was requested. */
 	if (n_purged) {
-		service_manager_extend_timeout(
-			INNODB_EXTEND_TIMEOUT_INTERVAL,
-			"InnoDB " ULINTPF " pages purged", n_purged);
+#if defined HAVE_SYSTEMD && !defined EMBEDDED_LIBRARY
+		static ib_time_t progress_time;
+		ib_time_t time = ut_time();
+		if (time - progress_time >= 15) {
+			progress_time = time;
+			service_manager_extend_timeout(
+				INNODB_EXTEND_TIMEOUT_INTERVAL,
+				"InnoDB: to purge " ULINTPF " transactions",
+				trx_sys->rseg_history_len);
+		}
+#endif
 		/* The previous round still did some work. */
 		return(false);
 	}

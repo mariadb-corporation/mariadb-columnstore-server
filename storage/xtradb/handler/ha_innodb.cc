@@ -5,6 +5,7 @@ Copyright (c) 2013, 2018, MariaDB Corporation.
 Copyright (c) 2008, 2009 Google Inc.
 Copyright (c) 2009, Percona Inc.
 Copyright (c) 2012, Facebook Inc.
+Copyright (c) 2013, 2018, MariaDB Corporation.
 
 Portions of this file contain modifications contributed and copyrighted by
 Google, Inc. Those modifications are gratefully acknowledged and are described
@@ -109,6 +110,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "fts0priv.h"
 #include "page0zip.h"
 #include "fil0pagecompress.h"
+#include "dict0priv.h"
 
 #define thd_get_trx_isolation(X) ((enum_tx_isolation)thd_tx_isolation(X))
 
@@ -132,7 +134,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 # endif /* MYSQL_PLUGIN_IMPORT */
 
 #ifdef WITH_WSREP
-#include "dict0priv.h"
+#include "../../../wsrep/wsrep_api.h"
 #include "../storage/innobase/include/ut0byte.h"
 #include <mysql/service_md5.h>
 
@@ -3555,13 +3557,13 @@ innobase_convert_identifier(
 	ibool		file_id)/*!< in: TRUE=id is a table or database name;
 				FALSE=id is an UTF-8 string */
 {
-	char nz2[MAX_TABLE_NAME_LEN + 1];
 	const char*	s	= id;
 	int		q;
 
-	if (file_id) {
+	char nz[MAX_TABLE_NAME_LEN + 1];
+	char nz2[MAX_TABLE_NAME_LEN + 1];
 
-		char nz[MAX_TABLE_NAME_LEN + 1];
+	if (file_id) {
 
 		/* Decode the table name.  The MySQL function expects
 		a NUL-terminated string.  The input and output strings
@@ -4072,6 +4074,11 @@ innobase_init(
 	srv_data_home = (innobase_data_home_dir ? innobase_data_home_dir :
 			 default_path);
 
+#ifdef WITH_WSREP
+	/* If we use the wsrep API, then we need to tell the server
+	the path to the data files (for passing it to the SST scripts): */
+	wsrep_set_data_home_dir(innobase_data_home_dir);
+#endif /* WITH_WSREP */
 
 	/* Set default InnoDB data file size to 12 MB and let it be
 	auto-extending. Thus users can use InnoDB in >= 4.0 without having
@@ -6362,19 +6369,18 @@ ha_innobase::open(
 	ib_table = dict_table_open_on_name(norm_name, FALSE, TRUE, ignore_err);
 
 	if (ib_table
-	    && ((!DICT_TF2_FLAG_IS_SET(ib_table, DICT_TF2_FTS_HAS_DOC_ID)
-		 && table->s->stored_fields != dict_table_get_n_user_cols(ib_table))
-		|| (DICT_TF2_FLAG_IS_SET(ib_table, DICT_TF2_FTS_HAS_DOC_ID)
-		    && (table->s->fields
-			!= dict_table_get_n_user_cols(ib_table) - 1)))) {
+	    && (table->s->stored_fields != dict_table_get_n_user_cols(ib_table)
+		- !!DICT_TF2_FLAG_IS_SET(ib_table, DICT_TF2_FTS_HAS_DOC_ID))) {
 		ib_logf(IB_LOG_LEVEL_WARN,
 			"table %s contains " ULINTPF " user defined columns "
 			"in InnoDB, but %u columns in MySQL. Please "
 			"check INFORMATION_SCHEMA.INNODB_SYS_COLUMNS and "
 			REFMAN "innodb-troubleshooting.html "
 			"for how to resolve it",
-			norm_name, dict_table_get_n_user_cols(ib_table),
-			table->s->fields);
+			norm_name, dict_table_get_n_user_cols(ib_table)
+			- !!DICT_TF2_FLAG_IS_SET(ib_table,
+						 DICT_TF2_FTS_HAS_DOC_ID),
+			table->s->stored_fields);
 
 		/* Mark this table as corrupted, so the drop table
 		or force recovery can still use it, but not others. */
@@ -8889,6 +8895,7 @@ no_commit:
 	error = row_insert_for_mysql((byte*) record, prebuilt);
 	DEBUG_SYNC(user_thd, "ib_after_row_insert");
 
+
 	/* Handle duplicate key errors */
 	if (auto_inc_used) {
 		ulonglong	auto_inc;
@@ -9030,7 +9037,7 @@ report_error:
  	    && wsrep_thd_exec_mode(user_thd) == LOCAL_STATE
 	    && !wsrep_consistency_check(user_thd)
 	    && !wsrep_thd_ignore_table(user_thd)) {
-		if (wsrep_append_keys(user_thd, false, record, NULL)) {
+		if (wsrep_append_keys(user_thd, WSREP_KEY_EXCLUSIVE, record, NULL)) {
 			DBUG_PRINT("wsrep", ("row key failed"));
 			error_result = HA_ERR_INTERNAL_ERROR;
 			goto wsrep_error;
@@ -9551,7 +9558,8 @@ func_exit:
         {
 		DBUG_PRINT("wsrep", ("update row key"));
 
-		if (wsrep_append_keys(user_thd, false, old_row, new_row)) {
+		if (wsrep_append_keys(user_thd, WSREP_KEY_EXCLUSIVE, old_row,
+				      new_row)) {
 			WSREP_DEBUG("WSREP: UPDATE_ROW_KEY FAILED");
 			DBUG_PRINT("wsrep", ("row key failed"));
 			err = HA_ERR_INTERNAL_ERROR;
@@ -9614,7 +9622,8 @@ ha_innobase::delete_row(
             wsrep_on(user_thd)                           &&
             !wsrep_thd_ignore_table(user_thd))
         {
-		if (wsrep_append_keys(user_thd, false, record, NULL)) {
+		if (wsrep_append_keys(user_thd, WSREP_KEY_EXCLUSIVE, record,
+				      NULL)) {
 			DBUG_PRINT("wsrep", ("delete fail"));
 			error = (dberr_t) HA_ERR_INTERNAL_ERROR;
 			goto wsrep_error;
@@ -10834,16 +10843,6 @@ next_record:
 	return(HA_ERR_END_OF_FILE);
 }
 
-/*************************************************************************
-*/
-
-void
-ha_innobase::ft_end()
-{
-	fprintf(stderr, "ft_end()\n");
-
-	rnd_end();
-}
 #ifdef WITH_WSREP
 extern dict_index_t*
 wsrep_dict_foreign_find_index(
@@ -10855,8 +10854,22 @@ wsrep_dict_foreign_find_index(
 	ibool		check_charsets,
 	ulint		check_null);
 
+inline
+const char*
+wsrep_key_type_to_str(wsrep_key_type type)
+{
+	switch (type) {
+	case WSREP_KEY_SHARED:
+		return "shared";
+	case WSREP_KEY_SEMI:
+		return "semi";
+	case WSREP_KEY_EXCLUSIVE:
+		return "exclusive";
+	};
+	return "unknown";
+}
 
-extern dberr_t
+ulint
 wsrep_append_foreign_key(
 /*===========================*/
 	trx_t*		trx,		/*!< in: trx */
@@ -10864,7 +10877,8 @@ wsrep_append_foreign_key(
 	const rec_t*	rec,		/*!<in: clustered index record */
 	dict_index_t*	index,		/*!<in: clustered index */
 	ibool		referenced,	/*!<in: is check for referenced table */
-	ibool		shared)		/*!<in: is shared access */
+	wsrep_key_type	key_type)	/*!< in: access type of this key
+					(shared, exclusive, semi...) */
 {
 	ut_a(trx);
 	THD*  thd = (THD*)trx->mysql_thd;
@@ -10962,10 +10976,11 @@ wsrep_append_foreign_key(
 	rcode = wsrep_rec_get_foreign_key(
 		&key[1], &len, rec, index, idx,
 		wsrep_protocol_version > 1);
+
 	if (rcode != DB_SUCCESS) {
 		WSREP_ERROR(
-			"FK key set failed: %lu (%lu %lu), index: %s %s, %s",
-			rcode, referenced, shared,
+			"FK key set failed: %lu (%lu %s), index: %s %s, %s",
+			rcode, referenced, wsrep_key_type_to_str(key_type),
 			(index && index->name)       ? index->name :
 				"void index",
 			(index && index->table_name) ? index->table_name :
@@ -10973,6 +10988,7 @@ wsrep_append_foreign_key(
 			wsrep_thd_query(thd));
 		return DB_ERROR;
 	}
+
 	strncpy(cache_key,
 		(wsrep_protocol_version > 1) ?
 		((referenced) ?
@@ -11017,7 +11033,7 @@ wsrep_append_foreign_key(
 		wsrep_ws_handle(thd, trx),
 		&wkey,
 		1,
-		shared ? WSREP_KEY_SHARED : WSREP_KEY_EXCLUSIVE,
+		key_type,
                 copy);
 	if (rcode) {
 		DBUG_PRINT("wsrep", ("row key failed: %zu", rcode));
@@ -11039,14 +11055,15 @@ wsrep_append_key(
 	TABLE 		*table,
 	const char*	key,
 	uint16_t        key_len,
-	bool            shared
+	wsrep_key_type	key_type	/*!< in: access type of this key
+					(shared, exclusive, semi...) */
 )
 {
 	DBUG_ENTER("wsrep_append_key");
 	bool const copy = true;
 #ifdef WSREP_DEBUG_PRINT
 	fprintf(stderr, "%s conn %ld, trx %llu, keylen %d, table %s\n Query: %s ",
-		(shared) ? "Shared" : "Exclusive",
+		wsrep_key_type_to_str(key_type),
 		thd_get_thread_id(thd), (long long)trx->id, key_len,
 		table_share->table_name.str, wsrep_thd_query(thd));
 	for (int i=0; i<key_len; i++) {
@@ -11074,7 +11091,7 @@ wsrep_append_key(
 			       wsrep_ws_handle(thd, trx),
 			       &wkey,
 			       1,
-			       shared ? WSREP_KEY_SHARED : WSREP_KEY_EXCLUSIVE,
+			       key_type,
                                copy);
 	if (rcode) {
 		DBUG_PRINT("wsrep", ("row key failed: %d", rcode));
@@ -11111,7 +11128,8 @@ int
 ha_innobase::wsrep_append_keys(
 /*==================*/
 	THD 		*thd,
-	bool		shared,
+	wsrep_key_type	key_type,	/*!< in: access type of this key
+					(shared, exclusive, semi...) */
 	const uchar*	record0,	/* in: row in MySQL format */
 	const uchar*	record1)	/* in: row in MySQL format */
 {
@@ -11143,7 +11161,7 @@ ha_innobase::wsrep_append_keys(
 		if (!is_null) {
 			rcode = wsrep_append_key(
 				thd, trx, table_share, table, keyval, 
-				len, shared);
+				len, key_type);
 			if (rcode) DBUG_RETURN(rcode);
 		}
 		else
@@ -11196,10 +11214,11 @@ ha_innobase::wsrep_append_keys(
 				if (!is_null) {
 					rcode = wsrep_append_key(
 						thd, trx, table_share, table, 
-						keyval0, len+1, shared);
+						keyval0, len+1, key_type);
 					if (rcode) DBUG_RETURN(rcode);
 
-				if (key_info->flags & HA_NOSAME || shared)
+					if (key_info->flags & HA_NOSAME ||
+					    key_type == WSREP_KEY_SHARED)
 			  		key_appended = true;
 				}
 				else
@@ -11216,7 +11235,7 @@ ha_innobase::wsrep_append_keys(
 						rcode = wsrep_append_key(
 							thd, trx, table_share, 
 							table, 
-							keyval1, len+1, shared);
+							keyval1, len+1, key_type);
 						if (rcode) DBUG_RETURN(rcode);
 					}
 				}
@@ -11232,7 +11251,7 @@ ha_innobase::wsrep_append_keys(
 		wsrep_calc_row_hash(digest, record0, table, prebuilt, thd);
 		if ((rcode = wsrep_append_key(thd, trx, table_share, table, 
 					      (const char*) digest, 16, 
-					      shared))) {
+					      key_type))) {
 			DBUG_RETURN(rcode);
 		}
 
@@ -11242,7 +11261,7 @@ ha_innobase::wsrep_append_keys(
 			if ((rcode = wsrep_append_key(thd, trx, table_share, 
 						      table,
 						      (const char*) digest, 
-						      16, shared))) {
+						      16, key_type))) {
 				DBUG_RETURN(rcode);
 			}
 		}
@@ -11586,10 +11605,6 @@ err_col:
 		my_error(err == DB_DUPLICATE_KEY
 			 ? ER_TABLE_EXISTS_ERROR
 			 : ER_TABLESPACE_EXISTS, MYF(0), display_name);
-	}
-
-	if (err == DB_SUCCESS && (flags2 & DICT_TF2_FTS)) {
-		fts_optimize_add_table(table);
 	}
 
 error_ret:
@@ -12519,21 +12534,18 @@ ha_innobase::check_table_options(
 		options->encryption_key_id = FIL_DEFAULT_ENCRYPTION_KEY;
 	}
 
-	/* If default encryption is used make sure that used kay is found
-	from key file. */
-	if (encrypt == FIL_ENCRYPTION_DEFAULT &&
-		!srv_encrypt_tables &&
-		options->encryption_key_id != FIL_DEFAULT_ENCRYPTION_KEY) {
-		if (!encryption_key_id_exists((unsigned int)options->encryption_key_id)) {
-			push_warning_printf(
-				thd, Sql_condition::WARN_LEVEL_WARN,
-				HA_WRONG_CREATE_OPTION,
-				"InnoDB: ENCRYPTION_KEY_ID %u not available",
-				(uint)options->encryption_key_id
+	/* If default encryption is used and encryption is disabled, you may
+	not use nondefault encryption_key_id as it is not stored anywhere. */
+	if (encrypt == FIL_ENCRYPTION_DEFAULT
+	    && !srv_encrypt_tables
+	    && options->encryption_key_id != FIL_DEFAULT_ENCRYPTION_KEY) {
+		compile_time_assert(FIL_DEFAULT_ENCRYPTION_KEY == 1);
+		push_warning_printf(
+			thd, Sql_condition::WARN_LEVEL_WARN,
+			HA_WRONG_CREATE_OPTION,
+			"InnoDB: innodb_encrypt_tables=OFF only allows ENCRYPTION_KEY_ID=1"
 			);
-			return "ENCRYPTION_KEY_ID";
-
-		}
+		return "ENCRYPTION_KEY_ID";
 	}
 
 	/* Check atomic writes requirements */
@@ -12876,6 +12888,10 @@ ha_innobase::create(
 			trx_free_for_mysql(trx);
 			DBUG_RETURN(-1);
 		}
+
+		mutex_enter(&dict_sys->mutex);
+		fts_optimize_add_table(innobase_table);
+		mutex_exit(&dict_sys->mutex);
 	}
 
 	/* Note: We can't call update_thd() as prebuilt will not be
@@ -15051,7 +15067,7 @@ get_foreign_key_info(
 
 	/* Referenced (parent) table name */
 	ptr = dict_remove_db_name(foreign->referenced_table_name);
-	len = filename_to_tablename(ptr, name_buff, sizeof(name_buff));
+	len = filename_to_tablename(ptr, name_buff, sizeof(name_buff), 1);
 	f_key_info.referenced_table = thd_make_lex_string(
 		thd, 0, name_buff, static_cast<unsigned int>(len), 1);
 
@@ -15067,7 +15083,7 @@ get_foreign_key_info(
 
 	/* Dependent (child) table name */
 	ptr = dict_remove_db_name(foreign->foreign_table_name);
-	len = filename_to_tablename(ptr, name_buff, sizeof(name_buff));
+	len = filename_to_tablename(ptr, name_buff, sizeof(name_buff), 1);
 	f_key_info.foreign_table = thd_make_lex_string(
 		thd, 0, name_buff, static_cast<unsigned int>(len), 1);
 
@@ -15083,40 +15099,24 @@ get_foreign_key_info(
 	} while (++i < foreign->n_fields);
 
 	if (foreign->type & DICT_FOREIGN_ON_DELETE_CASCADE) {
-		len = 7;
-		ptr = "CASCADE";
+		f_key_info.delete_method = FK_OPTION_CASCADE;
 	} else if (foreign->type & DICT_FOREIGN_ON_DELETE_SET_NULL) {
-		len = 8;
-		ptr = "SET NULL";
+		f_key_info.delete_method = FK_OPTION_SET_NULL;
 	} else if (foreign->type & DICT_FOREIGN_ON_DELETE_NO_ACTION) {
-		len = 9;
-		ptr = "NO ACTION";
+		f_key_info.delete_method = FK_OPTION_NO_ACTION;
 	} else {
-		len = 8;
-		ptr = "RESTRICT";
+		f_key_info.delete_method = FK_OPTION_RESTRICT;
 	}
-
-	f_key_info.delete_method = thd_make_lex_string(
-		thd, f_key_info.delete_method, ptr,
-		static_cast<unsigned int>(len), 1);
 
 	if (foreign->type & DICT_FOREIGN_ON_UPDATE_CASCADE) {
-		len = 7;
-		ptr = "CASCADE";
+		f_key_info.update_method = FK_OPTION_CASCADE;
 	} else if (foreign->type & DICT_FOREIGN_ON_UPDATE_SET_NULL) {
-		len = 8;
-		ptr = "SET NULL";
+		f_key_info.update_method = FK_OPTION_SET_NULL;
 	} else if (foreign->type & DICT_FOREIGN_ON_UPDATE_NO_ACTION) {
-		len = 9;
-		ptr = "NO ACTION";
+		f_key_info.update_method = FK_OPTION_NO_ACTION;
 	} else {
-		len = 8;
-		ptr = "RESTRICT";
+		f_key_info.update_method = FK_OPTION_RESTRICT;
 	}
-
-	f_key_info.update_method = thd_make_lex_string(
-		thd, f_key_info.update_method, ptr,
-		static_cast<unsigned int>(len), 1);
 
 	if (foreign->referenced_index && foreign->referenced_index->name) {
 		referenced_key_name = thd_make_lex_string(thd,
@@ -20726,10 +20726,10 @@ static MYSQL_SYSVAR_ULONG(ft_total_cache_size, fts_max_total_cache_size,
   "Total memory allocated for InnoDB Fulltext Search cache",
   NULL, NULL, 640000000, 32000000, 1600000000, 0);
 
-static MYSQL_SYSVAR_ULONG(ft_result_cache_limit, fts_result_cache_limit,
+static MYSQL_SYSVAR_SIZE_T(ft_result_cache_limit, fts_result_cache_limit,
   PLUGIN_VAR_RQCMDARG,
   "InnoDB Fulltext search query result cache limit in bytes",
-  NULL, NULL, 2000000000L, 1000000L, 4294967295UL, 0);
+  NULL, NULL, 2000000000L, 1000000L, SIZE_T_MAX, 0);
 
 static MYSQL_SYSVAR_ULONG(ft_min_token_size, fts_min_token_size,
   PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
@@ -22149,15 +22149,6 @@ ha_rows ha_innobase::multi_range_read_info(uint keyno, uint n_ranges, uint keys,
 int ha_innobase::multi_range_read_explain_info(uint mrr_mode, char *str, size_t size)
 {
   return ds_mrr.dsmrr_explain_info(mrr_mode, str, size);
-}
-
-/*
-  A helper function used only in index_cond_func_innodb
-*/
-
-bool ha_innobase::is_thd_killed()
-{
-  return thd_kill_level(user_thd);
 }
 
 /**********************************************************************

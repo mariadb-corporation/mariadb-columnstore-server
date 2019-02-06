@@ -2070,7 +2070,7 @@ bool mysql_rm_table(THD *thd,TABLE_LIST *tables, my_bool if_exists,
             in its elements.
           */
           table->table= find_table_for_mdl_upgrade(thd, table->db,
-                                                   table->table_name, false);
+                                                   table->table_name, NULL);
           if (!table->table)
             DBUG_RETURN(true);
           table->mdl_request.ticket= table->table->mdl_ticket;
@@ -3315,6 +3315,10 @@ mysql_prepare_create_table(THD *thd, HA_CREATE_INFO *create_info,
         DBUG_RETURN(TRUE);
       }
     }
+
+    /* Virtual fields are always NULL */
+    if (sql_field->vcol_info)
+      sql_field->flags&= ~NOT_NULL_FLAG;
 
     if (sql_field->sql_type == MYSQL_TYPE_SET ||
         sql_field->sql_type == MYSQL_TYPE_ENUM)
@@ -5122,7 +5126,7 @@ err:
   /* Write log if no error or if we already deleted a table */
   if (!result || thd->log_current_statement)
   {
-    if (result && create_info->table_was_deleted)
+    if (result && create_info->table_was_deleted && pos_in_locked_tables)
     {
       /*
         Possible locked table was dropped. We should remove meta data locks
@@ -5737,7 +5741,8 @@ static bool is_candidate_key(KEY *key)
   KEY_PART_INFO *key_part;
   KEY_PART_INFO *key_part_end= key->key_part + key->user_defined_key_parts;
 
-  if (!(key->flags & HA_NOSAME) || (key->flags & HA_NULL_PART_KEY))
+  if (!(key->flags & HA_NOSAME) || (key->flags & HA_NULL_PART_KEY) ||
+      (key->flags & HA_KEY_HAS_PART_KEY_SEG))
     return false;
 
   for (key_part= key->key_part; key_part < key_part_end; key_part++)
@@ -6223,9 +6228,7 @@ static int compare_uint(const uint *s, const uint *t)
    @retval false success
 */
 
-static bool fill_alter_inplace_info(THD *thd,
-                                    TABLE *table,
-                                    bool varchar,
+static bool fill_alter_inplace_info(THD *thd, TABLE *table, bool varchar,
                                     Alter_inplace_info *ha_alter_info)
 {
   Field **f_ptr, *field;
@@ -6233,7 +6236,6 @@ static bool fill_alter_inplace_info(THD *thd,
   Create_field *new_field;
   KEY_PART_INFO *key_part, *new_part;
   KEY_PART_INFO *end;
-  uint candidate_key_count= 0;
   Alter_info *alter_info= ha_alter_info->alter_info;
   DBUG_ENTER("fill_alter_inplace_info");
 
@@ -6505,6 +6507,17 @@ static bool fill_alter_inplace_info(THD *thd,
   KEY *new_key;
   KEY *new_key_end=
     ha_alter_info->key_info_buffer + ha_alter_info->key_count;
+  /*
+    Primary key index for the new table
+  */
+  const KEY* const new_pk= (ha_alter_info->key_count > 0 &&
+                            (!my_strcasecmp(system_charset_info,
+                                ha_alter_info->key_info_buffer->name,
+                                primary_key_name) ||
+                            is_candidate_key(ha_alter_info->key_info_buffer))) ?
+                           ha_alter_info->key_info_buffer : NULL;
+  const KEY *const old_pk= table->s->primary_key == MAX_KEY ? NULL :
+                           table->key_info + table->s->primary_key;
 
   DBUG_PRINT("info", ("index count old: %d  new: %d",
                       table->s->keys, ha_alter_info->key_count));
@@ -6580,6 +6593,15 @@ static bool fill_alter_inplace_info(THD *thd,
         goto index_changed;
     }
 
+    /*
+      Rebuild the index if following condition get satisfied:
+
+      (i) Old table doesn't have primary key, new table has it and vice-versa
+      (ii) Primary key changed to another existing index
+    */
+    if ((new_key == new_pk) != (table_key == old_pk))
+      goto index_changed;
+
     /* Check that key comment is not changed. */
     if (table_key->comment.length != new_key->comment.length ||
         (table_key->comment.length &&
@@ -6638,22 +6660,6 @@ static bool fill_alter_inplace_info(THD *thd,
 
   /* Now let us calculate flags for storage engine API. */
 
-  /* Count all existing candidate keys. */
-  for (table_key= table->key_info; table_key < table_key_end; table_key++)
-  {
-    /*
-      Check if key is a candidate key, This key is either already primary key
-      or could be promoted to primary key if the original primary key is
-      dropped.
-      In MySQL one is allowed to create primary key with partial fields (i.e.
-      primary key which is not considered candidate). For simplicity we count
-      such key as a candidate key here.
-    */
-    if (((uint) (table_key - table->key_info) == table->s->primary_key) ||
-        is_candidate_key(table_key))
-      candidate_key_count++;
-  }
-
   /* Figure out what kind of indexes we are dropping. */
   KEY **dropped_key;
   KEY **dropped_key_end= ha_alter_info->index_drop_buffer +
@@ -6666,21 +6672,10 @@ static bool fill_alter_inplace_info(THD *thd,
 
     if (table_key->flags & HA_NOSAME)
     {
-      /*
-        Unique key. Check for PRIMARY KEY. Also see comment about primary
-        and candidate keys above.
-      */
-      if ((uint) (table_key - table->key_info) == table->s->primary_key)
-      {
+      if (table_key == old_pk)
         ha_alter_info->handler_flags|= Alter_inplace_info::DROP_PK_INDEX;
-        candidate_key_count--;
-      }
       else
-      {
         ha_alter_info->handler_flags|= Alter_inplace_info::DROP_UNIQUE_INDEX;
-        if (is_candidate_key(table_key))
-          candidate_key_count--;
-      }
     }
     else
       ha_alter_info->handler_flags|= Alter_inplace_info::DROP_INDEX;
@@ -6693,23 +6688,10 @@ static bool fill_alter_inplace_info(THD *thd,
 
     if (new_key->flags & HA_NOSAME)
     {
-      bool is_pk= !my_strcasecmp(system_charset_info, new_key->name, primary_key_name);
-
-      if ((!(new_key->flags & HA_KEY_HAS_PART_KEY_SEG) &&
-           !(new_key->flags & HA_NULL_PART_KEY)) ||
-          is_pk)
-      {
-        /* Candidate key or primary key! */
-        if (candidate_key_count == 0 || is_pk)
-          ha_alter_info->handler_flags|= Alter_inplace_info::ADD_PK_INDEX;
-        else
-          ha_alter_info->handler_flags|= Alter_inplace_info::ADD_UNIQUE_INDEX;
-        candidate_key_count++;
-      }
+      if (new_key == new_pk)
+        ha_alter_info->handler_flags|= Alter_inplace_info::ADD_PK_INDEX;
       else
-      {
         ha_alter_info->handler_flags|= Alter_inplace_info::ADD_UNIQUE_INDEX;
-      }
     }
     else
       ha_alter_info->handler_flags|= Alter_inplace_info::ADD_INDEX;
@@ -9153,8 +9135,10 @@ bool mysql_alter_table(THD *thd,char *new_db, char *new_name,
                        alter_ctx.tmp_name, strlen(alter_ctx.tmp_name),
                        alter_ctx.tmp_name, TL_READ_NO_INSERT);
     /* Table is in thd->temporary_tables */
-    (void) open_temporary_table(thd, &tbl);
+    if (open_temporary_table(thd, &tbl))
+      goto err_new_table_cleanup;
     new_table= tbl.table;
+    DBUG_ASSERT(new_table);
   }
   else
   {
@@ -9164,9 +9148,59 @@ bool mysql_alter_table(THD *thd,char *new_db, char *new_name,
                                    alter_ctx.get_tmp_path(),
                                    alter_ctx.new_db, alter_ctx.tmp_name,
                                    true, true);
+    if (!new_table)
+      goto err_new_table_cleanup;
+
+    /*
+      Normally, an attempt to modify an FK parent table will cause
+      FK children to be prelocked, so the table-being-altered cannot
+      be modified by a cascade FK action, because ALTER holds a lock
+      and prelocking will wait.
+
+      But if a new FK is being added by this very ALTER, then the target
+      table is not locked yet (it's a temporary table). So, we have to
+      lock FK parents explicitly.
+    */
+    if (alter_info->flags & Alter_info::ADD_FOREIGN_KEY)
+    {
+      List <FOREIGN_KEY_INFO> fk_list;
+      List_iterator<FOREIGN_KEY_INFO> fk_list_it(fk_list);
+      FOREIGN_KEY_INFO *fk;
+
+      /* tables_opened can be > 1 only for MERGE tables */
+      DBUG_ASSERT(tables_opened == 1);
+      DBUG_ASSERT(&table_list->next_global == thd->lex->query_tables_last);
+
+      new_table->file->get_foreign_key_list(thd, &fk_list);
+      while ((fk= fk_list_it++))
+      {
+        if (lower_case_table_names)
+        {
+         char buf[NAME_LEN];
+         uint len;
+         strmake_buf(buf, fk->referenced_db->str);
+         len = my_casedn_str(files_charset_info, buf);
+         thd->make_lex_string(fk->referenced_db, buf, len);
+         strmake_buf(buf, fk->referenced_table->str);
+         len = my_casedn_str(files_charset_info, buf);
+         thd->make_lex_string(fk->referenced_table, buf, len);
+        }
+        if (table_already_fk_prelocked(table_list, fk->referenced_db,
+                                       fk->referenced_table, TL_READ_NO_INSERT))
+          continue;
+
+        TABLE_LIST *tl= (TABLE_LIST *) thd->alloc(sizeof(TABLE_LIST));
+        tl->init_one_table_for_prelocking(fk->referenced_db->str, fk->referenced_db->length,
+                           fk->referenced_table->str, fk->referenced_table->length,
+                           NULL, TL_READ_NO_INSERT, false, NULL, 0,
+                           &thd->lex->query_tables_last);
+      }
+
+      if (open_tables(thd, &table_list->next_global, &tables_opened, 0,
+                      &alter_prelocking_strategy))
+        goto err_new_table_cleanup;
+    }
   }
-  if (!new_table)
-    goto err_new_table_cleanup;
   /*
     Note: In case of MERGE table, we do not attach children. We do not
     copy data for MERGE tables. Only the children have data.
@@ -9941,7 +9975,10 @@ bool mysql_checksum_table(THD *thd, TABLE_LIST *tables,
       {
 	/* calculating table's checksum */
 	ha_checksum crc= 0;
-        uchar null_mask=256 -  (1 << t->s->last_null_bit_pos);
+        DBUG_ASSERT(t->s->last_null_bit_pos < 8);
+        uchar null_mask= (t->s->last_null_bit_pos ?
+                          (256 -  (1 << t->s->last_null_bit_pos)):
+                          0);
 
         t->use_all_columns();
 

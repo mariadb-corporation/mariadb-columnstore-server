@@ -15,6 +15,7 @@
 
 #include "wsrep_sst.h"
 
+#include <inttypes.h>
 #include <mysqld.h>
 #include <m_ctype.h>
 #include <my_sys.h>
@@ -67,6 +68,12 @@ bool wsrep_sst_method_update (sys_var *self, THD* thd, enum_var_type type)
     return 0;
 }
 
+static const char* data_home_dir = NULL;
+
+void wsrep_set_data_home_dir(const char *data_dir)
+{
+  data_home_dir= (data_dir && *data_dir) ? data_dir : NULL;
+}
 
 static void make_wsrep_defaults_file()
 {
@@ -222,7 +229,7 @@ bool wsrep_sst_wait ()
     if (!sst_complete)
     {
       total_wtime += difftime(end_time, start_time);
-      WSREP_DEBUG("Waiting for SST to complete. current seqno: %ld waited %f secs.", local_seqno, total_wtime);
+      WSREP_DEBUG("Waiting for SST to complete. current seqno: %" PRId64 " waited %f secs.", local_seqno, total_wtime);
       service_manager_extend_timeout(WSREP_EXTEND_TIMEOUT_INTERVAL,
         "WSREP state transfer ongoing, current seqno: %ld waited %f secs", local_seqno, total_wtime);
     }
@@ -401,6 +408,22 @@ static int generate_binlog_opt_val(char** ret)
   return 0;
 }
 
+static int generate_binlog_index_opt_val(char** ret)
+{
+  DBUG_ASSERT(ret);
+  *ret= NULL;
+  if (opt_binlog_index_name) {
+    *ret= strcmp(opt_binlog_index_name, "0") ?
+      my_strdup(opt_binlog_index_name, MYF(0)) : my_strdup("", MYF(0));
+  }
+  else
+  {
+    *ret= my_strdup("", MYF(0));
+  }
+  if (!*ret) return -ENOMEM;
+  return 0;
+}
+
 static void* sst_joiner_thread (void* a)
 {
   sst_thread_arg* arg= (sst_thread_arg*) a;
@@ -549,6 +572,29 @@ static int sst_append_auth_env(wsp::env& env, const char* sst_auth)
   return -env.error();
 }
 
+#define DATA_HOME_DIR_ENV "INNODB_DATA_HOME_DIR"
+
+static int sst_append_data_dir(wsp::env& env, const char* data_dir)
+{
+  int const data_dir_size= strlen(DATA_HOME_DIR_ENV) + 1 /* = */
+    + (data_dir ? strlen(data_dir) : 0) + 1 /* \0 */;
+
+  wsp::string data_dir_str(data_dir_size); // for automatic cleanup on return
+  if (!data_dir_str()) return -ENOMEM;
+
+  int ret= snprintf(data_dir_str(), data_dir_size, "%s=%s",
+                    DATA_HOME_DIR_ENV, data_dir ? data_dir : "");
+
+  if (ret < 0 || ret >= data_dir_size)
+  {
+    WSREP_ERROR("sst_append_data_dir(): snprintf() failed: %d", ret);
+    return (ret < 0 ? ret : -EMSGSIZE);
+  }
+
+  env.append(data_dir_str());
+  return -env.error();
+}
+
 static ssize_t sst_prepare_other (const char*  method,
                                   const char*  sst_auth,
                                   const char*  addr_in,
@@ -565,7 +611,9 @@ static ssize_t sst_prepare_other (const char*  method,
   }
 
   const char* binlog_opt= "";
+  const char* binlog_index_opt= "";
   char* binlog_opt_val= NULL;
+  char* binlog_index_opt_val= NULL;
 
   int ret;
   if ((ret= generate_binlog_opt_val(&binlog_opt_val)))
@@ -574,7 +622,15 @@ static ssize_t sst_prepare_other (const char*  method,
                 ret);
     return ret;
   }
+
+  if ((ret= generate_binlog_index_opt_val(&binlog_index_opt_val)))
+  {
+    WSREP_ERROR("sst_prepare_other(): generate_binlog_index_opt_val() failed %d",
+                ret);
+  }
+
   if (strlen(binlog_opt_val)) binlog_opt= WSREP_SST_OPT_BINLOG;
+  if (strlen(binlog_index_opt_val)) binlog_index_opt= WSREP_SST_OPT_BINLOG_INDEX;
 
   make_wsrep_defaults_file();
 
@@ -585,11 +641,14 @@ static ssize_t sst_prepare_other (const char*  method,
                  WSREP_SST_OPT_DATA " '%s' "
                  " %s "
                  WSREP_SST_OPT_PARENT " '%d'"
-                 " %s '%s' ",
+                 " %s '%s'"
+	         " %s '%s'",
                  method, addr_in, mysql_real_data_home,
                  wsrep_defaults_file,
-                 (int)getpid(), binlog_opt, binlog_opt_val);
+                 (int)getpid(), binlog_opt, binlog_opt_val,
+                 binlog_index_opt, binlog_index_opt_val);
   my_free(binlog_opt_val);
+  my_free(binlog_index_opt_val);
 
   if (ret < 0 || ret >= cmd_len)
   {
@@ -608,6 +667,16 @@ static ssize_t sst_prepare_other (const char*  method,
   {
     WSREP_ERROR("sst_prepare_other(): appending auth failed: %d", ret);
     return ret;
+  }
+
+  if (data_home_dir)
+  {
+    if ((ret= sst_append_data_dir(env, data_home_dir)))
+    {
+      WSREP_ERROR("sst_prepare_other(): appending data "
+                  "directory failed: %d", ret);
+      return ret;
+    }
   }
 
   pthread_t tmp;
@@ -1301,6 +1370,16 @@ wsrep_cb_status_t wsrep_sst_donate_cb (void* app_ctx, void* recv_ctx,
     return WSREP_CB_FAILURE;
   }
 
+  if (data_home_dir)
+  {
+    if ((ret= sst_append_data_dir(env, data_home_dir)))
+    {
+      WSREP_ERROR("wsrep_sst_donate_cb(): appending data "
+                  "directory failed: %d", ret);
+      return WSREP_CB_FAILURE;
+    }
+  }
+
   if (!strcmp (WSREP_SST_MYSQLDUMP, method))
   {
     ret = sst_donate_mysqldump(data, &current_gtid->uuid, uuid_str,
@@ -1335,7 +1414,7 @@ void wsrep_SE_init_wait()
     if (!SE_initialized)
     {
       total_wtime += difftime(end_time, start_time);
-      WSREP_DEBUG("Waiting for SST to complete. current seqno: %ld waited %f secs.", local_seqno, total_wtime);
+      WSREP_DEBUG("Waiting for SST to complete. current seqno: %" PRId64 " waited %f secs.", local_seqno, total_wtime);
       service_manager_extend_timeout(WSREP_EXTEND_TIMEOUT_INTERVAL,
         "WSREP state transfer ongoing, current seqno: %ld waited %f secs", local_seqno, total_wtime);
     }
