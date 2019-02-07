@@ -206,6 +206,8 @@ char*	log_ignored_opt				= NULL;
 
 extern my_bool opt_use_ssl;
 my_bool opt_ssl_verify_server_cert;
+my_bool opt_extended_validation;
+my_bool opt_backup_encrypted;
 
 /* === metadata of backup === */
 #define XTRABACKUP_METADATA_FILENAME "xtrabackup_checkpoints"
@@ -248,7 +250,6 @@ static ulong innobase_log_block_size = 512;
 char*	innobase_doublewrite_file = NULL;
 char*	innobase_buffer_pool_filename = NULL;
 
-longlong innobase_buffer_pool_size = 8*1024*1024L;
 longlong innobase_log_file_size = 48*1024*1024L;
 
 /* The default values for the following char* start-up parameters
@@ -443,6 +444,38 @@ datafiles_iter_free(datafiles_iter_t *it)
 	ut_free(it);
 }
 
+
+/*
+  Retrieve default data directory, to be used with --copy-back.
+
+  On Windows, default datadir is ..\data, relative to the
+  directory where mariabackup.exe is located(usually "bin")
+
+  Elsewhere, the compiled-in constant MYSQL_DATADIR is used.
+*/
+static char *get_default_datadir() {
+	static char ddir[] = MYSQL_DATADIR;
+#ifdef _WIN32
+	static char buf[MAX_PATH];
+	DWORD size = (DWORD)sizeof(buf) - 1;
+	if (GetModuleFileName(NULL, buf, size) <= size)
+	{
+		char *p;
+		if ((p = strrchr(buf, '\\')))
+		{
+			*p = 0;
+			if ((p = strrchr(buf, '\\')))
+			{
+				strncpy(p + 1, "data", buf + MAX_PATH - p);
+				return buf;
+			}
+		}
+	}
+#endif
+	return ddir;
+}
+
+
 /* ======== Date copying thread context ======== */
 
 typedef struct {
@@ -478,6 +511,8 @@ enum options_xtrabackup
   OPT_XTRA_DATABASES_FILE,
   OPT_XTRA_CREATE_IB_LOGFILE,
   OPT_XTRA_PARALLEL,
+  OPT_XTRA_EXTENDED_VALIDATION,
+  OPT_XTRA_BACKUP_ENCRYPTED,
   OPT_XTRA_STREAM,
   OPT_XTRA_COMPRESS,
   OPT_XTRA_COMPRESS_THREADS,
@@ -944,6 +979,22 @@ struct my_option xb_server_options[] =
    (G_PTR*) &xtrabackup_parallel, (G_PTR*) &xtrabackup_parallel, 0, GET_INT,
    REQUIRED_ARG, 1, 1, INT_MAX, 0, 0, 0},
 
+  {"extended_validation", OPT_XTRA_EXTENDED_VALIDATION,
+   "Enable extended validation for Innodb data pages during backup phase. "
+   "Will slow down backup considerably, in case encryption is used. "
+   "May fail if tables are created during the backup.",
+   (G_PTR*)&opt_extended_validation,
+   (G_PTR*)&opt_extended_validation,
+   0, GET_BOOL, NO_ARG, FALSE, 0, 0, 0, 0, 0},
+
+  {"backup_encrypted", OPT_XTRA_BACKUP_ENCRYPTED,
+   "In --backup, assume that nonzero key_version implies that the page"
+   " is encrypted. Use --backup --skip-backup-encrypted to allow"
+   " copying unencrypted that were originally created before MySQL 5.1.48.",
+   (G_PTR*)&opt_backup_encrypted,
+   (G_PTR*)&opt_backup_encrypted,
+   0, GET_BOOL, NO_ARG, TRUE, 0, 0, 0, 0, 0},
+
    {"log", OPT_LOG, "Ignored option for MySQL option compatibility",
    (G_PTR*) &log_ignored_opt, (G_PTR*) &log_ignored_opt, 0,
    GET_STR, OPT_ARG, 0, 0, 0, 0, 0, 0},
@@ -971,11 +1022,6 @@ struct my_option xb_server_options[] =
    (G_PTR*) &srv_auto_extend_increment,
    (G_PTR*) &srv_auto_extend_increment,
    0, GET_ULONG, REQUIRED_ARG, 8L, 1L, 1000L, 0, 1L, 0},
-  {"innodb_buffer_pool_size", OPT_INNODB_BUFFER_POOL_SIZE,
-   "The size of the memory buffer InnoDB uses to cache data and indexes of its tables.",
-   (G_PTR*) &innobase_buffer_pool_size, (G_PTR*) &innobase_buffer_pool_size, 0,
-   GET_LL, REQUIRED_ARG, 8*1024*1024L, 1024*1024L, LONGLONG_MAX, 0,
-   1024*1024L, 0},
   {"innodb_checksums", OPT_INNODB_CHECKSUMS, "Enable InnoDB checksums validation (enabled by default). \
 Disable with --skip-innodb-checksums.", (G_PTR*) &innobase_use_checksums,
    (G_PTR*) &innobase_use_checksums, 0, GET_BOOL, NO_ARG, 1, 0, 0, 0, 0, 0},
@@ -1182,11 +1228,23 @@ debug_sync_point(const char *name)
 #endif
 }
 
-static const char *xb_client_default_groups[]=
-	{ "xtrabackup", "mariabackup", "client", 0, 0, 0 };
+static const char *xb_client_default_groups[]={ 
+   "xtrabackup", "mariabackup", 
+   "client", "client-server", 
+   "client-mariadb", 
+   0, 0, 0 
+};
 
-static const char *xb_server_default_groups[]=
-	{ "xtrabackup", "mariabackup", "mysqld", 0, 0, 0 };
+static const char *xb_server_default_groups[]={
+   "xtrabackup", "mariabackup",
+   "mysqld", "server", MYSQL_BASE_VERSION,
+   "mariadb", MARIADB_BASE_VERSION,
+   "client-server",
+   #ifdef WITH_WSREP
+   "galera",
+   #endif
+   0, 0, 0
+};
 
 static void print_version(void)
 {
@@ -1482,13 +1540,6 @@ innodb_init_param(void)
 			    " on 32-bit systems\n");
 		}
 
-		if (innobase_buffer_pool_size > UINT_MAX32) {
-			msg("mariabackup: innobase_buffer_pool_size can't be "
-			    "over 4GB on 32-bit systems\n");
-
-			goto error;
-		}
-
 		if (innobase_log_file_size > UINT_MAX32) {
 			msg("mariabackup: innobase_log_file_size can't be "
 			    "over 4GB on 32-bit systemsi\n");
@@ -1613,8 +1664,6 @@ mem_free_and_error:
 
         /* We set srv_pool_size here in units of 1 kB. InnoDB internally
         changes the value so that it becomes the number of database pages. */
-
-	//srv_buf_pool_size = (ulint) innobase_buffer_pool_size;
 	srv_buf_pool_size = (ulint) xtrabackup_use_memory;
 
 	srv_mem_pool_size = (ulint) innobase_additional_mem_pool_size;
@@ -2268,7 +2317,7 @@ check_if_skip_table(
 Reads the space flags from a given data file and returns the compressed
 page size, or 0 if the space is not compressed. */
 ulint
-xb_get_zip_size(pfs_os_file_t file)
+xb_get_zip_size(fil_node_t* file)
 {
 	byte	*buf;
 	byte	*page;
@@ -2279,7 +2328,7 @@ xb_get_zip_size(pfs_os_file_t file)
 	buf = static_cast<byte *>(ut_malloc(2 * UNIV_PAGE_SIZE));
 	page = static_cast<byte *>(ut_align(buf, UNIV_PAGE_SIZE));
 
-	success = os_file_read(file, page, 0, UNIV_PAGE_SIZE);
+	success = os_file_read(file->handle, page, 0, UNIV_PAGE_SIZE);
 	if (!success) {
 		goto end;
 	}
@@ -2287,6 +2336,17 @@ xb_get_zip_size(pfs_os_file_t file)
 	space = mach_read_from_4(page + FIL_PAGE_ARCH_LOG_NO_OR_SPACE_ID);
 	zip_size = (space == 0 ) ? 0 :
 		dict_tf_get_zip_size(fsp_header_get_flags(page));
+
+	if (!file->space->crypt_data) {
+		fil_system_enter();
+		if (!file->space->crypt_data) {
+			file->space->crypt_data = fil_space_read_crypt_data(
+				space, page,
+				fsp_header_get_crypt_offset(zip_size));
+		}
+		fil_system_exit();
+	}
+
 end:
 	ut_free(buf);
 
@@ -5203,6 +5263,7 @@ xb_process_datadir(
 					    path, NULL,
 					    fileinfo.name, data))
 				{
+					os_file_closedir(dbdir);
 					return(FALSE);
 				}
 			}
@@ -5263,6 +5324,7 @@ next_file_item_1:
 						    dbinfo.name,
 						    fileinfo.name, data))
 					{
+						os_file_closedir(dbdir);
 						return(FALSE);
 					}
 				}
@@ -6764,8 +6826,7 @@ int main(int argc, char **argv)
 
 	if (xtrabackup_copy_back || xtrabackup_move_back) {
 		if (!check_if_param_set("datadir")) {
-			msg("Error: datadir must be specified.\n");
-			exit(EXIT_FAILURE);
+			mysql_data_home = get_default_datadir();
 		}
 		if (!copy_back())
 			exit(EXIT_FAILURE);
@@ -6792,3 +6853,12 @@ int main(int argc, char **argv)
 
 	exit(EXIT_SUCCESS);
 }
+
+
+#if defined (__SANITIZE_ADDRESS__) && defined (__linux__)
+/* Avoid LeakSanitizer's false positives. */
+const char* __asan_default_options()
+{
+  return "detect_leaks=0";
+}
+#endif

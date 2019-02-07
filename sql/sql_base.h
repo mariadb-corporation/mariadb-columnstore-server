@@ -126,6 +126,7 @@ TABLE *open_ltable(THD *thd, TABLE_LIST *table_list, thr_lock_type update,
                             MYSQL_OPEN_GET_NEW_TABLE |\
                             MYSQL_OPEN_HAS_MDL_LOCK)
 
+bool is_locked_view(THD *thd, TABLE_LIST *t);
 bool open_table(THD *thd, TABLE_LIST *table_list, Open_table_context *ot_ctx);
 
 bool get_key_map_from_key_list(key_map *map, TABLE *table,
@@ -147,6 +148,8 @@ my_bool mysql_rm_tmp_tables(void);
 bool rm_temporary_table(handlerton *base, const char *path);
 void close_tables_for_reopen(THD *thd, TABLE_LIST **tables,
                              const MDL_savepoint &start_of_statement_svp);
+bool table_already_fk_prelocked(TABLE_LIST *tl, LEX_STRING *db,
+                                LEX_STRING *table, thr_lock_type lock_type);
 TABLE_LIST *find_table_in_list(TABLE_LIST *table,
                                TABLE_LIST *TABLE_LIST::*link,
                                const char *db_name,
@@ -329,7 +332,7 @@ static inline bool tdc_open_view(THD *thd, TABLE_LIST *table_list,
 
 TABLE *find_table_for_mdl_upgrade(THD *thd, const char *db,
                                   const char *table_name,
-                                  bool no_error);
+                                  int *p_error);
 void mark_tmp_table_for_reuse(TABLE *table);
 
 int update_virtual_fields(THD *thd, TABLE *table,

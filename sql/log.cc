@@ -1,5 +1,5 @@
-/* Copyright (c) 2000, 2016, Oracle and/or its affiliates.
-   Copyright (c) 2009, 2017, MariaDB
+/* Copyright (c) 2000, 2018, Oracle and/or its affiliates.
+   Copyright (c) 2009, 2019, MariaDB Corporation
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -1677,13 +1677,13 @@ static int binlog_close_connection(handlerton *hton, THD *thd)
     uchar *buf;
     size_t len=0;
     wsrep_write_cache_buf(cache, &buf, &len);
-    WSREP_WARN("binlog trx cache not empty (%lu bytes) @ connection close %lu",
+    WSREP_WARN("binlog trx cache not empty (%zu bytes) @ connection close %lu",
                len, thd->thread_id);
     if (len > 0) wsrep_dump_rbr_buf(thd, buf, len);
 
     cache = cache_mngr->get_binlog_cache_log(false);
     wsrep_write_cache_buf(cache, &buf, &len);
-    WSREP_WARN("binlog stmt cache not empty (%lu bytes) @ connection close %lu",
+    WSREP_WARN("binlog stmt cache not empty (%zu bytes) @ connection close %lu",
                len, thd->thread_id);
     if (len > 0) wsrep_dump_rbr_buf(thd, buf, len);
   }
@@ -3924,7 +3924,7 @@ int MYSQL_BIN_LOG::find_log_pos(LOG_INFO *linfo, const char *log_name,
     // if the log entry matches, null string matching anything
     if (!log_name ||
         (log_name_len == fname_len &&
-	 !memcmp(full_fname, full_log_name, log_name_len)))
+	 !strncmp(full_fname, full_log_name, log_name_len)))
     {
       DBUG_PRINT("info", ("Found log file entry"));
       linfo->index_file_start_offset= offset;

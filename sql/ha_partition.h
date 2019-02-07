@@ -251,7 +251,6 @@ private:
   /*
     Variables for lock structures.
   */
-  THR_LOCK_DATA lock;                   /* MySQL lock */
 
   bool auto_increment_lock;             /**< lock reading/updating auto_inc */
   /**
@@ -1212,6 +1211,14 @@ public:
     virtual bool auto_repair(int error) const;
     virtual bool is_crashed() const;
     virtual int check_for_upgrade(HA_CHECK_OPT *check_opt);
+
+    /*
+      -----------------------------------------------------------------------
+      MODULE condition pushdown
+      -----------------------------------------------------------------------
+    */
+    virtual const COND *cond_push(const COND *cond);
+    virtual void cond_pop();
 
     private:
     int handle_opt_partitions(THD *thd, HA_CHECK_OPT *check_opt, uint flags);

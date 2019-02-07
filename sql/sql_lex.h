@@ -2459,6 +2459,10 @@ struct LEX: public Query_tables_list
   String *wild; /* Wildcard in SHOW {something} LIKE 'wild'*/ 
   sql_exchange *exchange;
   select_result *result;
+  /**
+    @c the two may also hold BINLOG arguments: either comment holds a
+    base64-char string or both represent the BINLOG fragment user variables.
+  */
   LEX_STRING comment, ident;
   LEX_USER *grant_user;
   XID *xid;
@@ -2592,8 +2596,8 @@ public:
   uint profile_options;
   uint grant, grant_tot_col, which_columns;
   enum Foreign_key::fk_match_opt fk_match_option;
-  enum Foreign_key::fk_option fk_update_opt;
-  enum Foreign_key::fk_option fk_delete_opt;
+  enum_fk_option fk_update_opt;
+  enum_fk_option fk_delete_opt;
   uint slave_thd_opt, start_transaction_opt;
   int nest_level;
   /*
@@ -2752,7 +2756,7 @@ public:
   */
   DYNAMIC_ARRAY delete_gtid_domain;
   static const ulong initial_gtid_domain_buffer_size= 16;
-  ulong gtid_domain_static_buffer[initial_gtid_domain_buffer_size];
+  uint32 gtid_domain_static_buffer[initial_gtid_domain_buffer_size];
 
   inline void set_limit_rows_examined()
   {

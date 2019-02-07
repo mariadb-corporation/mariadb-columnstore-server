@@ -411,6 +411,7 @@ void TABLE_SHARE::destroy()
     ha_share= NULL;                             // Safety
   }
 
+  delete_stat_values_for_table_share(this);
   free_root(&stats_cb.mem_root, MYF(0));
   stats_cb.stats_can_be_read= FALSE;
   stats_cb.stats_is_read= FALSE;
@@ -1850,7 +1851,7 @@ int TABLE_SHARE::init_from_binary_frm_image(THD *thd, bool write,
             uint pk_part_length= key_first_info->key_part[i].store_length;
             if (keyinfo->ext_key_part_map & 1<<i)
             {
-              if (ext_key_length + pk_part_length > MAX_KEY_LENGTH)
+              if (ext_key_length + pk_part_length > MAX_DATA_LENGTH_FOR_KEY)
               {
                 add_keyparts_for_this_key= i;
                 break;
@@ -1860,9 +1861,9 @@ int TABLE_SHARE::init_from_binary_frm_image(THD *thd, bool write,
           }
         }
 
-        if (add_keyparts_for_this_key < (keyinfo->ext_key_parts -
-                                        keyinfo->user_defined_key_parts))
-	{
+        if (add_keyparts_for_this_key < keyinfo->ext_key_parts -
+                                        keyinfo->user_defined_key_parts)
+        {
           share->ext_key_parts-= keyinfo->ext_key_parts;
           key_part_map ext_key_part_map= keyinfo->ext_key_part_map;
           keyinfo->ext_key_parts= keyinfo->user_defined_key_parts;
@@ -6136,6 +6137,8 @@ void TABLE::mark_columns_per_binlog_row_image()
         mark_columns_used_by_index_no_reset(s->primary_key, read_set);
         /* Only write columns that have changed */
         rpl_write_set= write_set;
+        if (default_field)
+          mark_default_fields_for_write(rpl_write_set);
         break;
 
       default:
@@ -6282,7 +6285,7 @@ bool TABLE::has_default_function(bool is_update)
   Add all fields that have a default function to the table write set.
 */
 
-void TABLE::mark_default_fields_for_write()
+void TABLE::mark_default_fields_for_write(MY_BITMAP* bset)
 {
   Field **dfield_ptr, *dfield;
   enum_sql_command cmd= in_use->lex->sql_command;
@@ -6293,7 +6296,7 @@ void TABLE::mark_default_fields_for_write()
          dfield->has_insert_default_function()) ||
         ((sql_command_flags[cmd] & CF_UPDATES_DATA) &&
          dfield->has_update_default_function()))
-      bitmap_set_bit(write_set, dfield->field_index);
+      bitmap_set_bit(bset, dfield->field_index);
   }
 }
 
@@ -7508,4 +7511,24 @@ double KEY::actual_rec_per_key(uint i)
     return 0;
   return (is_statistics_from_stat_tables ?
           read_stats->get_avg_frequency(i) : (double) rec_per_key[i]);
+}
+
+LEX_CSTRING *fk_option_name(enum_fk_option opt)
+{
+  static LEX_CSTRING names[]=
+  {
+    { STRING_WITH_LEN("???") },
+    { STRING_WITH_LEN("RESTRICT") },
+    { STRING_WITH_LEN("CASCADE") },
+    { STRING_WITH_LEN("SET NULL") },
+    { STRING_WITH_LEN("NO ACTION") },
+    { STRING_WITH_LEN("SET DEFAULT") }
+  };
+  return names + opt;
+}
+
+bool fk_modifies_child(enum_fk_option opt)
+{
+  static bool can_write[]= { false, false, true, true, false, true };
+  return can_write[opt];
 }

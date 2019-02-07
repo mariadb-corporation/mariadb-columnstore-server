@@ -1518,6 +1518,7 @@ void THD::cleanup(void)
   sp_cache_clear(&sp_func_cache);
 
   mysql_ull_cleanup(this);
+  stmt_map.reset();
   /* All metadata locks must have been released by now. */
   DBUG_ASSERT(!mdl_context.has_locks());
 
@@ -3777,11 +3778,13 @@ void Statement_map::erase(Statement *statement)
 void Statement_map::reset()
 {
   /* Must be first, hash_free will reset st_hash.records */
-  mysql_mutex_lock(&LOCK_prepared_stmt_count);
-  DBUG_ASSERT(prepared_stmt_count >= st_hash.records);
-  prepared_stmt_count-= st_hash.records;
-  mysql_mutex_unlock(&LOCK_prepared_stmt_count);
-
+  if (st_hash.records)
+  {
+    mysql_mutex_lock(&LOCK_prepared_stmt_count);
+    DBUG_ASSERT(prepared_stmt_count >= st_hash.records);
+    prepared_stmt_count-= st_hash.records;
+    mysql_mutex_unlock(&LOCK_prepared_stmt_count);
+  }
   my_hash_reset(&names_hash);
   my_hash_reset(&st_hash);
   last_found_statement= 0;
@@ -3790,12 +3793,8 @@ void Statement_map::reset()
 
 Statement_map::~Statement_map()
 {
-  /* Must go first, hash_free will reset st_hash.records */
-  mysql_mutex_lock(&LOCK_prepared_stmt_count);
-  DBUG_ASSERT(prepared_stmt_count >= st_hash.records);
-  prepared_stmt_count-= st_hash.records;
-  mysql_mutex_unlock(&LOCK_prepared_stmt_count);
-
+  /* Statement_map::reset() should be called prior to destructor. */
+  DBUG_ASSERT(!st_hash.records);
   my_hash_free(&names_hash);
   my_hash_free(&st_hash);
 }
@@ -5575,7 +5574,8 @@ has_write_table_with_auto_increment_and_select(TABLE_LIST *tables)
   for(TABLE_LIST *table= tables; table; table= table->next_global)
   {
      if (!table->placeholder() &&
-        (table->lock_type <= TL_READ_NO_INSERT))
+         table->lock_type <= TL_READ_NO_INSERT &&
+         table->prelocking_placeholder != TABLE_LIST::FK)
       {
         has_select= true;
         break;
@@ -6390,6 +6390,22 @@ int THD::binlog_update_row(TABLE* table, bool is_trans,
   DBUG_ASSERT(is_current_stmt_binlog_format_row() &&
             ((WSREP(this) && wsrep_emulate_bin_log) || mysql_bin_log.is_open()));
 
+  /**
+    Save a reference to the original read bitmaps
+    We will need this to restore the bitmaps at the end as
+    binlog_prepare_row_images() may change table->read_set.
+    table->read_set is used by pack_row and deep in
+    binlog_prepare_pending_events().
+  */
+  MY_BITMAP *old_read_set= table->read_set;
+
+  /**
+     This will remove spurious fields required during execution but
+     not needed for binlogging. This is done according to the:
+     binlog-row-image option.
+   */
+  binlog_prepare_row_images(table);
+
   size_t const before_maxlen = max_row_length(table, before_record);
   size_t const after_maxlen  = max_row_length(table, after_record);
 
@@ -6401,9 +6417,9 @@ int THD::binlog_update_row(TABLE* table, bool is_trans,
   uchar *after_row= row_data.slot(1);
 
   size_t const before_size= pack_row(table, table->read_set, before_row,
-                                        before_record);
+                                     before_record);
   size_t const after_size= pack_row(table, table->rpl_write_set, after_row,
-                                       after_record);
+                                    after_record);
 
   /* Ensure that all events in a GTID group are in the same cache */
   if (variables.option_bits & OPTION_GTID_BEGIN)
@@ -6431,6 +6447,9 @@ int THD::binlog_update_row(TABLE* table, bool is_trans,
   int error=  ev->add_row_data(before_row, before_size) ||
               ev->add_row_data(after_row, after_size);
 
+  /* restore read set for the rest of execution */
+  table->column_bitmaps_set_no_signal(old_read_set,
+                                      table->write_set);
   return error;
 
 }

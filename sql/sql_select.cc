@@ -1407,6 +1407,14 @@ JOIN::optimize_inner()
       error= 1;
       DBUG_RETURN(1);
     }
+    if (!group_list)
+    {
+      /* The output has only one row */
+      order=0;
+      simple_order=1;
+      group_optimized_away= 1;
+      select_distinct=0;
+    }
   }
   
   /* Calculate how to do the join */
@@ -6021,7 +6029,7 @@ add_group_and_distinct_keys(JOIN *join, JOIN_TAB *join_tab)
   Item_field *cur_item;
   key_map possible_keys(0);
 
-  if (join->group_list || join->simple_group)
+  if (join->group_list)
   { /* Collect all query fields referenced in the GROUP clause. */
     for (cur_group= join->group_list; cur_group; cur_group= cur_group->next)
       (*cur_group->item)->walk(&Item::collect_item_field_processor, 0,
@@ -11268,7 +11276,15 @@ uint check_join_cache_usage(JOIN_TAB *tab,
     effort now.
   */
   if (tab->table->pos_in_table_list->is_materialized_derived())
+  {
     no_bka_cache= true;
+    /*
+      Don't use hash join algorithm if the temporary table for the rows
+      of the derived table will be created with an equi-join key.
+    */
+    if (tab->table->s->keys)
+      no_hashed_cache= true;
+  }
 
   /*
     Don't use join buffering if we're dictated not to by no_jbuf_after
@@ -19629,6 +19645,10 @@ test_if_quick_select(JOIN_TAB *tab)
 
   delete tab->select->quick;
   tab->select->quick=0;
+
+  if (tab->table->file->inited != handler::NONE)
+    tab->table->file->ha_index_or_rnd_end();
+
   int res= tab->select->test_quick_select(tab->join->thd, tab->keys,
                                           (table_map) 0, HA_POS_ERROR, 0,
                                           FALSE, /*remove where parts*/FALSE);
@@ -21520,11 +21540,30 @@ test_if_skip_sort_order(JOIN_TAB *tab,ORDER *order,ha_rows select_limit,
       tmp_map.clear_all();       // Force the creation of quick select
       tmp_map.set_bit(best_key); // only best_key.
       select->quick= 0;
+
+      bool cond_saved= false;
+      Item *saved_cond;
+
+      /*
+        Index Condition Pushdown may have removed parts of the condition for
+        this table. Temporarily put them back because we want the whole
+        condition for the range analysis.
+      */
+      if (select->pre_idx_push_select_cond)
+      {
+        saved_cond= select->cond;
+        select->cond= select->pre_idx_push_select_cond;
+        cond_saved= true;
+      }
+
       select->test_quick_select(join->thd, tmp_map, 0,
                                 join->select_options & OPTION_FOUND_ROWS ?
                                 HA_POS_ERROR :
                                 join->unit->select_limit_cnt,
                                 TRUE, FALSE, FALSE);
+
+      if (cond_saved)
+        select->cond= saved_cond;
     }
     order_direction= best_key_direction;
     /*
@@ -25518,7 +25557,7 @@ void TABLE_LIST::print(THD *thd, table_map eliminated_tables, String *str,
       const char *t_alias= alias;
 
       str->append(' ');
-      if (lower_case_table_names== 1)
+      if (lower_case_table_names == 1)
       {
         if (alias && alias[0])
         {

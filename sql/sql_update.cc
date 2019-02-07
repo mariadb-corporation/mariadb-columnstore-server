@@ -2079,7 +2079,7 @@ multi_update::~multi_update()
   TABLE_LIST *table;
   for (table= update_tables ; table; table= table->next_local)
   {
-    table->table->no_keyread= table->table->no_cache= 0;
+    table->table->no_keyread= 0;
     if (ignore)
       table->table->file->extra(HA_EXTRA_NO_IGNORE_DUP_KEY);
   }
@@ -2359,7 +2359,7 @@ int multi_update::do_updates()
     check_opt_it.rewind();
     while(TABLE *tbl= check_opt_it++)
     {
-      if ((local_error= tbl->file->ha_rnd_init(1)))
+      if ((local_error= tbl->file->ha_rnd_init(0)))
       {
         err_table= tbl;
         goto err;
