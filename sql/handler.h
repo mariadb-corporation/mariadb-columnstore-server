@@ -727,6 +727,7 @@ enum enum_schema_tables
   SCH_ALL_PLUGINS,
   SCH_APPLICABLE_ROLES,
   SCH_CHARSETS,
+  SCH_CHECK_CONSTRAINTS,
   SCH_COLLATIONS,
   SCH_COLLATION_CHARACTER_SET_APPLICABILITY,
   SCH_COLUMNS,
@@ -1999,6 +2000,11 @@ public:
   static const HA_ALTER_FLAGS ALTER_ADD_CHECK_CONSTRAINT = 1ULL << 39;
 
   static const HA_ALTER_FLAGS ALTER_DROP_CHECK_CONSTRAINT= 1ULL << 40;
+
+  /**
+    Change in index length such that it doesn't require index rebuild.
+  */
+  static const HA_ALTER_FLAGS ALTER_COLUMN_INDEX_LENGTH= 1ULL << 41;
 
   /**
     Create options (like MAX_ROWS) for the new version of table.
