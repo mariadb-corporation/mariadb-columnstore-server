@@ -174,9 +174,8 @@ xb_fil_cur_open(
 			/* The following call prints an error message */
 			os_file_get_last_error(TRUE);
 
-			msg("[%02u] mariabackup: error: cannot open "
-			    "tablespace %s\n",
-			    thread_n, cursor->abs_path);
+			msg(thread_n, "mariabackup: error: cannot open "
+			    "tablespace %s", cursor->abs_path);
 
 			return(XB_FIL_CUR_SKIP);
 		}
@@ -217,8 +216,8 @@ xb_fil_cur_open(
 		cursor->statinfo.st_size = (ulonglong)max_file_size;
 	}
 	if (err) {
-		msg("[%02u] mariabackup: error: cannot fstat %s\n",
-		    thread_n, cursor->abs_path);
+		msg(thread_n, "mariabackup: error: cannot fstat %s",
+		    cursor->abs_path);
 
 		xb_fil_cur_close(cursor);
 
@@ -272,8 +271,9 @@ xb_fil_cur_open(
 	return(XB_FIL_CUR_SUCCESS);
 }
 
-static bool page_is_corrupted(byte *page, ulint page_no, xb_fil_cur_t *cursor,
-			      fil_space_t *space)
+static bool page_is_corrupted(const byte *page, ulint page_no,
+			      const xb_fil_cur_t *cursor,
+			      const fil_space_t *space)
 {
 	byte tmp_frame[UNIV_PAGE_SIZE_MAX];
 	byte tmp_page[UNIV_PAGE_SIZE_MAX];
@@ -301,8 +301,8 @@ static bool page_is_corrupted(byte *page, ulint page_no, xb_fil_cur_t *cursor,
 		from the start of each file.)
 
 		The first 38 and last 8 bytes are never encrypted. */
-		const ulint* p = reinterpret_cast<ulint*>(page);
-		const ulint* const end = reinterpret_cast<ulint*>(
+		const ulint* p = reinterpret_cast<const ulint*>(page);
+		const ulint* const end = reinterpret_cast<const ulint*>(
 			page + page_size);
 		do {
 			if (*p++) {
@@ -322,8 +322,9 @@ static bool page_is_corrupted(byte *page, ulint page_no, xb_fil_cur_t *cursor,
 	page_no first. */
 	if (page_no
 	    && mach_read_from_4(page + FIL_PAGE_FILE_FLUSH_LSN_OR_KEY_VERSION)
-	    && space->crypt_data
-	    && space->crypt_data->type != CRYPT_SCHEME_UNENCRYPTED) {
+	    && (opt_encrypted_backup
+		|| (space->crypt_data
+		    && space->crypt_data->type != CRYPT_SCHEME_UNENCRYPTED))) {
 
 		if (!fil_space_verify_crypt_checksum(page, cursor->page_size))
 			return true;
@@ -337,7 +338,10 @@ static bool page_is_corrupted(byte *page, ulint page_no, xb_fil_cur_t *cursor,
 		memcpy(tmp_page, page, page_size);
 
 		bool decrypted = false;
-		if (!fil_space_decrypt(space, tmp_frame, tmp_page, &decrypted)) {
+		if (!space->crypt_data
+		    || space->crypt_data->type == CRYPT_SCHEME_UNENCRYPTED
+		    || !fil_space_decrypt(space, tmp_frame, tmp_page,
+					  &decrypted)) {
 			return true;
 		}
 
@@ -406,14 +410,8 @@ xb_fil_cur_read(
 	    && offset + to_read == cursor->statinfo.st_size) {
 
 		if (to_read < (ib_int64_t) page_size) {
-			msg("[%02u] mariabackup: Warning: junk at the end of "
-			    "%s:\n", cursor->thread_n, cursor->abs_path);
-			msg("[%02u] mariabackup: Warning: offset = %llu, "
-			    "to_read = %llu\n",
-			    cursor->thread_n,
-			    (unsigned long long) offset,
-			    (unsigned long long) to_read);
-
+			msg(cursor->thread_n, "Warning: junk at the end of "
+			    "%s, offset = %llu, to_read = %llu",cursor->abs_path, (ulonglong) offset, (ulonglong) to_read);
 			return(XB_FIL_CUR_EOF);
 		}
 
@@ -457,19 +455,17 @@ read_retry:
 			retry_count--;
 
 			if (retry_count == 0) {
-				msg("[%02u] mariabackup: "
+				msg(cursor->thread_n,
 				    "Error: failed to read page after "
 				    "10 retries. File %s seems to be "
-				    "corrupted.\n", cursor->thread_n,
-				    cursor->abs_path);
+				    "corrupted.", cursor->abs_path);
 				ret = XB_FIL_CUR_ERROR;
+				buf_page_print(page, cursor->page_size);
 				break;
 			}
-			msg("[%02u] mariabackup: "
-			    "Database page corruption detected at page "
-			    ULINTPF ", retrying...\n", cursor->thread_n,
+			msg(cursor->thread_n, "Database page corruption detected at page "
+			    ULINTPF ", retrying...", 
 			    page_no);
-
 			os_thread_sleep(100000);
 			goto read_retry;
 		}
