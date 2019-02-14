@@ -88,7 +88,8 @@ These packages need to be install along with the group development packages:
 
 ```bash
 yum groupinstall "Development Tools"
-yum install bison ncurses-devel readline-devel perl-devel openssl-devel cmake libxml2-devel gperf libaio-devel libevent-devel python-devel ruby-devel tree wget pam-devel
+yum install epel-release
+yum install bison ncurses-devel readline-devel perl-devel openssl-devel cmake libxml2-devel gperf libaio-devel libevent-devel python-devel ruby-devel tree wget pam-devel jemalloc-devel
 ```
 
 ### For Ubuntu 16
@@ -96,14 +97,14 @@ yum install bison ncurses-devel readline-devel perl-devel openssl-devel cmake li
 These packages need to be installed along with the group development packages:
 
 ```bash
-apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev libkrb5-dev flex libpam-dev
+apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev libkrb5-dev flex libpam-dev libjemalloc-dev
 ```
 ### For Debian 8
 
 These packages need to be installed along with the group development packages:
 
 ```bash
-apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev libkrb5-dev flex libpam-dev libkrb5-dev
+apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl-dev libxml2-dev libkrb5-dev flex libpam-dev libkrb5-dev libjemalloc-dev
 ```
 
 ### For Debian 9
@@ -111,7 +112,7 @@ apt-get install build-essential automake libboost-all-dev bison cmake libncurses
 These packages need to be installed along with the group development packages:
 
 ```bash
-apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl1.0-dev libxml2-dev libkrb5-dev flex libpam-dev libkrb5-dev
+apt-get install build-essential automake libboost-all-dev bison cmake libncurses5-dev libreadline-dev libperl-dev libssl1.0-dev libxml2-dev libkrb5-dev flex libpam-dev libkrb5-dev libjemalloc-dev
 ```
 
 ### For SUSE 12
@@ -120,7 +121,9 @@ These packages need to be install along with the group development packages:
 
 ```bash
 zypper groupinstall "Development Tools"
-zypper install bison ncurses-devel readline-devel perl-devel openssl-devel cmake libxml2-devel gperf libaio-devel libevent-devel python-devel ruby-devel tree wget pam-devel
+zypper addrepo https://download.opensuse.org/repositories/network:cluster/SLE_12_SP3/network:cluster.repo
+zypper refresh
+zypper install bison ncurses-devel readline-devel perl-devel openssl-devel cmake libxml2-devel gperf libaio-devel libevent-devel python-devel ruby-devel tree wget pam-devel jemalloc-devel
 ```
 
 
@@ -246,7 +249,8 @@ yum install boost
 In addition these packages need to be install:
 
 ```bash
-yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio rsync snappy
+yum install epel-release
+yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio rsync snappy jemalloc
 ```
 
 ### For Ubuntu 16
@@ -254,7 +258,7 @@ yum install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio rs
 These packages need to be installed:
 
 ```bash
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1v5 libdbd-mysql-perl
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1v5 libdbd-mysql-perl libjemalloc1
 ```
 
 ### For Debian 8
@@ -262,7 +266,7 @@ apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libre
 These packages need to be installed:
 
 ```bash
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1v5
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1v5 libjemalloc1
 ```
 
 ### For Debian 9
@@ -270,7 +274,7 @@ apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libre
 These packages need to be installed:
 
 ```bash
-apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1v5 libreadline5 libjemalloc-dev libaio1
+apt-get install expect perl openssl file sudo libdbi-perl libboost-all-dev libreadline-dev rsync libsnappy1v5 libreadline5 libjemalloc-dev libaio1 libjemalloc1
 ```
 
 ### For SUSE 12
@@ -282,7 +286,9 @@ SUSEConnect -p sle-sdk/12.2/x86_64
 zypper install boost-devel
 
 ```bash
-zypper install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio rsync snappy
+zypper addrepo https://download.opensuse.org/repositories/network:cluster/SLE_12_SP3/network:cluster.repo
+zypper refresh
+zypper install expect perl perl-DBI openssl zlib file sudo perl-DBD-MySQL libaio rsync snappy jemalloc
 ```
 
 
