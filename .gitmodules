@@ -8,3 +8,7 @@
 	path = wsrep-lib
 	url = https://github.com/codership/wsrep-lib.git
 	branch = master
+[submodule "columnstore"]
+	path = columnstore
+	url = https://github.com/drrtuy/mariadb-columnstore-engine.git
+	branch = MCOL-2178
