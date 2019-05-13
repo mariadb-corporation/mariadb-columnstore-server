@@ -3094,7 +3094,10 @@ bool Window_funcs_computation::setup(THD *thd,
   if (tab->filesort && tab->filesort->select)
   {
     sel= tab->filesort->select;
-    DBUG_ASSERT(!sel->quick);
+    // @InfiniDB MCOL-3307 Add a check for INFINIDB_CREATE_VTABLE, otherwise
+    // the assert will hit during initiale attempt of Columnstore table
+    if (thd->infinidb_vtable.vtable_state != THD::INFINIDB_CREATE_VTABLE)
+        DBUG_ASSERT(!sel->quick);
   }
 
   Window_funcs_sort *srt;
