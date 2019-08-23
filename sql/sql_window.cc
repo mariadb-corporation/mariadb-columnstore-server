@@ -3082,7 +3082,8 @@ bool Window_funcs_computation::setup(THD *thd,
                                      List<Item_window_func> *window_funcs,
                                      JOIN_TAB *tab)
 {
-  order_window_funcs_by_window_specs(window_funcs);
+  if (thd->infinidb_vtable.vtable_state != THD::INFINIDB_CREATE_VTABLE)
+    order_window_funcs_by_window_specs(window_funcs);
 
   SQL_SELECT *sel= NULL;
   /*
