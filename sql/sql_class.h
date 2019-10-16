@@ -643,6 +643,7 @@ typedef struct system_variables
   my_bool infinidb_use_import_for_batchinsert;
   ulong infinidb_import_for_batchinsert_delimiter;
   ulong infinidb_import_for_batchinsert_enclosed_by;
+  ulong infinidb_orderby_threads;
 /* InfiniDB */
 
   /* Total size of all buffers used by the subselect_rowid_merge_engine. */

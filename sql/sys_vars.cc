@@ -604,6 +604,13 @@ static Sys_var_ulong    sys_infinidb_import_for_batchinsert_enclosed_by(
 	   SESSION_VAR(infinidb_import_for_batchinsert_enclosed_by),
 	   CMD_LINE(OPT_ARG),
 	   VALID_RANGE(17, 127), DEFAULT(17), BLOCK_SIZE(1));
+static Sys_var_ulong sys_infinidb_orderby_threads(
+       "infinidb_orderby_threads",
+	   "Number of parallel threads used by ORDER BY. (default to 4)",
+	   SESSION_VAR(infinidb_orderby_threads),
+	   CMD_LINE(OPT_ARG),
+	   VALID_RANGE(1, 1024), DEFAULT(4), BLOCK_SIZE(1));
+
 /* InfiniDB */
 
 /*
